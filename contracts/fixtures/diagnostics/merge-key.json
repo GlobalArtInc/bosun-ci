@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "unsupported_yaml",
+  "message": "merge keys (`<<`) are not supported",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 8,
+    "column": 7,
+    "end_line": 8,
+    "end_column": 9
+  },
+  "path": [
+    "jobs",
+    "build",
+    "env",
+    "<<"
+  ]
+}

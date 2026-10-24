@@ -86,6 +86,9 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: WebAssembly build of the pure crates
+        run: cargo build -p bosun-types -p bosun-workflow --target wasm32-unknown-unknown
+
       - name: Dependency rules
         run: hack/check-deps.sh
 

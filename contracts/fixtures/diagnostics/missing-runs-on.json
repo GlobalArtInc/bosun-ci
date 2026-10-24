@@ -1,0 +1,16 @@
+{
+  "severity": "error",
+  "code": "missing_key",
+  "message": "missing key `runs-on` in job `build`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 3,
+    "column": 3,
+    "end_line": 3,
+    "end_column": 8
+  },
+  "path": [
+    "jobs",
+    "build"
+  ]
+}

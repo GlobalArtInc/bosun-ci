@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "unknown_job",
+  "message": "job `test` needs `biuld`, which does not exist; did you mean `build`?",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 8,
+    "column": 12,
+    "end_line": 8,
+    "end_column": 17
+  },
+  "path": [
+    "jobs",
+    "test",
+    "needs"
+  ]
+}

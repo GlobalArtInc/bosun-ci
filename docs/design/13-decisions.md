@@ -32,6 +32,7 @@ the owner has not overruled it.
 | 17 | Three binaries: server, agent, CLI ([01-overview.md](01-overview.md)) | one binary with subcommands | proposed |
 | 18 | UUIDv7 identifiers ([07-storage.md](07-storage.md)) | ULID as in Keel | proposed |
 | 19 | Pull requests from forks do not run by default ([08-access.md](08-access.md)) | approval by default | proposed |
+| 20 | Workflow YAML is read with `saphyr-parser` into a tree of Bosun's own ([02-workflows.md](02-workflows.md)) | `serde_yaml`; `yaml-rust2`; `marked-yaml` | proposed |
 
 ### Notes
 
@@ -79,6 +80,15 @@ The block blob subset is three requests.
 **14. React.** The editor depends on a mature graph library and a code editor with schema
 completion; both are first-class in React. Astrum's interface is React and Vite already, so the
 team has the tooling.
+
+**20. saphyr-parser.** The parser had two criteria: a span on every node, and the core schema of
+YAML 1.2, under which `on` is a string. `saphyr-parser` reports the start and the end of every
+event and leaves the schema to its caller, so Bosun resolves plain scalars itself and keeps exactly
+the tree its diagnostics need. It is pure Rust without `std`, so the WebAssembly build needs
+nothing more. `serde_yaml` is deprecated and knows no spans, `yaml-rust2` marks only where an
+event starts, and `marked-yaml` turns every scalar into a string and refuses aliases. Two of its
+spans are corrected on top of it: the end of a quoted scalar includes the blanks and the comment
+after it, and the end of a block scalar its trailing blank lines.
 
 ## Risks
 

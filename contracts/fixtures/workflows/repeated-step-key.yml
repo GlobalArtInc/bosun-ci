@@ -1,0 +1,16 @@
+name: ci
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - id: compile
+        name: Compile
+        shell: bash
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          cargo build --workspace
+        working-directory: crates
+      - id: compile
+        run: cargo test

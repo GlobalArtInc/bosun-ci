@@ -41,6 +41,17 @@ syntax expects. Every node keeps its source span. Anchors and aliases are resolv
 the span of the exact node at fault and because unknown keys must be reported rather than
 ignored.
 
+The YAML library is `saphyr-parser`, which reports where every node starts and ends; the tree with
+spans on top of it is Bosun's own (decision 20 in [13-decisions.md](13-decisions.md)). Plain scalars
+resolve by the core schema: `null`, `Null`, `NULL`, `~` and an empty value are null; `true`,
+`True`, `TRUE`, `false`, `False` and `FALSE` are booleans; decimal integers, `0o` octal and `0x`
+hexadecimal integers, decimals with an optional exponent, `.inf` and `.nan` are numbers; every
+other plain scalar and every quoted or block scalar is a string. Where a key expects a string, a
+boolean or a number is converted the way templates convert values
+([03-expressions.md](03-expressions.md)), so `VERSION: 3.10` is `3.1` and `COUNT: 0x10` is `16`, as
+in the target; null, a list or a mapping there is an error. A file holds exactly one document, tags
+such as `!!str` are rejected, and a byte order mark at the start is skipped.
+
 Unknown keys are errors, as they are for the target syntax. A diagnostic has this shape:
 
 ```json
@@ -54,6 +65,13 @@ Unknown keys are errors, as they are for the target syntax. A diagnostic has thi
 }
 ```
 
+A span counts lines and columns from 1, columns in Unicode characters, and its end is exclusive.
+`path` leads from the root to the node at fault, with mapping keys as strings and list positions as
+numbers from 0. The span of a key that is unknown, repeated or not supported yet covers the key; a
+missing key is reported at the key whose mapping lacks it, or at the whole mapping when no key owns
+it, such as a step; a fault in the YAML itself has an empty path; every other span covers the value
+at fault.
+
 Severities are `error`, which prevents a run, and `warning`, which is shown in the editor, in
 `bosun workflow lint` and on the run page. A workflow file with errors produces a run that ends at once with
 conclusion `startup_failure` when a trigger matches it, so a broken file is visible instead of
@@ -63,6 +81,9 @@ itself cannot be parsed, the file produces such a run for every push that change
 Default limits, configurable per installation: 1 MiB of source per file, 256 job templates per
 workflow, 256 jobs per matrix, 10 levels of nested reusable workflows, 50 distinct reusable
 workflows per run, 10 levels of nested composite actions.
+
+Two limits protect the parser itself and are fixed: collections nest at most 64 levels deep, and
+expanding aliases adds at most 100 000 nodes to a file.
 
 ## The compatibility surface
 
@@ -136,6 +157,32 @@ shells `bash`, `sh`, `pwsh`, `python` and custom templates with `{0}` are specif
   from step outputs.
 - `using: docker` with `image` as a Dockerfile path or `docker://`, `args`, `env`, `entrypoint`,
   `pre-entrypoint`, `post-entrypoint`.
+
+### Where each key arrives
+
+The surface is implemented milestone by milestone ([../plan.md](../plan.md)). Until its milestone,
+a key of the surface is known to the parser and refused with `not_implemented`, whose message names
+the milestone, rather than reported as unknown. Values are literals until M1, which brings
+expressions. A step's `uses` arrives in M1 for `owner/repo@ref` and `owner/repo/path@ref`, and in M2
+for `./path` and `docker://`. The extension keys arrive in the milestone of the From column of
+their table below.
+
+| Where | Keys | From |
+|-------|------|------|
+| workflow | `name`, `on`, `env`, `jobs` | M0 |
+| workflow | `run-name`, `permissions`, `defaults`, `concurrency` | M1 |
+| workflow | `cache-mode` | M2 |
+| `on` | `workflow_dispatch` | M0 |
+| `on` | `push`, `pull_request`, `pull_request_target`, `schedule`, `merge_group`, `repository_dispatch` | M1 |
+| `on` | `branch_protection_rule`, `check_run`, `check_suite`, `create`, `delete`, `deployment`, `deployment_status`, `discussion`, `discussion_comment`, `fork`, `gollum`, `issue_comment`, `issues`, `label`, `milestone`, `page_build`, `project`, `project_card`, `project_column`, `public`, `pull_request_review`, `pull_request_review_comment`, `registry_package`, `release`, `status`, `watch` | M1 |
+| `on` | `workflow_call`, `workflow_run` | M2 |
+| `workflow_dispatch` | `inputs` | M1 |
+| job | `name`, `needs`, `runs-on`, `env`, `steps` | M0 |
+| job | `if`, `permissions`, `concurrency`, `outputs`, `defaults`, `timeout-minutes`, `continue-on-error`, `strategy` | M1 |
+| job | `container`, `services`, `cache-mode`, `uses`, `with`, `secrets` | M2 |
+| job | `environment` | M3 |
+| step | `id`, `name`, `run`, `shell`, `working-directory`, `env` | M0 |
+| step | `if`, `uses`, `with`, `continue-on-error`, `timeout-minutes` | M1 |
 
 ### Where Bosun differs
 
@@ -359,3 +406,24 @@ Warnings:
   code with secrets.
 
 `bosun workflow lint`, the editor and the server run the same validation from `bosun-workflow`.
+
+### Diagnostic codes
+
+Every diagnostic carries one of these codes, and every code is pinned by a case in
+`contracts/fixtures/workflows/`:
+
+| Code | Meaning |
+|------|---------|
+| `yaml_syntax` | the source is not well-formed YAML |
+| `unsupported_yaml` | a merge key, a tag, or more than one document |
+| `limit_exceeded` | a limit of the parser or of the installation is exceeded |
+| `duplicate_key` | a key appears twice in one mapping, or an event twice in the list form of `on` |
+| `invalid_type` | a value of the wrong type, such as a mapping where a string or a list is expected |
+| `invalid_value` | a value of the right type that the key does not accept, such as an empty `steps` or a custom shell without `{0}` |
+| `missing_key` | a required key is absent; not reported for a mapping in which another key is already at fault |
+| `unknown_key` | a key or an event that is neither in the compatibility surface nor an extension; the message suggests the closest known one |
+| `not_implemented` | a key, an event or a form of the compatibility surface that a later milestone implements; the message names the milestone |
+| `invalid_job_key`, `invalid_step_key` | a job id or a step id that does not match `^[A-Za-z_][A-Za-z0-9_-]*$` |
+| `repeated_step_key` | two steps of one job with the same id |
+| `unknown_job` | `needs` names a job that does not exist |
+| `needs_cycle` | `needs` forms a cycle |

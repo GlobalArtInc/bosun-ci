@@ -1,0 +1,33 @@
+name: ci
+
+on: workflow_dispatch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - id: compile
+        name: Compile
+        shell: bash
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          cargo build --workspace
+      - working-directory: crates
+        run: |
+          ls target
+
+  test:
+    needs: build
+    runs-on:
+      group: default
+      labels: shell
+    steps:
+      - id: unit
+        shell: perl {0}
+        run: |
+          perl -e 'exit 0'

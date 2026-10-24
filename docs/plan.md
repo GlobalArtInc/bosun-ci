@@ -23,8 +23,8 @@ Scope:
 - The workspace, CI on the self-hosted runners, the dependency rules of
   [design/01-overview.md](design/01-overview.md).
 - `bosun-types`, and `bosun-workflow` for a subset without expressions: `name`,
-  `on: workflow_dispatch` without inputs, literal `env`, jobs with `runs-on`, `needs`, `env` and
-  `steps`, steps with `id`, `name`, `run`, `shell`, `working-directory`, `env`.
+  `on: workflow_dispatch` without inputs, literal `env`, jobs with `name`, `runs-on`, `needs`, `env`
+  and `steps`, steps with `id`, `name`, `run`, `shell`, `working-directory`, `env`.
 - `bosun-db` with the tables M0 needs, `bosun-testkit`, `bosun-blob` with the directory backend.
 - `bosun-server`: configuration, `serve` and `migrate`, health, the error envelope, personal tokens
   and the bootstrap owner, repository-less projects, server-side workflows, dispatch, the planner
@@ -94,8 +94,8 @@ Scope:
 - `bosun-services`: the artifact service and both cache protocols with the block blob upload
   endpoint, and `cache-mode`; `bosun exec` on top of it.
 - Reusable workflows, local and from other repositories.
-- `priority`, fair share and project caps; `on.upstream`; the action policy; `run.rerun`,
-  `run.rerun-failed` and `job.rerun`, also when requested from the forge.
+- `priority`, fair share and project caps; `on.upstream` and `workflow_run`; the action policy;
+  `run.rerun`, `run.rerun-failed` and `job.rerun`, also when requested from the forge.
 - A load test of log ingestion and dispatch with many agents, its numbers recorded in
   `docs/`.
 

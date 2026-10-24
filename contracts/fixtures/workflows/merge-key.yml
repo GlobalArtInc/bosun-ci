@@ -1,0 +1,11 @@
+on: workflow_dispatch
+env: &base
+  LANG: C
+jobs:
+  build:
+    runs-on: shell
+    env:
+      <<: *base
+      LC_ALL: C
+    steps:
+      - run: locale

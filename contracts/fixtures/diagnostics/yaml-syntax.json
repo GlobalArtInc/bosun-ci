@@ -1,0 +1,13 @@
+{
+  "severity": "error",
+  "code": "yaml_syntax",
+  "message": "invalid YAML: illegal placement of ':' indicator",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 5,
+    "column": 10,
+    "end_line": 5,
+    "end_column": 10
+  },
+  "path": []
+}

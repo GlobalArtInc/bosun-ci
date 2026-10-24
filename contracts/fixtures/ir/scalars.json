@@ -1,0 +1,153 @@
+{
+  "name": null,
+  "triggers": [
+    {
+      "workflow_dispatch": {}
+    }
+  ],
+  "env": {
+    "ANSWER": [
+      {
+        "text": "yes"
+      }
+    ],
+    "COUNT": [
+      {
+        "text": "1"
+      }
+    ],
+    "EXPONENT": [
+      {
+        "text": "1000"
+      }
+    ],
+    "HEXADECIMAL": [
+      {
+        "text": "31"
+      }
+    ],
+    "INFINITE": [
+      {
+        "text": "Infinity"
+      }
+    ],
+    "LARGE": [
+      {
+        "text": "1E+15"
+      }
+    ],
+    "LEADING_ZERO": [
+      {
+        "text": "10"
+      }
+    ],
+    "NEGATION": [
+      {
+        "text": "off"
+      }
+    ],
+    "NEGATIVE": [
+      {
+        "text": "-2.5"
+      }
+    ],
+    "NOT_A_NUMBER": [
+      {
+        "text": "NaN"
+      }
+    ],
+    "OCTAL": [
+      {
+        "text": "15"
+      }
+    ],
+    "PRECISE": [
+      {
+        "text": "0.3"
+      }
+    ],
+    "QUOTED": [
+      {
+        "text": "3.10"
+      }
+    ],
+    "SMALL": [
+      {
+        "text": "1E-05"
+      }
+    ],
+    "SWITCH": [
+      {
+        "text": "on"
+      }
+    ],
+    "TILDE": [
+      {
+        "text": "~"
+      }
+    ],
+    "TITLE_CASE": [
+      {
+        "text": "true"
+      }
+    ],
+    "UPPER_CASE": [
+      {
+        "text": "false"
+      }
+    ],
+    "VERSION": [
+      {
+        "text": "3.1"
+      }
+    ]
+  },
+  "jobs": [
+    {
+      "key": "check",
+      "name": null,
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "shell"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "env"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 28,
+              "column": 9,
+              "end_line": 28,
+              "end_column": 17
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 25,
+        "column": 3,
+        "end_line": 28,
+        "end_column": 17
+      }
+    }
+  ]
+}

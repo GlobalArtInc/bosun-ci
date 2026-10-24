@@ -1,0 +1,2 @@
+{ "on": [workflow_dispatch], jobs: { lint: { runs-on: { labels: [shell] },
+  steps: [ { run: "cargo fmt --check", env: { CARGO_TERM_COLOR: never } } ] } } }

@@ -1,0 +1,16 @@
+{
+  "severity": "error",
+  "code": "invalid_job_key",
+  "message": "`2nd` is not a valid job key: it must start with a letter or `_` and contain only letters, digits, `_` and `-`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 3,
+    "column": 3,
+    "end_line": 3,
+    "end_column": 6
+  },
+  "path": [
+    "jobs",
+    "2nd"
+  ]
+}

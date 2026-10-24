@@ -1,0 +1,20 @@
+on:
+  workflow_dispatch:
+
+env: &shared
+  LANG: C.UTF-8
+
+jobs:
+  first:
+    runs-on: &runner [self-hosted, Linux]
+    env: *shared
+    steps:
+      - &hello
+        name: Hello
+        run: echo hello
+  second:
+    needs: [first]
+    runs-on: *runner
+    steps:
+      - *hello
+      - run: echo bye

@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "needs_cycle",
+  "message": "`needs` forms a cycle: `build` -> `test` -> `build`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 9,
+    "column": 13,
+    "end_line": 9,
+    "end_column": 18
+  },
+  "path": [
+    "jobs",
+    "test",
+    "needs",
+    0
+  ]
+}

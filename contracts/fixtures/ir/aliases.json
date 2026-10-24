@@ -1,0 +1,149 @@
+{
+  "name": null,
+  "triggers": [
+    {
+      "workflow_dispatch": {}
+    }
+  ],
+  "env": {
+    "LANG": [
+      {
+        "text": "C.UTF-8"
+      }
+    ]
+  },
+  "jobs": [
+    {
+      "key": "first",
+      "name": null,
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "self-hosted",
+            "Linux"
+          ]
+        }
+      },
+      "env": {
+        "LANG": [
+          {
+            "text": "C.UTF-8"
+          }
+        ]
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": [
+              {
+                "text": "Hello"
+              }
+            ],
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo hello"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 13,
+              "column": 9,
+              "end_line": 14,
+              "end_column": 24
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 8,
+        "column": 3,
+        "end_line": 14,
+        "end_column": 24
+      }
+    },
+    {
+      "key": "second",
+      "name": null,
+      "needs": [
+        "first"
+      ],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "self-hosted",
+            "Linux"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": [
+              {
+                "text": "Hello"
+              }
+            ],
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo hello"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 19,
+              "column": 9,
+              "end_line": 19,
+              "end_column": 15
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo bye"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 20,
+              "column": 9,
+              "end_line": 20,
+              "end_column": 22
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 15,
+        "column": 3,
+        "end_line": 20,
+        "end_column": 22
+      }
+    }
+  ]
+}

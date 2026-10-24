@@ -1,0 +1,28 @@
+on: workflow_dispatch
+
+env:
+  ANSWER: yes
+  SWITCH: on
+  NEGATION: off
+  TITLE_CASE: True
+  UPPER_CASE: FALSE
+  COUNT: 1
+  LEADING_ZERO: 010
+  OCTAL: 0o17
+  HEXADECIMAL: 0x1F
+  VERSION: 3.10
+  EXPONENT: 1e3
+  LARGE: 1e15
+  SMALL: 0.00001
+  PRECISE: 0.30000000000000004
+  NEGATIVE: -2.5
+  INFINITE: .inf
+  NOT_A_NUMBER: .nan
+  QUOTED: "3.10"
+  TILDE: "~"
+
+jobs:
+  check:
+    runs-on: shell
+    steps:
+      - run: env

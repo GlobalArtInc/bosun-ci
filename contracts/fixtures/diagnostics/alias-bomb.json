@@ -1,0 +1,13 @@
+{
+  "severity": "error",
+  "code": "limit_exceeded",
+  "message": "aliases expand to more than 100000 nodes",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 11,
+    "column": 81,
+    "end_line": 11,
+    "end_column": 88
+  },
+  "path": []
+}

@@ -1,0 +1,63 @@
+{
+  "name": null,
+  "triggers": [
+    {
+      "workflow_dispatch": {}
+    }
+  ],
+  "env": {},
+  "jobs": [
+    {
+      "key": "lint",
+      "name": null,
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "shell"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo fmt --check"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {
+              "CARGO_TERM_COLOR": [
+                {
+                  "text": "never"
+                }
+              ]
+            },
+            "span": {
+              "line": 2,
+              "column": 12,
+              "end_line": 2,
+              "end_column": 75
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 1,
+        "column": 38,
+        "end_line": 2,
+        "end_column": 79
+      }
+    }
+  ]
+}

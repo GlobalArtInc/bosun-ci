@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_type",
+  "message": "`needs` of job `test` must be a string or a list of strings",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 8,
+    "column": 12,
+    "end_line": 8,
+    "end_column": 26
+  },
+  "path": [
+    "jobs",
+    "test",
+    "needs"
+  ]
+}
