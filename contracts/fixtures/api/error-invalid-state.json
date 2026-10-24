@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "invalid_state",
+    "message": "job `deploy` is completed; `job.pause` needs a job that is not completed",
+    "fields": [],
+    "diagnostics": []
+  }
+}

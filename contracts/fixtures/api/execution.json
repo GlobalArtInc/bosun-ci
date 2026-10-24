@@ -1,0 +1,11 @@
+{
+  "id": "0192f3a4-5b6c-7d8e-9f01-00000000000b",
+  "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+  "number": 1,
+  "agent_id": "0192f3a4-5b6c-7d8e-9f01-00000000000e",
+  "status": "completed",
+  "conclusion": "failure",
+  "reason": "agent_lost",
+  "started_at": "2026-10-24T18:34:51Z",
+  "completed_at": "2026-10-24T18:35:07.512Z"
+}

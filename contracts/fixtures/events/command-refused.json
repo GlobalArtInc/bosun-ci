@@ -1,0 +1,28 @@
+{
+  "seq": 11,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "attempt_id": null,
+  "job_id": null,
+  "execution_id": null,
+  "step_id": null,
+  "actor": {
+    "kind": "user",
+    "id": "0192f3a4-5b6c-7d8e-9f01-000000000003",
+    "login": "roman"
+  },
+  "at": "2026-10-24T18:35:07.512Z",
+  "kind": "command.refused",
+  "data": {
+    "command": {
+      "type": "run.cancel",
+      "target": {
+        "attempt": null,
+        "job": null,
+        "step": null
+      },
+      "reason": "superseded by a newer commit"
+    },
+    "code": "invalid_state",
+    "message": "the run is completed; `run.cancel` needs a run that is not completed"
+  }
+}

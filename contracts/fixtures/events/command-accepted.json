@@ -1,0 +1,26 @@
+{
+  "seq": 10,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "attempt_id": "0192f3a4-5b6c-7d8e-9f01-000000000008",
+  "job_id": "0192f3a4-5b6c-7d8e-9f01-00000000000a",
+  "execution_id": null,
+  "step_id": null,
+  "actor": {
+    "kind": "user",
+    "id": "0192f3a4-5b6c-7d8e-9f01-000000000003",
+    "login": "roman"
+  },
+  "at": "2026-10-24T18:35:07.512Z",
+  "kind": "command.accepted",
+  "data": {
+    "command": {
+      "type": "job.cancel",
+      "target": {
+        "attempt": 1,
+        "job": "0192f3a4-5b6c-7d8e-9f01-00000000000a",
+        "step": null
+      },
+      "reason": null
+    }
+  }
+}

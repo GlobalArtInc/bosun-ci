@@ -17,17 +17,26 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   key and body returns the first response.
 - Updates of documents that people edit concurrently (drafts, settings, environments) require
   `If-Match` with the version from `ETag`, and fail with `412` when it moved.
-- Errors share one shape, with a stable `code` and, for invalid input, the fields at fault:
+- Errors share one shape, with a stable `code`, the fields at fault for invalid input, and the
+  diagnostics ([02-workflows.md](02-workflows.md)) when the input was a workflow. Both lists are
+  always present, empty when they do not apply:
 
 ```json
 {
   "error": {
     "code": "invalid_state",
     "message": "job `deploy` is completed; `job.pause` needs a job that is not completed",
-    "fields": []
+    "fields": [],
+    "diagnostics": []
   }
 }
 ```
+
+  An entry of `fields` is `{ "field": "inputs.env", "message": "…" }`, where `field` is the dotted
+  path of the field in the request body.
+
+- Optional fields of responses are present with `null` rather than left out, so a client sees the
+  whole shape of a resource in every response.
 
 | Code | Status |
 |------|--------|

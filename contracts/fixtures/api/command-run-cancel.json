@@ -1,0 +1,9 @@
+{
+  "type": "run.cancel",
+  "target": {
+    "attempt": null,
+    "job": null,
+    "step": null
+  },
+  "reason": "superseded by a newer commit"
+}

@@ -11,3 +11,8 @@ repository = "https://github.com/GlobalArtInc/bosun"
 
 [workspace.dependencies]
 bosun-types = { path = "crates/types" }
+
+chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", default-features = false, features = ["std", "serde"] }

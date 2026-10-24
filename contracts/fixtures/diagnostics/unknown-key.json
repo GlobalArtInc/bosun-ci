@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "unknown_key",
+  "message": "unknown key `runs_on` in job `build`; did you mean `runs-on`?",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 5,
+    "end_line": 7,
+    "end_column": 12
+  },
+  "path": [
+    "jobs",
+    "build",
+    "runs_on"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "seq": 8,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "attempt_id": "0192f3a4-5b6c-7d8e-9f01-000000000008",
+  "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+  "execution_id": "0192f3a4-5b6c-7d8e-9f01-00000000000b",
+  "step_id": null,
+  "actor": {
+    "kind": "system"
+  },
+  "at": "2026-10-24T18:35:07.512Z",
+  "kind": "execution.status",
+  "data": {
+    "from": "in_progress",
+    "to": "completed",
+    "conclusion": "failure",
+    "reason": "agent_lost"
+  }
+}

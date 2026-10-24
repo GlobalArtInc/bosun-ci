@@ -310,24 +310,30 @@ YAML.
 ```
 Workflow   { name, run_name: Template?, triggers: [Trigger], permissions, env: Map<Template>,
              defaults, concurrency: Concurrency?, cache_mode, priority, notify: [Route],
-             jobs: Map<JobKey, JobTemplate> }
+             jobs: [JobTemplate] }
 JobTemplate{ key, name: Template?, needs: [JobKey], if: Expr?, kind: Steps | Call | Gate,
              runs_on: Evaluable<RunsOn>, environment: Evaluable<Environment>?,
              concurrency, strategy: Evaluable<Strategy>?, container, services, env, defaults,
              timeout_minutes: Evaluable<u32>, continue_on_error: Evaluable<bool>,
              outputs: Map<Template>, cache_mode, retry, hold_on_failure, cache_volumes, priority,
              span }
-Step       { id: StepId?, name: Template?, if: Expr?, action: Run | Uses, shell, working_directory,
+Step       { key: StepKey?, name: Template?, if: Expr?, action: Run | Uses, shell, working_directory,
              with: Map<Template>, env: Map<Template>, continue_on_error: Evaluable<bool>,
              timeout_minutes: Evaluable<u32>?, retry, pause, span }
 ```
 
-`Template` is a string with embedded expressions, already parsed; `Expr` is a bare expression as
-in `if`; `Evaluable<T>` is a literal value or a template that must evaluate to `T`. Every node keeps
-its source span, so an error found at run time points at the line that caused it.
+`JobKey` and `StepKey` are the ids a workflow gives its jobs and steps (`jobs.<key>`,
+`steps.<key>`); the identifiers of the database rows are a separate kind. Jobs and steps keep the
+order of the source. `Template` is a string with embedded expressions, already parsed; `Expr` is a
+bare expression as in `if`; `Evaluable<T>` is a literal value or a template that must evaluate to
+`T`. The expression syntax tree is plain data in `bosun-types`, so that the IR can hold it; parsing
+and evaluating it is the business of `bosun-expr`. Every node keeps its source span, so an error
+found at run time points at the line that caused it.
 
 The IR is serialised as JSON for storage in the run snapshot and for the job assignment sent to an
-agent. Its shape is pinned by golden fixtures in `contracts/fixtures/ir/`.
+agent. Its shape is pinned by golden fixtures in `contracts/fixtures/ir/`. Deserialising the IR
+refuses unknown fields: an agent that does not know a field must refuse the job rather than run it
+as if the field were absent.
 
 ## Validation
 

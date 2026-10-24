@@ -1,0 +1,21 @@
+{
+  "seq": 42,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-23456789abcd",
+  "attempt_id": "0192f3a4-5b6c-7d8e-9f01-23456789abce",
+  "job_id": "0192f3a4-5b6c-7d8e-9f01-23456789abcf",
+  "execution_id": null,
+  "step_id": null,
+  "actor": {
+    "kind": "system"
+  },
+  "at": "2026-10-24T18:34:50.078Z",
+  "kind": "job.status",
+  "data": {
+    "from": "queued",
+    "to": "completed",
+    "waiting_reason": null,
+    "conclusion": "cancelled",
+    "conclusion_source": "natural",
+    "reason": "no_agent"
+  }
+}

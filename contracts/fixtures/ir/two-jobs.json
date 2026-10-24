@@ -1,0 +1,155 @@
+{
+  "name": "ci",
+  "triggers": [
+    {
+      "workflow_dispatch": {}
+    }
+  ],
+  "env": {
+    "CARGO_TERM_COLOR": [
+      {
+        "text": "always"
+      }
+    ]
+  },
+  "jobs": [
+    {
+      "key": "build",
+      "name": [
+        {
+          "text": "Build"
+        }
+      ],
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "self-hosted",
+            "Linux",
+            "X64"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": "compile",
+            "name": [
+              {
+                "text": "Compile"
+              }
+            ],
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo build --workspace\n"
+                  }
+                ]
+              }
+            },
+            "shell": "bash",
+            "working_directory": null,
+            "env": {
+              "RUSTFLAGS": [
+                {
+                  "text": "-D warnings"
+                }
+              ]
+            },
+            "span": {
+              "line": 12,
+              "column": 9,
+              "end_line": 14,
+              "end_column": 1
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "ls target\n"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": [
+              {
+                "text": "crates"
+              }
+            ],
+            "env": {},
+            "span": {
+              "line": 15,
+              "column": 9,
+              "end_line": 16,
+              "end_column": 1
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 7,
+        "column": 3,
+        "end_line": 16,
+        "end_column": 1
+      }
+    },
+    {
+      "key": "test",
+      "name": null,
+      "needs": [
+        "build"
+      ],
+      "runs_on": {
+        "literal": {
+          "group": "default",
+          "labels": [
+            "shell"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": "unit",
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "perl -e 'exit 0'\n"
+                  }
+                ]
+              }
+            },
+            "shell": {
+              "custom": "perl {0}"
+            },
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 21,
+              "column": 9,
+              "end_line": 22,
+              "end_column": 1
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 17,
+        "column": 3,
+        "end_line": 22,
+        "end_column": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "seq": 6,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "attempt_id": "0192f3a4-5b6c-7d8e-9f01-000000000008",
+  "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+  "execution_id": "0192f3a4-5b6c-7d8e-9f01-00000000000b",
+  "step_id": "0192f3a4-5b6c-7d8e-9f01-00000000000c",
+  "actor": {
+    "kind": "agent",
+    "id": "0192f3a4-5b6c-7d8e-9f01-00000000000e",
+    "name": "runner1-1"
+  },
+  "at": "2026-10-24T18:34:51Z",
+  "kind": "step.created",
+  "data": {
+    "index": 0,
+    "name": "Compile"
+  }
+}

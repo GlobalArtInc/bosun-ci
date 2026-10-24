@@ -1,0 +1,19 @@
+{
+  "severity": "warning",
+  "code": "repeated_step_key",
+  "message": "step key `compile` is used twice in job `build`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 15,
+    "column": 13,
+    "end_line": 15,
+    "end_column": 20
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    1,
+    "id"
+  ]
+}

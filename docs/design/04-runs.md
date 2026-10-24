@@ -70,6 +70,7 @@ The transitions of a job, exhaustively:
 | `queued` | `completed` | cancellation, `no_agent`, `job.skip`, `job.mark-success` |
 | `assigned` | `queued` | the lease expired or the agent rejected the job |
 | `assigned` | `in_progress` | the agent started the job |
+| `assigned` | `completed` | cancellation, the agent removed |
 | `in_progress` | `paused` | a pause request or a breakpoint at a step boundary |
 | `paused` | `in_progress` | `job.resume`, `run.resume` |
 | `in_progress` | `held` | a failing step under hold-on-failure |
@@ -77,7 +78,44 @@ The transitions of a job, exhaustively:
 | `in_progress` | `queued` | job-level `retry`, which starts a new execution |
 | `in_progress`, `paused`, `held` | `completed` | the job ends, cancellation, timeout, `hold.release`, `job.mark-success` from `held`, lost agent |
 
-`bosun-types` holds this table as code and refuses every other transition.
+The status of a run is derived from its jobs, so its transitions follow from the definitions in the
+state table. The transitions of a run, exhaustively:
+
+| From | To | Cause |
+|------|----|-------|
+| `queued` | `in_progress` | a job started |
+| `queued` | `waiting` | every job that is not complete waits |
+| `queued`, `in_progress`, `waiting` | `paused` | `run.pause` |
+| `queued`, `in_progress`, `waiting`, `paused` | `completed` | every job is complete, `startup_failure`, cancellation |
+| `in_progress` | `waiting` | every job that is not complete waits |
+| `waiting` | `queued` | a job left `waiting` and no job has started yet |
+| `waiting` | `in_progress` | a job left `waiting` after another job had started |
+| `paused` | `queued`, `in_progress`, `waiting` | `run.resume`, to whatever the jobs imply |
+
+The transitions of an execution, exhaustively:
+
+| From | To | Cause |
+|------|----|-------|
+| `assigned` | `in_progress` | the agent started the job |
+| `assigned` | `completed` | the lease expired, the agent rejected the job, cancellation, the agent removed |
+| `in_progress` | `paused` | a pause request or a breakpoint at a step boundary |
+| `in_progress` | `held` | a failing step under hold-on-failure |
+| `paused`, `held` | `in_progress` | `job.resume`, `run.resume`, `hold.retry-step`, `hold.continue` |
+| `in_progress`, `paused`, `held` | `completed` | the job ends, cancellation, timeout, `hold.release`, lost agent |
+
+The transitions of a step, exhaustively:
+
+| From | To | Cause |
+|------|----|-------|
+| `pending` | `in_progress` | the agent starts the step |
+| `pending` | `paused` | a breakpoint before the step |
+| `pending`, `paused` | `completed` | `if` false, `step.skip`, the job ends before the step |
+| `paused` | `in_progress` | `job.resume`, `run.resume` |
+| `in_progress` | `completed` | the step ends, `step.abort`, cancellation |
+| `completed` | `in_progress` | `hold.retry-step`, and nothing else |
+
+`bosun-types` holds these four tables as code and refuses every other transition; a test reads the
+tables from this document and compares them with the code.
 
 ## Planning
 
@@ -151,6 +189,61 @@ concerns where applicable, the kind, the actor (`user`, `token`, `agent`, `plugi
 with its identity), a JSON payload, and the time. The status columns of runs, jobs and steps are a
 projection of the journal, written in the same transaction as the event, so reading a status never
 requires replaying events and the journal never disagrees with it.
+
+An event has this shape, the same in the database, in the API and in the event stream:
+
+```json
+{
+  "seq": 42,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-23456789abcd",
+  "attempt_id": "0192f3a4-5b6c-7d8e-9f01-23456789abce",
+  "job_id": "0192f3a4-5b6c-7d8e-9f01-23456789abcf",
+  "execution_id": null,
+  "step_id": null,
+  "actor": { "kind": "system" },
+  "at": "2026-10-24T18:34:50.078Z",
+  "kind": "job.status",
+  "data": {
+    "from": "queued",
+    "to": "completed",
+    "waiting_reason": null,
+    "conclusion": "cancelled",
+    "conclusion_source": "natural",
+    "reason": "no_agent"
+  }
+}
+```
+
+The kinds of M0:
+
+| Kind | Data |
+|------|------|
+| `run.created` | workflow, revision, run number, global number, event name |
+| `attempt.created` | attempt number |
+| `job.created` | job key, display name, `needs` |
+| `execution.created` | execution number, agent |
+| `step.created` | step index, display name |
+| `run.status` | `from`, `to`, `conclusion` |
+| `job.status` | `from`, `to`, `waiting_reason`, `conclusion`, `conclusion_source`, `reason` |
+| `execution.status` | `from`, `to`, `conclusion`, `reason` |
+| `step.status` | `from`, `to`, `outcome`, `conclusion`, `conclusion_source` |
+| `command.accepted` | the command as it was given |
+| `command.refused` | the command, the error code and message |
+
+Later milestones add kinds for approvals, holds, terminals and the rest of the commands' effects.
+A status event always names both ends of the transition, so a replay can check that each event
+starts where the previous one ended. The `reason` of a status event says what caused a transition
+that is not self-explanatory:
+
+| Reason | Meaning |
+|--------|---------|
+| `if_false` | the `if` evaluated to false, including the implicit `success()` after a failed dependency |
+| `command` | an operator command caused it; the preceding `command.accepted` says which |
+| `lease_expired` | the agent did not confirm the start within the lease |
+| `rejected_by_agent` | the agent answered the assignment with a rejection |
+| `no_agent` | the job stayed queued longer than `max_queue_time` |
+| `agent_lost` | the agent did not come back within the grace period |
+| `agent_removed` | the agent was deleted while it held the job |
 
 The journal is the source for:
 

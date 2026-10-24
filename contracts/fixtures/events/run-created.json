@@ -1,0 +1,23 @@
+{
+  "seq": 1,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "attempt_id": null,
+  "job_id": null,
+  "execution_id": null,
+  "step_id": null,
+  "actor": {
+    "kind": "token",
+    "id": "0192f3a4-5b6c-7d8e-9f01-000000000004",
+    "user_id": "0192f3a4-5b6c-7d8e-9f01-000000000003",
+    "login": "roman"
+  },
+  "at": "2026-10-24T18:34:50.078Z",
+  "kind": "run.created",
+  "data": {
+    "workflow_id": "0192f3a4-5b6c-7d8e-9f01-000000000005",
+    "revision_id": "0192f3a4-5b6c-7d8e-9f01-000000000006",
+    "number": 12,
+    "global_number": 4031,
+    "event": "workflow_dispatch"
+  }
+}

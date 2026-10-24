@@ -208,21 +208,27 @@ with the first crate it applies to).
 **Goal.** The shared vocabulary as plain types: identifiers (UUIDv7 newtypes per entity);
 statuses and conclusions of runs, jobs, executions and steps with the conclusion source; waiting
 reasons; the actor; the IR of [design/02-workflows.md](design/02-workflows.md) with `Template`,
-`Expr` and `Evaluable<T>` already present but carrying only literals in M0; the journal event kinds
-M0 emits; the error codes and their HTTP statuses from [design/11-api.md](design/11-api.md); the
-API shapes M0 serves. Golden fixtures in `contracts/fixtures/`.
+`Expr` and `Evaluable<T>` already present but carrying only literals in M0, for the M0 subset of
+step 3; the journal event kinds M0 emits; the error codes and their HTTP statuses from
+[design/11-api.md](design/11-api.md); the API shapes of the resources M0 serves. Golden fixtures in
+`contracts/fixtures/`.
 
 **Touches.** `crates/types/`, `contracts/fixtures/`.
 
-**Out of scope.** Expression ASTs (M1), event kinds of later milestones, plugin types.
+**Out of scope.** Expression ASTs (M1), event kinds of later milestones, plugin types, the shapes
+of tokens (step 7) and of logs (step 13), which arrive with the steps that serve them.
 
 **Acceptance.**
 
 - `cargo tree -p bosun-types` shows no async runtime, no database driver and no HTTP crate.
-- Every fixture deserialises and re-serialises without loss; an unknown value of a closed enum
-  fails to deserialise.
-- The status enums reject every transition outside the job transition table of
-  [design/04-runs.md](design/04-runs.md), through a `can_transition` function tested exhaustively.
+- Every fixture deserialises and re-serialises without loss, and a fixture that no test maps to a
+  type fails the suite; an unknown value of a closed enum fails to deserialise; the IR refuses
+  unknown fields.
+- The status enums of runs, jobs, executions and steps reject every transition outside the tables
+  of [design/04-runs.md](design/04-runs.md), through a `can_transition` function tested
+  exhaustively against the tables read from that document.
+- The error codes and their statuses equal the table of [design/11-api.md](design/11-api.md), and
+  the waiting reasons equal the table of [design/04-runs.md](design/04-runs.md).
 
 ### 3. bosun-workflow, the M0 subset
 
