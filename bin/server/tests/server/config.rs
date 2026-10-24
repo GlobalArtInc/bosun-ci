@@ -45,6 +45,17 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             Some(("BOSUN_DATABASE_MAX_CONNECTIONS", Some("many"))),
             "the setting database.max_connections (BOSUN_DATABASE_MAX_CONNECTIONS) is `many`",
         ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            Some(("BOSUN_BOOTSTRAP_ADMIN", Some("Roman X"))),
+            "the setting bootstrap.admin (BOSUN_BOOTSTRAP_ADMIN) is `Roman X`, which is not a \
+             login: a login is 1 to 64",
+        ),
+        (
+            "[bootstrap]\nadmin = \"\"\n",
+            None,
+            "the setting bootstrap.admin (BOSUN_BOOTSTRAP_ADMIN) is ``, which is not a login",
+        ),
     ] {
         let mut launch = Launch::serve("postgres://bosun@127.0.0.1:1/bosun").config(config);
         launch = match variable {

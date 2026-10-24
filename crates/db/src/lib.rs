@@ -3,6 +3,8 @@ mod error;
 pub mod journal;
 pub mod pools;
 mod row;
+pub mod tokens;
+pub mod users;
 
 use sea_orm::sea_query::OnConflict;
 use sea_orm::sqlx::{self, Connection, PgConnection};

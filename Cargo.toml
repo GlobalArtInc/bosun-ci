@@ -19,6 +19,8 @@ bosun-types = { path = "crates/types" }
 axum = { version = "0.8", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
 clap = { version = "4", features = ["derive"] }
+crc = "3"
+getrandom = "0.4"
 http-body = "1"
 reqwest = { version = "0.12", default-features = false }
 saphyr-parser = "0.2"
@@ -32,6 +34,7 @@ sea-orm = { version = "1.1", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 sqlmig = "0.2"
 tempfile = "3"
 thiserror = "2"

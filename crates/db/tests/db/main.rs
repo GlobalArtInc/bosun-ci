@@ -4,6 +4,7 @@ mod migrations;
 mod parallel;
 mod pools;
 mod rows;
+mod users;
 
 use std::fs;
 use std::path::{Path, PathBuf};

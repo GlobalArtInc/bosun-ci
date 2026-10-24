@@ -1,6 +1,8 @@
+mod auth;
 mod config;
 mod health;
 mod http;
+mod owner;
 mod proxy;
 mod shutdown;
 mod start;
@@ -33,14 +35,18 @@ pub struct Launch {
 
 impl Launch {
     pub fn serve(database: &str) -> Launch {
-        Launch::new("serve", database)
+        Launch::new(&["serve"], database)
     }
 
     pub fn migrate(database: &str) -> Launch {
-        Launch::new("migrate", database)
+        Launch::new(&["migrate"], database)
     }
 
-    fn new(action: &str, database: &str) -> Launch {
+    pub fn create_owner(database: &str, login: &str) -> Launch {
+        Launch::new(&["admin", "create", login], database)
+    }
+
+    fn new(arguments: &[&str], database: &str) -> Launch {
         let directory = tempfile::tempdir().expect("a directory for the configuration");
         let launch = Launch {
             command: Command::new(env!("CARGO_BIN_EXE_bosun-server")),
@@ -57,7 +63,7 @@ impl Launch {
             .command
             .arg("--config")
             .arg(config)
-            .arg(action)
+            .args(arguments)
             .env("BOSUN_DATABASE_URL", database)
             .env("BOSUN_KEYS_KEK", KEK)
             .stdin(Stdio::null())
@@ -92,6 +98,21 @@ impl Launch {
         self
     }
 
+    pub async fn finish(mut self) -> Finished {
+        let output = timeout(WAIT, self.command.output())
+            .await
+            .unwrap_or_else(|_| panic!("bosun-server did not exit within {WAIT:?}"))
+            .expect("bosun-server runs");
+        Finished {
+            status: output.status,
+            stdout: String::from_utf8(output.stdout).expect("UTF-8 on standard output"),
+            logs: String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap_or(Value::String(line.to_owned())))
+                .collect(),
+        }
+    }
+
     pub fn spawn(mut self) -> Server {
         let mut child = self.command.spawn().expect("bosun-server starts");
         let (sender, lines) = mpsc::unbounded_channel();
@@ -104,6 +125,19 @@ impl Launch {
             _directory: self.directory,
         }
     }
+}
+
+#[derive(Debug)]
+pub struct Finished {
+    pub status: ExitStatus,
+    pub stdout: String,
+    pub logs: Vec<Value>,
+}
+
+pub async fn owner(database: &str, login: &str) -> String {
+    let finished = Launch::create_owner(database, login).finish().await;
+    assert!(finished.status.success(), "{finished:#?}");
+    finished.stdout.trim_end().to_owned()
 }
 
 fn read(stream: impl AsyncRead + Unpin + Send + 'static, sender: UnboundedSender<Value>) {
@@ -217,6 +251,16 @@ pub async fn get(address: SocketAddr, path: &str) -> reqwest::Response {
         .send()
         .await
         .unwrap_or_else(|error| panic!("GET {path}: {error}"))
+}
+
+pub async fn me(address: SocketAddr, authorization: Option<&str>) -> (u16, Value) {
+    let mut request = client().get(format!("http://{address}/api/v1/me"));
+    if let Some(authorization) = authorization {
+        request = request.header("authorization", authorization);
+    }
+    let response = request.send().await.expect("GET /api/v1/me");
+    let status = response.status().as_u16();
+    (status, response.json().await.expect("a JSON body"))
 }
 
 pub async fn eventually(address: SocketAddr, path: &str, status: u16) -> Value {

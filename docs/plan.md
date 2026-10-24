@@ -313,7 +313,8 @@ format of
 [design/08-access.md](design/08-access.md) stored as SHA-256, bearer authentication middleware, and
 a provisional rule for M0: the owner may do everything, nobody else exists.
 
-**Touches.** `crates/server/`, `crates/db/`.
+**Touches.** `crates/server/`, `crates/db/`, `bin/server/` (the command `admin create`),
+`crates/types/` and `contracts/fixtures/api/` (the shapes of users and of `GET /api/v1/me`).
 
 **Out of scope.** Passwords, OpenID Connect, sessions, roles (M1).
 

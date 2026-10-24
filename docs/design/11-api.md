@@ -8,7 +8,11 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
 
 - Base path `/api/v1`, JSON bodies, UTF-8.
 - Authentication by the session cookie with `X-Bosun-CSRF`, or by `Authorization: Bearer bst_…`
-  ([08-access.md](08-access.md)).
+  ([08-access.md](08-access.md)). A request to a served path under `/api/v1` without valid
+  credentials gets `401 unauthenticated` with `WWW-Authenticate: Bearer`, whether the token is
+  missing, malformed, unknown, revoked or expired; the message says which. The scheme is matched
+  without regard to case. A path the server does not serve, and a method a served path does not
+  accept, are `not_found` with or without credentials.
 - Resources are addressed by id; organisations and projects also by slug
   (`/api/v1/projects/globalart/keel`).
 - Lists use cursor pagination: `?limit=` (default 50, at most 500) and `?cursor=` from the previous
@@ -60,7 +64,7 @@ fails when the generated document differs from the committed one.
 
 | Path | Methods | Purpose |
 |------|---------|---------|
-| `/me` | GET | the current user, permissions, CSRF token |
+| `/me` | GET | the current user as `{"user": …}`; its permissions and the CSRF token from M1 |
 | `/auth/login`, `/auth/logout`, `/auth/totp` | POST | local sign-in, sign-out, second factor |
 | `/auth/oidc/{provider}/start`, `/auth/oidc/{provider}/callback` | GET | OpenID Connect sign-in |
 | `/auth/forge/link`, `/auth/forge/callback` | GET | linking the user's forge account |

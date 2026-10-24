@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use bosun_types::api::{
-    Agent, Attempt, DispatchRequest, Execution, Job, Organisation, Page, Pool, Project,
+    Agent, Attempt, DispatchRequest, Execution, Job, Me, Organisation, Page, Pool, Project,
     RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated, Revision, Run, Step,
     Workflow,
 };
@@ -36,6 +36,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/error-invalid-state.json", round_trip::<ErrorEnvelope>),
         ("api/execution.json", round_trip::<Execution>),
         ("api/job.json", round_trip::<Job>),
+        ("api/me.json", round_trip::<Me>),
         ("api/organisation.json", round_trip::<Organisation>),
         ("api/page-runs.json", round_trip::<Page<Run>>),
         ("api/pool.json", round_trip::<Pool>),

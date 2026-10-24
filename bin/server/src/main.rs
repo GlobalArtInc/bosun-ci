@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::error;
 use tracing_subscriber::filter::{LevelFilter, Targets};
+use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, fmt};
@@ -35,12 +36,28 @@ enum Command {
     Serve,
     #[command(about = "Bring the schema up to date and exit")]
     Migrate,
+    #[command(subcommand, about = "Administer the installation")]
+    Admin(Admin),
+}
+
+#[derive(Subcommand)]
+enum Admin {
+    #[command(
+        about = "Bring the schema up to date, create an owner and print its first personal token"
+    )]
+    Create {
+        #[arg(help = "The login of the owner")]
+        login: String,
+    },
 }
 
 #[tokio::main]
 async fn main() -> ExitCode {
     let arguments = Arguments::parse();
-    logs();
+    logs(match arguments.command {
+        Command::Admin(_) => BoxMakeWriter::new(io::stderr),
+        Command::Serve | Command::Migrate => BoxMakeWriter::new(io::stdout),
+    });
     match run(arguments).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
@@ -58,6 +75,10 @@ async fn run(arguments: Arguments) -> Result<(), Box<dyn Error>> {
     match arguments.command {
         Command::Serve => bosun_server::serve(config, stop()?).await?,
         Command::Migrate => bosun_server::migrate(&config).await?,
+        Command::Admin(Admin::Create { login }) => {
+            let token = bosun_server::create_owner(&config, &login).await?;
+            println!("{token}");
+        }
     }
     Ok(())
 }
@@ -73,13 +94,14 @@ fn stop() -> io::Result<impl Future<Output = String> + Send + 'static> {
     })
 }
 
-fn logs() {
+fn logs(writer: BoxMakeWriter) {
     let filter = Targets::new()
         .with_default(LevelFilter::INFO)
         .with_target("sqlx", LevelFilter::WARN);
     tracing_subscriber::registry()
         .with(
             fmt::layer()
+                .with_writer(writer)
                 .json()
                 .flatten_event(true)
                 .with_current_span(true)

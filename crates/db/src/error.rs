@@ -15,6 +15,8 @@ pub enum Error {
     },
     #[error("{0} does not exist; the migrations create it")]
     Missing(&'static str),
+    #[error("a user with the login `{0}` already exists")]
+    LoginTaken(String),
     #[error("could not hold the migration lock: {0}")]
     Lock(#[source] DbErr),
     #[error(

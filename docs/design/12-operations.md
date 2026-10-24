@@ -21,14 +21,16 @@ Kubernetes secrets encrypted in the gitops repository.
 `/etc/bosun/server.toml`, and the directory backend of the object store under `/var/lib/bosun`
 when there is one replica.
 
-`bosun-server migrate` brings the schema up to date and exits. `bosun-server serve` checks the KEK,
-connects to the database, brings the schema up to date ([07-storage.md](07-storage.md)), and then
-serves the REST API, the health endpoints and gRPC on one listener, which speaks HTTP/1.1 and
-HTTP/2 without TLS (the gateway terminates TLS); requests whose content type is
-`application/grpc` go to the gRPC services, which answer `UNIMPLEMENTED` for a service they do not
-have. It refuses to start when the schema belongs to a newer major version, when the KEK is
-missing, or when the object store is unreachable, and says which in an error line of its log
-before it exits with status 1.
+`bosun-server migrate` brings the schema up to date and exits. `bosun-server admin create <login>`
+brings the schema up to date the same way, creates an owner and prints its first personal token
+([08-access.md](08-access.md)); neither command needs the KEK. `bosun-server serve` checks the KEK,
+connects to the database, brings the schema up to date ([07-storage.md](07-storage.md)), creates the
+owner of `bootstrap.admin` when the database holds no user, and then serves the REST API, the health
+endpoints and gRPC on one listener, which speaks HTTP/1.1 and HTTP/2 without TLS (the gateway
+terminates TLS); requests whose content type is `application/grpc` go to the gRPC services, which
+answer `UNIMPLEMENTED` for a service they do not have. It refuses to start when the schema belongs
+to a newer major version, when the KEK is missing, or when the object store is unreachable, and says
+which in an error line of its log before it exits with status 1.
 
 On `SIGTERM` or `SIGINT` the server logs the signal, stops accepting connections, ends every gRPC
 stream with the status `UNAVAILABLE` and the message `the server is shutting down: received
@@ -76,6 +78,9 @@ path_style = true
 kek_file = "/etc/bosun/kek"
 previous_kek_files = []
 
+[bootstrap]
+admin = "roman"
+
 [github]
 app_id = 123456
 private_key_file = "/etc/bosun/github-app.pem"
@@ -109,6 +114,9 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
 - The KEK is 64 hexadecimal digits (`openssl rand -hex 32`), in the file `keys.kek_file` or
   directly in `keys.kek`, which is meant for `BOSUN_KEYS_KEK`. Exactly one of them is set;
   surrounding whitespace, such as the newline at the end of a file, does not count.
+- `bootstrap.admin` has no default. When it is set it is the login of the owner that `serve`
+  creates on a start against a database without users ([08-access.md](08-access.md)), and a value
+  that is not a login is refused like any other setting the server cannot use.
 
 `agent-<n>.toml` holds the server address, the agent id and credential, labels, `allow_terminal`,
 proxy settings, the log spool limit and `cache_max_bytes`.
@@ -126,15 +134,15 @@ database's limit.
 - `/metrics` in Prometheus format: queue length and waiting time by pool and label set, jobs by
   status, run and job durations, agents by state, outbox backlog and failures, log ingestion rate,
   webhook processing time, plugin call durations and failures.
-- Logs: JSON lines on standard output with the request id, the run, the job and the agent where
-  they apply, collected by the cluster's log pipeline. Each line carries `timestamp`, `level`,
-  `message`, `target` and the fields of the event; a line written while a request is handled
-  carries the request in `span` (`request_id`, `method`, `path`), and every request ends with a
-  line `request` with its `status` and `duration_ms`. The request id is the `X-Request-Id` of the
-  request when it is 1 to 128 letters, digits, `-`, `_` or `.`, such as the one the gateway sets,
-  and a fresh UUIDv7 otherwise; the response carries it back in `X-Request-Id`. The level is
-  `info`, except for the database driver, which logs every statement at `info` and is kept to
-  `warn` and above.
+- Logs: JSON lines on standard output (on standard error for the `admin` commands, whose standard
+  output is their result) with the request id, the run, the job and the agent where they apply,
+  collected by the cluster's log pipeline. Each line carries `timestamp`, `level`, `message`,
+  `target` and the fields of the event; a line written while a request is handled carries the
+  request in `span` (`request_id`, `method`, `path`), and every request ends with a line `request`
+  with its `status` and `duration_ms`. The request id is the `X-Request-Id` of the request when it
+  is 1 to 128 letters, digits, `-`, `_` or `.`, such as the one the gateway sets, and a fresh UUIDv7
+  otherwise; the response carries it back in `X-Request-Id`. The level is `info`, except for the
+  database driver, which logs every statement at `info` and is kept to `warn` and above.
 - Alerts worth having from day one: jobs queued longer than 10 minutes, no online agent in a pool
   that has queued jobs, an outbox row dead, webhook verification failures, agents on a version the
   next server release will refuse.

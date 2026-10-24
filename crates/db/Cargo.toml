@@ -13,6 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 sqlmig.workspace = true
 thiserror.workspace = true
+uuid = { workspace = true, features = ["v7"] }
 
 [dev-dependencies]
 bosun-testkit.workspace = true

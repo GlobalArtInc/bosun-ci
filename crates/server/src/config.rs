@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::Error;
+use crate::owner::{self, LOGIN_RULE};
 
 const DEFAULT_LISTEN: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
 
@@ -17,6 +18,7 @@ pub struct Config {
     pub(crate) listen: SocketAddr,
     pub(crate) database: Database,
     pub(crate) keys: Keys,
+    pub(crate) bootstrap_admin: Option<String>,
 }
 
 pub(crate) struct Database {
@@ -35,6 +37,7 @@ struct File {
     server: ServerFile,
     database: DatabaseFile,
     keys: KeysFile,
+    bootstrap: BootstrapFile,
 }
 
 #[derive(Default, Deserialize)]
@@ -55,6 +58,12 @@ struct DatabaseFile {
 struct KeysFile {
     kek: Option<String>,
     kek_file: Option<PathBuf>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct BootstrapFile {
+    admin: Option<String>,
 }
 
 impl Config {
@@ -105,6 +114,17 @@ impl Config {
                 .map(PathBuf::from)
                 .or(file.keys.kek_file),
         };
+        let bootstrap_admin = variable("bootstrap", "admin")?.or(file.bootstrap.admin);
+        if let Some(login) = bootstrap_admin
+            .as_deref()
+            .filter(|login| !owner::is_login(login))
+        {
+            return Err(invalid(
+                "bootstrap",
+                "admin",
+                format!("is `{login}`, which is not a login: {LOGIN_RULE}"),
+            ));
+        }
         Ok(Config {
             listen,
             database: Database {
@@ -112,6 +132,7 @@ impl Config {
                 max_connections,
             },
             keys,
+            bootstrap_admin,
         })
     }
 }

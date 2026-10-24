@@ -257,6 +257,7 @@ dependencies = [
  "sqlmig",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -266,10 +267,14 @@ dependencies = [
  "axum",
  "bosun-db",
  "bosun-types",
+ "chrono",
+ "crc",
+ "getrandom 0.4.3",
  "http-body",
  "sea-orm",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
  "tokio",
  "toml",

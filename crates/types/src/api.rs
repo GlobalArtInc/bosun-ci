@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::actor::Actor;
 use crate::id::{
     AgentId, AttemptId, ExecutionId, JobId, OrganisationId, PoolId, ProjectId, RegistrationTokenId,
-    RevisionId, RunId, StepId, WorkflowId,
+    RevisionId, RunId, StepId, UserId, WorkflowId,
 };
 use crate::key::JobKey;
 use crate::status::{
@@ -19,6 +19,21 @@ use crate::status::{
 pub struct Page<T> {
     pub items: Vec<T>,
     pub next: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct User {
+    pub id: UserId,
+    pub login: String,
+    pub name: String,
+    pub email: Option<String>,
+    pub owner: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Me {
+    pub user: User,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

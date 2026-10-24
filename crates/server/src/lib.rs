@@ -1,10 +1,14 @@
+mod auth;
 mod config;
 mod envelope;
 mod error;
 mod grpc;
 mod health;
 mod keys;
+mod me;
+mod owner;
 mod shutdown;
+mod token;
 mod trace;
 
 use std::future::Future;
@@ -34,6 +38,9 @@ pub async fn serve(
     keys::verify(&config.keys)?;
     let db = connect(&config).await?;
     bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
+    if let Some(login) = &config.bootstrap_admin {
+        owner::bootstrap(&db, login).await?;
+    }
     let listen = config.listen;
     let listener = TcpListener::bind(listen)
         .await
@@ -65,6 +72,12 @@ pub async fn migrate(config: &Config) -> Result<(), Error> {
     Ok(())
 }
 
+pub async fn create_owner(config: &Config, login: &str) -> Result<String, Error> {
+    let db = connect(config).await?;
+    bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
+    owner::create(&db, login).await
+}
+
 async fn connect(config: &Config) -> Result<DatabaseConnection, Error> {
     bosun_db::connect(&config.database.url, config.database.max_connections)
         .await
@@ -72,9 +85,13 @@ async fn connect(config: &Config) -> Result<DatabaseConnection, Error> {
 }
 
 fn app(state: AppState, shutdown: shutdown::Shutdown) -> Router {
+    let api = Router::new()
+        .route("/api/v1/me", get(me::show))
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner));
     let http = Router::new()
         .route("/healthz", get(health::alive))
         .route("/readyz", get(health::ready))
+        .merge(api)
         .fallback(envelope::no_route)
         .method_not_allowed_fallback(envelope::no_route)
         .with_state(state);

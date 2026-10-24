@@ -10,10 +10,14 @@ repository.workspace = true
 axum = { workspace = true, features = ["http1", "http2", "json", "tokio"] }
 bosun-db.workspace = true
 bosun-types.workspace = true
+chrono = { workspace = true, features = ["now"] }
+crc.workspace = true
+getrandom.workspace = true
 http-body.workspace = true
 sea-orm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["net", "sync", "time"] }
 toml.workspace = true

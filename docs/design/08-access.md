@@ -6,7 +6,8 @@ the team, the rules for drafts and terminals, and the audit trail.
 
 ## Users and sign-in
 
-A user has a login, a display name, an email address and any number of linked identities.
+A user has a login, a display name, an email address and any number of linked identities. A login
+is 1 to 64 lowercase letters, digits, `-`, `_` or `.`, and starts with a letter or a digit.
 
 - **Local password**, hashed with argon2id. Local accounts can add TOTP as a second factor
   (from M3).
@@ -17,9 +18,22 @@ A user has a login, a display name, an email address and any number of linked id
   The link maps forge actors to Bosun users: for re-runs requested on the forge, for approvals
   shown on the forge, and for `github.actor` of runs started in Bosun.
 
-The first owner is created by `bosun-server admin create <login>`, or from
-`BOSUN_BOOTSTRAP_ADMIN` on the first start against an empty database; either way the server prints
-one personal token for the owner, so the CLI works before any sign-in method is configured.
+The first owner is created by `bosun-server admin create <login>`, or from `BOSUN_BOOTSTRAP_ADMIN`
+on the first start against a database without users; either way the server prints one personal token
+for the owner, so the CLI works before any sign-in method is configured.
+
+- The owner has its login as its display name and no email address. Its token is named
+  `bootstrap` and expires one year (365 days) after it was created.
+- `admin create` brings the schema up to date first, refuses a login that already exists, and
+  writes the token, and nothing else, to standard output; its log lines go to standard error and
+  never contain the token. It may create further owners.
+- `BOSUN_BOOTSTRAP_ADMIN` is the setting `bootstrap.admin` ([12-operations.md](12-operations.md)).
+  `serve` acts on it after the migrations and before it listens, and only when the database holds
+  no user at all, so the setting can stay in a deployment without creating anyone on later starts.
+  The token is then a field of the log line `created the owner from bootstrap.admin; its token is
+  shown only this once`, since the log is all `serve` prints. Replicas that start at once decide
+  under an advisory lock: one creates the owner, the others log that the database has users
+  already.
 
 Failed sign-ins are rate-limited per account and per address, with an exponentially growing
 lockout.
@@ -35,10 +49,16 @@ lockout.
 | plugin credential | `bpt_…` | one per external plugin instance |
 | job token | JWT | signed by the server, for the runtime services only ([06-runtime-services.md](06-runtime-services.md)) |
 
-Opaque credentials are a prefix, 32 random bytes in base62 and a CRC32 checksum, so secret
-scanners can recognise them; the server stores only their SHA-256. A mutating request
-authenticated by the cookie must carry `X-Bosun-CSRF` with the token bound to the session, which
-`GET /api/v1/me` returns; bearer tokens do not need it.
+Opaque credentials are a prefix, 32 random bytes in base62 and a CRC32 checksum, so secret scanners
+can recognise them; the server stores only their SHA-256. The 32 bytes are a big-endian number
+written as exactly 43 base62 digits (`0`–`9`, `A`–`Z`, `a`–`z` in that order, padded with `0`),
+followed by the CRC-32 (ISO-HDLC, the checksum of zlib) of the prefix and those 43 digits, written
+as exactly 6 base62 digits, so a credential with a four-character prefix such as `bst_` is 53
+characters long. The SHA-256 is that of the whole text. The server checks the prefix, the length,
+the digits and the checksum before it looks a credential up, so a mistyped, truncated or relabelled
+credential never costs a query. A mutating request authenticated by the cookie must carry
+`X-Bosun-CSRF` with the token bound to the session, which `GET /api/v1/me` returns; bearer tokens do
+not need it.
 
 ## Organisations, projects and teams
 

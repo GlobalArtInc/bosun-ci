@@ -2,6 +2,8 @@ use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use crate::owner::LOGIN_RULE;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("could not read the configuration {}: {source}", path.display())]
@@ -49,4 +51,12 @@ pub enum Error {
     },
     #[error("the server stopped on an error: {0}")]
     Serve(#[source] io::Error),
+    #[error("`{login}` is not a login: {LOGIN_RULE}")]
+    InvalidLogin { login: String },
+    #[error("could not create the owner: {0}")]
+    CreateOwner(#[source] bosun_db::Error),
+    #[error("could not create the owner of bootstrap.admin (BOSUN_BOOTSTRAP_ADMIN): {0}")]
+    Bootstrap(#[source] bosun_db::Error),
+    #[error("the operating system gave no random bytes for a token: {0}")]
+    Random(#[source] getrandom::Error),
 }
