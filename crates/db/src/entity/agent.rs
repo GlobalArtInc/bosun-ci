@@ -14,6 +14,7 @@ pub struct Model {
     pub online: bool,
     pub last_seen_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
+    pub replica_id: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

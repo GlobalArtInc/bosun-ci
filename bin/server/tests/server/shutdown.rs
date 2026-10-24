@@ -36,7 +36,6 @@ async fn a_terminated_server_stops_accepting_drains_its_requests_and_exits_clean
     );
     assert_eq!(in_flight.await.expect("the request in flight"), 503);
 
-    proxy.forward();
     let (status, lines) = server.exit().await;
     assert!(status.success(), "{lines:#?}");
     let shutting_down = lines

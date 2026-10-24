@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod api_token;
 pub mod attempt;
+pub mod control_message;
 pub mod execution;
 pub mod idempotency_key;
 pub mod job;

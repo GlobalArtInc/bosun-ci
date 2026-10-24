@@ -18,8 +18,8 @@ use crate::shutdown::Shutdown;
 
 const GRPC: &str = "application/grpc";
 
-pub(crate) fn routes(shutdown: Shutdown) -> Router {
-    closing(Routes::default().into_axum_router(), shutdown)
+pub(crate) fn routes(routes: Routes, shutdown: Shutdown) -> Router {
+    closing(routes.into_axum_router(), shutdown)
 }
 
 pub(crate) fn is_grpc(request: &Request) -> bool {

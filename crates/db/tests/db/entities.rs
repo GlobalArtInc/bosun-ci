@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
 use bosun_db::entity::{
-    agent, api_token, attempt, execution, idempotency_key, job, log_chunk, log_object,
-    organisation, pool, project, registration_token, run, run_event, schema_version, step, user,
-    workflow, workflow_revision,
+    agent, api_token, attempt, control_message, execution, idempotency_key, job, log_chunk,
+    log_object, organisation, pool, project, registration_token, run, run_event, schema_version,
+    step, user, workflow, workflow_revision,
 };
 use bosun_testkit::TestDatabase;
 use sea_orm::EntityName;
@@ -24,6 +24,7 @@ async fn every_table_has_an_entity() {
         agent::Entity.table_name(),
         api_token::Entity.table_name(),
         attempt::Entity.table_name(),
+        control_message::Entity.table_name(),
         execution::Entity.table_name(),
         idempotency_key::Entity.table_name(),
         job::Entity.table_name(),

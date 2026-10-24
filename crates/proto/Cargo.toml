@@ -1,0 +1,17 @@
+[package]
+name = "bosun-proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+tonic = { workspace = true, features = ["codegen"] }
+tonic-prost.workspace = true
+
+[build-dependencies]
+protox.workspace = true
+tonic-prost-build.workspace = true

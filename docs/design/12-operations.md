@@ -161,6 +161,10 @@ client_id = "bosun"
 client_secret_file = "/etc/bosun/oidc-secret"
 groups_claim = "groups"
 
+[agents]
+heartbeat_interval = "30s"
+offline_after = "60s"
+
 [limits]
 max_queue_time = "24h"
 max_pause = "24h"
@@ -187,6 +191,11 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
 - `bootstrap.admin` has no default. When it is set it is the login of the owner that `serve`
   creates on a start against a database without users ([08-access.md](08-access.md)), and a value
   that is not a login is refused like any other setting the server cannot use.
+- Durations are a whole number followed by `ms`, `s`, `m` or `h`, such as `30s`, and are more than
+  zero.
+- `agents.heartbeat_interval` defaults to 30 seconds and `agents.offline_after` to 60 seconds,
+  which must be longer than the interval; `limits.agent_grace` defaults to 10 minutes
+  ([05-execution.md](05-execution.md)). Tests shorten them.
 
 `agent-<n>.toml` holds the server address, the agent id and credential, labels, `allow_terminal`,
 proxy settings, the log spool limit and `cache_max_bytes`.
@@ -196,7 +205,8 @@ proxy settings, the log spool limit and `cache_max_bytes`.
 Replicas share nothing but Postgres and the object store, so the server scales by adding replicas;
 each holds the streams of the agents that happened to connect to it. The load that grows with
 usage is log ingestion and event fan-out; both go through Postgres, which is the component to size.
-Connection pools are per replica, so `max_connections` times the replica count must stay below the
+Connection pools are per replica, and each replica holds one more connection that listens for
+notifications, so `max_connections` plus one, times the replica count, must stay below the
 database's limit.
 
 ## Observability

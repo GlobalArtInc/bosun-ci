@@ -43,6 +43,8 @@ pub enum Error {
     Connect(#[source] bosun_db::Error),
     #[error("the schema could not be brought up to date: {0}")]
     Migrate(#[source] bosun_db::Error),
+    #[error("could not listen for the notifications of other replicas: {0}")]
+    Notifications(#[source] bosun_db::Error),
     #[error("could not listen on {address}: {source}")]
     Listen {
         address: SocketAddr,

@@ -103,15 +103,20 @@ async fn one_listener_carries_http1_http2_and_grpc() {
     assert_eq!(http2.version(), Version::HTTP_2);
     assert_eq!(http2.status(), 200);
 
-    let grpc = h2_client()
-        .post(format!("http://{address}/bosun.agent.v1.Agent/Connect"))
-        .header(CONTENT_TYPE, "application/grpc")
-        .header("te", "trailers")
-        .send()
-        .await
-        .expect("a gRPC call");
-    assert_eq!(grpc.version(), Version::HTTP_2);
-    assert_eq!(grpc.status(), 200);
-    assert_eq!(grpc.headers()["content-type"], "application/grpc");
-    assert_eq!(grpc.headers()["grpc-status"], "12");
+    for (path, status) in [
+        ("/bosun.agent.v1.Agent/Connect", "16"),
+        ("/bosun.plugin.v1.Plugin/Connect", "12"),
+    ] {
+        let grpc = h2_client()
+            .post(format!("http://{address}{path}"))
+            .header(CONTENT_TYPE, "application/grpc")
+            .header("te", "trailers")
+            .send()
+            .await
+            .expect("a gRPC call");
+        assert_eq!(grpc.version(), Version::HTTP_2);
+        assert_eq!(grpc.status(), 200);
+        assert_eq!(grpc.headers()["content-type"], "application/grpc");
+        assert_eq!(grpc.headers()["grpc-status"], status, "{path}");
+    }
 }

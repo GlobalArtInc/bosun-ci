@@ -1,3 +1,5 @@
+pub mod agents;
+pub mod control;
 pub mod entity;
 mod error;
 pub mod idempotency;
@@ -114,6 +116,6 @@ async fn refuse_a_newer_major(db: &DatabaseConnection) -> Result<(), Error> {
     }
 }
 
-fn sqlx_error(error: sqlx::Error) -> DbErr {
+pub(crate) fn sqlx_error(error: sqlx::Error) -> DbErr {
     DbErr::Conn(RuntimeErr::SqlxError(error))
 }

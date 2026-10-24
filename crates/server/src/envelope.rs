@@ -11,6 +11,12 @@ impl ApiError {
     }
 }
 
+impl From<ErrorBody> for ApiError {
+    fn from(body: ErrorBody) -> ApiError {
+        ApiError(body)
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = StatusCode::from_u16(self.0.code.http_status())

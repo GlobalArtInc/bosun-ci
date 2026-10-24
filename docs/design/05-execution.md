@@ -35,10 +35,15 @@ the building block for executors that provide a fresh machine per job ([10-plugi
 ## Registration and identity
 
 1. An administrator creates a registration token `brt_…` for a pool, with an expiry and either
-   single or repeated use, in the web interface, the CLI or the API.
+   single or repeated use, in the web interface, the CLI or the API
+   (`POST /api/v1/registration-tokens` with the pool's name, `reusable` and an optional
+   `expires_at`, by default 24 hours ahead and at most one year).
 2. `bosun-agent register --url <server> --token brt_… --name <name> [--label <label>]…` calls
    `POST /api/v1/agents/register`. The server records the agent and returns its id and its
-   credential `bat_…`, shown once.
+   credential `bat_…`, shown once. A token that is malformed, unknown, expired or, for a single-use
+   token, already used is refused with `401 unauthenticated`, and the message says which. An agent
+   name is 1 to 64 characters without spaces or control characters; a label is the same without
+   commas either. Labels are stored lowercased.
 3. The agent writes both into `/etc/bosun/agent-<n>.toml`, readable only by its user.
 
 The server can ask an agent to rotate its credential in the `Welcome` message; the old credential
@@ -83,8 +88,20 @@ agent.
 | `LogAck` | the highest log sequence number stored |
 | `Drain` | finish the current job and take no more |
 
-The server refuses a `Hello` from an agent whose protocol version it does not speak, and from an
-agent older than the previous minor version, with an error that names both versions.
+The protobuf definitions live in `proto/bosun/agent/v1/agent.proto` and are compiled by
+`bosun-proto` with a protobuf compiler written in Rust, so building needs no `protoc`. The first
+message on a stream is the `Hello`, which names the protocol as `bosun.agent.v1` and the agent's own
+version; the server answers with `Welcome` before anything else. The server refuses a `Hello` from
+an agent whose protocol version it does not speak, and from an agent of a minor version other than
+its own and the previous one, by ending the stream with `FAILED_PRECONDITION` and a message that
+names both versions. The server composes the agent's labels from the `Hello`: `self-hosted`, the
+operating system, the architecture and one label per capability, followed by the configured labels,
+all lowercased; they replace the labels given at registration.
+
+The heartbeat interval is the setting `agents.heartbeat_interval` (default 30 seconds), which the
+`Welcome` carries; a `Heartbeat` refreshes the agent's `last_seen_at`. A stream on which the agent
+sends nothing for `agents.offline_after` (default 60 seconds) is ended by the server with
+`UNAVAILABLE`, so a hung agent reconnects.
 
 **Logs.** Every log chunk carries a sequence number per execution. The server stores chunks
 idempotently and acknowledges them; the agent keeps unacknowledged chunks on disk, up to 256 MiB by
@@ -92,15 +109,25 @@ default, and sends them again after a reconnect. A reconnect therefore loses no 
 duplicates none.
 
 **A lost connection.** A job keeps running when the stream drops. The server marks the agent
-offline after 60 seconds without a heartbeat. When the agent reconnects within the grace period
+offline after `agents.offline_after` (default 60 seconds) without a heartbeat; a periodic sweep
+does it, every heartbeat interval, on one replica at a time
+([07-storage.md](07-storage.md)). When the agent reconnects within the grace period
 (`agent_grace`, default 10 minutes), its `Hello` lists the executions it is running and the server
-reconciles them. When it does not, its executions are completed as `failure` with the reason
-`agent_lost`, or re-queued when the job's `retry.when` includes `agent-lost`.
+reconciles them: the executions it holds for the agent that the `Hello` does not list are completed
+as `failure` with the reason `agent_lost`, since the agent came back without them. When it does
+not reconnect in time, the sweep completes its executions the same way, or re-queues them when the
+job's `retry.when` includes `agent-lost`. Completing an execution this way also completes its job
+as `failure` with the reason `agent_lost`, each with its journal event.
 
 **Several server replicas.** An agent's stream ends on one replica, which records itself as the
-agent's current replica. Control messages for that agent are published with Postgres `NOTIFY` on
-a channel the replica listens on, and the replica forwards them over the stream. No replica keeps
-state another replica needs.
+agent's current replica (`agent.replica_id`) and clears that when the stream ends. Control messages
+for that agent are rows of `control_message`, published with Postgres `NOTIFY` on the channel
+`bosun_replica_<id>` of the agent's current replica, in the transaction that writes the row, and
+that replica forwards them over the stream. A replica also sends every unacknowledged control
+message of an agent when the agent connects and after its listening connection was re-established,
+so a message published while the agent had no stream, or while a notification was lost, still
+arrives; the agent answers each with `ControlAck`, which the server records on the row, and ignores
+an id it has seen. No replica keeps state another replica needs.
 
 ## The job assignment
 

@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package bosun.agent.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+service Agent {
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}
+
+message AgentMessage {
+  oneof message {
+    Hello hello = 1;
+    Idle idle = 2;
+    Accept accept = 3;
+    Reject reject = 4;
+    StepStarted step_started = 5;
+    StepFinished step_finished = 6;
+    Log log = 7;
+    JobFinished job_finished = 8;
+    ControlAck control_ack = 9;
+    Heartbeat heartbeat = 10;
+  }
+}
+
+message ServerMessage {
+  oneof message {
+    Welcome welcome = 1;
+    Assignment assignment = 2;
+    Control control = 3;
+    LogAck log_ack = 4;
+  }
+}
+
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_SHELL = 1;
+  CAPABILITY_PODMAN = 2;
+}
+
+enum Conclusion {
+  CONCLUSION_UNSPECIFIED = 0;
+  CONCLUSION_SUCCESS = 1;
+  CONCLUSION_FAILURE = 2;
+  CONCLUSION_CANCELLED = 3;
+  CONCLUSION_SKIPPED = 4;
+  CONCLUSION_TIMED_OUT = 5;
+}
+
+enum ControlKind {
+  CONTROL_KIND_UNSPECIFIED = 0;
+  CONTROL_KIND_CANCEL = 1;
+}
+
+message Hello {
+  string version = 1;
+  string protocol = 2;
+  repeated Capability capabilities = 3;
+  repeated string labels = 4;
+  string os = 5;
+  string arch = 6;
+  string hostname = 7;
+  repeated RunningExecution executions = 8;
+}
+
+message RunningExecution {
+  string execution_id = 1;
+  uint64 last_log_seq = 2;
+}
+
+message Welcome {
+  string agent_id = 1;
+  string server_version = 2;
+  Settings settings = 3;
+}
+
+message Settings {
+  google.protobuf.Duration heartbeat_interval = 1;
+}
+
+message Heartbeat {
+  double load = 1;
+  uint64 free_disk_bytes = 2;
+  uint64 image_cache_bytes = 3;
+}
+
+message Idle {}
+
+message Assignment {
+  string run_id = 1;
+  string attempt_id = 2;
+  string job_id = 3;
+  string execution_id = 4;
+  string job_key = 5;
+  string job_name = 6;
+  map<string, string> env = 7;
+  repeated Step steps = 8;
+}
+
+message Step {
+  uint32 index = 1;
+  optional string key = 2;
+  Template name = 3;
+  oneof action {
+    Template run = 4;
+  }
+  optional string shell = 5;
+  Template working_directory = 6;
+  map<string, Template> env = 7;
+}
+
+message Template {
+  repeated Segment segments = 1;
+}
+
+message Segment {
+  oneof segment {
+    string text = 1;
+  }
+}
+
+message Accept {
+  string execution_id = 1;
+}
+
+message Reject {
+  string execution_id = 1;
+  string reason = 2;
+}
+
+message StepStarted {
+  string execution_id = 1;
+  uint32 step_index = 2;
+  google.protobuf.Timestamp started_at = 3;
+}
+
+message StepFinished {
+  string execution_id = 1;
+  uint32 step_index = 2;
+  google.protobuf.Timestamp completed_at = 3;
+  Conclusion outcome = 4;
+  Conclusion conclusion = 5;
+}
+
+message Log {
+  string execution_id = 1;
+  uint32 step_index = 2;
+  uint64 seq = 3;
+  bytes lines = 4;
+}
+
+message LogAck {
+  string execution_id = 1;
+  uint64 seq = 2;
+}
+
+message JobFinished {
+  string execution_id = 1;
+  Conclusion conclusion = 2;
+}
+
+message Control {
+  string id = 1;
+  string execution_id = 2;
+  ControlKind kind = 3;
+}
+
+message ControlAck {
+  string id = 1;
+  bool took_effect = 2;
+}

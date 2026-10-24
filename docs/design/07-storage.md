@@ -55,7 +55,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
 | runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
-| agents | `pool`, `pool_access`, `agent`, `registration_token`, `label_alias` |
+| agents | `pool`, `pool_access`, `agent`, `registration_token`, `control_message`, `label_alias` |
 | logs | `log_chunk`, `log_object` |
 | artifacts and caches | `artifact`, `artifact_block`, `cache_entry` |
 | actions and tools | `action_ref`, `tool_object` |
@@ -95,6 +95,11 @@ A milestone creates the columns it uses. The columns above that M0 does not use 
 their milestones as additive migrations, and the indexes of the queue arrive with the claim
 (step 11 of [../plan.md](../plan.md)).
 
+An agent records its current replica in `agent.replica_id`, which no row references: replicas are
+processes, not rows. `control_message` holds the control messages sent to agents
+([05-execution.md](05-execution.md)): `id, execution_id, kind, created_at, acknowledged_at,
+took_effect`; its agent is the agent of its execution.
+
 Statuses, conclusions, reasons, trust levels, capabilities and event kinds are `text` holding the
 names `bosun-types` serialises them to, with neither Postgres enum types nor check constraints, so
 a later milestone adds a value without altering a type. Hashes of credentials, of workflow
@@ -103,11 +108,12 @@ sources and of idempotent requests are SHA-256 in `bytea`.
 A row that another row owns references its owner with `ON DELETE CASCADE`: a project its
 organisation, a workflow its project, a revision its workflow, a run its project and its workflow,
 an attempt its run, a job its attempt, an execution its job, a step its execution, a journal event
-its run, a log chunk its execution, a log object its step, a personal token its user and a
-registration token its pool. Deleting a run under `run_retention` therefore removes everything it
-owns in one statement. The other references inside one run (the attempt, job, execution and step
-of a journal event, the step of a log chunk, the execution of a log object) carry no foreign key,
-because the owner already bounds them and a cascade would have to check each of them.
+its run, a log chunk its execution, a log object its step, a control message its execution, a
+personal token its user and a registration token its pool. Deleting a run under `run_retention`
+therefore removes everything it owns in one statement. The other references inside one run (the
+attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a
+log object) carry no foreign key, because the owner already bounds them and a cascade would have
+to check each of them.
 References to rows that are not owners (the current revision of a workflow, the revision of a
 run, the pool of an agent, the agent of an execution) are plain foreign keys, which refuse to delete what is still referenced. Every
 foreign key column leads an index, which a test asserts.
@@ -143,20 +149,25 @@ most a few seconds.
 | Channel | Payload | Listener |
 |---------|---------|----------|
 | `bosun_queue` | job id | replicas with idle agents |
-| `bosun_replica_<id>` | agent id and control message id | the replica holding that agent's stream |
+| `bosun_replica_<id>` | agent id and control message id, separated by a space | the replica holding that agent's stream |
 | `bosun_events` | run id and event sequence number | replicas with subscribers on the event stream |
 | `bosun_log` | execution id and highest chunk sequence number | replicas with followers of that log |
 
 Payloads carry identifiers only; the data is read from the tables. A listener that reconnects
-reads everything newer than the last sequence number it saw, so a dropped connection loses nothing.
+reads everything newer than the last sequence number it saw, so a dropped connection loses nothing;
+for `bosun_replica_<id>` that is every unacknowledged control message of the agents the replica
+holds. The `<id>` of a replica is a UUIDv7 it draws at start, written as 32 hexadecimal digits,
+and the `listening` line of its log names it. A replica listens on one connection of its own,
+outside its pool.
 
 ## Periodic tasks
 
 Periodic tasks run in every replica but each takes a Postgres advisory lock first, so exactly one
 replica performs each at a time: the cron scheduler (minute resolution), lease expiry, offline
-detection of agents, the queue timeout, retention, cache eviction, the removal of idempotency keys
-older than 24 hours, and the expiry of tokens and sessions. Outbox delivery is not a singleton:
-workers in every replica claim rows with `SKIP LOCKED`.
+detection of agents together with the end of their grace period, the queue timeout, retention,
+cache eviction, the removal of idempotency keys older than 24 hours, and the expiry of tokens and
+sessions. Outbox delivery is not a singleton: workers in every replica claim rows with
+`SKIP LOCKED`.
 
 ## The outbox
 

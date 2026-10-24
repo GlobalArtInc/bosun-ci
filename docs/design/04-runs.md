@@ -262,7 +262,8 @@ or a plugin; all four use the same endpoint. The server checks the permission an
 target, applies the effect in one transaction with the event that records it, and returns the
 event. A command that is not valid in the current state is refused with the reason and is recorded
 as well. Effects on a running job are delivered to its agent as control messages
-([05-execution.md](05-execution.md)); the agent confirms them, and the confirmation is an event too.
+([05-execution.md](05-execution.md)); the agent confirms them, and the confirmation is recorded on
+the control message and becomes a journal event with the kinds later milestones add.
 
 | Command | Valid when | Effect | Permission |
 |---------|-----------|--------|------------|

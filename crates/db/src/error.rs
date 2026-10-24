@@ -1,3 +1,4 @@
+use bosun_types::id::ExecutionId;
 use sea_orm::DbErr;
 
 #[derive(Debug, thiserror::Error)]
@@ -32,4 +33,6 @@ pub enum Error {
          {supported}, which never runs against a schema of a newer major version"
     )]
     NewerSchema { found: i32, supported: i32 },
+    #[error("there is no execution {0}")]
+    NoExecution(ExecutionId),
 }

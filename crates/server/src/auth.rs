@@ -32,7 +32,7 @@ impl Principal {
     }
 }
 
-enum Refusal {
+pub(crate) enum Refusal {
     Unauthenticated(&'static str),
     Unchecked,
 }
@@ -113,7 +113,7 @@ async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Principal
     })
 }
 
-fn bearer(value: &str) -> Option<&str> {
+pub(crate) fn bearer(value: &str) -> Option<&str> {
     let (scheme, credentials) = value.split_once(' ')?;
     scheme
         .eq_ignore_ascii_case(BEARER)

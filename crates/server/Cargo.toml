@@ -9,18 +9,21 @@ repository.workspace = true
 [dependencies]
 axum = { workspace = true, features = ["http1", "http2", "json", "query", "tokio"] }
 bosun-db.workspace = true
+bosun-proto.workspace = true
 bosun-types.workspace = true
 bosun-workflow.workspace = true
 chrono = { workspace = true, features = ["now"] }
 crc.workspace = true
 getrandom.workspace = true
 http-body.workspace = true
+prost-types.workspace = true
 sea-orm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["net", "sync", "time"] }
+tokio-stream.workspace = true
 toml.workspace = true
 tonic = { workspace = true, features = ["router"] }
 tower = { workspace = true, features = ["util"] }

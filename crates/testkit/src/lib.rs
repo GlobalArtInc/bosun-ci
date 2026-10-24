@@ -1,3 +1,5 @@
+pub mod agent;
+
 use std::collections::HashSet;
 use std::future::Future;
 use std::sync::OnceLock;

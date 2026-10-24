@@ -165,8 +165,9 @@ move independently of it:
 
 - **REST API** under `/api/v1`. Inside `v1` changes are additive.
 - **Agent protocol** `bosun.agent.v1`. The agent announces its version and capabilities in its
-  first message; the server refuses an agent older than the previous minor version and tells it
-  why, so a server upgrade never strands a fleet without a message in its log.
+  first message; the server accepts agents of its own minor version and the previous one, refuses
+  any other and tells it why, so a server upgrade never strands a fleet without a message in its
+  log.
 - **Database schema**. Migrations inside a major version are additive only
   ([07-storage.md](07-storage.md)).
 

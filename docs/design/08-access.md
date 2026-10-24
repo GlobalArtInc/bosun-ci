@@ -50,8 +50,8 @@ lockout.
 |------------|------|-------|
 | browser session | cookie `__Host-bosun_session` holding `bss_…` | `Secure`, `HttpOnly`, `SameSite=Lax`; idle timeout 12 hours, absolute 30 days |
 | personal token | `bst_…` | named; a set of permission keys; optionally restricted to organisations or projects; expiry required, at most one year |
-| agent registration token | `brt_…` | for one pool; single or repeated use; expiry |
-| agent credential | `bat_…` | one per agent |
+| agent registration token | `brt_…` | for one pool; single or repeated use; expiry, by default 24 hours and at most one year |
+| agent credential | `bat_…` | one per agent; a bearer token in the `authorization` metadata of the agent's stream |
 | plugin credential | `bpt_…` | one per external plugin instance |
 | job token | JWT | signed by the server, for the runtime services only ([06-runtime-services.md](06-runtime-services.md)) |
 

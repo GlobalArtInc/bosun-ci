@@ -1,3 +1,5 @@
+mod agents;
+mod control;
 mod entities;
 mod idempotency;
 mod journal;

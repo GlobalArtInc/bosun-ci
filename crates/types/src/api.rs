@@ -217,6 +217,13 @@ pub struct Agent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistrationTokenRequest {
+    pub pool: String,
+    pub reusable: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistrationTokenCreated {
     pub id: RegistrationTokenId,
     pub pool_id: PoolId,

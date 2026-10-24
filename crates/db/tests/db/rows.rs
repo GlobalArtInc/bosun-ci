@@ -1,6 +1,6 @@
 use bosun_db::entity::{
-    agent, api_token, attempt, execution, idempotency_key, job, log_chunk, log_object,
-    organisation, project, registration_token, run, run_event, step, user, workflow,
+    agent, api_token, attempt, control_message, execution, idempotency_key, job, log_chunk,
+    log_object, organisation, project, registration_token, run, run_event, step, user, workflow,
     workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
@@ -26,6 +26,8 @@ pub const EXECUTION: u8 = 0x0b;
 pub const STEP: u8 = 0x0c;
 pub const AGENT: u8 = 0x0e;
 pub const REGISTRATION: u8 = 0x0f;
+pub const CONTROL: u8 = 0x10;
+pub const REPLICA: u8 = 0x11;
 
 pub fn id(number: u8) -> Uuid {
     Uuid::from_bytes([
@@ -59,6 +61,7 @@ pub struct Rows {
     pub run_event: run_event::Model,
     pub log_chunk: log_chunk::Model,
     pub log_object: log_object::Model,
+    pub control_message: control_message::Model,
     pub idempotency_key: idempotency_key::Model,
 }
 
@@ -218,6 +221,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         version: ActiveValue::Set(Some("0.1.0".to_owned())),
         online: ActiveValue::Set(true),
         last_seen_at: ActiveValue::Set(Some(at("2026-10-24T18:35:07.512Z"))),
+        replica_id: ActiveValue::Set(Some(id(REPLICA))),
         ..Default::default()
     }
     .insert(db)
@@ -312,6 +316,18 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a log object");
 
+    let control_message = control_message::ActiveModel {
+        id: ActiveValue::Set(id(CONTROL)),
+        execution_id: ActiveValue::Set(id(EXECUTION)),
+        kind: ActiveValue::Set("cancel".to_owned()),
+        acknowledged_at: ActiveValue::Set(Some(at("2026-10-24T18:35:08Z"))),
+        took_effect: ActiveValue::Set(Some(true)),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a control message");
+
     let idempotency_key = idempotency_key::ActiveModel {
         principal: ActiveValue::Set(format!("user:{}", id(USER))),
         key: ActiveValue::Set("dispatch-1".to_owned()),
@@ -341,6 +357,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         run_event,
         log_chunk,
         log_object,
+        control_message,
         idempotency_key,
     }
 }
@@ -388,6 +405,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
             .expect("a journal event"),
         log_chunk: one::<_, log_chunk::Entity>(db, (id(EXECUTION), 1)).await,
         log_object: one::<_, log_object::Entity>(db, id(STEP)).await,
+        control_message: one::<_, control_message::Entity>(db, id(CONTROL)).await,
         idempotency_key: one::<_, idempotency_key::Entity>(
             db,
             (format!("user:{}", id(USER)), "dispatch-1".to_owned()),

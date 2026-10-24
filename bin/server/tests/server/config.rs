@@ -56,6 +56,24 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             None,
             "the setting bootstrap.admin (BOSUN_BOOTSTRAP_ADMIN) is ``, which is not a login",
         ),
+        (
+            "[agents]\nheartbeat_interval = \"soon\"\n",
+            None,
+            "the setting agents.heartbeat_interval (BOSUN_AGENTS_HEARTBEAT_INTERVAL) is `soon`, \
+             which is not a duration: a duration is a whole number followed by ms, s, m or h",
+        ),
+        (
+            "[agents]\nheartbeat_interval = \"1m\"\n",
+            None,
+            "the setting agents.offline_after (BOSUN_AGENTS_OFFLINE_AFTER) is 60s, and an agent \
+             that sends a heartbeat every 60s must not be offline before its next one",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            Some(("BOSUN_LIMITS_AGENT_GRACE", Some("0s"))),
+            "the setting limits.agent_grace (BOSUN_LIMITS_AGENT_GRACE) is `0s`, which is not a \
+             duration",
+        ),
     ] {
         let mut launch = Launch::serve("postgres://bosun@127.0.0.1:1/bosun").config(config);
         launch = match variable {

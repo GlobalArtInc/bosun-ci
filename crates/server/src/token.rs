@@ -5,6 +5,10 @@ use crate::Error;
 
 pub(crate) const PERSONAL: &str = "bst_";
 
+pub(crate) const REGISTRATION: &str = "brt_";
+
+pub(crate) const AGENT: &str = "bat_";
+
 const SECRET_BYTES: usize = 32;
 
 const SECRET_DIGITS: usize = 43;
