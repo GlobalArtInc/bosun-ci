@@ -129,6 +129,28 @@ replicas on several hosts would split the data between them.
 | `tools/<tool>/<version>/<platform>.tar.xz` | Node runtimes and other tools |
 | `terminals/<session>.cast` | recorded debug terminal sessions |
 
+A key is a path of segments separated by `/`: at most 1024 bytes of UTF-8 without control
+characters, every segment non-empty, neither `.` nor `..`, and at most 255 bytes. Every backend
+follows the same rules, which one conformance suite in `bosun-blob` pins for each of them:
+
+- a put streams its body and replaces the object whole: until it completes, readers see the
+  earlier object or none, and a put that fails or is abandoned halfway leaves nothing that a get
+  or a listing sees, and the earlier object in place;
+- a ranged get returns the bytes of the range, cut at the end of the object, together with the
+  object's size; a range that starts past the end, or ends before it starts, is refused;
+- deleting an object that does not exist succeeds;
+- a listing returns, in byte order, every key that begins with the prefix as a string, so
+  `logs/r1` also finds `logs/r10/…`.
+
+The directory backend keeps each object as a file under `objects/` in its root. A put writes the
+body to a file it creates exclusively under `staging/`, syncs it, renames it into place and syncs
+the directory, so an object appears whole or not at all, also to another process on the same
+root, and two processes never write into each other's staged files. A crash leaves at most a file
+in `staging/`, which is never an object. A delete removes the directories it leaves empty. Because
+a file cannot also be a directory, the directory backend refuses a key below an object, such as
+`a/b/c` while `a/b` exists, and a key above objects, such as `a/b` while `a/b/c` exists; the
+layout above never produces either.
+
 Downloads of artifacts and caches are streamed by the server from the store, so the store needs
 no public address and the signed addresses jobs use are Bosun's own.
 
