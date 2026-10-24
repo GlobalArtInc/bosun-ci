@@ -121,20 +121,27 @@ The frontend is built into the server binary, so one artifact carries the whole 
 | `bosun-services` | the runtime services jobs call (artifacts, caches, block uploads) over the object store and an index interface | `bosun-types`, `bosun-blob` |
 | `bosun-plugin-host` | WebAssembly host for plugins (from M5) | `bosun-types` |
 | `bosun-server` | HTTP and gRPC endpoints, planner, scheduler, the database index of the runtime services | every crate above |
+| `bosun-server-bin` | binary `bosun-server`: command line, configuration, start | `bosun-types`, `bosun-server` |
 | `bosun-runner` | the execution engine: steps, actions, executors, workflow commands, masking | `bosun-types`, `bosun-expr`, `bosun-workflow`, `bosun-proto` |
-| `bosun-agent` | agent binary: registration, connection, slot | `bosun-runner`, `bosun-proto` |
+| `bosun-agent` | agent binary: registration, connection, slot | `bosun-types`, `bosun-runner`, `bosun-proto` |
 | `bosun-cli` | CLI binary `bosun` | `bosun-types`, `bosun-workflow`, `bosun-runner`, `bosun-services`, `bosun-blob` |
 | `bosun-wasm` | WebAssembly bindings of `bosun-workflow` and `bosun-expr`, published as `@globalart/bosun-wasm` (from M4) | `bosun-workflow`, `bosun-expr` |
 | `bosun-testkit` | database per test, server harness, scripted fake agent | anything, dev-only |
 
-Rules that CI enforces:
+Rules that CI enforces with `hack/check-deps.sh`, which reads the graph from `cargo metadata` with
+all features on:
 
-- `bosun-types`, `bosun-expr` and `bosun-workflow` do no I/O, depend on no async runtime and build
-  for `wasm32-unknown-unknown`: the editor in the browser runs the same parser
-  ([09-frontend.md](09-frontend.md)).
-- `bosun-runner`, `bosun-agent` and `bosun-cli` depend on neither `bosun-db` nor `bosun-server`.
-  An agent never talks to Postgres.
-- `bosun-server` does not depend on `bosun-runner`. The server never executes a step.
+- a crate depends directly only on the crates of ours its row allows, counting normal and build
+  dependencies; dev-dependencies are free;
+- a crate without a row fails the check, so a new crate arrives together with its row here;
+- `bosun-types`, `bosun-expr` and `bosun-workflow` do no I/O, reach no async runtime, database,
+  HTTP or gRPC crate, and build for `wasm32-unknown-unknown`: the editor in the browser runs the
+  same parser ([09-frontend.md](09-frontend.md));
+- `bosun-runner`, `bosun-agent`, `bosun-cli` and `bosun-wasm` reach neither `bosun-db` nor
+  `bosun-server`, directly or through other crates. An agent never talks to Postgres;
+- `bosun-server` reaches neither `bosun-runner` nor `bosun-agent`. The server never executes a
+  step;
+- `bosun-testkit` is only ever a dev-dependency.
 
 ## Repository layout
 

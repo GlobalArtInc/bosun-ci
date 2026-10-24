@@ -15,9 +15,11 @@ them in the same change.
 - Push straight to `main`. One task is one change; do not split a task across branches.
 - Verify with the same commands CI runs before pushing: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` against a local
-  Postgres (`BOSUN_TEST_DATABASE_URL`), the `wasm32-unknown-unknown` build of the pure crates,
-  `hack/check-deps.sh`, and `hack/e2e.sh` once it exists; `pnpm lint && pnpm test && pnpm build`
-  in `web/` once it exists.
+  Postgres (`BOSUN_TEST_DATABASE_URL`), the `wasm32-unknown-unknown` build of the pure crates once
+  step 3 adds it, `hack/check-deps.sh` and `hack/test-check-deps.sh`, and `hack/e2e.sh` once it
+  exists; `pnpm lint && pnpm test && pnpm build` in `web/` once it exists.
+- A new crate gets its rule in `hack/check-deps.sh` and its row in `docs/design/01-overview.md` in
+  the same change.
 - Postgres is the only database. Tests get a database per test from a template; no in-memory
   substitutes.
 - A behaviour of the target syntax is implemented together with a case that pins it, in

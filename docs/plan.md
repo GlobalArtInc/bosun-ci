@@ -174,26 +174,34 @@ says so.
 ### 1. Repository scaffolding and CI
 
 **Goal.** Turn the repository into a workspace that CI builds and tests. The cargo workspace
-declares `members = ["crates/*", "bin/*"]` with shared dependency versions; the toolchain is pinned
-by `rust-toolchain.toml` with the `wasm32-unknown-unknown` and `x86_64-unknown-linux-musl` targets.
-`.github/workflows/ci.yml` runs on `[self-hosted, Linux, X64]` with a shared
-`CARGO_TARGET_DIR` under the runner's cache directory, starts a Postgres 15 service on a free port,
-waits for it with `pg_isready`, and runs `cargo fmt --all --check`,
-`cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` with
-`BOSUN_TEST_DATABASE_URL`, and `hack/check-deps.sh`, which asserts the dependency rules from the
-cargo graph.
+declares `members = ["crates/*"]` with shared dependency versions; `bin/*` joins the list with the
+first binary in step 6, because cargo refuses a member pattern that matches nothing, and for the
+same reason the workspace starts with `bosun-types` as an empty crate that step 2 fills. The
+toolchain is pinned by `rust-toolchain.toml` with the `wasm32-unknown-unknown` and
+`x86_64-unknown-linux-musl` targets, and CI installs exactly that channel. `.github/workflows/ci.yml`
+runs on `[self-hosted, Linux, X64]` with a shared `CARGO_TARGET_DIR` under the runner's cache
+directory, starts a Postgres 15 service on a free port, waits for it with `pg_isready`, and runs
+`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace` with `BOSUN_TEST_DATABASE_URL`, `hack/check-deps.sh`, which asserts the
+dependency rules of [design/01-overview.md](design/01-overview.md) from `cargo metadata`, and
+`hack/test-check-deps.sh`, which proves on scratch workspaces that those rules refuse what they
+must.
 
-**Touches.** `Cargo.toml`, `rust-toolchain.toml`, `.github/workflows/ci.yml`, `hack/check-deps.sh`,
-`contracts/`.
+**Touches.** `Cargo.toml`, `rust-toolchain.toml`, `crates/types/`, `.github/workflows/ci.yml`,
+`hack/check-deps.sh`, `hack/test-check-deps.sh`, `contracts/`.
 
 **Out of scope.** Release builds and images, the frontend, the WebAssembly build (step 3 adds it
 with the first crate it applies to).
 
 **Acceptance.**
 
-- CI runs the commands above on an empty workspace and is green.
-- `hack/check-deps.sh` fails on a deliberately introduced forbidden edge in a scratch test and
-  passes on the workspace.
+- CI runs the commands above on the workspace and is green.
+- The workflow waits for the Postgres service with `pg_isready` and fails if it does not come up.
+- `hack/check-deps.sh` passes on the workspace and refuses a workspace crate without a rule.
+- `hack/test-check-deps.sh` shows `hack/check-deps.sh` failing, with the right message, on scratch
+  workspaces where the runner reaches the database crate, the server reaches the runner, a pure
+  crate reaches an async runtime, and a crate depends on `bosun-testkit` outside dev-dependencies;
+  and passing on an allowed graph.
 
 ### 2. bosun-types
 
@@ -278,7 +286,7 @@ that every backend runs.
 carry gRPC as well, `/healthz` and `/readyz`, the error envelope, JSON logs with a request id,
 graceful shutdown that stops accepting, drains requests and closes agent streams with a reason.
 
-**Touches.** `bin/server/`, `crates/server/`.
+**Touches.** `bin/server/`, `crates/server/`, `Cargo.toml` (adds `bin/*` to the members).
 
 **Out of scope.** Authentication (step 7), the interface.
 

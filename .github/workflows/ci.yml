@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 1
+  CARGO_BUILD_JOBS: 6
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: fmt, clippy, test, dependency rules
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: bosun
+          POSTGRES_PASSWORD: bosun
+          POSTGRES_DB: postgres
+        ports: ['5432']
+        options: >-
+          --health-cmd "pg_isready -U bosun"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 120s
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Put cargo on the path
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Link the runner's build directory
+        run: |
+          dir="/opt/actions-runner/cache/bosun/$RUNNER_NAME/target"
+          mkdir -p "$dir"
+          rm -rf target
+          ln -sfn "$dir" target
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Install the Rust toolchain
+        run: |
+          channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy \
+            --target wasm32-unknown-unknown,x86_64-unknown-linux-musl
+          rustc --version
+          cargo --version
+
+      - name: Find the IPv4 port of Postgres
+        run: |
+          port=$(docker port "${{ job.services.postgres.id }}" 5432/tcp | awk '/^0\.0\.0\.0:/ { sub(/.*:/, ""); print; exit }')
+          test -n "$port"
+          echo "BOSUN_TEST_DATABASE_URL=postgres://bosun:bosun@127.0.0.1:$port/postgres" >> "$GITHUB_ENV"
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -d "$BOSUN_TEST_DATABASE_URL" && exit 0
+            sleep 2
+          done
+          echo "postgres did not come up" >&2
+          exit 1
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Dependency rules
+        run: hack/check-deps.sh
+
+      - name: Dependency rules refuse forbidden edges
+        run: hack/test-check-deps.sh
