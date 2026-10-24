@@ -1,5 +1,7 @@
 use bosun_types::id::IdError;
 use sea_orm::prelude::Uuid;
+use sea_orm::{DbErr, SqlErr};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
@@ -31,4 +33,32 @@ pub(crate) fn json<T: DeserializeOwned>(table: &'static str, value: Value) -> Re
 
 pub(crate) fn name<T: DeserializeOwned>(table: &'static str, value: String) -> Result<T, Error> {
     json(table, Value::String(value))
+}
+
+pub(crate) fn text<T: Serialize>(table: &'static str, value: T) -> Result<String, Error> {
+    match serde_json::to_value(value)? {
+        Value::String(text) => Ok(text),
+        other => Err(Error::Row {
+            table,
+            message: format!("{other} is not stored as text"),
+        }),
+    }
+}
+
+pub(crate) fn unsigned(table: &'static str, value: i64) -> Result<u64, Error> {
+    u64::try_from(value).map_err(|error| Error::Row {
+        table,
+        message: error.to_string(),
+    })
+}
+
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+pub(crate) fn taken(error: DbErr, taken: impl FnOnce() -> Error) -> Error {
+    match error.sql_err() {
+        Some(SqlErr::UniqueConstraintViolation(_)) => taken(),
+        _ => Error::Database(error),
+    }
 }

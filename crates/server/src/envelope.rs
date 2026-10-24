@@ -3,7 +3,7 @@ use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use bosun_types::error::{ErrorBody, ErrorCode, ErrorEnvelope};
 
-pub(crate) struct ApiError(ErrorBody);
+pub(crate) struct ApiError(pub(crate) ErrorBody);
 
 impl ApiError {
     pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> ApiError {
@@ -20,6 +20,10 @@ impl IntoResponse for ApiError {
 }
 
 pub(crate) async fn no_route(method: Method, uri: Uri) -> ApiError {
+    absent(&method, &uri)
+}
+
+pub(crate) fn absent(method: &Method, uri: &Uri) -> ApiError {
     ApiError::new(
         ErrorCode::NotFound,
         format!("there is no {method} {}", uri.path()),

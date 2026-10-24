@@ -3,28 +3,18 @@ use chrono::{TimeDelta, Utc};
 use sea_orm::DatabaseConnection;
 use tracing::info;
 
-use crate::Error;
 use crate::token::{PERSONAL, Token};
+use crate::{Error, slug};
 
 pub(crate) const LOGIN_RULE: &str = "a login is 1 to 64 lowercase letters, digits, `-`, `_` or \
                                      `.`, and starts with a letter or a digit";
-
-const LOGIN_LENGTH: usize = 64;
 
 const TOKEN_NAME: &str = "bootstrap";
 
 const TOKEN_LIFETIME: TimeDelta = TimeDelta::days(365);
 
 pub(crate) fn is_login(text: &str) -> bool {
-    let mut bytes = text.bytes();
-    let starts_well = bytes
-        .next()
-        .is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit());
-    starts_well
-        && text.len() <= LOGIN_LENGTH
-        && bytes.all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.')
-        })
+    slug::is_slug(text)
 }
 
 pub(crate) async fn create(db: &DatabaseConnection, login: &str) -> Result<String, Error> {

@@ -1,11 +1,14 @@
+mod api;
 mod auth;
 mod config;
 mod health;
 mod http;
 mod owner;
+mod projects;
 mod proxy;
 mod shutdown;
 mod start;
+mod workflows;
 
 use std::env;
 use std::fs;

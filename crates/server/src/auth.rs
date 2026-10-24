@@ -3,8 +3,10 @@ use axum::http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use bosun_types::actor::Actor;
 use bosun_types::api::User;
 use bosun_types::error::ErrorCode;
+use bosun_types::id::TokenId;
 use chrono::Utc;
 use tracing::error;
 
@@ -17,6 +19,17 @@ const BEARER: &str = "Bearer";
 #[derive(Clone)]
 pub(crate) struct Principal {
     pub(crate) user: User,
+    pub(crate) token: TokenId,
+}
+
+impl Principal {
+    pub(crate) fn actor(&self) -> Actor {
+        Actor::Token {
+            id: self.token,
+            user_id: self.user.id,
+            login: self.user.login.clone(),
+        }
+    }
 }
 
 enum Refusal {
@@ -94,7 +107,10 @@ async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Principal
     if found.expires_at <= Utc::now() {
         return Err(Refusal::Unauthenticated("the bearer token expired"));
     }
-    Ok(Principal { user: found.user })
+    Ok(Principal {
+        user: found.user,
+        token: found.id,
+    })
 }
 
 fn bearer(value: &str) -> Option<&str> {

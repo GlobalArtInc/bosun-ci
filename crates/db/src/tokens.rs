@@ -1,4 +1,5 @@
 use bosun_types::api::User;
+use bosun_types::id::TokenId;
 use sea_orm::prelude::DateTimeUtc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
@@ -6,7 +7,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::entity::{api_token, user};
-use crate::{Error, users};
+use crate::{Error, row, users};
 
 pub struct NewToken {
     pub name: String,
@@ -15,6 +16,7 @@ pub struct NewToken {
 }
 
 pub struct PersonalToken {
+    pub id: TokenId,
     pub user: User,
     pub expires_at: DateTimeUtc,
     pub revoked_at: Option<DateTimeUtc>,
@@ -33,6 +35,7 @@ pub async fn find_personal<C: ConnectionTrait>(
         return Ok(None);
     };
     Ok(Some(PersonalToken {
+        id: row::id("api_token", token.id)?,
         user: users::decode(user)?,
         expires_at: token.expires_at,
         revoked_at: token.revoked_at,

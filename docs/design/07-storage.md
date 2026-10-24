@@ -43,7 +43,9 @@ sqlmig ignores, so the older server starts.
 
 **Identifiers** are UUIDv7, ordered by creation time. Two numbers exist for compatibility: a run's
 number among the runs of its workflow (`github.run_number`) and a global number from a sequence
-(`github.run_id`). Times are `timestamptz`.
+(`github.run_id`). The run's number is the workflow's `last_run_number`, incremented in the
+transaction that creates the run, so the row lock orders concurrent dispatches of one workflow and
+a number is never given twice, even after runs are deleted. Times are `timestamptz`.
 
 ### Tables
 
@@ -65,6 +67,7 @@ number among the runs of its workflow (`github.run_number`) and a global number 
 The central columns:
 
 ```
+workflow     id, project_id, name, source_kind, enabled, revision_id, last_run_number, created_at
 run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_number,
              event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
              status, conclusion, created_at, started_at, completed_at
@@ -80,6 +83,11 @@ step         id, execution_id, parent_step_id, index, name, status, outcome, con
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
              actor jsonb, data jsonb, at
 ```
+
+A run's `trigger` holds the actor and the payload of the event, `{"actor": …, "payload": …}`; for
+`workflow_dispatch` the payload is `{"inputs": …}`. A job is created with its key, display name and
+`needs`; its `labels` and `pool_ids` are written when the planner evaluates `runs-on` as the job
+becomes ready ([04-runs.md](04-runs.md)).
 
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
 `derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `outputs`,
@@ -104,8 +112,10 @@ References to rows that are not owners (the current revision of a workflow, the 
 run, the pool of an agent, the agent of an execution) are plain foreign keys, which refuse to delete what is still referenced. Every
 foreign key column leads an index, which a test asserts.
 
-`idempotency_key` keeps, for 24 hours, the principal, the key, a hash of the request and the
-response of every write that carried an `Idempotency-Key` ([11-api.md](11-api.md)). `label_alias`
+`idempotency_key` keeps, for 24 hours, the principal (`user:<id>`), the key, a hash of the request
+and the status and body of the response of every write that created something with an
+`Idempotency-Key` ([11-api.md](11-api.md)). The row is written in the transaction of the write; a
+row older than 24 hours is ignored and replaced when its key comes again. `label_alias`
 maps a label such as `ubuntu-latest` to a pool, a capability and a default image, per installation
 or per organisation.
 
@@ -144,9 +154,9 @@ reads everything newer than the last sequence number it saw, so a dropped connec
 
 Periodic tasks run in every replica but each takes a Postgres advisory lock first, so exactly one
 replica performs each at a time: the cron scheduler (minute resolution), lease expiry, offline
-detection of agents, the queue timeout, retention, cache eviction, and the expiry of tokens and
-sessions. Outbox delivery is not a singleton: workers in every replica claim rows with
-`SKIP LOCKED`.
+detection of agents, the queue timeout, retention, cache eviction, the removal of idempotency keys
+older than 24 hours, and the expiry of tokens and sessions. Outbox delivery is not a singleton:
+workers in every replica claim rows with `SKIP LOCKED`.
 
 ## The outbox
 

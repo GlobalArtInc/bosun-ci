@@ -1,0 +1,3 @@
+{
+  "source": "name: ci\non: workflow_dispatch\njobs:\n  build:\n    runs-on: [self-hosted]\n    steps:\n      - run: cargo build --workspace\n"
+}

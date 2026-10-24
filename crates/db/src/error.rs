@@ -17,6 +17,14 @@ pub enum Error {
     Missing(&'static str),
     #[error("a user with the login `{0}` already exists")]
     LoginTaken(String),
+    #[error("an organisation with the slug `{0}` already exists")]
+    OrganisationTaken(String),
+    #[error("the organisation already has a project with the slug `{0}`")]
+    ProjectTaken(String),
+    #[error("the project already has a workflow named `{0}`")]
+    WorkflowTaken(String),
+    #[error("{0} was removed while the request used it")]
+    Vanished(String),
     #[error("could not hold the migration lock: {0}")]
     Lock(#[source] DbErr),
     #[error(

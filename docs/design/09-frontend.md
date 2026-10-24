@@ -124,8 +124,9 @@ meantime, saving shows a three-way merge first.
 ### Server-side workflows
 
 Server-side workflows use the same editor. Saving creates a revision; the history lists revisions
-with their differences and can restore one as a new revision; "export to repository" commits the
-workflow to a path in a bound project.
+with their differences and can restore one, which makes it the current revision again
+([02-workflows.md](02-workflows.md)); "export to repository" commits the workflow to a path in a
+bound project.
 
 ## Quality
 

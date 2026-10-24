@@ -15,6 +15,7 @@ bosun-db = { path = "crates/db" }
 bosun-server = { path = "crates/server" }
 bosun-testkit = { path = "crates/testkit" }
 bosun-types = { path = "crates/types" }
+bosun-workflow = { path = "crates/workflow" }
 
 axum = { version = "0.8", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }

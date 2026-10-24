@@ -7,9 +7,10 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
-axum = { workspace = true, features = ["http1", "http2", "json", "tokio"] }
+axum = { workspace = true, features = ["http1", "http2", "json", "query", "tokio"] }
 bosun-db.workspace = true
 bosun-types.workspace = true
+bosun-workflow.workspace = true
 chrono = { workspace = true, features = ["now"] }
 crc.workspace = true
 getrandom.workspace = true

@@ -19,12 +19,17 @@ A workflow has exactly one source.
 - **Server-side record.** A workflow created in the web interface, the API or the CLI and stored
   in the database, with its own history of revisions. It belongs to a project, which may be bound
   to a repository or be repository-less. This is the home of operational jobs that have no natural
-  repository: backups, runbooks, scheduled maintenance.
+  repository: backups, runbooks, scheduled maintenance. Its name follows the rule of slugs
+  ([08-access.md](08-access.md)), is unique among the server-side workflows of its project, and is
+  the `file` of its diagnostics, since it has no path.
 
 A **revision** is an immutable source text identified by the SHA-256 of its bytes and its path.
 A repository file yields a new revision whenever its blob changes; a server-side workflow yields
-one on every save. A run always refers to the revision it was planned from and keeps a snapshot of
-the IR it was lowered to, so a later change of the parser never changes the meaning of a past run.
+one on every save of a source it has not had before, and a save of a source it had makes that
+revision current again, so saving the same source twice yields one revision. Every save validates
+the source first and stores nothing when it has errors. A run always refers to the revision it was
+planned from and keeps a snapshot of the IR it was lowered to, so a later change of the parser never
+changes the meaning of a past run.
 
 A **draft** is an unsaved edit kept on the server for one workflow and one author. A draft can be
 run ([04-runs.md](04-runs.md)) and turned into a commit or a pull request

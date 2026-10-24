@@ -11,6 +11,7 @@ pub struct Model {
     pub enabled: bool,
     pub revision_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
+    pub last_run_number: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

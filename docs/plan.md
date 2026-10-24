@@ -329,7 +329,9 @@ a provisional rule for M0: the owner may do everything, nobody else exists.
 through the API, each save validated and stored as a revision; `POST /workflows/{id}/dispatch`
 creating a run with its first attempt and its pending jobs, and the IR snapshot.
 
-**Touches.** `crates/server/`, `crates/db/`.
+**Touches.** `crates/server/`, `crates/db/` (the queries and the counter `last_run_number` of
+workflows), `crates/types/` and `contracts/fixtures/api/` (the request shapes of organisations,
+projects, workflows and sources), `Cargo.toml` (`bosun-workflow` for the server).
 
 **Out of scope.** Repository-bound projects and triggers other than dispatch (M1).
 

@@ -1,15 +1,22 @@
 mod auth;
 mod config;
+mod dispatch;
 mod envelope;
 mod error;
 mod grpc;
 mod health;
+mod idempotency;
 mod keys;
 mod me;
+mod organisations;
 mod owner;
+mod projects;
+mod request;
 mod shutdown;
+mod slug;
 mod token;
 mod trace;
+mod workflows;
 
 use std::future::Future;
 
@@ -87,6 +94,9 @@ async fn connect(config: &Config) -> Result<DatabaseConnection, Error> {
 fn app(state: AppState, shutdown: shutdown::Shutdown) -> Router {
     let api = Router::new()
         .route("/api/v1/me", get(me::show))
+        .merge(organisations::routes())
+        .merge(projects::routes())
+        .merge(workflows::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner));
     let http = Router::new()
         .route("/healthz", get(health::alive))

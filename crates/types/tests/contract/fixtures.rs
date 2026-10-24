@@ -3,8 +3,9 @@ use std::fs;
 use std::path::Path;
 
 use bosun_types::api::{
-    Agent, Attempt, DispatchRequest, Execution, Job, Me, Organisation, Page, Pool, Project,
-    RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated, Revision, Run, Step,
+    Agent, Attempt, CreateOrganisationRequest, CreateProjectRequest, CreateWorkflowRequest,
+    DispatchRequest, Execution, Job, Me, Organisation, Page, Pool, Project, RegisterAgentRequest,
+    RegisterAgentResponse, RegistrationTokenCreated, Revision, Run, Step, UpdateSourceRequest,
     Workflow,
 };
 use bosun_types::command::CommandRequest;
@@ -31,6 +32,18 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/attempt.json", round_trip::<Attempt>),
         ("api/command-job-cancel.json", round_trip::<CommandRequest>),
         ("api/command-run-cancel.json", round_trip::<CommandRequest>),
+        (
+            "api/create-organisation-request.json",
+            round_trip::<CreateOrganisationRequest>,
+        ),
+        (
+            "api/create-project-request.json",
+            round_trip::<CreateProjectRequest>,
+        ),
+        (
+            "api/create-workflow-request.json",
+            round_trip::<CreateWorkflowRequest>,
+        ),
         ("api/dispatch.json", round_trip::<DispatchRequest>),
         ("api/error-invalid-input.json", round_trip::<ErrorEnvelope>),
         ("api/error-invalid-state.json", round_trip::<ErrorEnvelope>),
@@ -56,6 +69,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/revision.json", round_trip::<Revision>),
         ("api/run.json", round_trip::<Run>),
         ("api/step.json", round_trip::<Step>),
+        (
+            "api/update-source-request.json",
+            round_trip::<UpdateSourceRequest>,
+        ),
         ("api/workflow.json", round_trip::<Workflow>),
         ("diagnostics/alias-bomb.json", round_trip::<Diagnostic>),
         ("diagnostics/duplicate-key.json", round_trip::<Diagnostic>),

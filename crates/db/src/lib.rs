@@ -1,10 +1,15 @@
 pub mod entity;
 mod error;
+pub mod idempotency;
 pub mod journal;
+pub mod organisations;
 pub mod pools;
+pub mod projects;
 mod row;
+pub mod runs;
 pub mod tokens;
 pub mod users;
+pub mod workflows;
 
 use sea_orm::sea_query::OnConflict;
 use sea_orm::sqlx::{self, Connection, PgConnection};

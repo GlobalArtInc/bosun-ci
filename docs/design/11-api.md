@@ -14,11 +14,25 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   without regard to case. A path the server does not serve, and a method a served path does not
   accept, are `not_found` with or without credentials.
 - Resources are addressed by id; organisations and projects also by slug
-  (`/api/v1/projects/globalart/keel`).
+  (`/api/v1/projects/globalart/keel`). `{organisation}` in a path is the organisation's id or slug,
+  and `{project}` is the project's id or its two slugs, so `/projects/globalart/keel/workflows` and
+  `/projects/<id>/workflows` name the same list. A single segment after `/projects/` is always an
+  id, and `/projects/<x>/workflows` is the list of project `<x>` when `<x>` is an id and the project
+  `workflows` of organisation `<x>` otherwise, which is unambiguous because an organisation's slug
+  never reads as an id ([08-access.md](08-access.md)).
+- A request body that is not JSON of the shape the endpoint takes is `422 invalid_input`, with the
+  parser's message saying where it stopped.
 - Lists use cursor pagination: `?limit=` (default 50, at most 500) and `?cursor=` from the previous
-  page's `next`. Filters are query parameters named after fields.
+  page's `next`, which is `null` on the last page. Filters are query parameters named after fields.
+  A limit outside 1 to 500, a malformed cursor, and a query parameter the list does not take are
+  `invalid_input`.
 - Writes that create something accept an `Idempotency-Key` header; a repeated request with the same
-  key and body returns the first response.
+  key and body returns the first response. A key is 1 to 255 visible ASCII characters and belongs
+  to the user who sent it. The request it stands for is its method, its path with the query and the
+  bytes of its body; the same key with another request within 24 hours is `409 conflict`. The
+  response is kept in the transaction of the write, and only when the write created something, so
+  a request that failed can be repeated with its key, and requests that race with one key create
+  one resource and all get its response.
 - Updates of documents that people edit concurrently (drafts, settings, environments) require
   `If-Match` with the version from `ETag`, and fail with `412` when it moved.
 - Errors share one shape, with a stable `code`, the fields at fault for invalid input, and the
@@ -104,6 +118,27 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
 `/twirp/` and `/_runtime/` for the services jobs call ([06-runtime-services.md](06-runtime-services.md)), `/mcp`,
 `/healthz`, `/readyz`, `/metrics`, and the gRPC services `bosun.agent.v1.Agent` and
 `bosun.plugin.v1.*` on the same listener.
+
+### Projects and server-side workflows
+
+- `POST /organisations` takes `slug` and `name`; `POST /projects` takes `organisation` (an id or a
+  slug), `slug` and `name`. Both answer `201` with the resource, a slug that is taken is
+  `409 conflict`, and a slug or a name that breaks its rule ([08-access.md](08-access.md)) is
+  `invalid_input` naming the field.
+- `POST /projects/{project}/workflows` takes `name` and `source` and creates a server-side workflow
+  with its first revision; `GET` lists the project's workflows oldest first and filters by `name`.
+  `PUT /workflows/{workflow}/source` takes `source` and answers with the revision: `201` when the
+  source is new to the workflow, `200` when it is the source of a revision the workflow has, which
+  becomes current again. A source with errors is `422 invalid_input` with the field `source`, the
+  message `the workflow is not valid` and the diagnostics, and stores nothing
+  ([02-workflows.md](02-workflows.md)). `GET /workflows/{workflow}/revisions` lists newest first.
+- `POST /workflows/{workflow}/dispatch` takes `ref` and `inputs` and answers `201` with the run,
+  `queued`, whose actor is the token of the request. In the same transaction it creates attempt 1,
+  one `pending` job per job template and their journal events, and stores the IR of the current
+  revision as lowered by this server ([04-runs.md](04-runs.md)). A project without a repository has
+  no refs, so `ref` must be `null`; until `workflow_dispatch` inputs arrive in M1, every input is an
+  `invalid_input` naming `inputs.<name>`. A disabled workflow, and a current revision that this
+  server's parser refuses, are `409 invalid_state`, the latter with its diagnostics.
 
 ## The event stream
 

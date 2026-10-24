@@ -69,6 +69,12 @@ token permissions, checks or statuses, dispatch weight and running cap, retentio
 set of users inside an organisation, maintained by hand or synchronised from a groups claim of an
 identity provider through a configured mapping.
 
+A slug follows the rule of logins: 1 to 64 lowercase letters, digits, `-`, `_` or `.`, starting
+with a letter or a digit. An organisation's slug is unique in the installation and never reads as an
+id (a UUID), because a path names an organisation by either; a project's slug is unique in its
+organisation. A display name is 1 to 255 characters without control characters, not all of them
+white space.
+
 ## Permissions and roles
 
 | Permission | Allows |
