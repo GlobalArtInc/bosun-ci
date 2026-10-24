@@ -1,0 +1,281 @@
+# Runs
+
+This document specifies what a run is made of, the states of runs, jobs and steps, how a run is
+planned and its jobs are dispatched, the journal that records everything that happens to a run,
+the commands an operator can give, re-runs and attempts, gates and environments, and holding a
+failed job for debugging. How the agent executes a job is in [05-execution.md](05-execution.md);
+who may give which command is in [08-access.md](08-access.md).
+
+## Parts of a run
+
+- A **run** is created by one trigger for one workflow revision. It records the revision, the IR
+  snapshot, the trigger (event name, payload, actor), the ref and the commit, the dispatch inputs,
+  a number that counts runs of the workflow, and the global number exposed as `github.run_id`.
+- An **attempt** is one pass of the run. Attempt 1 is created with the run; every re-run adds the
+  next one ([Re-runs and attempts](#re-runs-and-attempts)).
+- A **job** belongs to one attempt. It is created from a job template; a template with a strategy
+  becomes a **job group** whose member jobs are created when the matrix is expanded. A call of a
+  reusable workflow becomes a group whose members are the callee's jobs, keyed `caller/callee`.
+- An **execution** is one placement of a job on an agent. A job has more than one execution only
+  when job-level `retry` re-queued it.
+- A **step** belongs to an execution. Steps of composite actions are nested under the step that
+  used the action; pre and post steps of actions are steps of their own.
+
+## States
+
+| Entity | Status | Meaning |
+|--------|--------|---------|
+| run | `queued` | created, no job has started |
+| | `in_progress` | at least one job has started and not all are complete |
+| | `waiting` | every remaining job waits for an approval, a timer or a policy |
+| | `paused` | an operator paused the run |
+| | `completed` | every job is complete; the conclusion is set |
+| job | `pending` | its `needs` are not complete |
+| | `waiting` | ready, but held back: see [waiting reasons](#gates-and-environments) |
+| | `queued` | may be dispatched to an agent |
+| | `assigned` | offered to an agent, which has not confirmed the start yet |
+| | `in_progress` | running on an agent |
+| | `paused` | stopped at a step boundary by an operator or a breakpoint |
+| | `held` | a step failed and the job is kept alive for debugging |
+| | `completed` | the conclusion is set |
+| execution | `assigned`, `in_progress`, `paused`, `held`, `completed` | the job's status while this execution is the current one; an earlier execution of a retried job stays `completed` |
+| step | `pending`, `in_progress`, `paused`, `completed` | as for jobs |
+
+Conclusions are `success`, `failure`, `cancelled`, `skipped` and `timed_out`; a run can also end
+with `startup_failure` when its workflow is invalid. A step has an `outcome` (the result before
+`continue-on-error`) and a `conclusion` (after it), as in the target syntax. Every conclusion has a
+**source**: `natural`, or `operator` when a command set it; the source is shown everywhere the
+conclusion is, and is part of the API.
+
+```
+pending ──needs complete, if true──▶ waiting ──rules satisfied──▶ queued ──▶ assigned ──▶ in_progress
+   │                                    │                           ▲           │            │  ▲
+   └──if false──▶ completed(skipped)    └──rejected, timed out──▶ completed      └─no start──┘  │
+                                                                                 paused ◀────┤  │
+                                                                                 held  ◀─────┘  │
+                                                                                   └──retry─────┘
+```
+
+The transitions of a job, exhaustively:
+
+| From | To | Cause |
+|------|----|-------|
+| `pending` | `waiting` | `needs` complete, `if` true, an admission rule holds the job back |
+| `pending` | `queued` | `needs` complete, `if` true, nothing holds the job back |
+| `pending` | `completed` | `if` false (`skipped`), `job.skip`, `job.mark-success`, cancellation |
+| `waiting` | `queued` | every admission rule is satisfied |
+| `waiting` | `completed` | rejection, gate timeout, branch policy, policy denial, `job.skip`, `job.mark-success`, cancellation |
+| `queued` | `waiting` | `job.pause`, `run.pause` |
+| `queued` | `assigned` | claimed by an agent |
+| `queued` | `completed` | cancellation, `no_agent`, `job.skip`, `job.mark-success` |
+| `assigned` | `queued` | the lease expired or the agent rejected the job |
+| `assigned` | `in_progress` | the agent started the job |
+| `in_progress` | `paused` | a pause request or a breakpoint at a step boundary |
+| `paused` | `in_progress` | `job.resume`, `run.resume` |
+| `in_progress` | `held` | a failing step under hold-on-failure |
+| `held` | `in_progress` | `hold.retry-step`, `hold.continue` |
+| `in_progress` | `queued` | job-level `retry`, which starts a new execution |
+| `in_progress`, `paused`, `held` | `completed` | the job ends, cancellation, timeout, `hold.release`, `job.mark-success` from `held`, lost agent |
+
+`bosun-types` holds this table as code and refuses every other transition.
+
+## Planning
+
+When a trigger is accepted, the server finds the workflows whose `on` matches it and, in one
+transaction per workflow, creates the run, attempt 1, and one job per template in status
+`pending`. It evaluates `run-name` and the workflow-level `concurrency` at that moment. A reusable
+workflow named by a job is fetched and validated now, so a missing or invalid callee ends the run
+with `startup_failure` before anything executes.
+
+A pending job becomes ready when every job in its `needs` is complete. The server then evaluates,
+in this order:
+
+1. `if`, with the status functions over `needs`. False completes the job as `skipped`.
+2. `strategy`. A matrix expands into member jobs here, in status `pending` with their `needs`
+   already met, and each member continues from step 3. An empty matrix completes the group as
+   `failure` with an error that names the empty vector, as the target does.
+3. `runs-on`, `environment`, `concurrency`, `timeout-minutes`, `continue-on-error`, `container`
+   and `services` (image and credentials).
+4. The admission rules: the environment's protection rules, the admission policies of plugins,
+   the concurrency group, and a pause of the run or the job. While any of them holds the job back,
+   it is `waiting` with the reason recorded. A branch policy that excludes the ref, or a policy that
+   denies, completes the job as `failure` with the reason.
+5. Otherwise the job becomes `queued`.
+
+A gate skips steps 2, 3 and the queue: once its admission rules pass, it waits for approvals.
+
+A job group completes when all its members are complete. Its conclusion is `failure` when a member
+failed without `continue-on-error`, `cancelled` when a member was cancelled, and `success`
+otherwise. `fail-fast`, true by default, cancels the remaining members of a group when one fails.
+`max-parallel` keeps the members beyond the limit in `waiting` with reason `max_parallel`.
+
+The run completes when every job of the attempt is complete. Its conclusion is `failure` when a
+job failed without `continue-on-error`, `cancelled` when the run was cancelled, `skipped` when
+every job was skipped, and `success` otherwise.
+
+## Dispatch
+
+The scheduler matches queued jobs to idle agents. A job may go to an agent when the agent's pool
+allows the job's project and trust level ([08-access.md](08-access.md)), when the agent's labels
+include every label of `runs-on` (case-insensitively), and when the agent has the executor the job
+needs (`podman` for `container`, `services` and container actions).
+
+Among the jobs an idle agent may take, it gets the first in this order: higher `priority` first;
+then the project with the lowest ratio of running jobs to its weight (default weight 1), so one
+busy repository cannot starve the others; then the oldest. A project may also have a cap on
+running jobs; jobs beyond it stay `queued`.
+
+The queue lives in Postgres ([07-storage.md](07-storage.md)). An assignment is a lease: when the
+agent does not confirm the start within 30 seconds, the job goes back to `queued`. A job that stays
+`queued` longer than the installation's `max_queue_time` (default 24 hours) is cancelled with the
+reason `no_agent`, so a typo in `runs-on` does not wait forever; the run page shows which labels no
+online agent offers from the moment the job is queued.
+
+Concurrency groups follow the target syntax: a group has at most one running member and, with
+`queue: single` (the default), one pending member, so a new arrival cancels the pending one, and
+with `cancel-in-progress` the running one too. With `queue: max` up to 100 members wait in order of
+arrival and none is cancelled; it cannot be combined with `cancel-in-progress`. The workflow-level
+group applies to runs, the job-level one to jobs.
+
+Timeouts: `timeout-minutes` of a job (default 360) counts only the time spent `in_progress`, so
+pauses and holds do not consume it. Paused and held time has its own limit, `max_pause` (default
+24 hours) and the hold duration ([02-workflows.md](02-workflows.md)); when it runs out, the job is
+cancelled or released as failed. A paused or held job keeps its agent slot, and the queue page
+says which slots are occupied this way.
+
+## The journal
+
+Everything that happens to a run is an event in its journal, the table `run_event`: an
+ever-increasing sequence number, the run, the attempt, the job, the execution and the step it
+concerns where applicable, the kind, the actor (`user`, `token`, `agent`, `plugin` or `system`,
+with its identity), a JSON payload, and the time. The status columns of runs, jobs and steps are a
+projection of the journal, written in the same transaction as the event, so reading a status never
+requires replaying events and the journal never disagrees with it.
+
+The journal is the source for:
+
+- the history panel of the run page: who paused what, who approved with which inputs, which
+  conclusion was set by an operator and why;
+- the event stream of the API ([11-api.md](11-api.md));
+- the outbox that updates statuses on the forge, sends notifications and delivers outgoing
+  webhooks, so a side effect is never lost when a replica dies after a commit.
+
+## Operator commands
+
+A command is a request to change a run: `{ type, target, args, reason }`, where `target` names the
+run and, as needed, the attempt, the job and the step. Commands arrive through
+`POST /api/v1/runs/{run}/commands` with an `Idempotency-Key`, from the web interface, the CLI, MCP
+or a plugin; all four use the same endpoint. The server checks the permission and the state of the
+target, applies the effect in one transaction with the event that records it, and returns the
+event. A command that is not valid in the current state is refused with the reason and is recorded
+as well. Effects on a running job are delivered to its agent as control messages
+([05-execution.md](05-execution.md)); the agent confirms them, and the confirmation is an event too.
+
+| Command | Valid when | Effect | Permission |
+|---------|-----------|--------|------------|
+| `run.cancel` | run not completed | waiting and queued jobs are cancelled at once; running jobs are cancelled on the agent, where steps whose `if` admits cancellation and post steps still run | `run.cancel` |
+| `run.force-cancel` | after `run.cancel` | running jobs are killed without the remaining steps | `run.cancel` |
+| `run.pause` | run not completed | no job of the run starts or continues past a step boundary; gates still record approvals but release nothing | `run.control` |
+| `run.resume` | run paused | lifts the pause | `run.control` |
+| `run.admit` | run from a fork waiting for admission | lets its jobs proceed ([08-access.md](08-access.md)) | `run.override` |
+| `run.rerun` | run completed | new attempt re-running every job; `debug` switches on debug logging and hold-on-failure | `run.rerun`, and `job.debug` for `debug` |
+| `run.rerun-failed` | run completed | new attempt re-running failed and cancelled jobs and their dependents; `debug` as above | `run.rerun`, and `job.debug` for `debug` |
+| `job.cancel` | job not completed | cancels this job only; dependents see `cancelled` | `run.cancel` |
+| `job.pause` | job not completed | before start: held back from dispatch; running: stops at the next step boundary | `run.control` |
+| `job.resume` | job `paused`, or `waiting` with reason `paused` | continues | `run.control` |
+| `job.skip` | job not started | completes it as `skipped`, source `operator`; dependents follow their `if` | `run.control` |
+| `job.mark-success` | job not started, or held | completes it as `success`, source `operator`, with `outputs` supplied in the command; a held job is torn down first | `run.override` |
+| `job.rerun` | run completed | new attempt re-running this job and, unless `dependents: false`, every job that depends on it | `run.rerun` |
+| `job.prioritise` | job queued or waiting | changes its priority | `run.control` |
+| `job.pin` | job queued | restricts it to one agent that satisfies its labels and pool | `agent.manage` |
+| `step.skip` | step pending | the step completes as `skipped`, source `operator` | `run.control` |
+| `step.breakpoint` | step pending | sets or clears a pause before or after the step | `run.control` |
+| `step.abort` | step running | kills the step's processes; `as` is `failure` (default) or `skipped` | `run.control`; `run.override` for `as: skipped` |
+| `hold.retry-step` | job held | re-executes the failed step in the same environment | `job.debug` |
+| `hold.continue` | job held | treats the failed step as `skipped` or `success` and continues with the next step | `run.override` |
+| `hold.release` | job held | ends the job as failed after its remaining cleanup | `job.debug` |
+| `hold.extend` | job held | extends the hold up to the installation cap | `job.debug` |
+| `approval.approve` | gate or environment waiting for approval | counts one approval; for a gate, `inputs` supplies its input values | listed approver |
+| `approval.reject` | same | completes the job as `failure` | listed approver |
+| `approval.bypass` | environment waiting, and its rules allow administrators to bypass | admits the job without approvals | `environment.bypass` |
+
+`job.mark-success` validates the supplied outputs against the job's declared output names. Outputs
+of a job marked succeeded are what dependents see in `needs.<job>.outputs`, so an operator can
+replace the result of a step that cannot run today (for example, give a deploy job the version an
+earlier release already published) without editing the workflow.
+
+The inputs of a run never change after it is created. Values chosen mid-run flow through gate
+inputs and through the outputs of `job.mark-success`; anything else is a new run. "Run again with
+changes" in the interface creates a new run from an existing one with edited inputs, ref or source
+draft, linked to the original by `derived_from`.
+
+A pause takes effect at a step boundary: the agent checks for a pause request and for a breakpoint
+before it starts each step and after it finishes each step. A step that is running is never
+interrupted by a pause; `step.abort` is the way to interrupt it.
+
+## Re-runs and attempts
+
+A re-run is allowed once the run is completed, and adds attempt N+1. The jobs chosen for re-running
+start again from `pending`; every other job of the previous attempt is carried into the new
+attempt with its conclusion, outputs, logs and artifacts, by reference. `github.run_attempt` is the
+new number; `github.run_number` and `github.run_id` stay. A re-run uses the revision and the IR
+snapshot of the run, never the current workflow file, as the target syntax does.
+
+Artifacts of carried jobs belong to the new attempt as well, so a re-run job can download what a
+carried job uploaded. A debug re-run sets `RUNNER_DEBUG=1`, `ACTIONS_STEP_DEBUG=true` and
+`ACTIONS_RUNNER_DEBUG=true` and switches on hold-on-failure for every job it re-runs.
+
+A re-run requested from the forge (the "re-run" button of a check) is mapped to `job.rerun` or
+`run.rerun-failed`, with the forge user as the actor, when that user is linked to a Bosun user with
+`run.rerun` on the project.
+
+## Gates and environments
+
+A job is `waiting` for one of these reasons, which the run page shows:
+
+| Reason | Ends when |
+|--------|-----------|
+| `untrusted` | a maintainer admits the run from a fork with `run.admit` |
+| `approval` | the gate or the environment has enough approvals, or a rejection |
+| `wait_timer` | the environment's wait timer has run out |
+| `policy` | an admission policy plugin admits the job, or denies it |
+| `concurrency` | the concurrency group has room |
+| `max_parallel` | the job group has room |
+| `paused` | the job or the run is resumed |
+
+Environments are defined in Bosun, per organisation or per project, and carry protection rules,
+secrets and variables. Protection rules: required reviewers (users and teams) with a minimum number
+of approvals, prevention of self-review (the actor of the run cannot approve it), a wait timer,
+patterns of branches and tags allowed to deploy, and whether administrators may bypass. The branch
+pattern is checked first, because it fails at once; the reviewers and the wait timer then run in
+parallel.
+
+An approval request is listed in the approval inbox of every eligible reviewer, in-app, and sent
+through notifier plugins when they exist ([10-plugins.md](10-plugins.md)). Each approval and
+rejection carries the reviewer, an optional comment and, for gates, the inputs; all of it is in the
+journal and visible on the run page.
+
+## Holding a failed job
+
+When a step fails, the failure would end the job, and hold-on-failure applies, the agent does not
+continue: steps that would run after a failure, including `if: always()` steps and post steps, are
+not started yet. The job becomes `held`. The container or the workspace stays as it is, with the
+state the failed step left, including the files behind `GITHUB_ENV` and `GITHUB_OUTPUT`.
+
+An operator then may:
+
+- open a terminal inside the job's environment: a shell in the job container for `podman`, or a
+  shell in the workspace as the agent's user for `shell`, which the agent allows only when its
+  configuration says `allow_terminal = true` ([08-access.md](08-access.md));
+- `hold.retry-step`: run the failed step again, for example after fixing something by hand in the
+  terminal; a success continues the job as if the step had passed;
+- `hold.continue`: treat the failed step as skipped or succeeded and go on;
+- `hold.release`: end the job; the remaining steps that run after a failure run now, then the job
+  completes as `failure`;
+- `hold.extend`: buy time.
+
+The terminal is a pseudo-terminal on the agent, carried over the agent's connection to the server
+and over a WebSocket to the browser. One person types; others with `job.debug` can watch. The
+output of the session passes through the job's masker before it leaves the agent, and is recorded
+in the asciicast format to the object store and linked from the journal; keystrokes are not
+recorded, since a person may type a secret.
