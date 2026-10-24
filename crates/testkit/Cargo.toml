@@ -1,0 +1,17 @@
+[package]
+name = "bosun-testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+bosun-db.workspace = true
+sea-orm.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+url.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

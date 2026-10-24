@@ -18,6 +18,14 @@ schema that a newer version of the same major migrated, because additive migrati
 everything it uses in place, which is what makes rolling updates and rollbacks safe; it refuses to
 start against a schema of a newer major version.
 
+The files are `crates/db/migrations/<milliseconds>-<slug>.up.sql`, embedded in the binary. There
+are no down files, and a test refuses `DROP`, `ALTER … DROP` and `ALTER … TYPE` in any of them.
+`bosun-db` creates the schema `bosun` before the first migration and sets `search_path` to it on
+every connection, so the ledger of sqlmig (`migrations` and `migrations_checksum`) lives there too.
+The migrations seed the trusted pool `default` ([05-execution.md](05-execution.md)). The future of
+sqlmig's `apply` is not `Send`, so the server awaits the migrations on the task that starts it
+rather than spawning them.
+
 **Identifiers** are UUIDv7, ordered by creation time. Two numbers exist for compatibility: a run's
 number among the runs of its workflow (`github.run_number`) and a global number from a sequence
 (`github.run_id`). Times are `timestamptz`.
@@ -45,16 +53,40 @@ run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_
              event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
              status, conclusion, created_at, started_at, completed_at
 attempt      id, run_id, number, reason, actor jsonb, created_at
-job          id, attempt_id, key, group_id, matrix jsonb, needs text[], kind,
+job          id, attempt_id, key, name, group_id, matrix jsonb, needs text[], kind,
              status, waiting_reason, conclusion, conclusion_source, outputs jsonb,
              priority, labels text[], pool_ids uuid[], pinned_agent_id, carried_from,
              queued_at, started_at, completed_at
-execution    id, job_id, number, agent_id, lease_until, status, conclusion, started_at, completed_at
+execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
+             completed_at
 step         id, execution_id, parent_step_id, index, name, status, outcome, conclusion,
              conclusion_source, outputs jsonb, started_at, completed_at
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
              actor jsonb, data jsonb, at
 ```
+
+A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
+`derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `outputs`,
+`pinned_agent_id` and `carried_from` of jobs, `parent_step_id` and `outputs` of steps) arrive with
+their milestones as additive migrations, and the indexes of the queue arrive with the claim
+(step 11 of [../plan.md](../plan.md)).
+
+Statuses, conclusions, reasons, trust levels, capabilities and event kinds are `text` holding the
+names `bosun-types` serialises them to, with neither Postgres enum types nor check constraints, so
+a later milestone adds a value without altering a type. Hashes of credentials, of workflow
+sources and of idempotent requests are SHA-256 in `bytea`.
+
+A row that another row owns references its owner with `ON DELETE CASCADE`: a project its
+organisation, a workflow its project, a revision its workflow, a run its project and its workflow,
+an attempt its run, a job its attempt, an execution its job, a step its execution, a journal event
+its run, a log chunk its execution, a log object its step, a personal token its user and a
+registration token its pool. Deleting a run under `run_retention` therefore removes everything it
+owns in one statement. The other references inside one run (the attempt, job, execution and step
+of a journal event, the step of a log chunk, the execution of a log object) carry no foreign key,
+because the owner already bounds them and a cascade would have to check each of them.
+References to rows that are not owners (the current revision of a workflow, the revision of a
+run, the pool of an agent, the agent of an execution) are plain foreign keys, which refuse to delete what is still referenced. Every
+foreign key column leads an index, which a test asserts.
 
 `idempotency_key` keeps, for 24 hours, the principal, the key, a hash of the request and the
 response of every write that carried an `Idempotency-Key` ([11-api.md](11-api.md)). `label_alias`
@@ -207,6 +239,18 @@ Losing the KEK loses every secret, and the backup instructions say so
 
 ## Tests
 
-Tests run against Postgres only. `bosun-testkit` migrates a template database once per test binary
-and gives each test a fresh database created from it with `CREATE DATABASE … TEMPLATE`. The
-connection comes from `BOSUN_TEST_DATABASE_URL`. There is no in-memory substitute.
+Tests run against Postgres only, on the server that `BOSUN_TEST_DATABASE_URL` names; there is no
+in-memory substitute. `bosun-testkit` gives each test a database of its own:
+`TestDatabase::migrated()` creates it with `CREATE DATABASE … TEMPLATE` from a template that the
+test binary migrates when a test first asks for one, and `TestDatabase::empty()` creates one with
+nothing in it. Dropping the handle drops the database, and the template is dropped with the last
+database made from it, so a test binary that ends leaves nothing on the server. While tests overlap
+the template is migrated once; tests that run strictly one after another rebuild it each time.
+
+Several test processes, from one checkout or from several, share one server at the same time.
+Each process draws an owner, a UUIDv7, at start, names what it creates `bosun_test_<owner>_<n>`
+and `bosun_test_<owner>_template`, and holds a session with the `application_name`
+`bosun_test_<owner>` for as long as it runs, opened before it creates anything. Before its first
+database, a process lists the databases and then the sessions, and drops every database of that
+pattern whose owner has no session: what a crashed or killed process left. Names outside the
+pattern are never touched.
