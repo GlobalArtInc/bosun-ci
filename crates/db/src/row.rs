@@ -1,6 +1,6 @@
 use bosun_types::id::IdError;
 use sea_orm::prelude::Uuid;
-use sea_orm::{DbErr, SqlErr};
+use sea_orm::{DbBackend, DbErr, SqlErr, Statement, Value as Parameter};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -61,4 +61,8 @@ pub(crate) fn taken(error: DbErr, taken: impl FnOnce() -> Error) -> Error {
         Some(SqlErr::UniqueConstraintViolation(_)) => taken(),
         _ => Error::Database(error),
     }
+}
+
+pub(crate) fn statement(sql: &str, values: impl IntoIterator<Item = Parameter>) -> Statement {
+    Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
 }

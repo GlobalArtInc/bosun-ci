@@ -354,9 +354,13 @@ complete, skipping on a failed dependency, queueing, completion of jobs and runs
 conclusions, and `run.cancel` and `job.cancel` through the command endpoint. Every transition is a
 journal event written in the same transaction as the status columns.
 
-**Touches.** `crates/server/`, `crates/db/`.
+**Touches.** `crates/server/` (the planner, the command endpoint, and the agent's `Accept`,
+`StepStarted`, `StepFinished` and `JobFinished`), `crates/db/` (the lock of a run that orders its
+journal, the transitions, the column `cancel_requested_at` of runs), `crates/testkit/` (the fake
+agent sends any message), `Cargo.toml` (`proptest` for the property test).
 
-**Out of scope.** `if`, matrices, gates, environments, every other command.
+**Out of scope.** `if`, matrices, gates, environments, every other command; `Idle`, `Reject` and
+the lease of an assignment, which belong to the queue (step 11).
 
 **Acceptance.**
 

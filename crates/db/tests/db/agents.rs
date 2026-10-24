@@ -3,12 +3,10 @@ use std::time::Duration;
 use bosun_db::agents::{self, NewAgent, NewRegistrationToken, Registration};
 use bosun_db::journal;
 use bosun_testkit::TestDatabase;
-use bosun_types::event::Event;
 use bosun_types::id::{AgentId, ExecutionId, RunId};
-use bosun_types::status::{Conclusion, ConclusionSource, ExecutionStatus, JobStatus, StatusReason};
 use sea_orm::{ConnectionTrait, TransactionTrait};
 
-use crate::rows::{self, AGENT, BUILD, EXECUTION, RUN};
+use crate::rows::{self, AGENT, EXECUTION, RUN};
 use crate::strings;
 
 const MINUTE: Duration = Duration::from_secs(60);
@@ -141,9 +139,9 @@ async fn the_sweep_marks_an_agent_offline_without_a_recent_heartbeat() {
         .expect("the sweep lock");
     assert_eq!(sweep.offline, [(agent_id(), "runner1-1 alone".to_owned())]);
     assert!(
-        sweep.lost.is_empty(),
-        "lost {:?} within the grace",
-        sweep.lost
+        sweep.abandoned.is_empty(),
+        "abandoned {:?} within the grace",
+        sweep.abandoned
     );
     let listed = agents::list(db, None, 10).await.expect("the agents");
     assert!(!listed[0].online);
@@ -156,7 +154,7 @@ async fn the_sweep_marks_an_agent_offline_without_a_recent_heartbeat() {
 }
 
 #[tokio::test]
-async fn the_sweep_fails_the_executions_of_an_agent_that_did_not_come_back_within_the_grace() {
+async fn the_sweep_finds_the_executions_of_an_agent_that_did_not_come_back_within_the_grace() {
     let database = TestDatabase::migrated().await;
     let db = database.connection();
     rows::write(db, "alone").await;
@@ -168,75 +166,55 @@ async fn the_sweep_fails_the_executions_of_an_agent_that_did_not_come_back_withi
         .await
         .expect("a sweep")
         .expect("the sweep lock");
-    assert!(sweep.lost.is_empty());
-    assert_eq!(statuses(db).await, ["in_progress f in_progress f"]);
+    assert!(sweep.abandoned.is_empty());
 
     last_seen(db, false, "11 minutes").await;
     let sweep = agents::sweep(db, MINUTE, 10 * MINUTE)
         .await
         .expect("a sweep")
         .expect("the sweep lock");
-    assert_eq!(sweep.lost, [execution_id()]);
+    assert_eq!(sweep.abandoned, [execution_id()]);
     assert_eq!(
         statuses(db).await,
-        ["completed failure agent_lost t completed failure natural t"]
+        ["in_progress f in_progress f"],
+        "the sweep changed a run, which only the planner of the server does"
     );
-    let after = journal::read(db, run_id, before.last().map_or(0, |event| event.seq))
-        .await
-        .expect("the journal");
-    assert_eq!(after.len(), 2, "{after:#?}");
-    match &after[0].event {
-        Event::ExecutionStatusChanged(changed) => {
-            assert_eq!(changed.from, ExecutionStatus::InProgress);
-            assert_eq!(changed.to, ExecutionStatus::Completed);
-            assert_eq!(changed.conclusion, Some(Conclusion::Failure));
-            assert_eq!(changed.reason, Some(StatusReason::AgentLost));
-        }
-        other => panic!("not an execution status: {other:?}"),
-    }
-    assert_eq!(after[0].execution_id, Some(execution_id()));
-    match &after[1].event {
-        Event::JobStatusChanged(changed) => {
-            assert_eq!(changed.from, JobStatus::InProgress);
-            assert_eq!(changed.to, JobStatus::Completed);
-            assert_eq!(changed.conclusion, Some(Conclusion::Failure));
-            assert_eq!(changed.conclusion_source, Some(ConclusionSource::Natural));
-            assert_eq!(changed.reason, Some(StatusReason::AgentLost));
-        }
-        other => panic!("not a job status: {other:?}"),
-    }
     assert_eq!(
-        after[1].job_id,
-        Some(rows::id(BUILD).try_into().expect("a job id"))
+        journal::read(db, run_id, 0).await.expect("the journal"),
+        before
     );
 
+    execute(
+        db,
+        &format!(
+            "UPDATE bosun.execution SET status = 'completed' WHERE id = '{}'",
+            rows::id(EXECUTION)
+        ),
+    )
+    .await;
     let again = agents::sweep(db, MINUTE, 10 * MINUTE)
         .await
         .expect("a sweep")
         .expect("the sweep lock");
-    assert!(again.lost.is_empty());
+    assert!(again.abandoned.is_empty());
 }
 
 #[tokio::test]
-async fn an_agent_that_comes_back_keeps_the_executions_it_lists_and_loses_the_others() {
+async fn an_agent_that_comes_back_abandons_the_executions_it_does_not_list() {
     let database = TestDatabase::migrated().await;
     let db = database.connection();
     rows::write(db, "alone").await;
 
-    let lost = agents::reconcile(db, agent_id(), &[execution_id()])
+    let abandoned = agents::abandoned(db, agent_id(), &[execution_id()])
         .await
-        .expect("a reconciliation");
-    assert!(lost.is_empty());
-    assert_eq!(statuses(db).await, ["in_progress f in_progress f"]);
+        .expect("the abandoned executions");
+    assert!(abandoned.is_empty());
 
-    let lost = agents::reconcile(db, agent_id(), &[])
+    let abandoned = agents::abandoned(db, agent_id(), &[])
         .await
-        .expect("a reconciliation");
-    assert_eq!(lost, [execution_id()]);
-    assert_eq!(
-        statuses(db).await,
-        ["completed failure agent_lost t completed failure natural t"]
-    );
+        .expect("the abandoned executions");
+    assert_eq!(abandoned, [execution_id()]);
+    assert_eq!(statuses(db).await, ["in_progress f in_progress f"]);
 }
 
 #[tokio::test]

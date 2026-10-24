@@ -9,6 +9,7 @@ mod pools;
 mod rows;
 mod runs;
 mod tenancy;
+mod transitions;
 mod users;
 mod workflows;
 

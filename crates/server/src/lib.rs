@@ -1,5 +1,6 @@
 mod agents;
 mod auth;
+mod commands;
 mod config;
 mod dispatch;
 mod envelope;
@@ -11,10 +12,13 @@ mod keys;
 mod me;
 mod organisations;
 mod owner;
+mod planner;
 mod projects;
 mod request;
 mod shutdown;
 mod slug;
+#[cfg(test)]
+mod tests;
 mod token;
 mod trace;
 mod workflows;
@@ -113,6 +117,7 @@ fn app(state: AppState, connector: agents::Connector, shutdown: shutdown::Shutdo
         .merge(organisations::routes())
         .merge(projects::routes())
         .merge(workflows::routes())
+        .merge(commands::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner));
     let http = Router::new()
         .route("/healthz", get(health::alive))

@@ -2,6 +2,7 @@ use sea_orm::DatabaseConnection;
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{info, warn};
 
+use super::progress;
 use crate::config::Agents;
 
 pub(crate) async fn run(db: DatabaseConnection, settings: Agents) {
@@ -19,13 +20,21 @@ pub(crate) async fn run(db: DatabaseConnection, settings: Agents) {
                         "an agent went offline without a heartbeat"
                     );
                 }
-                for execution_id in sweep.lost {
-                    warn!(
-                        %execution_id,
-                        grace_ms = settings.grace.as_millis(),
-                        "an execution failed because its agent did not come back within the \
-                         grace period"
-                    );
+                for execution_id in sweep.abandoned {
+                    match progress::lose_after_grace(&db, execution_id).await {
+                        Ok(true) => warn!(
+                            %execution_id,
+                            grace_ms = settings.grace.as_millis(),
+                            "an execution failed because its agent did not come back within the \
+                             grace period"
+                        ),
+                        Ok(false) => {}
+                        Err(error) => warn!(
+                            %execution_id,
+                            %error,
+                            "an execution whose agent did not come back could not be failed"
+                        ),
+                    }
                 }
             }
             Ok(None) => {}

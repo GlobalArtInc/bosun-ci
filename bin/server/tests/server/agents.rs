@@ -109,8 +109,8 @@ async fn executions(db: &DatabaseConnection, agents: &[AgentId]) -> Vec<Executio
              VALUES ('{workflow}', '{project}', 'ci', 'server'); \
              INSERT INTO bosun.workflow_revision (id, workflow_id, sha256, source) \
              VALUES ('{revision}', '{workflow}', '\\x00', 'name: ci'); \
-             INSERT INTO bosun.run (id, project_id, workflow_id, revision_id, ir, number, event, trigger, status) \
-             VALUES ('{run}', '{project}', '{workflow}', '{revision}', '{{}}', 1, 'workflow_dispatch', '{{}}', 'in_progress'); \
+             INSERT INTO bosun.run (id, project_id, workflow_id, revision_id, ir, number, event, trigger, status, started_at) \
+             VALUES ('{run}', '{project}', '{workflow}', '{revision}', '{{}}', 1, 'workflow_dispatch', '{{}}', 'in_progress', now()); \
              INSERT INTO bosun.attempt (id, run_id, number, actor) \
              VALUES ('{attempt}', '{run}', 1, '{{\"kind\": \"system\"}}')"
         ),
@@ -123,10 +123,10 @@ async fn executions(db: &DatabaseConnection, agents: &[AgentId]) -> Vec<Executio
         execute(
             db,
             &format!(
-                "INSERT INTO bosun.job (id, attempt_id, key, name, status) \
-                 VALUES ('{job}', '{attempt}', 'job{number}', 'job{number}', 'in_progress'); \
-                 INSERT INTO bosun.execution (id, job_id, number, agent_id, status) \
-                 VALUES ('{execution}', '{job}', 1, '{agent}', 'in_progress')"
+                "INSERT INTO bosun.job (id, attempt_id, key, name, status, started_at) \
+                 VALUES ('{job}', '{attempt}', 'job{number}', 'job{number}', 'in_progress', now()); \
+                 INSERT INTO bosun.execution (id, job_id, number, agent_id, status, started_at) \
+                 VALUES ('{execution}', '{job}', 1, '{agent}', 'in_progress', now())"
             ),
         )
         .await;
@@ -461,6 +461,25 @@ async fn a_control_message_reaches_the_agent_through_the_replica_that_holds_its_
     )
     .await;
     assert_eq!(recorded, expected);
+    for (server, execution) in [(&mut b, executions[0]), (&mut a, executions[1])] {
+        server
+            .expect(
+                "that the execution its agent came back without failed",
+                |line| {
+                    message(line) == "an execution failed because its agent came back without it"
+                        && line["execution_id"] == execution.to_string()
+                },
+            )
+            .await;
+    }
+    assert_eq!(
+        strings(
+            db,
+            "SELECT concat_ws(' ', status, conclusion) AS value FROM bosun.run"
+        )
+        .await,
+        ["completed failure"]
+    );
 
     let to_first = control::publish(db, executions[0], Kind::Cancel)
         .await

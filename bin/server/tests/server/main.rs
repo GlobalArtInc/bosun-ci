@@ -1,6 +1,7 @@
 mod agents;
 mod api;
 mod auth;
+mod commands;
 mod config;
 mod health;
 mod http;

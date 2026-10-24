@@ -1,5 +1,6 @@
 mod admission;
 mod http;
+pub(crate) mod progress;
 mod replica;
 mod stream;
 mod sweep;

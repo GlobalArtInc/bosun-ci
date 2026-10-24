@@ -134,11 +134,26 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
   ([02-workflows.md](02-workflows.md)). `GET /workflows/{workflow}/revisions` lists newest first.
 - `POST /workflows/{workflow}/dispatch` takes `ref` and `inputs` and answers `201` with the run,
   `queued`, whose actor is the token of the request. In the same transaction it creates attempt 1,
-  one `pending` job per job template and their journal events, and stores the IR of the current
-  revision as lowered by this server ([04-runs.md](04-runs.md)). A project without a repository has
+  one `pending` job per job template and their journal events, stores the IR of the current
+  revision as lowered by this server, and plans the run, so the jobs that need no other job are
+  `queued` when the response leaves ([04-runs.md](04-runs.md)). A project without a repository has
   no refs, so `ref` must be `null`; until `workflow_dispatch` inputs arrive in M1, every input is an
   `invalid_input` naming `inputs.<name>`. A disabled workflow, and a current revision that this
   server's parser refuses, are `409 invalid_state`, the latter with its diagnostics.
+
+### Commands
+
+- `POST /runs/{run}/commands` takes a command, `{ "type", "target", "reason" }` with
+  `"target": { "attempt", "job", "step" }` (each `null` when it does not apply) and, for commands
+  that take them, `"args"`; M0 takes `run.cancel` and `job.cancel`
+  ([04-runs.md](04-runs.md#operator-commands)). An accepted command answers `201` with its
+  `command.accepted` event. A command the state of its target refuses answers `409 invalid_state`
+  with the reason, such as ``the run is completed; `run.cancel` needs a run that is not completed``,
+  and is recorded as `command.refused`. A type the endpoint does not take, and a target the command
+  does not take, are `422 invalid_input`, the latter naming `target.job`, `target.step` or
+  `target.attempt`, and neither is recorded. `{run}` is a run's id; any other segment, and a run
+  that does not exist, are `404 not_found`. A repeated `Idempotency-Key` returns the first
+  `command.accepted`; a refusal is not kept for its key, so repeating it records another one.
 
 ## The event stream
 

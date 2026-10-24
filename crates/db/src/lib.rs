@@ -3,6 +3,7 @@ pub mod control;
 pub mod entity;
 mod error;
 pub mod idempotency;
+mod jobs;
 pub mod journal;
 pub mod organisations;
 pub mod pools;

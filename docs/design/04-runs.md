@@ -19,7 +19,9 @@ who may give which command is in [08-access.md](08-access.md).
 - An **execution** is one placement of a job on an agent. A job has more than one execution only
   when job-level `retry` re-queued it.
 - A **step** belongs to an execution. Steps of composite actions are nested under the step that
-  used the action; pre and post steps of actions are steps of their own.
+  used the action; pre and post steps of actions are steps of their own. The steps of an execution
+  are created `pending` when its agent starts the job, one per step of the job template, each named
+  by its `name` or else by `Run ` and the first line of its script.
 
 ## States
 
@@ -44,8 +46,10 @@ who may give which command is in [08-access.md](08-access.md).
 Conclusions are `success`, `failure`, `cancelled`, `skipped` and `timed_out`; a run can also end
 with `startup_failure` when its workflow is invalid. A step has an `outcome` (the result before
 `continue-on-error`) and a `conclusion` (after it), as in the target syntax. Every conclusion has a
-**source**: `natural`, or `operator` when a command set it; the source is shown everywhere the
-conclusion is, and is part of the API.
+**source**: `natural`, or `operator` when a command chose it (`job.skip`, `job.mark-success`,
+`step.skip`, `hold.continue`); the source is shown everywhere the conclusion is, and is part of the
+API. A cancellation is not a chosen result, so a job or a step that a cancel command ends is
+`cancelled` with the source `natural`, and the reason `command` names its cause.
 
 ```
 pending ──needs complete, if true──▶ waiting ──rules satisfied──▶ queued ──▶ assigned ──▶ in_progress
@@ -114,6 +118,9 @@ The transitions of a step, exhaustively:
 | `in_progress` | `completed` | the step ends, `step.abort`, cancellation |
 | `completed` | `in_progress` | `hold.retry-step`, and nothing else |
 
+When an execution completes, its steps that have not completed complete with it: a `pending` one as
+`skipped`, since the job ended before it, and one still `in_progress` as `cancelled`.
+
 `bosun-types` holds these four tables as code and refuses every other transition; a test reads the
 tables from this document and compares them with the code.
 
@@ -123,17 +130,29 @@ When a trigger is accepted, the server finds the workflows whose `on` matches it
 transaction per workflow, creates the run, attempt 1, and one job per template in status
 `pending`. It evaluates `run-name` and the workflow-level `concurrency` at that moment. A reusable
 workflow named by a job is fetched and validated now, so a missing or invalid callee ends the run
-with `startup_failure` before anything executes.
+with `startup_failure` before anything executes. The planner then runs in the same transaction, so
+the jobs that need no other job leave it `queued`.
+
+The planner runs in the transaction of every change that can make a job ready or end a run: the
+dispatch, an agent starting or finishing a job, a cancel command and the loss of an agent. It holds
+the run's lock ([07-storage.md](07-storage.md)), so two jobs that complete at once are planned one
+after the other and their dependent sees both. After deciding the jobs it settles the run's status
+from them, as the state table defines it: `in_progress` once a job has started, `completed` when
+every job is.
 
 A pending job becomes ready when every job in its `needs` is complete. The server then evaluates,
 in this order:
 
-1. `if`, with the status functions over `needs`. False completes the job as `skipped`.
+1. `if`, with the status functions over `needs`. False completes the job as `skipped` with the
+   reason `if_false`. Without an `if` the job behaves as `if: success()`, which is false when any of
+   its ancestors did not succeed ([03-expressions.md](03-expressions.md)); in M0, which has no
+   `if`, this is the whole evaluation, so a job after a failed, skipped or cancelled one is skipped.
 2. `strategy`. A matrix expands into member jobs here, in status `pending` with their `needs`
    already met, and each member continues from step 3. An empty matrix completes the group as
    `failure` with an error that names the empty vector, as the target does.
 3. `runs-on`, `environment`, `concurrency`, `timeout-minutes`, `continue-on-error`, `container`
-   and `services` (image and credentials).
+   and `services` (image and credentials). `runs-on` gives the job its labels, stored lowercased,
+   and the pools it may run in ([07-storage.md](07-storage.md)).
 4. The admission rules: the environment's protection rules, the admission policies of plugins,
    the concurrency group, and a pause of the run or the job. While any of them holds the job back,
    it is `waiting` with the reason recorded. A branch policy that excludes the ref, or a policy that
@@ -147,9 +166,11 @@ failed without `continue-on-error`, `cancelled` when a member was cancelled, and
 otherwise. `fail-fast`, true by default, cancels the remaining members of a group when one fails.
 `max-parallel` keeps the members beyond the limit in `waiting` with reason `max_parallel`.
 
-The run completes when every job of the attempt is complete. Its conclusion is `failure` when a
-job failed without `continue-on-error`, `cancelled` when the run was cancelled, `skipped` when
-every job was skipped, and `success` otherwise.
+The run completes when every job of the attempt is complete. Its conclusion is the first of these
+that holds: `failure` when a job failed or timed out without `continue-on-error`, `cancelled` when
+the run or one of its jobs was cancelled, `skipped` when every job was skipped, and `success`
+otherwise. A run that accepted `run.cancel` ends `cancelled` unless a job failed, even when its last
+running job then finished well before the cancel reached it.
 
 ## Dispatch
 
@@ -186,9 +207,12 @@ says which slots are occupied this way.
 Everything that happens to a run is an event in its journal, the table `run_event`: an
 ever-increasing sequence number, the run, the attempt, the job, the execution and the step it
 concerns where applicable, the kind, the actor (`user`, `token`, `agent`, `plugin` or `system`,
-with its identity), a JSON payload, and the time. The status columns of runs, jobs and steps are a
-projection of the journal, written in the same transaction as the event, so reading a status never
-requires replaying events and the journal never disagrees with it.
+with its identity), a JSON payload, and the time. The status columns of runs, jobs, executions and
+steps are a projection of the journal, written in the same transaction as the event, so reading a
+status never requires replaying events and the journal never disagrees with it; a run's
+`cancel_requested_at` belongs to the projection too, set by the `command.accepted` of a
+`run.cancel`. A property test drives random job graphs with random step results, commands and lost
+agents, and checks after every transaction that the columns equal a replay of the journal.
 
 An event has this shape, the same in the database, in the API and in the event stream:
 
@@ -265,9 +289,24 @@ as well. Effects on a running job are delivered to its agent as control messages
 ([05-execution.md](05-execution.md)); the agent confirms them, and the confirmation is recorded on
 the control message and becomes a journal event with the kinds later milestones add.
 
+An accepted command answers `201` with its `command.accepted` event, which precedes in the journal
+every effect it causes; the effects carry the command's actor, and what the planner does after them
+the actor `system`. A refused one answers `409 invalid_state` with the reason, and its
+`command.refused` event is committed all the same. A target the command does not take is
+`422 invalid_input` naming the field, and is not recorded: a job or a step for `run.cancel`, no job
+or a job of another run for `job.cancel`, a step for `job.cancel`, and an attempt other than the
+current one. M0 serves `run.cancel` and `job.cancel`; the other commands arrive with the milestones
+that give them their effects.
+
+A cancellation completes a job that is not on an agent at once, and an assigned one together with
+its execution, as `cancelled` with the reason `command`; a job running on an agent is cancelled
+there through a `cancel` control message, also sent for an assigned one in case its agent starts it,
+and completes when the agent reports it or is lost. `run.cancel` cancels every job that is not
+complete and records the request on the run, so nothing of the run is queued or started after it.
+
 | Command | Valid when | Effect | Permission |
 |---------|-----------|--------|------------|
-| `run.cancel` | run not completed | waiting and queued jobs are cancelled at once; running jobs are cancelled on the agent, where steps whose `if` admits cancellation and post steps still run | `run.cancel` |
+| `run.cancel` | run not completed | pending, waiting, queued and assigned jobs are cancelled at once; running jobs are cancelled on the agent, where steps whose `if` admits cancellation and post steps still run | `run.cancel` |
 | `run.force-cancel` | after `run.cancel` | running jobs are killed without the remaining steps | `run.cancel` |
 | `run.pause` | run not completed | no job of the run starts or continues past a step boundary; gates still record approvals but release nothing | `run.control` |
 | `run.resume` | run paused | lifts the pause | `run.control` |

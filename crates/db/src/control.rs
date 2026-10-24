@@ -1,12 +1,10 @@
 use bosun_types::id::{AgentId, ExecutionId};
 use sea_orm::prelude::Uuid;
 use sea_orm::sqlx::postgres::PgListener;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue, ConnectionTrait, DbBackend, QueryResult, Statement,
-    TransactionTrait, Value,
-};
+use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait, QueryResult, TransactionTrait};
 
 use crate::entity::control_message;
+use crate::row::statement;
 use crate::{Error, row, sqlx_error};
 
 const TABLE: &str = "control_message";
@@ -181,8 +179,4 @@ fn decode(found: QueryResult) -> Result<Control, Error> {
         execution_id: row::id(TABLE, found.try_get::<Uuid>("", "execution_id")?)?,
         kind: Kind::parse(&found.try_get::<String>("", "kind")?)?,
     })
-}
-
-fn statement(sql: &str, values: impl IntoIterator<Item = Value>) -> Statement {
-    Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
 }

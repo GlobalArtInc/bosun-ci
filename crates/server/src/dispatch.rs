@@ -10,7 +10,7 @@ use sea_orm::TransactionTrait;
 use crate::auth::Principal;
 use crate::envelope::ApiError;
 use crate::request::{Body, Faults, Segment, database, failed};
-use crate::{AppState, idempotency, workflows};
+use crate::{AppState, idempotency, planner, workflows};
 
 pub(crate) async fn dispatch(
     State(state): State<AppState>,
@@ -76,7 +76,7 @@ pub(crate) async fn dispatch(
         body.diagnostics = diagnostics;
         ApiError(body)
     })?;
-    let run = bosun_db::runs::dispatch(
+    let run = planner::dispatch(
         &transaction,
         NewRun {
             workflow: &workflow,

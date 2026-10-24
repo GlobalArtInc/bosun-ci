@@ -1,4 +1,4 @@
-use bosun_types::id::ExecutionId;
+use bosun_types::id::{ExecutionId, RunId};
 use sea_orm::DbErr;
 
 #[derive(Debug, thiserror::Error)]
@@ -35,4 +35,22 @@ pub enum Error {
     NewerSchema { found: i32, supported: i32 },
     #[error("there is no execution {0}")]
     NoExecution(ExecutionId),
+    #[error("{entity} {id} cannot go from `{from}` to `{to}`")]
+    Transition {
+        entity: &'static str,
+        id: String,
+        from: String,
+        to: String,
+    },
+    #[error("{0} is not part of the current attempt of run {1}")]
+    Outside(String, RunId),
+    #[error("execution {execution} has no step {index}")]
+    NoStep { execution: ExecutionId, index: u32 },
+    #[error(
+        "execution {execution} is `{status}`, and its steps change only while it is in progress"
+    )]
+    NotInProgress {
+        execution: ExecutionId,
+        status: String,
+    },
 }

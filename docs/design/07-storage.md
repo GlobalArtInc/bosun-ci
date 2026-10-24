@@ -70,7 +70,7 @@ The central columns:
 workflow     id, project_id, name, source_kind, enabled, revision_id, last_run_number, created_at
 run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_number,
              event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
-             status, conclusion, created_at, started_at, completed_at
+             status, conclusion, cancel_requested_at, created_at, started_at, completed_at
 attempt      id, run_id, number, reason, actor jsonb, created_at
 job          id, attempt_id, key, name, group_id, matrix jsonb, needs text[], kind,
              status, waiting_reason, conclusion, conclusion_source, outputs jsonb,
@@ -85,9 +85,12 @@ run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, k
 ```
 
 A run's `trigger` holds the actor and the payload of the event, `{"actor": …, "payload": …}`; for
-`workflow_dispatch` the payload is `{"inputs": …}`. A job is created with its key, display name and
-`needs`; its `labels` and `pool_ids` are written when the planner evaluates `runs-on` as the job
-becomes ready ([04-runs.md](04-runs.md)).
+`workflow_dispatch` the payload is `{"inputs": …}`. A run's `cancel_requested_at` is the time an
+accepted `run.cancel` reached it. A job is created with its key, display name and `needs`; its
+`labels` and `pool_ids` are written when the planner evaluates `runs-on` as the job becomes ready
+([04-runs.md](04-runs.md)). `labels` are lowercased; `pool_ids` are the pools the job may run in:
+the pool `runs-on.group` names, none when no pool has that name, and without a group every pool
+open to the project, which until pool access lists arrive in M1 is every pool.
 
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
 `derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `outputs`,
@@ -125,6 +128,37 @@ row older than 24 hours is ignored and replaced when its key comes again. `label
 maps a label such as `ubuntu-latest` to a pool, a capability and a default image, per installation
 or per organisation.
 
+### The journal
+
+`run_event.seq` is a `bigserial`, and Postgres draws its value when the row is inserted, not when
+the transaction commits. Without more, a reader that asks for the events after the last number it
+saw could miss an event that commits later with a lower number. Bosun gives every reader of one
+run's journal a commit-ordered view with a lock per run: a transaction that changes the state of a
+run first takes the run's row lock (`SELECT … FROM run … FOR NO KEY UPDATE`), appends to its
+journal only while it holds it, and holds it until it ends. The transactions that change one run
+therefore run one after another, each draws its sequence numbers after the previous one committed,
+and within a run the order of the numbers is the order of the commits: a reader that resumes after
+the last number it saw of a run misses nothing and repeats nothing. The same lock is what the
+planner needs, since two jobs completing at once in two transactions would otherwise both miss the
+other and leave their dependent `pending`. `FOR NO KEY UPDATE` rather than `FOR UPDATE` leaves
+inserts of rows that reference the run free, because their foreign key check takes
+`FOR KEY SHARE`. Creating a run needs no lock, since no other transaction sees the run before the
+creating one commits.
+
+Rows are locked in one order to rule out deadlocks: the run, then its jobs, executions and steps,
+then agents, whose row a control message takes `FOR SHARE`. A transaction that holds an agent's row,
+such as the sweep that marks agents offline, takes no run's lock; the sweep fails abandoned
+executions afterwards, one transaction each. The claim of the queue takes the job and its run's
+lock with `SKIP LOCKED`, so it never waits for a run that another transaction is changing.
+
+The lock orders the journal of one run, not the journal of all runs. A reader across runs, such as
+the event stream filtered by project ([11-api.md](11-api.md)), arrives with a cursor of its own:
+each event records its transaction (`pg_current_xact_id()`), and the stream reads only the events of
+transactions older than the oldest one still running (`pg_snapshot_xmin(pg_current_snapshot())`),
+in the order of transaction and sequence number, resuming after the pair it last delivered. Every
+transaction below that horizon has ended, so nothing appears behind the cursor; a long transaction
+delays the stream by its length. The column arrives with the stream.
+
 ## The queue
 
 The queue is the set of `job` rows in status `queued`. A partial index on
@@ -136,7 +170,8 @@ in the agent's labels, whose pools include the agent's pool, and whose trust mat
 (jobs of untrusted runs only in untrusted pools, jobs of trusted runs only in trusted pools),
 order them by priority, by the
 project's ratio of running jobs to its weight, and by `queued_at`, take the first with
-`FOR UPDATE SKIP LOCKED`, create its execution with `lease_until` 30 seconds ahead, and set the job
+`FOR UPDATE SKIP LOCKED`, together with the lock of its run ([The journal](#the-journal)), create
+its execution with `lease_until` 30 seconds ahead, and set the job
 to `assigned`. Two replicas claiming for two agents at the same moment never take the same job and
 never wait on each other.
 

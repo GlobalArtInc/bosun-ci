@@ -1,5 +1,6 @@
 use bosun_types::api::Pool;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use bosun_types::id::PoolId;
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::entity::pool;
 use crate::{Error, row};
@@ -26,4 +27,20 @@ pub async fn named<C: ConnectionTrait>(db: &C, name: &str) -> Result<Option<Pool
             })
         })
         .transpose()
+}
+
+pub async fn eligible<C: ConnectionTrait>(
+    db: &C,
+    group: Option<&str>,
+) -> Result<Vec<PoolId>, Error> {
+    let mut query = pool::Entity::find().order_by_asc(pool::Column::Id);
+    if let Some(group) = group {
+        query = query.filter(pool::Column::Name.eq(group));
+    }
+    query
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|pool| row::id("pool", pool.id))
+        .collect()
 }

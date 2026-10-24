@@ -98,6 +98,17 @@ names both versions. The server composes the agent's labels from the `Hello`: `s
 operating system, the architecture and one label per capability, followed by the configured labels,
 all lowercased; they replace the labels given at registration.
 
+**Reports.** The server applies what an agent reports about an execution it holds, each report in
+a transaction of its own under the run's lock ([07-storage.md](07-storage.md)), and plans the run
+after it ([04-runs.md](04-runs.md)). `Accept` starts the execution and its job and creates the
+job's steps; `StepStarted` and `StepFinished` move a step, with the times the agent gives;
+`JobFinished` completes the execution with its conclusion, the steps it left open and the job. A
+report about an execution of another agent, or one that does not fit the execution's state, such as
+a `StepStarted` for a step that already started or an `Accept` for an assignment a cancel already
+completed, is ignored and logged at warning level; a report whose execution id or conclusion is
+malformed ends the stream like any other breach of the protocol. `Idle`, `Reject` and the lease of
+an assignment belong to the queue ([07-storage.md](07-storage.md)).
+
 The heartbeat interval is the setting `agents.heartbeat_interval` (default 30 seconds), which the
 `Welcome` carries; a `Heartbeat` refreshes the agent's `last_seen_at`. A stream on which the agent
 sends nothing for `agents.offline_after` (default 60 seconds) is ended by the server with
@@ -117,7 +128,10 @@ reconciles them: the executions it holds for the agent that the `Hello` does not
 as `failure` with the reason `agent_lost`, since the agent came back without them. When it does
 not reconnect in time, the sweep completes its executions the same way, or re-queues them when the
 job's `retry.when` includes `agent-lost`. Completing an execution this way also completes its job
-as `failure` with the reason `agent_lost`, each with its journal event.
+as `failure` with the reason `agent_lost`, each with its journal event, and the planner takes the
+run on in the same transaction. The sweep finds such executions under its advisory lock and fails
+each one in a transaction of its own under its run's lock, after checking again that its agent is
+still offline; a reconnecting agent's executions are failed the same way, after its `Hello`.
 
 **Several server replicas.** An agent's stream ends on one replica, which records itself as the
 agent's current replica (`agent.replica_id`) and clears that when the stream ends. Control messages

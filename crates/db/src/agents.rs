@@ -1,27 +1,25 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use bosun_types::actor::Actor;
 use bosun_types::api::{Agent, Capability};
-use bosun_types::event::{Event, ExecutionStatusChanged, JobStatusChanged};
 use bosun_types::id::{AgentId, ExecutionId, PoolId, RegistrationTokenId};
-use bosun_types::status::{Conclusion, ConclusionSource, ExecutionStatus, JobStatus, StatusReason};
+use bosun_types::status::ExecutionStatus;
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait,
-    QueryFilter, QueryOrder, QueryResult, QuerySelect, Statement, TransactionTrait, Value,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
+    QueryOrder, QueryResult, QuerySelect, TransactionTrait,
 };
 use serde::Serialize;
 
 use crate::entity::{agent, execution, registration_token};
-use crate::journal::{self, NewEvent};
+use crate::row::statement;
 use crate::{Error, row};
 
 const TABLE: &str = "agent";
 
 const SWEEP_LOCK: i64 = i64::from_be_bytes(*b"bosunagt");
 
-const RUNNING: [ExecutionStatus; 3] = [
+pub const RUNNING: [ExecutionStatus; 3] = [
     ExecutionStatus::InProgress,
     ExecutionStatus::Paused,
     ExecutionStatus::Held,
@@ -63,7 +61,7 @@ pub struct Connection {
 
 pub struct Sweep {
     pub offline: Vec<(AgentId, String)>,
-    pub lost: Vec<ExecutionId>,
+    pub abandoned: Vec<ExecutionId>,
 }
 
 pub async fn create_registration_token<C: ConnectionTrait>(
@@ -264,19 +262,18 @@ pub async fn sweep<C: TransactionTrait>(
             [running_names()?.into(), grace.as_secs_f64().into()],
         ))
         .await?;
-    let lost = lose_all(&transaction, abandoned).await?;
+    let abandoned = executions(abandoned)?;
     transaction.commit().await?;
-    Ok(Some(Sweep { offline, lost }))
+    Ok(Some(Sweep { offline, abandoned }))
 }
 
-pub async fn reconcile<C: TransactionTrait>(
+pub async fn abandoned<C: ConnectionTrait>(
     db: &C,
     agent: AgentId,
     running: &[ExecutionId],
 ) -> Result<Vec<ExecutionId>, Error> {
-    let transaction = db.begin().await?;
     let kept: Vec<Uuid> = running.iter().copied().map(Uuid::from).collect();
-    let abandoned = transaction
+    let found = db
         .query_all(statement(
             "SELECT id FROM execution WHERE agent_id = $1 AND status = ANY($2) \
              AND NOT (id = ANY($3)) ORDER BY id",
@@ -287,108 +284,14 @@ pub async fn reconcile<C: TransactionTrait>(
             ],
         ))
         .await?;
-    let lost = lose_all(&transaction, abandoned).await?;
-    transaction.commit().await?;
-    Ok(lost)
+    executions(found)
 }
 
-async fn lose_all<C: ConnectionTrait>(
-    db: &C,
-    executions: Vec<QueryResult>,
-) -> Result<Vec<ExecutionId>, Error> {
-    let mut lost = Vec::with_capacity(executions.len());
-    for found in executions {
-        let id = found.try_get::<Uuid>("", "id")?;
-        if lose(db, id).await? {
-            lost.push(row::id("execution", id)?);
-        }
-    }
-    Ok(lost)
-}
-
-async fn lose<C: ConnectionTrait>(db: &C, execution: Uuid) -> Result<bool, Error> {
-    let Some(found) = db
-        .query_one(statement(
-            "SELECT e.status AS execution_status, e.job_id, j.status AS job_status, \
-             j.attempt_id, a.run_id FROM execution e JOIN job j ON j.id = e.job_id \
-             JOIN attempt a ON a.id = j.attempt_id WHERE e.id = $1 FOR UPDATE OF e, j",
-            [execution.into()],
-        ))
-        .await?
-    else {
-        return Ok(false);
-    };
-    let from: ExecutionStatus = row::name("execution", found.try_get("", "execution_status")?)?;
-    if !RUNNING.contains(&from) {
-        return Ok(false);
-    }
-    let job_id: Uuid = found.try_get("", "job_id")?;
-    let job_from: JobStatus = row::name("job", found.try_get("", "job_status")?)?;
-    let attempt_id: Uuid = found.try_get("", "attempt_id")?;
-    let run_id: Uuid = found.try_get("", "run_id")?;
-    db.execute(statement(
-        "UPDATE execution SET status = $2, conclusion = $3, reason = $4, completed_at = now() \
-         WHERE id = $1",
-        [
-            execution.into(),
-            name(ExecutionStatus::Completed)?.into(),
-            name(Conclusion::Failure)?.into(),
-            name(StatusReason::AgentLost)?.into(),
-        ],
-    ))
-    .await?;
-    let run_id = row::id("attempt", run_id)?;
-    let attempt_id = row::id("job", attempt_id)?;
-    let execution_id = row::id("execution", execution)?;
-    let job = row::id("execution", job_id)?;
-    let event = |event| NewEvent {
-        run_id,
-        attempt_id: Some(attempt_id),
-        job_id: Some(job),
-        execution_id: Some(execution_id),
-        step_id: None,
-        actor: Actor::System,
-        event,
-    };
-    journal::append(
-        db,
-        event(Event::ExecutionStatusChanged(ExecutionStatusChanged {
-            from,
-            to: ExecutionStatus::Completed,
-            conclusion: Some(Conclusion::Failure),
-            reason: Some(StatusReason::AgentLost),
-        })),
-    )
-    .await?;
-    if matches!(
-        job_from,
-        JobStatus::InProgress | JobStatus::Paused | JobStatus::Held
-    ) {
-        db.execute(statement(
-            "UPDATE job SET status = $2, waiting_reason = NULL, conclusion = $3, \
-             conclusion_source = $4, completed_at = now() WHERE id = $1",
-            [
-                job_id.into(),
-                name(JobStatus::Completed)?.into(),
-                name(Conclusion::Failure)?.into(),
-                name(ConclusionSource::Natural)?.into(),
-            ],
-        ))
-        .await?;
-        journal::append(
-            db,
-            event(Event::JobStatusChanged(JobStatusChanged {
-                from: job_from,
-                to: JobStatus::Completed,
-                waiting_reason: None,
-                conclusion: Some(Conclusion::Failure),
-                conclusion_source: Some(ConclusionSource::Natural),
-                reason: Some(StatusReason::AgentLost),
-            })),
-        )
-        .await?;
-    }
-    Ok(true)
+fn executions(found: Vec<QueryResult>) -> Result<Vec<ExecutionId>, Error> {
+    found
+        .into_iter()
+        .map(|found| row::id("execution", found.try_get::<Uuid>("", "id")?))
+        .collect()
 }
 
 async fn running<C: ConnectionTrait>(
@@ -442,8 +345,4 @@ fn name<T: Serialize>(value: T) -> Result<String, Error> {
             message: format!("{other} is not serialised as a name"),
         }),
     }
-}
-
-fn statement(sql: &str, values: impl IntoIterator<Item = Value>) -> Statement {
-    Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
 }

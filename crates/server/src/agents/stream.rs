@@ -5,10 +5,13 @@ use bosun_proto::agent::v1::agent_message::Message as Inbound;
 use bosun_proto::agent::v1::agent_server::Agent;
 use bosun_proto::agent::v1::server_message::Message as Outgoing;
 use bosun_proto::agent::v1::{
-    AgentMessage, Capability as Offered, Hello, ServerMessage, Settings, Welcome,
+    AgentMessage, Capability as Offered, Conclusion as Reported, Hello, ServerMessage, Settings,
+    Welcome,
 };
 use bosun_types::api::{self, Capability};
 use bosun_types::id::{AgentId, ExecutionId};
+use bosun_types::status::Conclusion;
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -19,6 +22,7 @@ use tracing::{Instrument, Span, error, info, warn};
 use uuid::Uuid;
 
 use super::admission::{self, SERVER_VERSION};
+use super::progress::{self, Progress, Reporter, StepEnd};
 use super::replica::{self, Outbound, Replica};
 use super::{LABEL_RULE, valid_label};
 use crate::auth;
@@ -148,14 +152,23 @@ impl Agent for Connector {
             replica_id = %self.replica.id(),
             "an agent connected"
         );
-        match bosun_db::agents::reconcile(&self.db, agent.id, &running).await {
-            Ok(lost) => {
-                for execution_id in lost {
-                    warn!(
-                        agent_id = %agent.id,
-                        %execution_id,
-                        "an execution failed because its agent came back without it"
-                    );
+        match bosun_db::agents::abandoned(&self.db, agent.id, &running).await {
+            Ok(abandoned) => {
+                for execution_id in abandoned {
+                    match progress::lose_forgotten(&self.db, agent.id, execution_id).await {
+                        Ok(true) => warn!(
+                            agent_id = %agent.id,
+                            %execution_id,
+                            "an execution failed because its agent came back without it"
+                        ),
+                        Ok(false) => {}
+                        Err(failure) => warn!(
+                            agent_id = %agent.id,
+                            %execution_id,
+                            error = %failure,
+                            "an execution its agent came back without could not be failed"
+                        ),
+                    }
                 }
             }
             Err(failure) => warn!(
@@ -169,7 +182,10 @@ impl Agent for Connector {
             db: self.db.clone(),
             replica: Arc::clone(&self.replica),
             settings: self.settings,
-            agent: agent.id,
+            reporter: Reporter {
+                id: agent.id,
+                name: agent.name.clone(),
+            },
             number,
             outbound,
         };
@@ -182,7 +198,7 @@ struct Session {
     db: DatabaseConnection,
     replica: Arc<Replica>,
     settings: Agents,
-    agent: AgentId,
+    reporter: Reporter,
     number: u64,
     outbound: Outbound,
 }
@@ -190,16 +206,16 @@ struct Session {
 impl Session {
     async fn run(self, mut inbound: Streaming<AgentMessage>) {
         let reason = self.receive(&mut inbound).await;
-        if !self.replica.detach(self.agent, self.number) {
-            info!(agent_id = %self.agent, reason, "a replaced stream of an agent ended");
+        if !self.replica.detach(self.reporter.id, self.number) {
+            info!(agent_id = %self.reporter.id, reason, "a replaced stream of an agent ended");
             return;
         }
         if let Err(failure) =
-            bosun_db::agents::disconnect(&self.db, self.agent, self.replica.id()).await
+            bosun_db::agents::disconnect(&self.db, self.reporter.id, self.replica.id()).await
         {
-            warn!(agent_id = %self.agent, error = %failure, "an agent could not be recorded as disconnected");
+            warn!(agent_id = %self.reporter.id, error = %failure, "an agent could not be recorded as disconnected");
         }
-        info!(agent_id = %self.agent, reason, "an agent disconnected");
+        info!(agent_id = %self.reporter.id, reason, "an agent disconnected");
     }
 
     async fn receive(&self, inbound: &mut Streaming<AgentMessage>) -> String {
@@ -233,8 +249,9 @@ impl Session {
     async fn handle(&self, message: AgentMessage) -> Result<(), String> {
         match message.message {
             Some(Inbound::Heartbeat(_)) => {
-                if let Err(failure) = bosun_db::agents::heartbeat(&self.db, self.agent).await {
-                    warn!(agent_id = %self.agent, error = %failure, "a heartbeat could not be recorded");
+                if let Err(failure) = bosun_db::agents::heartbeat(&self.db, self.reporter.id).await
+                {
+                    warn!(agent_id = %self.reporter.id, error = %failure, "a heartbeat could not be recorded");
                 }
             }
             Some(Inbound::ControlAck(ack)) => {
@@ -242,29 +259,70 @@ impl Session {
                     .id
                     .parse()
                     .map_err(|_| format!("`{}` is not the id of a control message", ack.id))?;
-                match bosun_db::control::acknowledge(&self.db, self.agent, id, ack.took_effect)
-                    .await
+                match bosun_db::control::acknowledge(
+                    &self.db,
+                    self.reporter.id,
+                    id,
+                    ack.took_effect,
+                )
+                .await
                 {
                     Ok(true) => info!(
-                        agent_id = %self.agent,
+                        agent_id = %self.reporter.id,
                         control_id = %id,
                         took_effect = ack.took_effect,
                         "an agent acknowledged a control message"
                     ),
                     Ok(false) => {}
                     Err(failure) => warn!(
-                        agent_id = %self.agent,
+                        agent_id = %self.reporter.id,
                         control_id = %id,
                         error = %failure,
                         "an acknowledgement could not be recorded"
                     ),
                 }
             }
+            Some(Inbound::Accept(accept)) => {
+                let execution = execution_id(&accept.execution_id)?;
+                let accepted = progress::accepted(&self.db, &self.reporter, execution).await;
+                self.report("Accept", execution, accepted);
+            }
+            Some(Inbound::StepStarted(started)) => {
+                let execution = execution_id(&started.execution_id)?;
+                let recorded = progress::step_started(
+                    &self.db,
+                    &self.reporter,
+                    execution,
+                    started.step_index,
+                    started.started_at.and_then(time),
+                )
+                .await;
+                self.report("StepStarted", execution, recorded);
+            }
+            Some(Inbound::StepFinished(finished)) => {
+                let execution = execution_id(&finished.execution_id)?;
+                let end = StepEnd {
+                    index: finished.step_index,
+                    at: finished.completed_at.and_then(time),
+                    outcome: conclusion(finished.outcome(), "the outcome of a step")?,
+                    conclusion: conclusion(finished.conclusion(), "the conclusion of a step")?,
+                };
+                let recorded =
+                    progress::step_finished(&self.db, &self.reporter, execution, end).await;
+                self.report("StepFinished", execution, recorded);
+            }
+            Some(Inbound::JobFinished(finished)) => {
+                let execution = execution_id(&finished.execution_id)?;
+                let ended = conclusion(finished.conclusion(), "the conclusion of a job")?;
+                let recorded =
+                    progress::job_finished(&self.db, &self.reporter, execution, ended).await;
+                self.report("JobFinished", execution, recorded);
+            }
             Some(Inbound::Hello(_)) => {
                 return Err("a stream carries one Hello, as its first message".to_owned());
             }
             Some(other) => warn!(
-                agent_id = %self.agent,
+                agent_id = %self.reporter.id,
                 kind = kind(&other),
                 "ignored a message this server does not handle yet"
             ),
@@ -272,6 +330,53 @@ impl Session {
         }
         Ok(())
     }
+}
+
+impl Session {
+    fn report(
+        &self,
+        message: &'static str,
+        execution_id: ExecutionId,
+        outcome: Result<Progress, bosun_db::Error>,
+    ) {
+        match outcome {
+            Ok(Progress::Applied) => {}
+            Ok(Progress::Ignored(reason)) => warn!(
+                agent_id = %self.reporter.id,
+                %execution_id,
+                message,
+                reason,
+                "ignored a report that does not fit the state of its execution"
+            ),
+            Err(failure) => warn!(
+                agent_id = %self.reporter.id,
+                %execution_id,
+                message,
+                error = %failure,
+                "a report of an agent could not be recorded"
+            ),
+        }
+    }
+}
+
+fn execution_id(text: &str) -> Result<ExecutionId, String> {
+    text.parse()
+        .map_err(|_| format!("`{text}` is not the id of an execution"))
+}
+
+fn conclusion(reported: Reported, what: &str) -> Result<Conclusion, String> {
+    match reported {
+        Reported::Success => Ok(Conclusion::Success),
+        Reported::Failure => Ok(Conclusion::Failure),
+        Reported::Cancelled => Ok(Conclusion::Cancelled),
+        Reported::Skipped => Ok(Conclusion::Skipped),
+        Reported::TimedOut => Ok(Conclusion::TimedOut),
+        Reported::Unspecified => Err(format!("{what} is not specified")),
+    }
+}
+
+fn time(at: prost_types::Timestamp) -> Option<DateTime<Utc>> {
+    DateTime::from_timestamp(at.seconds, u32::try_from(at.nanos).ok()?)
 }
 
 fn kind(message: &Inbound) -> &'static str {

@@ -149,7 +149,7 @@ impl Connection {
         &self.welcome
     }
 
-    fn send(&self, message: Outgoing) {
+    pub fn send(&self, message: Outgoing) {
         let _ = self.outbound.send(AgentMessage {
             message: Some(message),
         });

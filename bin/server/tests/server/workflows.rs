@@ -254,8 +254,7 @@ async fn workflows_of_a_project_and_revisions_of_a_workflow_are_listed_by_page()
 }
 
 #[tokio::test]
-async fn a_dispatch_creates_a_queued_run_with_its_first_attempt_its_pending_jobs_and_the_ir_snapshot()
- {
+async fn a_dispatch_creates_a_queued_run_with_its_first_attempt_its_jobs_and_the_ir_snapshot() {
     let database = TestDatabase::migrated().await;
     let api = Api::start(&database).await;
     let project = api.project().await;
@@ -319,13 +318,17 @@ async fn a_dispatch_creates_a_queued_run_with_its_first_attempt_its_pending_jobs
         strings(
             database.connection(),
             &format!(
-                "SELECT concat_ws(' ', job.key, job.name, job.status, array_to_string(job.needs, ',')) \
+                "SELECT concat_ws(' ', job.key, job.name, job.status, array_to_string(job.needs, ','), \
+                 array_to_string(job.labels, ','), array_length(job.pool_ids, 1)) \
                  AS value FROM bosun.job JOIN bosun.attempt ON attempt.id = job.attempt_id \
                  WHERE attempt.run_id = '{run_id}' ORDER BY job.id"
             ),
         )
         .await,
-        vec!["build Build pending ", "test test pending build"]
+        vec![
+            "build Build queued  self-hosted,linux,x64 1",
+            "test test pending build "
+        ]
     );
     assert_eq!(
         strings(
@@ -339,7 +342,8 @@ async fn a_dispatch_creates_a_queued_run_with_its_first_attempt_its_pending_jobs
             "run.created",
             "attempt.created",
             "job.created",
-            "job.created"
+            "job.created",
+            "job.status"
         ]
     );
 
