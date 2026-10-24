@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["bin/*", "crates/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,10 +12,15 @@ repository = "https://github.com/GlobalArtInc/bosun"
 [workspace.dependencies]
 bosun-blob = { path = "crates/blob" }
 bosun-db = { path = "crates/db" }
+bosun-server = { path = "crates/server" }
 bosun-testkit = { path = "crates/testkit" }
 bosun-types = { path = "crates/types" }
 
+axum = { version = "0.8", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
+clap = { version = "4", features = ["derive"] }
+http-body = "1"
+reqwest = { version = "0.12", default-features = false }
 saphyr-parser = "0.2"
 sea-orm = { version = "1.1", default-features = false, features = [
     "macros",
@@ -31,5 +36,10 @@ sqlmig = "0.2"
 tempfile = "3"
 thiserror = "2"
 tokio = "1"
+toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
+tonic = { version = "0.14", default-features = false }
+tower = { version = "0.5", default-features = false }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false }
 url = "2"
 uuid = { version = "1", default-features = false, features = ["std", "serde"] }

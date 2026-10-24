@@ -7,7 +7,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::strings;
 
-const TABLES: [&str; 18] = [
+const TABLES: [&str; 19] = [
     "organisation",
     "project",
     "user",
@@ -26,6 +26,7 @@ const TABLES: [&str; 18] = [
     "log_chunk",
     "log_object",
     "idempotency_key",
+    "schema_version",
 ];
 
 const LEDGER: [&str; 2] = ["migrations", "migrations_checksum"];
@@ -194,4 +195,82 @@ fn the_additivity_check_finds_drop_and_retyping() {
     ] {
         assert_eq!(destructive(sql), expected, "{sql}");
     }
+}
+
+fn major() -> i32 {
+    env!("CARGO_PKG_VERSION_MAJOR")
+        .parse()
+        .expect("a numeric major version")
+}
+
+#[tokio::test]
+async fn two_migrations_started_at_once_on_an_empty_database_apply_each_file_once() {
+    let database = TestDatabase::empty().await;
+    let other = bosun_db::connect(&database.url(), 2)
+        .await
+        .expect("a second pool");
+    let (left, right) = tokio::join!(
+        bosun_db::migrate(database.connection()),
+        bosun_db::migrate(&other)
+    );
+    let left = left.expect("the first migration");
+    let right = right.expect("the second migration");
+    let carried = files().len();
+    assert!(
+        (left.len(), right.len()) == (carried, 0) || (left.len(), right.len()) == (0, carried),
+        "applied {left:?} and {right:?}"
+    );
+    let ledger = strings(
+        database.connection(),
+        "SELECT name::text AS value FROM bosun.migrations ORDER BY id",
+    )
+    .await;
+    assert_eq!(ledger.len(), carried, "ledger {ledger:?}");
+    other.close().await.expect("the second pool closes");
+}
+
+#[tokio::test]
+async fn a_migrated_schema_records_the_major_version_that_migrated_it() {
+    let database = TestDatabase::migrated().await;
+    let majors = strings(
+        database.connection(),
+        "SELECT major::text AS value FROM bosun.schema_version",
+    )
+    .await;
+    assert_eq!(majors, vec![major().to_string()]);
+}
+
+#[tokio::test]
+async fn migrate_refuses_a_schema_of_a_newer_major_version() {
+    let database = TestDatabase::migrated().await;
+    let db = database.connection();
+    let newer = major() + 1;
+    db.execute_unprepared(&format!(
+        "INSERT INTO bosun.schema_version (major) VALUES ({newer})"
+    ))
+    .await
+    .expect("a newer major");
+    match bosun_db::migrate(db).await {
+        Err(bosun_db::Error::NewerSchema { found, supported }) => {
+            assert_eq!((found, supported), (newer, major()));
+        }
+        other => panic!("migrate returned {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn migrate_accepts_a_schema_that_a_newer_minor_version_migrated() {
+    let database = TestDatabase::migrated().await;
+    let db = database.connection();
+    db.execute_unprepared(
+        "CREATE TABLE bosun.from_a_newer_minor (id uuid PRIMARY KEY); \
+         INSERT INTO bosun.migrations (\"timestamp\", name) \
+         VALUES (4102444800000, 'FromANewerMinor4102444800000')",
+    )
+    .await
+    .expect("the migration of a newer minor version");
+    assert_eq!(
+        bosun_db::migrate(db).await.expect("the migration"),
+        Vec::<String>::new()
+    );
 }

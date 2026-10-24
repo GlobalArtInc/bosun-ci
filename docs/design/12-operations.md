@@ -21,8 +21,20 @@ Kubernetes secrets encrypted in the gitops repository.
 `/etc/bosun/server.toml`, and the directory backend of the object store under `/var/lib/bosun`
 when there is one replica.
 
-`bosun-server serve` refuses to start when the schema belongs to a newer major version, when the KEK
-is missing, or when the object store is unreachable, and says which.
+`bosun-server migrate` brings the schema up to date and exits. `bosun-server serve` checks the KEK,
+connects to the database, brings the schema up to date ([07-storage.md](07-storage.md)), and then
+serves the REST API, the health endpoints and gRPC on one listener, which speaks HTTP/1.1 and
+HTTP/2 without TLS (the gateway terminates TLS); requests whose content type is
+`application/grpc` go to the gRPC services, which answer `UNIMPLEMENTED` for a service they do not
+have. It refuses to start when the schema belongs to a newer major version, when the KEK is
+missing, or when the object store is unreachable, and says which in an error line of its log
+before it exits with status 1.
+
+On `SIGTERM` or `SIGINT` the server logs the signal, stops accepting connections, ends every gRPC
+stream with the status `UNAVAILABLE` and the message `the server is shutting down: received
+SIGTERM` (or `SIGINT`), so that agents reconnect to another replica, waits for the requests in
+flight to finish, and exits with status 0. It sets no deadline of its own for that wait; the
+platform's grace period before it kills the process is the deadline.
 
 ## Agents
 
@@ -83,6 +95,21 @@ max_hold = "2h"
 agent_grace = "10m"
 ```
 
+The file is `--config <file>`, or `/etc/bosun/server.toml` when that exists; without either the
+server takes its configuration from the environment alone. A key of the file that the server does
+not know is refused, together with the file's name and the line. The variable of a key is its
+section and its name in capitals, so `[database] max_connections` is
+`BOSUN_DATABASE_MAX_CONNECTIONS`, and a variable wins over the file. Variables under `BOSUN_` that
+name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
+
+- `server.listen` defaults to `0.0.0.0:8080`; port 0 takes a free port, which the `listening` line
+  of the log names.
+- `database.url` has no default. `database.max_connections` defaults to 32 and is at least 2,
+  because the migrations at start hold two pooled connections at once.
+- The KEK is 64 hexadecimal digits (`openssl rand -hex 32`), in the file `keys.kek_file` or
+  directly in `keys.kek`, which is meant for `BOSUN_KEYS_KEK`. Exactly one of them is set;
+  surrounding whitespace, such as the newline at the end of a file, does not count.
+
 `agent-<n>.toml` holds the server address, the agent id and credential, labels, `allow_terminal`,
 proxy settings, the log spool limit and `cache_max_bytes`.
 
@@ -100,11 +127,23 @@ database's limit.
   status, run and job durations, agents by state, outbox backlog and failures, log ingestion rate,
   webhook processing time, plugin call durations and failures.
 - Logs: JSON lines on standard output with the request id, the run, the job and the agent where
-  they apply, collected by the cluster's log pipeline.
+  they apply, collected by the cluster's log pipeline. Each line carries `timestamp`, `level`,
+  `message`, `target` and the fields of the event; a line written while a request is handled
+  carries the request in `span` (`request_id`, `method`, `path`), and every request ends with a
+  line `request` with its `status` and `duration_ms`. The request id is the `X-Request-Id` of the
+  request when it is 1 to 128 letters, digits, `-`, `_` or `.`, such as the one the gateway sets,
+  and a fresh UUIDv7 otherwise; the response carries it back in `X-Request-Id`. The level is
+  `info`, except for the database driver, which logs every statement at `info` and is kept to
+  `warn` and above.
 - Alerts worth having from day one: jobs queued longer than 10 minutes, no online agent in a pool
   that has queued jobs, an outbox row dead, webhook verification failures, agents on a version the
   next server release will refuse.
 - `/healthz` says the process is alive; `/readyz` says the database and the object store answer.
+  `/healthz` answers `200 {"status": "alive"}` without touching the database. `/readyz` answers
+  `200 {"status": "ready"}`, or `503 {"status": "unready", "reason": "the database does not
+  answer"}` when the database does not answer a ping within one second, and logs the cause as a
+  warning; it recovers by itself when the database returns. Probes give it a timeout above that
+  second.
 
 ## Backups
 

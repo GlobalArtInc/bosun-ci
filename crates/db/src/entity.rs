@@ -12,6 +12,7 @@ pub mod project;
 pub mod registration_token;
 pub mod run;
 pub mod run_event;
+pub mod schema_version;
 pub mod step;
 pub mod user;
 pub mod workflow;

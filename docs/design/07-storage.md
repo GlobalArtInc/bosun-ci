@@ -26,6 +26,21 @@ The migrations seed the trusted pool `default` ([05-execution.md](05-execution.m
 sqlmig's `apply` is not `Send`, so the server awaits the migrations on the task that starts it
 rather than spawning them.
 
+`bosun-db` wraps the whole migration in an advisory lock of its own, held for up to 150 seconds on
+a connection it takes out of the pool for the purpose: the creation of the schema, the check of
+the major version, sqlmig's `apply` and the record of the major version. sqlmig's own lock covers
+only the files; `CREATE SCHEMA IF NOT EXISTS` and the creation of sqlmig's ledger run before it
+and fail with a unique violation when two replicas start against an empty database at once.
+Because sqlmig holds two pooled connections at once while it applies, the pool of a server has at
+least two.
+
+The major version a schema belongs to is the table `schema_version`, one row per major version of
+Bosun that ever migrated it, written after the migrations of that version applied. Before it
+applies anything, a migration refuses a schema whose highest row is above the server's own major
+version (the major of the workspace version), and the refusal names both. A newer minor version of
+the same major only adds migrations to the ledger that an older server does not carry, which
+sqlmig ignores, so the older server starts.
+
 **Identifiers** are UUIDv7, ordered by creation time. Two numbers exist for compatibility: a run's
 number among the runs of its workflow (`github.run_number`) and a global number from a sequence
 (`github.run_id`). Times are `timestamptz`.
@@ -45,6 +60,7 @@ number among the runs of its workflow (`github.run_number`) and a global number 
 | delivery | `webhook_delivery`, `outbox`, `webhook_subscription`, `idempotency_key` |
 | plugins | `plugin`, `plugin_instance`, `plugin_kv` (from M5) |
 | audit | `audit_event` |
+| schema | `schema_version`, next to sqlmig's ledger `migrations` and `migrations_checksum` |
 
 The central columns:
 
@@ -222,8 +238,9 @@ Project settings, each capped by an installation maximum:
 Every secret value is encrypted with AES-256-GCM under its own random data key; the data key is
 encrypted with the key-encryption key (KEK) and stored next to the value. The associated data binds
 the ciphertext to the secret's scope and name, so a ciphertext copied onto another secret fails to
-decrypt. The KEK is 32 bytes from the server's configuration, given as a file or an environment
-variable, never stored in the database. The configuration can hold the current KEK and earlier
+decrypt. The KEK is 32 bytes from the server's configuration, written as 64 hexadecimal digits in
+a file (`keys.kek_file`) or in the environment variable `BOSUN_KEYS_KEK`, never stored in the
+database. The configuration can hold the current KEK and earlier
 ones, each with an id; `bosun-server secrets rewrap` re-encrypts every data key under the current
 one.
 

@@ -35,6 +35,10 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   An entry of `fields` is `{ "field": "inputs.env", "message": "…" }`, where `field` is the dotted
   path of the field in the request body.
 
+  A path the server does not serve, and a method a served path does not accept, are both
+  `not_found` with the message `there is no <METHOD> <path>`: the table below has no code for
+  `405`, and to a client both mean that the endpoint it asked for does not exist.
+
 - Optional fields of responses are present with `null` rather than left out, so a client sees the
   whole shape of a resource in every response.
 

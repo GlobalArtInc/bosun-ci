@@ -50,6 +50,10 @@ impl TestDatabase {
         &self.name
     }
 
+    pub fn url(&self) -> String {
+        admin().url(&self.name)
+    }
+
     async fn open(kind: Kind) -> TestDatabase {
         let admin = admin();
         let (created, receiver) = oneshot::channel();

@@ -1,0 +1,26 @@
+[package]
+name = "bosun-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum = { workspace = true, features = ["http1", "http2", "json", "tokio"] }
+bosun-db.workspace = true
+bosun-types.workspace = true
+http-body.workspace = true
+sea-orm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "sync", "time"] }
+toml.workspace = true
+tonic = { workspace = true, features = ["router"] }
+tower = { workspace = true, features = ["util"] }
+tracing.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

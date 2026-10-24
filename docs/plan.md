@@ -292,9 +292,11 @@ that every backend runs.
 carry gRPC as well, `/healthz` and `/readyz`, the error envelope, JSON logs with a request id,
 graceful shutdown that stops accepting, drains requests and closes agent streams with a reason.
 
-**Touches.** `bin/server/`, `crates/server/`, `Cargo.toml` (adds `bin/*` to the members).
+**Touches.** `bin/server/`, `crates/server/`, `crates/db/` (the migration lock and the table
+`schema_version`), `crates/testkit/` (the address of a test database), `Cargo.toml` (adds `bin/*`
+to the members).
 
-**Out of scope.** Authentication (step 7), the interface.
+**Out of scope.** Authentication (step 7), the interface, the object store (step 13).
 
 **Acceptance.**
 
@@ -412,7 +414,10 @@ cancellation by `SIGINT`, `SIGTERM`, `SIGKILL`, and reports step and job results
 
 **Goal.** Ingestion of log chunks with `ON CONFLICT DO NOTHING` and acknowledgement, reading a
 step's log by range, following it as an event stream across replicas through `NOTIFY bosun_log`,
-compaction into the object store after the execution completes, and the 128 MiB limit.
+compaction into the object store after the execution completes, and the 128 MiB limit. The object
+store enters the server here, as its first user: the `[store]` section with the directory backend,
+the refusal to start when the store is unreachable, and its probe in `/readyz`
+([design/12-operations.md](design/12-operations.md)), which step 6 leaves out.
 
 **Touches.** `crates/server/`, `crates/db/`.
 

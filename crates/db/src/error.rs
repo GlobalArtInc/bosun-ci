@@ -15,4 +15,11 @@ pub enum Error {
     },
     #[error("{0} does not exist; the migrations create it")]
     Missing(&'static str),
+    #[error("could not hold the migration lock: {0}")]
+    Lock(#[source] DbErr),
+    #[error(
+        "the schema belongs to major version {found} of Bosun and this server is major version \
+         {supported}, which never runs against a schema of a newer major version"
+    )]
+    NewerSchema { found: i32, supported: i32 },
 }
