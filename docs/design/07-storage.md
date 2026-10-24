@@ -250,7 +250,10 @@ encrypted with the key-encryption key (KEK) and stored next to the value. The as
 the ciphertext to the secret's scope and name, so a ciphertext copied onto another secret fails to
 decrypt. The KEK is 32 bytes from the server's configuration, written as 64 hexadecimal digits in
 a file (`keys.kek_file`) or in the environment variable `BOSUN_KEYS_KEK`, never stored in the
-database. The configuration can hold the current KEK and earlier
+database. When the configuration names none, the server uses `keys/kek` in its data directory and,
+on the first start, generates it there from the operating system's random source, with mode
+`0600`, and logs at warning level that it did and that the file must be backed up; this is what lets
+a single host start with nothing but a database address ([12-operations.md](12-operations.md)). The configuration can hold the current KEK and earlier
 ones, each with an id; `bosun-server secrets rewrap` re-encrypts every data key under the current
 one.
 

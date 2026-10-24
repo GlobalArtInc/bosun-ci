@@ -84,6 +84,7 @@ Non-goals:
 | Crates | `bosun-*` |
 | Frontend packages | `@globalart/bosun-web`, `@globalart/bosun-wasm` |
 | Database and schema | database `bosun`, schema `bosun` |
+| Image | `globalartltd/bosun`, uid and gid 210, port 8080, data directory `/bosun-data` |
 | Directories on a server host | `/etc/bosun`, `/var/lib/bosun` |
 | Directories on an agent host | `/etc/bosun/agent-<n>.toml`, `/var/lib/bosun/agents/<n>`, `/var/lib/bosun/cache` |
 | Unix users | `bosun` for a server on a host, `bosun-agent-<n>` per agent instance |
@@ -103,7 +104,7 @@ Bosun is a working name. Renaming it is a mechanical change while no installatio
 | Storage | Postgres 15 or newer; S3-compatible object store or a local directory |
 | Frontend | React 19, Vite, Radix, TanStack Query, React Router; React Flow for graphs; Monaco for YAML |
 | Agent | one static musl binary per architecture; podman for the container executor |
-| Delivery | server as a container image and a Helm chart, or a binary with a systemd unit; agent as a binary with a systemd template unit |
+| Delivery | one container image that runs on any Linux host with Postgres (podman, docker, compose, a quadlet, or the Helm chart in Kubernetes), or the server binary with a systemd unit; agents installed on any host with one command that fetches the binary from the server |
 
 The frontend is built into the server binary, so one artifact carries the whole server.
 

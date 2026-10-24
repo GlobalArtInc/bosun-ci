@@ -35,6 +35,10 @@ Scope:
   `agent list`, `pool token create`.
 - `hack/e2e.sh` running the M0 scenarios against real binaries, with two replicas on one host
   sharing the directory backend.
+- The image `globalartltd/bosun` and the install on any Linux host of
+  [design/12-operations.md](design/12-operations.md): the data directory with a generated KEK, the
+  directory store and the first owner's token, `install-agent.sh` served by the server, compose and
+  quadlet files, `docs/install/`.
 
 Done when:
 
@@ -46,7 +50,9 @@ Done when:
 - two agents with different labels receive only the jobs their labels satisfy;
 - with two server replicas on one database, a cancel issued through one replica reaches an agent
   connected to the other;
-- the CI commands are green, including the WebAssembly build of the pure crates.
+- the CI commands are green, including the WebAssembly build of the pure crates;
+- the published image, started on a clean host with nothing but a Postgres address, takes an agent
+  installed on another host with the one command the server prints, and runs the two-job workflow.
 
 ### M1 — GitHub and the job language
 
@@ -167,7 +173,7 @@ next.
 
 ## M0 work breakdown
 
-M0 is split into fourteen steps. Each step is one change to `main`, ordered by dependency; a step
+M0 is split into fifteen steps. Each step is one change to `main`, ordered by dependency; a step
 is done when its acceptance holds in CI. Where a step names a mechanism the design leaves open, it
 says so.
 
@@ -447,6 +453,46 @@ runs the M0 scenarios through the CLI, and runs in CI.
 
 - `hack/e2e.sh` runs every scenario of the M0 exit checklist and is green in CI.
 
+### 15. The image and an install on any host
+
+**Goal.** Make Bosun installable on any Linux server, as
+[design/12-operations.md](design/12-operations.md) describes under Delivery and Agents. The
+`server.data_dir` setting with the layout of that section: `serve` uses `keys/kek` when the
+configuration names no KEK and generates it on the first start, uses the directory backend under
+`store/` when no S3 store is configured, and, on a first start against a database without users
+and without `bootstrap.admin`, creates the owner `admin` and writes its token to `admin.token`
+([design/08-access.md](design/08-access.md)). `bosun-server check` for health checks. A multi-stage
+`Dockerfile` that builds static musl binaries of `bosun-server` and of `bosun-agent` for `x86_64` and
+`aarch64`, and an image `globalartltd/bosun` for `linux/amd64` and `linux/arm64` that runs as uid
+210 with `/bosun-data`. The server serves `install-agent.sh` and the agent binaries of its own
+version under `/_runtime/agent/`; `install-agent.sh` takes `--token`, `--instances` and `--label`
+and does what the Agents section lists. `deploy/compose.yaml` with Postgres, `deploy/bosun.container`
+as a quadlet, and `docs/install/` with the requirements, the quick start, compose, the quadlet,
+reverse proxy examples for nginx and Caddy that carry the agent stream over HTTP/2, and adding
+agents. CI builds the image on every commit, starts it against its Postgres service, waits for
+`bosun-server check`, reads `admin.token`, registers an agent with the served script inside a
+second container and runs the two-job workflow through it; on `main` it publishes the tags of
+the Delivery section to Docker Hub with the secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
+of the repository.
+
+**Touches.** `bin/server/`, `crates/server/`, `bin/agent/`, `Dockerfile`, `.dockerignore`,
+`deploy/`, `docs/install/`, `.github/workflows/`.
+
+**Out of scope.** The Helm chart and the prod1 rollout (operations, after M0), release automation
+beyond tagging, S3 (M1), passwords and `admin.password` (M1), Windows and macOS agents.
+
+**Acceptance.**
+
+- On a clean Linux host with podman or docker, the quick start of design/12-operations.md brings the
+  server up with only `BOSUN_DATABASE_URL` and a volume, and `admin.token` signs the CLI in.
+- A restart with the same volume keeps the KEK, the stored objects and the owner, and writes no new
+  token; a start with a configured KEK generates nothing.
+- `docker compose -f deploy/compose.yaml up` starts Bosun and Postgres together and becomes ready.
+- The one-line command from `bosun pool token create` installs and registers an agent on another
+  host, which then runs the two-job workflow; the binary it installed has the server's version.
+- The CI job above is green, and `main` publishes `globalartltd/bosun` with a timestamp tag and
+  `edge` for both architectures.
+
 ## How we work
 
 - The code lives in `GlobalArtInc/bosun` on `main`. Push straight to `main`; one task is one change
@@ -480,3 +526,5 @@ runs the M0 scenarios through the CLI, and runs in CI.
 - [ ] `cargo test --workspace` is green against Postgres.
 - [ ] The WebAssembly build of `bosun-types` and `bosun-workflow` is green.
 - [ ] `hack/check-deps.sh` and `hack/e2e.sh` are green.
+- [ ] The image starts on a clean host with only a Postgres address and runs the two-job workflow on
+  an agent installed with the command the server prints.

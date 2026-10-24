@@ -33,6 +33,7 @@ the owner has not overruled it.
 | 18 | UUIDv7 identifiers ([07-storage.md](07-storage.md)) | ULID as in Keel | proposed |
 | 19 | Pull requests from forks do not run by default ([08-access.md](08-access.md)) | approval by default | proposed |
 | 20 | Workflow YAML is read with `saphyr-parser` into a tree of Bosun's own ([02-workflows.md](02-workflows.md)) | `serde_yaml`; `yaml-rust2`; `marked-yaml` | proposed |
+| 21 | One self-contained image that installs on any Linux host with only a database address; agents installed from the server with one command ([12-operations.md](12-operations.md)) | a delivery tied to the team's cluster and gitops; packages per distribution | chosen by the owner |
 
 ### Notes
 

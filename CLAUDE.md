@@ -42,6 +42,7 @@ them in the same change.
 
 Product Bosun, id `bosun`. Binaries `bosun-server`, `bosun-agent`, `bosun`; crates `bosun-*`; npm
 `@globalart/bosun-web` and `@globalart/bosun-wasm`. Workflows in `.bosun/workflows/`. Database and
-schema `bosun`; directories `/etc/bosun`, `/var/lib/bosun`; agent users `bosun-agent-<n>` and units
+schema `bosun`; directories `/etc/bosun`, `/var/lib/bosun`; image `globalartltd/bosun` with
+`/bosun-data`, uid 210; agent users `bosun-agent-<n>` and units
 `bosun-agent@<n>.service`. Token prefixes `bst_`, `brt_`, `bat_`, `bpt_`, `bss_`; agent protocol
 `bosun.agent.v1`.

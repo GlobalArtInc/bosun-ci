@@ -4,32 +4,91 @@ This document specifies how Bosun is deployed and run: the server in a cluster o
 agents, configuration, scaling, observability, backups, upgrades, and the path by which Bosun takes
 over the CI of the team's own repositories.
 
-## The server
+## Delivery
 
-**In a cluster.** The image `globalartltd/bosun-server` carries the binary with the embedded
-interface. A Helm chart `bosun` in `GlobalArtInc/helm-charts` deploys it as a Deployment with two
-replicas, a Service, an `HTTPRoute` for the interface, the API, the hooks and the runtime services
-(including `/twirp/` at the root of the host), and a `GRPCRoute` for agents and external plugins,
-behind the cluster's Envoy Gateway. The gateway
-needs idle and request timeouts long enough for agent streams (no request timeout on the gRPC
-route, a stream idle timeout above the keepalive interval), which the chart sets through the
-gateway's traffic policy. A Flux `HelmRelease` in the gitops repository rolls it out. Secrets (the
-KEK, the database address, the object store credentials, the App's private key) come from
-Kubernetes secrets encrypted in the gitops repository.
+Bosun installs on any Linux server the same way: one container image and a Postgres. Nothing in it
+assumes the team's own cluster.
 
-**On a host.** The same binary as `bosun-server.service` under the user `bosun`, with
-`/etc/bosun/server.toml`, and the directory backend of the object store under `/var/lib/bosun`
-when there is one replica.
+**The image.** `globalartltd/bosun` on Docker Hub, for `linux/amd64` and `linux/arm64`. It carries
+`bosun-server` with the embedded interface, the `bosun-agent` binaries for `x86_64` and `aarch64`,
+and `install-agent.sh`, so the server itself hands agents everything they need. It runs as uid and
+gid 210 (`bosun`), listens on 8080, keeps every state of its own under `/bosun-data`, and checks
+itself with `bosun-server check`, which is also the image's health check.
+
+| Tag | Meaning |
+|-----|---------|
+| `<YYYYMMDDHHMMSS>-<sha7>` | one build of `main`; production pins one of these |
+| `edge` | the newest build of `main` |
+| `<version>` | a release, built from a tag `v<version>` |
+| `latest` | the newest release |
+
+A release also attaches the binaries to its GitHub release, for hosts without a container runtime.
+
+**What a host needs.** A container runtime (podman, docker, or Kubernetes), Postgres 15 or newer,
+and a reverse proxy that terminates TLS (nginx, Caddy, HAProxy, Envoy, or a Kubernetes gateway). The
+proxy must speak HTTP/2 to Bosun for the agent and plugin streams: `grpc_pass` for
+`/bosun.agent.v1.` and `/bosun.plugin.v1.` paths in nginx, an `h2c://` upstream in Caddy. It needs
+no request timeout on those paths and an idle timeout above the keepalive interval of 30 seconds.
+`docs/install/` in the repository has the examples.
+
+**The data directory.** `server.data_dir` (`/bosun-data` in the image, `/var/lib/bosun` for a
+binary on a host) holds what a single host needs and nothing else:
+
+| Path | Content |
+|------|---------|
+| `etc/bosun.toml` | the configuration file, read when no `--config` is given |
+| `keys/kek` | the KEK, generated on the first start when the configuration names none ([07-storage.md](07-storage.md)) |
+| `store/` | the directory backend of the object store, used when no S3 store is configured |
+| `admin.token` | the first owner's token, written on the first start ([08-access.md](08-access.md)) |
+
+So a single host needs exactly two settings to start, the database address and the data directory,
+and a mounted volume to keep its state.
+
+**Quick start on one host:**
+
+```sh
+mkdir -p /srv/bosun/data
+chown 210:210 /srv/bosun/data
+podman run -d --name bosun -p 8080:8080 \
+  -v /srv/bosun/data:/bosun-data:Z \
+  -e BOSUN_DATABASE_URL=postgres://bosun:change-me@db.example.org:5432/bosun \
+  docker.io/globalartltd/bosun:latest
+podman exec bosun cat /bosun-data/admin.token
+```
+
+`deploy/compose.yaml` brings up Bosun and Postgres together, and `deploy/bosun.container` is a
+quadlet that runs the image as a systemd service under rootless podman. A secret such as the database
+address goes through the runtime's secret mechanism rather than the command line.
+
+**Several replicas** need what one host does not: an S3 store instead of the directory backend, and a
+KEK given by the configuration, the same for every replica. A replica that would have to generate a
+KEK, or that finds the directory backend configured next to other replicas on other hosts, is a
+deployment mistake the documentation warns about; the server cannot detect it.
+
+**Kubernetes.** A Helm chart `bosun` in `GlobalArtInc/helm-charts` deploys the image as a Deployment
+with two replicas, a Service, an `HTTPRoute` for the interface, the API, the hooks and the runtime
+services (including `/twirp/` at the root of the host), and a `GRPCRoute` for agents and external
+plugins, behind the cluster's Envoy Gateway, with the gateway's timeouts set as above through its
+traffic policy. This is how the team runs it on prod1: a Flux `HelmRelease` in the gitops
+repository rolls it out, and the secrets (the KEK, the database address, the object store
+credentials, the App's private key) come from Kubernetes secrets encrypted in the gitops repository.
+
+**On a host without containers.** The binary from the release as `bosun-server.service` under the
+user `bosun`, with `/etc/bosun/server.toml` and the data directory `/var/lib/bosun`.
+
+## The server process
 
 `bosun-server migrate` brings the schema up to date and exits. `bosun-server admin create <login>`
 brings the schema up to date the same way, creates an owner and prints its first personal token
-([08-access.md](08-access.md)); neither command needs the KEK. `bosun-server serve` checks the KEK,
+([08-access.md](08-access.md)); neither command needs the KEK. `bosun-server serve` loads the KEK,
+or generates it into the data directory when the configuration names none,
 connects to the database, brings the schema up to date ([07-storage.md](07-storage.md)), creates the
 owner of `bootstrap.admin` when the database holds no user, and then serves the REST API, the health
 endpoints and gRPC on one listener, which speaks HTTP/1.1 and HTTP/2 without TLS (the gateway
 terminates TLS); requests whose content type is `application/grpc` go to the gRPC services, which
 answer `UNIMPLEMENTED` for a service they do not have. It refuses to start when the schema belongs
-to a newer major version, when the KEK is missing, or when the object store is unreachable, and says
+to a newer major version, when a configured KEK is unreadable or malformed, or when the object
+store is unreachable, and says
 which in an error line of its log before it exits with status 1.
 
 On `SIGTERM` or `SIGINT` the server logs the signal, stops accepting connections, ends every gRPC
@@ -40,8 +99,16 @@ platform's grace period before it kills the process is the deadline.
 
 ## Agents
 
-`deploy/install-agent.sh <server> <registration-token> [--instances <n>] [--label <l>]...`
-on a Debian or Ubuntu host:
+An agent goes onto any Linux server that can reach the server's address. The pool page of the
+interface, and `bosun pool token create`, print a ready command with a fresh registration token:
+
+```sh
+curl -fsSL https://bosun.example.org/install-agent.sh | sudo sh -s -- --token brt_… [--instances 4] [--label deploy]
+```
+
+The server serves `install-agent.sh` and the agent binaries of its own version at
+`/_runtime/agent/linux-<arch>`, so the host downloads nothing from anywhere else, and the agent always
+matches the server. On a Debian or Ubuntu host the script:
 
 - creates `bosun-agent-<n>` users with subordinate id ranges and lingering, the group
   `bosun-cache`, and the directories;
@@ -51,8 +118,9 @@ on a Debian or Ubuntu host:
   with `Delegate=yes`, and the timer for `bosun-agent gc`;
 - registers each instance and starts it.
 
-Upgrading an agent is replacing the binary and restarting the instances; an instance that is
-running a job finishes it first when it receives `Drain`.
+Upgrading an agent is running the same command again, which replaces the binary with the server's
+version and restarts the instances; an instance that is running a job finishes it first when it
+receives `Drain`.
 
 ## Configuration
 
@@ -112,8 +180,10 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
 - `database.url` has no default. `database.max_connections` defaults to 32 and is at least 2,
   because the migrations at start hold two pooled connections at once.
 - The KEK is 64 hexadecimal digits (`openssl rand -hex 32`), in the file `keys.kek_file` or
-  directly in `keys.kek`, which is meant for `BOSUN_KEYS_KEK`. Exactly one of them is set;
-  surrounding whitespace, such as the newline at the end of a file, does not count.
+  directly in `keys.kek`, which is meant for `BOSUN_KEYS_KEK`. At most one of them is set; with
+  neither, the server uses `keys/kek` in the data directory and generates it on the first start.
+  Surrounding whitespace, such as the newline at the end of a file, does not count.
+- `server.data_dir` defaults to `/var/lib/bosun`; the image sets `/bosun-data`.
 - `bootstrap.admin` has no default. When it is set it is the login of the owner that `serve`
   creates on a start against a database without users ([08-access.md](08-access.md)), and a value
   that is not a login is refused like any other setting the server cannot use.
@@ -157,7 +227,9 @@ database's limit.
 
 - Postgres, with the cluster's usual database backups.
 - The object store bucket, with versioning or replication.
-- **The KEK.** Without it every secret is lost. It is kept outside the cluster that runs Bosun.
+- **The KEK.** Without it every secret is lost. It is kept outside the cluster that runs Bosun; on a
+  single host with a generated key, that means a copy of `keys/kek` from the data directory, which
+  the server's log asks for on the start that generated it.
 
 A restore needs the three together. Logs and artifacts missing from a restored bucket show as
 "expired" on the run page rather than failing it.
