@@ -495,7 +495,7 @@ beyond tagging, S3 (M1), passwords and `admin.password` (M1), Windows and macOS 
 
 ## How we work
 
-- The code lives in `GlobalArtInc/bosun` on `main`. Push straight to `main`; one task is one change
+- The code lives in `GlobalArtInc/bosun-ci` on `main`. Push straight to `main`; one task is one change
   and is not split across branches.
 - Verify with the commands CI runs before pushing: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` against Postgres,
