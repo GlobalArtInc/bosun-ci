@@ -16,6 +16,7 @@ mod row;
 pub mod runs;
 pub mod tokens;
 pub mod users;
+pub mod views;
 pub mod workflows;
 
 use std::time::{Duration, Instant};

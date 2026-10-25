@@ -17,6 +17,7 @@ mod planner;
 mod projects;
 mod queue;
 mod request;
+mod runs;
 mod shutdown;
 mod slug;
 mod store;
@@ -139,6 +140,7 @@ fn app(state: AppState, connector: agents::Connector, shutdown: shutdown::Shutdo
         .merge(projects::routes())
         .merge(workflows::routes())
         .merge(commands::routes())
+        .merge(runs::routes())
         .merge(logs::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner));
     let http = Router::new()

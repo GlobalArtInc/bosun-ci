@@ -485,9 +485,24 @@ step 6 leaves out.
 **Goal.** `bosun login` storing a token, `workflow push`, `workflow dispatch --watch` with live
 logs, `run cancel`, `job logs --follow`, `agent list`, `pool token create`; and `hack/e2e.sh`, which
 builds the binaries, starts Postgres, two server replicas and two agents with different labels,
-runs the M0 scenarios through the CLI, and runs in CI.
+runs the M0 scenarios through the CLI, and runs in CI. The CLI follows a run through
+`GET /runs/{run}`, `GET /runs/{run}/attempts/{n}/jobs`, `GET /jobs/{job}` and
+`GET /executions/{execution}`, which no earlier step serves, so this step serves them
+([design/11-api.md](design/11-api.md)).
 
-**Touches.** `bin/cli/`, `hack/e2e.sh`, `.github/workflows/ci.yml`.
+`hack/e2e.sh` runs on a CI host that other jobs share. It takes the Postgres server of
+`BOSUN_TEST_DATABASE_URL`, which CI starts as the job's service, creates a database of its own on
+it and drops it at the end. Every listener binds to a port the system picks, every file lives under
+one temporary directory, and every process it started is stopped whether the scenarios pass or not;
+the replica that `server-restart` restarts takes its port back.
+Each behaviour of the M0 exit checklist is a named scenario, and `hack/e2e.sh <scenario>...` runs a
+selection: `two-job-workflow`, `failing-step`, `cancel-sleep`, `labels`, `cross-replica-cancel`,
+`server-restart`, and `journal-replay`, which runs the property test of step 9. The checklist's CI
+commands are steps of the CI workflow, and the image is step 15's.
+
+**Touches.** `bin/cli/`, `hack/e2e.sh`, `.github/workflows/ci.yml`, `crates/server/` and
+`crates/db/` (the reads of runs, jobs and executions), `crates/types/` and `contracts/fixtures/api/`
+(the latest execution of a job, the steps of an execution), `docs/design/11-api.md`.
 
 **Out of scope.** Every other command (later milestones), `bosun exec` (M2).
 

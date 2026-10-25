@@ -148,6 +148,7 @@ pub struct Job {
     pub waiting_reason: Option<WaitingReason>,
     pub conclusion: Option<Conclusion>,
     pub conclusion_source: Option<ConclusionSource>,
+    pub execution_id: Option<ExecutionId>,
     pub queued_at: Option<DateTime<Utc>>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
@@ -164,6 +165,7 @@ pub struct Execution {
     pub reason: Option<StatusReason>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+    pub steps: Vec<Step>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

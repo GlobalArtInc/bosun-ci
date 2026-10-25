@@ -10,6 +10,7 @@ mod owner;
 mod projects;
 mod proxy;
 mod queue;
+mod runs;
 mod shutdown;
 mod start;
 mod workflows;

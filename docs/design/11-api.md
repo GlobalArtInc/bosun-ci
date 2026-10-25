@@ -160,6 +160,20 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
   that does not exist, are `404 not_found`. A repeated `Idempotency-Key` returns the first
   `command.accepted`; a refusal is not kept for its key, so repeating it records another one.
 
+### Runs, jobs and executions
+
+- `GET /runs/{run}` answers with the run, in the shape `POST /workflows/{workflow}/dispatch`
+  returns; its `attempt` is the number of its latest attempt, and the list of its attempts is not
+  served yet.
+- `GET /runs/{run}/attempts/{n}/jobs` lists the jobs of attempt `n` in the order they were
+  created, as a cursor page without filters. A job carries `execution_id`, the id of its latest
+  execution, or `null` while no agent has claimed it.
+- `GET /jobs/{job}` answers with one job in the same shape, and `GET /executions/{execution}` with
+  one execution and its `steps`, ordered by `index`, empty until the agent starts the job.
+- `{run}`, `{job}` and `{execution}` are ids. Any other segment, and an id of nothing, are
+  `404 not_found` with the message ``there is no run `<run>` `` (or `job`, `execution`); an attempt
+  the run does not have is ``there is no attempt `<n>` of run `<run>` ``.
+
 ### Logs
 
 - `GET /executions/{execution}/steps/{step}/log` serves the log of one step
@@ -200,8 +214,14 @@ lists the latest deliveries with their responses.
 
 ## The CLI
 
-`bosun` keeps profiles in `~/.config/bosun/config.toml` (server, token in the system keyring, or
-in the file when no keyring exists) and prints tables by default and JSON with `--json`.
+`bosun` keeps profiles in `~/.config/bosun/config.toml`, or `$XDG_CONFIG_HOME/bosun/config.toml`
+when that variable is set: a table `[profiles.<name>]` per server with its `server` address and
+`token`. The file and its directory are readable by their owner only (modes `0600` and `0700`), and
+the token stays in the file rather than in a system keyring, which servers, agents and CI hosts
+mostly do not have. Every command takes `--profile <name>` (default `default`) and prints text by
+default and JSON with `--json`. Failures are printed to standard error as `error: <message>`, with
+the fields at fault and the diagnostics of the error envelope on the lines below it, and exit with
+status 1; a usage error exits with status 2.
 
 ```
 bosun login [--server <url>]
@@ -229,6 +249,32 @@ bosun var set <name> <value> [scope]
 bosun plugin install <oci-ref> | list | instance create <plugin> --name <n> --config <file>
 bosun token create --name <n> --scope <perm>... --expires <d>
 ```
+
+What M0 settles of these commands:
+
+- `bosun login` reads a personal token from the first line of standard input, without echoing it on
+  a terminal, checks it with `GET /me` and stores it in the profile. `--server` may be left out when
+  the profile has a server already.
+- `bosun workflow push <project> <file>` creates the server-side workflow, or saves the file as its
+  new source when the project has a workflow of that name. The name defaults to the file name
+  without its extension, and `<project>` is `<organisation>/<project>` or an id.
+- `bosun workflow dispatch <workflow>` takes the workflow's id or `<organisation>/<project>/<name>`.
+  With `--watch` it prints the run, a line `<job>: <status>` whenever a job's status or conclusion
+  changes (the first one with the job's id), every log line of every job as `<job> | <text>`, and
+  `run <id>: completed <conclusion>` at the end; a job's completion is printed after its last log
+  line. It exits with 0 when the run succeeds and with 1 otherwise, until step 38 of M1 settles a
+  status per conclusion for `bosun run watch`.
+- `bosun job logs <job>` prints each step's log under a heading `==> step <n>: <name>`, its lines as
+  the API serves them, with their time. `--step <n>` prints only step `n`, counted from 1, without a
+  heading; `--follow` waits for the job to reach an agent and prints the lines as they arrive until
+  every step has ended.
+- `bosun pool token create <pool>` prints the token alone on standard output, and its pool and
+  expiry on standard error. `--expires` takes a whole number of minutes, hours or days (`30m`,
+  `12h`, `7d`); without it the server's default of 24 hours applies. `--reusable` lets the token
+  register any number of agents rather than one.
+- `--watch` and `--follow` outlive a restart of the replica they talk to: a request that gets no
+  answer, or `502`, `503` or `504`, is tried again for up to 60 seconds, and a followed log resumes
+  after its last line with `Last-Event-ID`. Other commands fail at once.
 
 ## MCP
 

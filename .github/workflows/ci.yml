@@ -105,3 +105,6 @@ jobs:
 
       - name: Dependency rules refuse forbidden edges
         run: hack/test-check-deps.sh
+
+      - name: End-to-end scenarios
+        run: hack/e2e.sh

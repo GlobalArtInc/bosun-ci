@@ -336,6 +336,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "bosun-cli"
+version = "0.1.0"
+dependencies = [
+ "bosun-types",
+ "chrono",
+ "clap",
+ "reqwest",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "bosun-db"
 version = "0.1.0"
 dependencies = [
