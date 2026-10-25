@@ -1,12 +1,14 @@
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 
 use bosun_types::actor::Actor;
 use bosun_types::api::{Run, Workflow};
+use bosun_types::diagnostic::Diagnostic;
 use bosun_types::event::{
     AttemptCreated, Event, JobCreated, RunCreated, RunEvent, RunStatusChanged,
 };
 use bosun_types::id::{AgentId, AttemptId, ExecutionId, JobId, RevisionId, RunId, StepId};
-use bosun_types::ir::{self, Template};
+use bosun_types::ir::{self, Shell, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{Conclusion, ExecutionStatus, JobStatus, RunConclusion, RunStatus};
 use sea_orm::prelude::Uuid;
@@ -15,7 +17,7 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
     QueryFilter, QueryResult,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::entity::{attempt, job, run, workflow};
@@ -51,8 +53,32 @@ pub struct JobState {
     pub needs: Vec<JobKey>,
     pub status: JobStatus,
     pub conclusion: Option<Conclusion>,
+    pub continue_on_error: bool,
+    pub outputs: BTreeMap<String, String>,
     pub started: bool,
     pub execution: Option<ExecutionState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Evaluated {
+    pub timeout_minutes: u32,
+    pub env: BTreeMap<String, String>,
+    pub shell: Option<Shell>,
+    pub working_directory: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunFacts {
+    pub number: u64,
+    pub global_number: u64,
+    pub event: String,
+    pub payload: Value,
+    pub inputs: Value,
+    pub actor: Actor,
+    pub triggering_actor: Actor,
+    pub workflow: String,
+    pub organisation: String,
+    pub project: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,8 +196,8 @@ impl<'a> Locked<'a> {
     pub async fn jobs(&self) -> Result<Vec<JobState>, Error> {
         self.transaction
             .query_all(statement(
-                "SELECT j.id, j.key, j.needs, j.status, j.conclusion, \
-                 j.started_at IS NOT NULL AS started, e.id AS execution_id, e.agent_id, \
+                "SELECT j.id, j.key, j.needs, j.status, j.conclusion, j.continue_on_error, \
+                 j.outputs, j.started_at IS NOT NULL AS started, e.id AS execution_id, e.agent_id, \
                  e.status AS execution_status, e.online AS agent_online FROM job j \
                  LEFT JOIN LATERAL (SELECT x.id, x.agent_id, x.status, g.online \
                  FROM execution x JOIN agent g ON g.id = x.agent_id WHERE x.job_id = j.id \
@@ -195,6 +221,72 @@ impl<'a> Locked<'a> {
             .await?
             .ok_or_else(|| Error::Vanished(format!("run {}", self.state.id)))?;
         row::json(RUNS, found.try_get::<Value>("", "ir")?)
+    }
+
+    pub async fn facts(&self) -> Result<RunFacts, Error> {
+        let found = self
+            .transaction
+            .query_one(statement(
+                "SELECT r.number, r.global_number, r.event, r.trigger, r.inputs, \
+                 w.name AS workflow, o.slug AS organisation, p.slug AS project, \
+                 a.actor AS triggering_actor FROM run r \
+                 JOIN workflow w ON w.id = r.workflow_id JOIN project p ON p.id = r.project_id \
+                 JOIN organisation o ON o.id = p.organisation_id JOIN attempt a ON a.id = $2 \
+                 WHERE r.id = $1",
+                [
+                    Uuid::from(self.state.id).into(),
+                    Uuid::from(self.state.attempt_id).into(),
+                ],
+            ))
+            .await?
+            .ok_or_else(|| Error::Vanished(format!("run {}", self.state.id)))?;
+        let mut trigger: Value = found.try_get("", "trigger")?;
+        Ok(RunFacts {
+            number: row::unsigned(RUNS, found.try_get("", "number")?)?,
+            global_number: row::unsigned(RUNS, found.try_get("", "global_number")?)?,
+            event: found.try_get("", "event")?,
+            payload: trigger
+                .get_mut("payload")
+                .map(Value::take)
+                .unwrap_or(Value::Null),
+            inputs: found.try_get("", "inputs")?,
+            actor: row::json(
+                RUNS,
+                trigger
+                    .get_mut("actor")
+                    .map(Value::take)
+                    .unwrap_or(Value::Null),
+            )?,
+            triggering_actor: row::json("attempt", found.try_get("", "triggering_actor")?)?,
+            workflow: found.try_get("", "workflow")?,
+            organisation: found.try_get("", "organisation")?,
+            project: found.try_get("", "project")?,
+        })
+    }
+
+    pub async fn set_display_name(&self, name: &str) -> Result<(), Error> {
+        self.transaction
+            .execute(statement(
+                "UPDATE run SET display_name = $2 WHERE id = $1",
+                [Uuid::from(self.state.id).into(), name.into()],
+            ))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn notice(
+        &self,
+        job: Option<JobId>,
+        diagnostic: &Diagnostic,
+    ) -> Result<RunEvent, Error> {
+        self.append(
+            job,
+            None,
+            None,
+            &Actor::System,
+            Event::RunNotice(diagnostic.clone()),
+        )
+        .await
     }
 
     pub async fn set_status(
@@ -329,6 +421,8 @@ fn decode_job(found: &QueryResult) -> Result<JobState, Error> {
             .try_get::<Option<String>>("", "conclusion")?
             .map(|conclusion| row::name("job", conclusion))
             .transpose()?,
+        continue_on_error: found.try_get("", "continue_on_error")?,
+        outputs: row::json("job", found.try_get::<Value>("", "outputs")?)?,
         started: found.try_get("", "started")?,
         execution,
     })
@@ -347,12 +441,18 @@ pub struct NewRun<'a> {
     pub workflow: &'a Workflow,
     pub revision_id: RevisionId,
     pub ir: &'a ir::Workflow,
+    pub payload: &'a Value,
     pub actor: &'a Actor,
 }
 
 pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run, Error> {
     let number = next_number(db, new.workflow).await?;
     let actor = serde_json::to_value(new.actor)?;
+    let display_name = new
+        .ir
+        .name
+        .clone()
+        .unwrap_or_else(|| new.workflow.name.clone());
     let created = run::ActiveModel {
         id: ActiveValue::Set(Uuid::now_v7()),
         project_id: ActiveValue::Set(new.workflow.project_id.into()),
@@ -361,8 +461,9 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         ir: ActiveValue::Set(serde_json::to_value(new.ir)?),
         number: ActiveValue::Set(number),
         global_number: ActiveValue::NotSet,
+        display_name: ActiveValue::Set(Some(display_name.clone())),
         event: ActiveValue::Set(DISPATCH.to_owned()),
-        trigger: ActiveValue::Set(json!({ "actor": actor, "payload": { "inputs": {} } })),
+        trigger: ActiveValue::Set(json!({ "actor": actor, "payload": new.payload })),
         git_ref: ActiveValue::Set(None),
         sha: ActiveValue::Set(None),
         inputs: ActiveValue::NotSet,
@@ -457,11 +558,13 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         revision_id: new.revision_id,
         number,
         global_number,
+        display_name,
         event: created.event,
         status: RunStatus::Queued,
         conclusion: None,
         attempt: u32::from(FIRST_ATTEMPT),
         actor: new.actor.clone(),
+        notices: Vec::new(),
         created_at: created.created_at,
         started_at: None,
         completed_at: None,

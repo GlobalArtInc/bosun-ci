@@ -1,6 +1,7 @@
 mod availability;
 mod check;
 mod compare;
+mod condition;
 mod error;
 mod evaluate;
 mod functions;
@@ -45,4 +46,12 @@ pub fn evaluate(expr: &Expr, scope: &dyn Scope) -> Result<Value, Error> {
 
 pub fn render(template: &Template, scope: &dyn Scope) -> Result<String, Error> {
     evaluate::render(template, scope)
+}
+
+pub fn calls_status(condition: &Condition) -> bool {
+    condition::calls_status(condition)
+}
+
+pub fn holds(condition: &Condition, scope: &dyn Scope) -> Result<bool, Error> {
+    evaluate::holds(condition, scope)
 }

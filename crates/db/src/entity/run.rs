@@ -12,6 +12,7 @@ pub struct Model {
     pub ir: Json,
     pub number: i64,
     pub global_number: i64,
+    pub display_name: Option<String>,
     pub event: String,
     #[sea_orm(column_type = "JsonBinary")]
     pub trigger: Json,

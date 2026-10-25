@@ -23,7 +23,7 @@ use tracing::{Instrument, Span, error, info, warn};
 use uuid::Uuid;
 
 use super::admission::{self, SERVER_VERSION};
-use super::progress::{self, Progress, Reporter, StepEnd};
+use super::progress::{self, JobEnd, Progress, Reporter, StepEnd};
 use super::replica::{self, Outbound, Replica};
 use super::{LABEL_RULE, valid_label};
 use crate::auth;
@@ -172,7 +172,14 @@ impl Agent for Connector {
         match bosun_db::agents::abandoned(&self.db, agent.id, &running).await {
             Ok(abandoned) => {
                 for execution_id in abandoned {
-                    match progress::lose_forgotten(&self.db, agent.id, execution_id).await {
+                    match progress::lose_forgotten(
+                        &self.db,
+                        agent.id,
+                        execution_id,
+                        self.dispatcher.site(),
+                    )
+                    .await
+                    {
                         Ok(true) => warn!(
                             agent_id = %agent.id,
                             %execution_id,
@@ -319,7 +326,9 @@ impl Session {
             }
             Some(Inbound::Accept(accept)) => {
                 let execution = execution_id(&accept.execution_id)?;
-                let accepted = progress::accepted(&self.db, &self.reporter, execution).await;
+                let accepted =
+                    progress::accepted(&self.db, &self.reporter, execution, self.dispatcher.site())
+                        .await;
                 self.report("Accept", execution, accepted);
             }
             Some(Inbound::StepStarted(started)) => {
@@ -348,9 +357,18 @@ impl Session {
             }
             Some(Inbound::JobFinished(finished)) => {
                 let execution = execution_id(&finished.execution_id)?;
-                let ended = conclusion(finished.conclusion(), "the conclusion of a job")?;
-                let recorded =
-                    progress::job_finished(&self.db, &self.reporter, execution, ended).await;
+                let ended = JobEnd {
+                    conclusion: conclusion(finished.conclusion(), "the conclusion of a job")?,
+                    outputs: finished.outputs.into_iter().collect(),
+                };
+                let recorded = progress::job_finished(
+                    &self.db,
+                    &self.reporter,
+                    execution,
+                    ended,
+                    self.dispatcher.site(),
+                )
+                .await;
                 self.report("JobFinished", execution, recorded);
             }
             Some(Inbound::Log(log)) => self.log(log).await?,

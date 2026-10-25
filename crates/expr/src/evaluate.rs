@@ -1,8 +1,9 @@
-use bosun_types::ir::{Expr, Segment, Span, Template};
+use bosun_types::ir::{Condition, Expr, Segment, Span, Template};
 
 use crate::availability::{Context, Function};
 use crate::check;
 use crate::compare;
+use crate::condition;
 use crate::error::{Code, Error};
 use crate::functions::{self, Affix};
 use crate::json;
@@ -124,6 +125,31 @@ pub(crate) fn render(template: &Template, scope: &dyn Scope) -> Result<String, E
         }
     }
     Ok(text)
+}
+
+pub(crate) fn holds(condition: &Condition, scope: &dyn Scope) -> Result<bool, Error> {
+    match condition {
+        Condition::Expression(expr) => validate(expr)?,
+        Condition::Template(template) => {
+            for segment in template.segments() {
+                if let Segment::Expression(expr) = segment {
+                    validate(expr)?;
+                }
+            }
+        }
+    }
+    if !condition::calls_status(condition) {
+        let succeeded = scope
+            .status(Status::Success)
+            .ok_or_else(|| unavailable(Function::Success, condition::span(condition)))?;
+        if !succeeded {
+            return Ok(false);
+        }
+    }
+    match condition {
+        Condition::Expression(expr) => Ok(Evaluation::new(scope).value(expr)?.truthy()),
+        Condition::Template(template) => Ok(!render(template, scope)?.is_empty()),
+    }
 }
 
 pub(crate) fn failed(span: Span, message: String) -> Error {

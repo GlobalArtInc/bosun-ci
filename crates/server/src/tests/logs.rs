@@ -15,7 +15,7 @@ use tokio::io::AsyncRead;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
-use super::{World, template, workflow};
+use super::{World, finished, template, workflow};
 use crate::agents::progress::{self, StepEnd};
 use crate::agents::{self, Replica};
 use crate::config::{Agents, Queue};
@@ -23,6 +23,7 @@ use crate::logs::compaction::compact;
 use crate::logs::reader::{Line, Read, Reader};
 use crate::logs::{Followers, LIMIT, notice};
 use crate::queue::Dispatcher;
+use crate::site::Site;
 use crate::store::Backend;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -45,7 +46,7 @@ impl Logged {
             .await;
         let (build, _) = world.project(run).await.job("build");
         let execution = world.assign(run, build).await;
-        progress::accepted(world.db(), world.agent(), execution)
+        progress::accepted(world.db(), world.agent(), execution, &Site::default())
             .await
             .expect("an acceptance");
         progress::step_started(world.db(), world.agent(), execution, 0, None)
@@ -99,9 +100,15 @@ impl Logged {
         progress::step_finished(db, agent, self.execution, end(1))
             .await
             .expect("a finished step");
-        progress::job_finished(db, agent, self.execution, Conclusion::Success)
-            .await
-            .expect("a finished job");
+        progress::job_finished(
+            db,
+            agent,
+            self.execution,
+            finished(Conclusion::Success),
+            &Site::default(),
+        )
+        .await
+        .expect("a finished job");
     }
 
     async fn compact(&self) -> Compacted {
@@ -389,6 +396,7 @@ async fn a_stored_chunk_wakes_the_followers_of_its_execution_through_bosun_log()
             lease: HOUR,
             max_queue_time: HOUR,
         },
+        Site::default(),
     );
     let followers = Arc::new(Followers::default());
     let mut following = followers.subscribe(logged.execution);

@@ -175,6 +175,7 @@ async fn fifty_fake_agents_claiming_concurrently_from_three_replicas_never_recei
                 connection.send(Report::JobFinished(JobFinished {
                     execution_id: assignment.execution_id,
                     conclusion: Conclusion::Success.into(),
+                    outputs: Default::default(),
                 }));
                 connection.idle();
             }
@@ -432,6 +433,7 @@ async fn agents_receive_only_jobs_their_labels_satisfy_and_a_rejected_job_goes_t
     on_b.send(Report::JobFinished(JobFinished {
         execution_id: to_deployer.execution_id.clone(),
         conclusion: Conclusion::Success.into(),
+        outputs: Default::default(),
     }));
     on_b.idle();
     let again = on_b.assignment().await;
@@ -514,6 +516,7 @@ async fn an_assignment_carries_the_slugs_the_merged_env_and_each_step_with_its_s
     connection.send(Report::JobFinished(JobFinished {
         execution_id: build.execution_id,
         conclusion: Conclusion::Success.into(),
+        outputs: Default::default(),
     }));
     connection.idle();
     let test = connection.assignment().await;

@@ -164,7 +164,7 @@ every other property is a string, numbers included, except `ref_protected`, whic
 | `run_id`, `run_number`, `run_attempt` | the run's global number, its number among the runs of its workflow, the attempt's number |
 | `retention_days` | how many days the run's logs are kept |
 | `job` | the job's key |
-| `workspace` | the job's working directory on the agent, `GITHUB_WORKSPACE` |
+| `workspace` | the job's working directory on the agent, `GITHUB_WORKSPACE`; empty in the expressions the server evaluates |
 | `server_url`, `api_url`, `graphql_url` | the forge's addresses |
 | `token` | the forge token, below |
 

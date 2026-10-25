@@ -1,14 +1,14 @@
-use bosun_db::runs::NewRun;
 use bosun_types::event::Event;
 use bosun_types::ir::{Action, ActionReference, Evaluable, JobKind, RunsOn, Template};
 use bosun_types::status::{
     Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason, StepStatus,
 };
-use sea_orm::{ConnectionTrait, Statement, TransactionTrait};
+use sea_orm::{ConnectionTrait, Statement};
 
-use super::{World, operator, replay, template, workflow};
+use super::{World, finished, replay, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
 use crate::planner;
+use crate::site::Site;
 
 async fn strings(world: &World, sql: &str) -> Vec<String> {
     world
@@ -91,7 +91,7 @@ async fn a_job_waits_for_every_job_it_needs_and_the_run_succeeds_when_all_do() {
             let execution = world.assign(run, job).await;
             let agent = world.agent();
             assert_eq!(
-                progress::accepted(world.db(), agent, execution)
+                progress::accepted(world.db(), agent, execution, &Site::default())
                     .await
                     .expect("an acceptance"),
                 Progress::Applied
@@ -121,7 +121,14 @@ async fn a_job_waits_for_every_job_it_needs_and_the_run_succeeds_when_all_do() {
                     "a finished step",
                 ),
                 (
-                    progress::job_finished(world.db(), agent, execution, Conclusion::Success).await,
+                    progress::job_finished(
+                        world.db(),
+                        agent,
+                        execution,
+                        finished(Conclusion::Success),
+                        &Site::default(),
+                    )
+                    .await,
                     "a finished job",
                 ),
             ] {
@@ -178,7 +185,7 @@ async fn a_step_that_uses_an_action_is_named_after_the_action() {
     let run = world.dispatch(&workflow(vec![build])).await;
     let (build, _) = world.project(run).await.job("build");
     let execution = world.assign(run, build).await;
-    progress::accepted(world.db(), world.agent(), execution)
+    progress::accepted(world.db(), world.agent(), execution, &Site::default())
         .await
         .expect("an acceptance");
     let projection = world.project(run).await;
@@ -213,7 +220,7 @@ jobs:
     let run = world.dispatch(&ir).await;
     let (build, _) = world.project(run).await.job("build");
     let execution = world.assign(run, build).await;
-    progress::accepted(world.db(), world.agent(), execution)
+    progress::accepted(world.db(), world.agent(), execution, &Site::default())
         .await
         .expect("an acceptance");
     let projection = world.project(run).await;
@@ -226,54 +233,53 @@ jobs:
 }
 
 #[tokio::test]
-async fn a_job_placed_by_an_expression_is_never_queued_without_it() {
+async fn a_job_placed_by_an_expression_is_queued_with_the_labels_it_evaluates_to() {
     let world = World::new().await;
+    let mut placed = Vec::new();
     for runs_on in [
-        "[self-hosted, '${{ vars.ARCH }}']",
-        "{ group: '${{ vars.POOL }}', labels: [linux] }",
-        "${{ vars.LABEL }}",
+        "[self-hosted, '${{ github.event_name }}']",
+        "{ group: '${{ format(''{0}'', ''default'') }}', labels: [linux] }",
+        r#"${{ fromJSON('["GPU", "linux"]') }}"#,
+        r#"${{ fromJSON('{"group":"default","labels":"arm64"}') }}"#,
+        "linux-${{ github.run_attempt }}",
     ] {
         let source = format!(
             "on: workflow_dispatch\njobs:\n  build:\n    runs-on: {runs_on}\n    steps:\n      \
              - run: make\n"
         );
         let ir = bosun_workflow::parse("ci", &source)
-            .expect("a valid workflow")
+            .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
             .workflow;
+        assert_eq!(planner::unapplied(&ir), None, "{runs_on}");
+        let run = world.dispatch(&ir).await;
+        let projection = world.project(run).await;
         assert_eq!(
-            planner::unapplied(&ir).as_deref(),
-            Some(
-                "an expression in `runs-on` of job `build`, which the planner applies from M1 \
-                 step 15"
-            ),
+            projection.job("build").1.status,
+            JobStatus::Queued,
             "{runs_on}"
         );
-        let transaction = world.db().begin().await.expect("a transaction");
-        let refused = planner::dispatch(
-            &transaction,
-            NewRun {
-                workflow: &world.workflow,
-                revision_id: world.workflow.revision_id.expect("a current revision"),
-                ir: &ir,
-                actor: &operator(),
-            },
-        )
-        .await
-        .map(|run| run.id);
-        assert_eq!(
-            refused.map_err(|error| error.to_string()),
-            Err(
-                "a row of run holds a value bosun-types does not accept: the IR of the run \
-                 places job `build` by an expression in `runs-on`, which the planner evaluates \
-                 from M1 step 15"
-                    .to_owned()
-            ),
-            "{runs_on}"
+        placed.extend(
+            strings(
+                &world,
+                &format!(
+                    "SELECT concat_ws(' ', array_to_string(j.labels, ','), \
+                     (SELECT string_agg(p.name, ',') FROM bosun.pool p \
+                      WHERE p.id = ANY(j.pool_ids))) AS value FROM bosun.job j \
+                     JOIN bosun.attempt a ON a.id = j.attempt_id WHERE a.run_id = '{run}'"
+                ),
+            )
+            .await,
         );
     }
     assert_eq!(
-        strings(&world, "SELECT count(*)::text AS value FROM bosun.job").await,
-        ["0"]
+        placed,
+        [
+            "self-hosted,workflow_dispatch default",
+            "linux default",
+            "gpu,linux default",
+            "arm64 default",
+            "linux-1 default",
+        ]
     );
 }
 
@@ -290,12 +296,6 @@ fn keys_the_planner_does_not_apply_yet_are_named_with_the_step_that_brings_them(
         planner::unapplied(&ir)
     };
     let cases = [
-        ("    if: false\n", "`if` of job `build`", 15),
-        (
-            "    continue-on-error: true\n",
-            "`continue-on-error` of job `build`",
-            15,
-        ),
         (
             "    strategy:\n      matrix:\n        os: [linux]\n",
             "`strategy` of job `build`",
@@ -318,7 +318,8 @@ fn keys_the_planner_does_not_apply_yet_are_named_with_the_step_that_brings_them(
     }
     assert_eq!(
         job(
-            "    continue-on-error: false\n    timeout-minutes: 10\n    env:\n      A: ${{ github.sha }}\n"
+            "    if: github.ref == 'refs/heads/main'\n    continue-on-error: ${{ true }}\n    \
+             timeout-minutes: 10\n    env:\n      A: ${{ github.sha }}\n"
         ),
         None
     );
@@ -359,7 +360,7 @@ async fn a_failing_step_fails_its_job_skips_its_dependents_and_fails_the_run() {
     let (build, _) = world.project(run).await.job("build");
     let execution = world.assign(run, build).await;
     let agent = world.agent();
-    progress::accepted(world.db(), agent, execution)
+    progress::accepted(world.db(), agent, execution, &Site::default())
         .await
         .expect("an acceptance");
     progress::step_started(world.db(), agent, execution, 0, None)
@@ -378,9 +379,15 @@ async fn a_failing_step_fails_its_job_skips_its_dependents_and_fails_the_run() {
     )
     .await
     .expect("a finished step");
-    progress::job_finished(world.db(), agent, execution, Conclusion::Failure)
-        .await
-        .expect("a finished job");
+    progress::job_finished(
+        world.db(),
+        agent,
+        execution,
+        finished(Conclusion::Failure),
+        &Site::default(),
+    )
+    .await
+    .expect("a finished job");
 
     let projection = world.project(run).await;
     assert_eq!(replay(&world.journal(run).await), Ok(projection.clone()));

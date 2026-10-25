@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::actor::Actor;
+use crate::diagnostic::Diagnostic;
 use crate::id::{
     AgentId, AttemptId, ExecutionId, JobId, OrganisationId, PoolId, ProjectId, RegistrationTokenId,
     RevisionId, RunId, StepId, UserId, WorkflowId,
@@ -190,14 +191,23 @@ pub struct Run {
     pub revision_id: RevisionId,
     pub number: u64,
     pub global_number: u64,
+    pub display_name: String,
     pub event: String,
     pub status: RunStatus,
     pub conclusion: Option<RunConclusion>,
     pub attempt: u32,
     pub actor: Actor,
+    pub notices: Vec<Notice>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Notice {
+    pub job_id: Option<JobId>,
+    #[serde(flatten)]
+    pub diagnostic: Diagnostic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -213,6 +223,7 @@ pub struct Job {
     pub waiting_reason: Option<WaitingReason>,
     pub conclusion: Option<Conclusion>,
     pub conclusion_source: Option<ConclusionSource>,
+    pub outputs: BTreeMap<String, String>,
     pub execution_id: Option<ExecutionId>,
     pub queued_at: Option<DateTime<Utc>>,
     pub started_at: Option<DateTime<Utc>>,

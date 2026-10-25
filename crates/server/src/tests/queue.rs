@@ -23,9 +23,10 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, TransactionTrait};
 use tokio::time::timeout;
 
-use super::{World, replay, template, workflow};
+use super::{World, finished, replay, template, workflow};
 use crate::agents::progress::{self, Progress, Reporter};
 use crate::queue;
+use crate::site::Site;
 
 const LEASE: Duration = Duration::from_secs(30);
 
@@ -313,13 +314,19 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
         claim(db, agent.id, replica, LEASE, &[]).await.is_none(),
         "an agent with an assignment claimed a second job"
     );
-    progress::accepted(db, &agent, claimed.execution_id)
+    progress::accepted(db, &agent, claimed.execution_id, &Site::default())
         .await
         .expect("an acceptance");
     assert!(claim(db, agent.id, replica, LEASE, &[]).await.is_none());
-    progress::job_finished(db, &agent, claimed.execution_id, Conclusion::Success)
-        .await
-        .expect("a finished job");
+    progress::job_finished(
+        db,
+        &agent,
+        claimed.execution_id,
+        finished(Conclusion::Success),
+        &Site::default(),
+    )
+    .await
+    .expect("a finished job");
     let next = claim(db, agent.id, replica, LEASE, &[])
         .await
         .expect("the next job once the agent is free");
@@ -615,7 +622,7 @@ async fn a_lapsed_assignment_returns_its_job_to_the_queue_and_tells_its_agent_to
     );
     assert_eq!(replay(&journal), Ok(projection));
     assert_eq!(
-        progress::accepted(db, &agent, leased.execution_id)
+        progress::accepted(db, &agent, leased.execution_id, &Site::default())
             .await
             .expect("a late acceptance"),
         Progress::Ignored(format!(
@@ -703,13 +710,13 @@ async fn a_job_queued_longer_than_max_queue_time_is_cancelled_with_no_agent() {
     let (gpu, _) = projection.job("gpu");
     let (after, _) = projection.job("after");
     assert!(
-        !queue::cancel_unclaimed(db, gpu, Duration::from_secs(3600))
+        !queue::cancel_unclaimed(db, gpu, Duration::from_secs(3600), &Site::default())
             .await
             .expect("a timeout"),
         "a job queued for less than max_queue_time was cancelled"
     );
     assert!(
-        !queue::cancel_unclaimed(db, after, Duration::ZERO)
+        !queue::cancel_unclaimed(db, after, Duration::ZERO, &Site::default())
             .await
             .expect("a timeout"),
         "a pending job was cancelled as unclaimed"
@@ -722,7 +729,7 @@ async fn a_job_queued_longer_than_max_queue_time_is_cancelled_with_no_agent() {
         [gpu]
     );
     assert!(
-        queue::cancel_unclaimed(db, gpu, Duration::ZERO)
+        queue::cancel_unclaimed(db, gpu, Duration::ZERO, &Site::default())
             .await
             .expect("a timeout")
     );

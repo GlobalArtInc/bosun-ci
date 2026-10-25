@@ -42,6 +42,11 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/api/`: request and response bodies of the REST API. From step 1 of M1, each one belongs
   to a request or a response of an operation in `openapi.json`, or to a schema one of them refers
   to, and validates against that schema; a fixture of a shape no operation serves fails the suite.
+- `fixtures/api/run.json` and `fixtures/events/run-notice.json`: from step 15 of M1, the server's
+  tests compare the `display_name` and `notices` of `run.json` with the run of
+  `fixtures/workflows/template-condition.yml`, and the data of `run-notice.json` with the error
+  notice of the run of `fixtures/workflows/timeout-minutes.yml`, both dispatched as the server-side
+  workflow `ci`.
 - `openapi.json`: the description of the REST API generated from the handlers, from step 1 of M1.
   `hack/openapi.sh` writes it, a test fails when it differs from the generated document, and it is
   never edited or merged by hand

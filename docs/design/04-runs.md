@@ -138,6 +138,16 @@ workflow named by a job is fetched and validated now, so a missing or invalid ca
 with `startup_failure` before anything executes. The planner then runs in the same transaction, so
 the jobs that need no other job leave it `queued`.
 
+The warnings of the revision become the run's first notices ([Run notices](#run-notices)). The
+run's **display name** is `run-name` rendered with the contexts of its key
+([03-expressions.md](03-expressions.md)); without `run-name`, or when it renders to nothing but
+whitespace, it is the workflow's `name`, or else the workflow's file, which is the name of a
+server-side workflow. An evaluation error in `run-name` does not stop the run: the run keeps that
+default name and gains an error notice at the expression, and its jobs are planned as usual, since
+the name decides nothing about what runs. A job is created with its literal `name`, or with its
+key when the `name` has an expression or there is none; the rendered `name` replaces it when the
+job becomes ready.
+
 The planner runs in the transaction of every change that can make a job ready or end a run: the
 dispatch, an agent starting or finishing a job, a cancel command and the loss of an agent. It holds
 the run's lock ([07-storage.md](07-storage.md)), so two jobs that complete at once are planned one
@@ -148,16 +158,26 @@ every job is.
 A pending job becomes ready when every job in its `needs` is complete. The server then evaluates,
 in this order:
 
-1. `if`, with the status functions over `needs`. False completes the job as `skipped` with the
-   reason `if_false`. Without an `if` the job behaves as `if: success()`, which is false when any of
-   its ancestors did not succeed ([03-expressions.md](03-expressions.md)); in M0, which has no
-   `if`, this is the whole evaluation, so a job after a failed, skipped or cancelled one is skipped.
+1. `if`, with the status functions over the job's ancestors, the jobs it needs directly or through
+   other jobs. False completes the job as `skipped` with the reason `if_false`, or, while the run is
+   being cancelled, as `cancelled` with the reason `command`. Without an `if` the job behaves as
+   `if: success()`, and an `if` that calls no status function as `success() && (<if>)`, which are
+   false when any of its ancestors did not succeed ([03-expressions.md](03-expressions.md)), so a
+   job after a failed, skipped or cancelled one is skipped unless its `if` says otherwise. A job
+   that failed or timed out under `continue-on-error` counts as succeeded here, in the status
+   functions and in `needs.<job>.result` of its dependents, while its own conclusion stays.
 2. `strategy`. A matrix expands into member jobs here, in status `pending` with their `needs`
    already met, and each member continues from step 3. An empty matrix completes the group as
    `failure` with an error that names the empty vector, as the target does.
-3. `runs-on`, `environment`, `concurrency`, `timeout-minutes`, `continue-on-error`, `container`
-   and `services` (image and credentials). `runs-on` gives the job its labels, stored lowercased,
-   and the pools it may run in ([07-storage.md](07-storage.md)).
+3. `name`, `runs-on`, `environment`, `concurrency`, `timeout-minutes`, `continue-on-error`, the
+   job's `env` and `defaults`, `container` and `services` (image and credentials). `runs-on` gives
+   the job its labels, stored lowercased, and the pools it may run in
+   ([07-storage.md](07-storage.md)). The rendered `name` becomes the job's display name; the other
+   values are stored on the job for its assignment ([07-storage.md](07-storage.md)). A key that is
+   one `${{ }}` takes the type of the expression's value, any other text is a string: `runs-on` is
+   a label, a list of labels or a mapping of `group` and `labels`, none of them empty;
+   `timeout-minutes` a whole number of at least 0; `continue-on-error` a boolean; and a shell in
+   `defaults.run` one of the shells of [02-workflows.md](02-workflows.md).
 4. The admission rules: the environment's protection rules, the admission policies of plugins,
    the concurrency group, and a pause of the run or the job. While any of them holds the job back,
    it is `waiting` with the reason recorded. A branch policy that excludes the ref, or a policy that
@@ -165,6 +185,11 @@ in this order:
 5. Otherwise the job becomes `queued`.
 
 A gate skips steps 2, 3 and the queue: once its admission rules pass, it waits for approvals.
+
+An expression of steps 1 to 3 that fails to evaluate, or whose value the key cannot use, completes
+the job as `failure` with the reason `evaluation_failed`, whatever its `continue-on-error`, after an
+error notice at the expression's span that names the job. Its dependents then follow their `if`.
+The keys are evaluated in the order of the list, and the first error ends the evaluation.
 
 A job group completes when all its members are complete. Its conclusion is `failure` when a member
 failed without `continue-on-error`, `cancelled` when a member was cancelled, and `success`
@@ -175,7 +200,8 @@ The run completes when every job of the attempt is complete. Its conclusion is t
 that holds: `failure` when a job failed or timed out without `continue-on-error`, `cancelled` when
 the run or one of its jobs was cancelled, `skipped` when every job was skipped, and `success`
 otherwise. A run that accepted `run.cancel` ends `cancelled` unless a job failed, even when its last
-running job then finished well before the cancel reached it.
+running job then finished well before the cancel reached it. A job failed by an evaluation error
+has no `continue-on-error`, so it fails the run.
 
 ## Dispatch
 
@@ -252,7 +278,7 @@ An event has this shape, the same in the database, in the API and in the event s
 }
 ```
 
-The kinds of M0:
+The kinds of M0, and those M1 adds:
 
 | Kind | Data |
 |------|------|
@@ -267,6 +293,7 @@ The kinds of M0:
 | `step.status` | `from`, `to`, `outcome`, `conclusion`, `conclusion_source` |
 | `command.accepted` | the command as it was given |
 | `command.refused` | the command, the error code and message |
+| `run.notice` | from M1: a diagnostic of [02-workflows.md](02-workflows.md) with the severity `error`, `warning` or `notice`; the event's `job_id` names the job it concerns, or is `null` ([Run notices](#run-notices)) |
 
 Later milestones add kinds for approvals, holds, terminals and the rest of the commands' effects.
 A status event always names both ends of the transition, so a replay can check that each event
@@ -276,12 +303,35 @@ that is not self-explanatory:
 | Reason | Meaning |
 |--------|---------|
 | `if_false` | the `if` evaluated to false, including the implicit `success()` after a failed dependency |
+| `evaluation_failed` | an expression the server evaluated for the job failed, or gave a value its key cannot use; the run's notices hold the error |
 | `command` | an operator command caused it; the preceding `command.accepted` says which |
 | `lease_expired` | the agent did not confirm the start within the lease |
 | `rejected_by_agent` | the agent answered the assignment with a rejection |
 | `no_agent` | the job stayed queued longer than `max_queue_time` |
 | `agent_lost` | the agent did not come back within the grace period |
 | `agent_removed` | the agent was deleted while it held the job |
+
+### Run notices
+
+A run notice tells what the run page shows beside the graph: a problem of the workflow or of the run
+that is not a status. Notices are `run.notice` events, so they keep the order of the journal, and
+`GET /runs/{run}` lists them ([11-api.md](11-api.md)). A run gains them
+
+- when it is created, from the warnings of its revision, with their codes from
+  [02-workflows.md](02-workflows.md) and without a job;
+- when the server evaluates an expression for the run or one of its jobs and the evaluation fails,
+  as an error at the expression's span;
+- from later milestones: the diagnostics of a `startup_failure` (step 27 of [../plan.md](../plan.md)),
+  a Node runtime substituted for an action (step 32), and a scope of the forge token that the App
+  lacks (step 34).
+
+The codes of runtime notices:
+
+| Code | Severity | Meaning |
+|------|----------|---------|
+| `function_failed` | error | a function failed while the server evaluated an expression, as [03-expressions.md](03-expressions.md) lists |
+| `invalid_type` | error | the value of an expression has a type its key cannot use, such as a string for `timeout-minutes` |
+| `invalid_value` | error | the value has the right type but the key cannot use it, such as `timeout-minutes: 1.5`, an empty label or a shell that does not exist |
 
 The journal is the source for:
 
@@ -315,12 +365,16 @@ that give them their effects.
 A cancellation completes a job that is not on an agent at once, and an assigned one together with
 its execution, as `cancelled` with the reason `command`; a job running on an agent is cancelled
 there through a `cancel` control message, also sent for an assigned one in case its agent starts it,
-and completes when the agent reports it or is lost. `run.cancel` cancels every job that is not
-complete and records the request on the run, so nothing of the run is queued or started after it.
+and completes when the agent reports it or is lost. `run.cancel` records the request on the run and
+cancels every job that is not complete, except a pending job whose `if` calls a status function,
+since only such an `if` can admit a cancelled run. That job is decided when its `needs` are
+complete, with `cancelled()` true and `success()` and `failure()` false: it runs when its `if`
+holds, as `if: always()` and `if: cancelled()` do, and is cancelled otherwise. Nothing else of the
+run is queued or started after the cancel.
 
 | Command | Valid when | Effect | Permission |
 |---------|-----------|--------|------------|
-| `run.cancel` | run not completed | pending, waiting, queued and assigned jobs are cancelled at once; running jobs are cancelled on the agent, where steps whose `if` admits cancellation and post steps still run | `run.cancel` |
+| `run.cancel` | run not completed | pending, waiting, queued and assigned jobs are cancelled at once, except pending jobs whose `if` admits cancellation, which run when their `needs` are complete; running jobs are cancelled on the agent, where steps whose `if` admits cancellation and post steps still run | `run.cancel` |
 | `run.force-cancel` | after `run.cancel` | running jobs are killed without the remaining steps | `run.cancel` |
 | `run.pause` | run not completed | no job of the run starts or continues past a step boundary; gates still record approvals but release nothing | `run.control` |
 | `run.resume` | run paused | lifts the pause | `run.control` |

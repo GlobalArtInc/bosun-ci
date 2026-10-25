@@ -15,6 +15,7 @@ use crate::envelope::ApiError;
 use crate::openapi::Api;
 use crate::reply::Created;
 use crate::request::{Faults, Idempotent, Segment, database};
+use crate::site::Site;
 use crate::{AppState, idempotency, planner};
 
 pub(crate) fn routes() -> Api {
@@ -56,7 +57,7 @@ async fn command(
     if let Some(replayed) = idempotency::replay(&transaction, body.idempotency.as_ref()).await? {
         return Ok(replayed);
     }
-    match apply(&mut run, &principal.actor(), &body.value).await? {
+    match apply(&mut run, &principal.actor(), &body.value, &state.site).await? {
         Applied::Accepted(event) => {
             idempotency::commit(&state.db, transaction, body.idempotency.as_ref(), *event).await
         }
@@ -71,6 +72,7 @@ pub(crate) async fn apply(
     run: &mut Locked<'_>,
     actor: &Actor,
     request: &CommandRequest,
+    site: &Site,
 ) -> Result<Applied, ApiError> {
     let jobs = run.jobs().await.map_err(database)?;
     match target(run, &jobs, request)? {
@@ -90,10 +92,16 @@ pub(crate) async fn apply(
             }
             let accepted = accept(run, None, actor, request).await?;
             run.request_cancel().await.map_err(database)?;
+            let workflow = run.ir().await.map_err(database)?;
             for job in &jobs {
+                if job.status == JobStatus::Pending
+                    && planner::admits_cancellation(&workflow, &job.key)
+                {
+                    continue;
+                }
                 cancel(run, job, actor).await.map_err(database)?;
             }
-            planner::plan(run).await.map_err(database)?;
+            planner::plan(run, site).await.map_err(database)?;
             Ok(Applied::Accepted(Box::new(accepted)))
         }
         Target::Job(job) => {
@@ -113,7 +121,7 @@ pub(crate) async fn apply(
             }
             let accepted = accept(run, Some(job), actor, request).await?;
             cancel(run, job, actor).await.map_err(database)?;
-            planner::plan(run).await.map_err(database)?;
+            planner::plan(run, site).await.map_err(database)?;
             Ok(Applied::Accepted(Box::new(accepted)))
         }
     }

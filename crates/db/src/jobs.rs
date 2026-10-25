@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use bosun_types::actor::Actor;
@@ -15,7 +16,7 @@ use sea_orm::ConnectionTrait;
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 
 use crate::row::statement;
-use crate::runs::{Locked, refuse};
+use crate::runs::{Evaluated, Locked, refuse};
 use crate::{Error, queue, row};
 
 const JOBS: &str = "job";
@@ -31,6 +32,49 @@ struct StepEnd {
 }
 
 impl Locked<'_> {
+    pub async fn prepare_job(
+        &self,
+        job: JobId,
+        name: &str,
+        continue_on_error: bool,
+        evaluated: &Evaluated,
+    ) -> Result<(), Error> {
+        let (from, _) = self.job(job).await?;
+        if from != JobStatus::Pending {
+            return Err(refuse("job", job, from, JobStatus::Queued));
+        }
+        self.transaction()
+            .execute(statement(
+                "UPDATE job SET name = $2, continue_on_error = $3, evaluated = $4 WHERE id = $1",
+                [
+                    Uuid::from(job).into(),
+                    name.into(),
+                    continue_on_error.into(),
+                    serde_json::to_value(evaluated)?.into(),
+                ],
+            ))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn record_outputs(
+        &self,
+        execution: ExecutionId,
+        outputs: &BTreeMap<String, String>,
+    ) -> Result<(), Error> {
+        let (job, _) = self.execution(execution).await?;
+        self.transaction()
+            .execute(statement(
+                "UPDATE job SET outputs = $2 WHERE id = $1",
+                [
+                    Uuid::from(job).into(),
+                    serde_json::to_value(outputs)?.into(),
+                ],
+            ))
+            .await?;
+        Ok(())
+    }
+
     pub async fn queue_job(
         &self,
         job: JobId,

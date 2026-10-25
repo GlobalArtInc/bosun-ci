@@ -78,7 +78,9 @@ it, such as a step; a fault in the YAML itself has an empty path; every other sp
 at fault.
 
 Severities are `error`, which prevents a run, and `warning`, which is shown in the editor, in
-`bosun workflow lint` and on the run page. `bosun_workflow::parse` returns the IR together with the
+`bosun workflow lint` and on the run page. A run notice carries a diagnostic too, with a third
+severity, `notice`, for information that is neither ([04-runs.md](04-runs.md#run-notices)); an
+error notice reports a failure while the run goes on, and the parser gives no notices. `bosun_workflow::parse` returns the IR together with the
 file's warnings when the file has no error, and every diagnostic of the file, warnings included, in
 the order of their position when it has one. A workflow file with errors produces a run that ends
 at once with conclusion `startup_failure` when a trigger matches it, so a broken file is visible

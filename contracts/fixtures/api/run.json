@@ -5,6 +5,7 @@
   "revision_id": "0192f3a4-5b6c-7d8e-9f01-000000000006",
   "number": 12,
   "global_number": 4031,
+  "display_name": "ci",
   "event": "workflow_dispatch",
   "status": "completed",
   "conclusion": "failure",
@@ -15,6 +16,28 @@
     "user_id": "0192f3a4-5b6c-7d8e-9f01-000000000003",
     "login": "roman"
   },
+  "notices": [
+    {
+      "job_id": null,
+      "severity": "warning",
+      "code": "template_condition",
+      "message": "`if` of step 2 of job `build` has text around its `${{ }}`, or several of them, so it is a string, which is true unless it is empty; write the whole condition inside one `${{ }}`",
+      "file": "ci",
+      "span": {
+        "line": 8,
+        "column": 13,
+        "end_line": 8,
+        "end_column": 53
+      },
+      "path": [
+        "jobs",
+        "build",
+        "steps",
+        1,
+        "if"
+      ]
+    }
+  ],
   "created_at": "2026-10-24T18:34:50.078Z",
   "started_at": "2026-10-24T18:34:51Z",
   "completed_at": "2026-10-24T18:35:07.512Z"

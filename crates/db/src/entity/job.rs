@@ -13,6 +13,11 @@ pub struct Model {
     pub waiting_reason: Option<String>,
     pub conclusion: Option<String>,
     pub conclusion_source: Option<String>,
+    pub continue_on_error: bool,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub evaluated: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub outputs: Json,
     pub priority: i32,
     pub labels: Vec<String>,
     pub pool_ids: Vec<Uuid>,

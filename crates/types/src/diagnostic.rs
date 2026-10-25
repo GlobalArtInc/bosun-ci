@@ -8,6 +8,7 @@ use crate::ir::Span;
 pub enum Severity {
     Error,
     Warning,
+    Notice,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

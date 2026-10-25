@@ -7,10 +7,12 @@ use std::time::Duration;
 use bosun_blob::S3Settings;
 use ipnet::IpNet;
 use serde::Deserialize;
+use url::Url;
 
 use crate::Error;
 use crate::address;
 use crate::owner::{self, LOGIN_RULE};
+use crate::site::Site;
 
 const DEFAULT_LISTEN: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
 
@@ -56,6 +58,7 @@ pub struct Config {
     pub(crate) listen: SocketAddr,
     pub(crate) data_dir: PathBuf,
     pub(crate) trusted_proxies: Vec<IpNet>,
+    pub(crate) site: Site,
     pub(crate) database: Database,
     pub(crate) keys: Keys,
     pub(crate) bootstrap_admin: Option<String>,
@@ -112,6 +115,7 @@ struct ServerFile {
     listen: Option<String>,
     data_dir: Option<PathBuf>,
     trusted_proxies: Option<Vec<String>>,
+    public_url: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -195,6 +199,12 @@ impl Config {
         let data_dir = path("server", "data_dir", file.server.data_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_DIR));
         let trusted_proxies = trusted_proxies(file.server.trusted_proxies)?;
+        let site = Site::new(
+            variable("server", "public_url")?
+                .or(file.server.public_url)
+                .map(|text| public_url(&text))
+                .transpose()?,
+        );
         let url = variable("database", "url")?
             .or(file.database.url)
             .ok_or_else(|| invalid("database", "url", "is not set".to_owned()))?;
@@ -303,6 +313,7 @@ impl Config {
             listen,
             data_dir,
             trusted_proxies,
+            site,
             database: Database {
                 url,
                 max_connections,
@@ -350,6 +361,24 @@ fn trusted_proxies(file: Option<Vec<String>>) -> Result<Vec<IpNet>, Error> {
             })
         })
         .collect()
+}
+
+fn public_url(text: &str) -> Result<String, Error> {
+    let refused = |problem: &str| {
+        invalid(
+            "server",
+            "public_url",
+            format!("is `{text}`, which is not {problem}"),
+        )
+    };
+    let url = Url::parse(text).map_err(|_| refused("an address"))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(refused("an http or https address with a host"));
+    }
+    if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
+        return Err(refused("an address without a user, a query or a fragment"));
+    }
+    Ok(text.to_owned())
 }
 
 fn store(file: StoreFile, data_dir: &Path) -> Result<Store, Error> {

@@ -28,6 +28,7 @@ mod runs;
 mod sessions;
 mod shutdown;
 mod sign_in;
+mod site;
 mod slug;
 mod store;
 #[cfg(test)]
@@ -59,6 +60,7 @@ pub use error::Error;
 #[derive(Clone)]
 struct AppState {
     db: DatabaseConnection,
+    site: site::Site,
     store: Arc<store::Backend>,
     followers: Arc<logs::Followers>,
     shutdown: shutdown::Shutdown,
@@ -90,7 +92,12 @@ pub async fn serve(
     let notifications = bosun_db::notify::Listener::connect(&config.database.url, replica.id())
         .await
         .map_err(Error::Notifications)?;
-    let dispatcher = queue::Dispatcher::new(db.clone(), Arc::clone(&replica), config.queue);
+    let dispatcher = queue::Dispatcher::new(
+        db.clone(),
+        Arc::clone(&replica),
+        config.queue,
+        config.site.clone(),
+    );
     let followers = Arc::new(logs::Followers::default());
     let mut tasks = agents::start(
         db.clone(),
@@ -120,6 +127,7 @@ pub async fn serve(
     let (closer, shutdown) = shutdown::channel();
     let state = AppState {
         db,
+        site: config.site,
         store,
         followers,
         shutdown: shutdown.clone(),

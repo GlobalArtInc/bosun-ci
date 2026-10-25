@@ -504,12 +504,12 @@ async fn a_dispatch_that_cannot_start_a_run_is_refused_and_starts_none() {
 
     for (keys, what) in [
         (
-            "    runs-on: [self-hosted, '${{ vars.ARCH }}']\n",
-            "an expression in `runs-on` of job `build`, which the planner applies from M1 step 15",
+            "    runs-on: [self-hosted]\n    strategy:\n      matrix:\n        os: [linux]\n",
+            "`strategy` of job `build`, which the planner applies from M1 step 16",
         ),
         (
-            "    runs-on: [self-hosted]\n    if: false\n",
-            "`if` of job `build`, which the planner applies from M1 step 15",
+            "    runs-on: [self-hosted]\n    concurrency: deploy\n",
+            "`concurrency` of job `build`, which the planner applies from M1 step 17",
         ),
     ] {
         let source = format!(

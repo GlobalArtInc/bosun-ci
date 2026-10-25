@@ -1,4 +1,5 @@
 mod cancel;
+mod evaluation;
 mod journal;
 mod logs;
 mod openapi;
@@ -15,8 +16,9 @@ use bosun_db::runs::NewRun;
 use bosun_db::workflows::NewWorkflow;
 use bosun_testkit::TestDatabase;
 use bosun_types::actor::Actor;
-use bosun_types::api::Workflow;
+use bosun_types::api::{Run, Workflow};
 use bosun_types::command::{Command, CommandRequest, Target};
+use bosun_types::diagnostic::Diagnostic;
 use bosun_types::event::{Event, RunEvent};
 use bosun_types::id::{AgentId, ExecutionId, JobId, RunId, StepId, TokenId, UserId};
 use bosun_types::ir::{
@@ -34,11 +36,12 @@ use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
 };
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::agents::progress::Reporter;
+use crate::agents::progress::{self, JobEnd, Progress, Reporter};
 use crate::commands::{self, Applied};
 use crate::planner;
+use crate::site::Site;
 
 struct World {
     database: TestDatabase,
@@ -116,15 +119,23 @@ impl World {
     }
 
     async fn dispatch(&self, workflow: &ir::Workflow) -> RunId {
+        self.dispatch_with(workflow, &[]).await
+    }
+
+    async fn dispatch_with(&self, workflow: &ir::Workflow, warnings: &[Diagnostic]) -> RunId {
         let transaction = self.db().begin().await.expect("a transaction");
+        let payload = json!({ "inputs": null, "ref": null, "workflow": self.workflow.name });
         let run = planner::dispatch(
             &transaction,
             NewRun {
                 workflow: &self.workflow,
                 revision_id: self.workflow.revision_id.expect("a current revision"),
                 ir: workflow,
+                payload: &payload,
                 actor: &operator(),
             },
+            warnings,
+            &site(),
         )
         .await
         .expect("a dispatch");
@@ -146,13 +157,33 @@ impl World {
         execution
     }
 
+    async fn finish(&self, run: RunId, key: &str, end: JobEnd) {
+        let (job, _) = self.project(run).await.job(key);
+        let execution = self.assign(run, job).await;
+        let accepted = progress::accepted(self.db(), &self.agent, execution, &site())
+            .await
+            .expect("an acceptance");
+        assert_eq!(accepted, Progress::Applied, "{key} was not accepted");
+        let finished = progress::job_finished(self.db(), &self.agent, execution, end, &site())
+            .await
+            .expect("a finished job");
+        assert_eq!(finished, Progress::Applied, "{key} did not finish");
+    }
+
+    async fn run(&self, run: RunId) -> Run {
+        bosun_db::views::run(self.db(), run)
+            .await
+            .expect("a run")
+            .expect("the run")
+    }
+
     async fn command(&self, run: RunId, request: &CommandRequest) -> Applied {
         let transaction = self.db().begin().await.expect("a transaction");
         let mut locked = bosun_db::runs::lock(&transaction, run)
             .await
             .expect("a lock")
             .expect("the run");
-        let applied = commands::apply(&mut locked, &operator(), request)
+        let applied = commands::apply(&mut locked, &operator(), request, &site())
             .await
             .unwrap_or_else(|error| panic!("the command failed: {}", error.0.message));
         transaction.commit().await.expect("a commit");
@@ -394,7 +425,7 @@ fn apply(projection: &mut Projection, event: &RunEvent) -> Result<(), String> {
                 completed: false,
             });
         }
-        Event::AttemptCreated(_) | Event::CommandRefused(_) => {}
+        Event::AttemptCreated(_) | Event::CommandRefused(_) | Event::RunNotice(_) => {}
         Event::JobCreated(created) => {
             let job = event.job_id.ok_or("job.created without a job")?;
             let fresh = JobRow {
@@ -567,6 +598,17 @@ fn moved<S: Copy + Eq + std::fmt::Debug>(
         return Err(format!("the {entity} cannot go from {from:?} to {to:?}"));
     }
     Ok(())
+}
+
+fn site() -> Site {
+    Site::new(Some("https://ci.example.org/".to_owned()))
+}
+
+fn finished(conclusion: Conclusion) -> JobEnd {
+    JobEnd {
+        conclusion,
+        outputs: BTreeMap::new(),
+    }
 }
 
 fn operator() -> Actor {

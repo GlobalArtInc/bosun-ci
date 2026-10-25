@@ -256,6 +256,7 @@ pub(crate) fn diagnostic(diagnostic: &Diagnostic) -> String {
     let severity = match diagnostic.severity {
         Severity::Error => "error",
         Severity::Warning => "warning",
+        Severity::Notice => "notice",
     };
     format!(
         "{}:{}:{}: {severity}: {} [{}]",

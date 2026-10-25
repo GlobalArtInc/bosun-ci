@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use axum::Extension;
 use axum::extract::State;
 use bosun_db::runs::NewRun;
 use bosun_types::api::{DispatchRequest, Run};
 use bosun_types::error::{ErrorBody, ErrorCode};
+use bosun_workflow::github::{self, Dispatch};
 use sea_orm::TransactionTrait;
 
 use crate::auth::Principal;
@@ -77,6 +80,14 @@ pub(crate) async fn dispatch(
             ApiError(body)
         })?;
     let ir = parsed.workflow;
+    let payload = github::dispatch_payload(&Dispatch {
+        inputs: BTreeMap::new(),
+        git_ref: None,
+        workflow: workflow.name.clone(),
+        repository: None,
+        organization: None,
+        sender: None,
+    });
     if let Some(unapplied) = planner::unapplied(&ir) {
         return Err(ApiError::new(
             ErrorCode::InvalidState,
@@ -93,8 +104,11 @@ pub(crate) async fn dispatch(
             workflow: &workflow,
             revision_id,
             ir: &ir,
+            payload: &payload,
             actor: &principal.actor(),
         },
+        &parsed.warnings,
+        &state.site,
     )
     .await
     .map_err(database)?;

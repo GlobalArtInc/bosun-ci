@@ -160,6 +160,7 @@ message LogAck {
 message JobFinished {
   string execution_id = 1;
   Conclusion conclusion = 2;
+  map<string, string> outputs = 3;
 }
 
 message Control {

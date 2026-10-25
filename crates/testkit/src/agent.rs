@@ -5,8 +5,8 @@ use bosun_proto::agent::v1::agent_client::AgentClient;
 use bosun_proto::agent::v1::agent_message::Message as Outgoing;
 use bosun_proto::agent::v1::server_message::Message as Incoming;
 use bosun_proto::agent::v1::{
-    AgentMessage, Assignment, Capability, Control, ControlAck, Heartbeat, Hello, Idle, LogAck,
-    PROTOCOL, ServerMessage, Welcome,
+    AgentMessage, Assignment, Capability, Conclusion, Control, ControlAck, Heartbeat, Hello, Idle,
+    JobFinished, LogAck, PROTOCOL, ServerMessage, Welcome,
 };
 use bosun_types::api::{RegisterAgentRequest, RegisterAgentResponse};
 use bosun_types::id::AgentId;
@@ -205,6 +205,17 @@ impl Connection {
             Ok(Some(Incoming::LogAck(ack))) => ack,
             other => panic!("the server sent no log acknowledgement but {other:?}"),
         }
+    }
+
+    pub fn finish_job(&self, execution: &str, conclusion: Conclusion, outputs: &[(&str, &str)]) {
+        self.send(Outgoing::JobFinished(JobFinished {
+            execution_id: execution.to_owned(),
+            conclusion: conclusion.into(),
+            outputs: outputs
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect(),
+        }));
     }
 
     pub fn acknowledge(&self, control: &Control, took_effect: bool) {

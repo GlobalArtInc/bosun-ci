@@ -10,7 +10,7 @@ use tokio::time::{Instant, sleep};
 use uuid::Uuid;
 
 use crate::WAIT;
-use crate::api::{Api, send, text};
+use crate::api::{Api, fixture, send, text};
 
 const SOURCE: &str = "name: ci\non: workflow_dispatch\njobs:\n  build:\n    runs-on: [self-hosted]\n    \
                       steps:\n      - name: Compile\n        run: make\n      - run: make test\n  \
@@ -166,6 +166,7 @@ async fn a_run_its_jobs_and_their_execution_read_as_the_agent_reports_them() {
     connection.send(Report::JobFinished(JobFinished {
         execution_id: execution.clone(),
         conclusion: Conclusion::Failure.into(),
+        outputs: Default::default(),
     }));
     let ended = until(&api, &format!("/api/v1/runs/{id}"), |run| {
         run["status"] == "completed"
@@ -275,4 +276,120 @@ async fn runs_attempts_jobs_and_executions_that_do_not_exist_are_not_found() {
     let (status, unauthenticated) =
         send(crate::client().get(format!("http://{}/api/v1/runs/{id}", api.address))).await;
     assert_eq!(status, 401, "{unauthenticated}");
+}
+
+const PLACED: &str = "run-name: ${{ github.event_name }} by ${{ github.actor }}\n\
+                      on: workflow_dispatch\njobs:\n  setup:\n    runs-on: [self-hosted]\n    \
+                      outputs:\n      label: ${{ steps.pick.outputs.label }}\n    steps:\n      \
+                      - id: pick\n        run: echo label=gpu >> \"$GITHUB_OUTPUT\"\n  build:\n    \
+                      needs: setup\n    runs-on: ${{ needs.setup.outputs.label }}\n    steps:\n      \
+                      - run: make\n";
+
+async fn dispatch_source(api: &Api, name: &str, source: &str) -> Value {
+    let project = api.project().await;
+    let workflow = api.workflow(&project, name, source).await;
+    let (status, run) = api
+        .post(
+            &format!("/api/v1/workflows/{}/dispatch", text(&workflow["id"])),
+            &json!({ "ref": null, "inputs": {} }),
+        )
+        .await;
+    assert_eq!(status, 201, "{run}");
+    run
+}
+
+fn job_named<'a>(page: &'a Value, key: &str) -> &'a Value {
+    page["items"]
+        .as_array()
+        .expect("a list of jobs")
+        .iter()
+        .find(|job| job["key"] == key)
+        .unwrap_or_else(|| panic!("no job `{key}` in {page}"))
+}
+
+#[tokio::test]
+async fn a_job_runs_where_the_output_its_dependency_reported_places_it() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::start(&database).await;
+    let run = dispatch_source(&api, "ci", PLACED).await;
+    assert_eq!(run["display_name"], "workflow_dispatch by roman");
+    let id = text(&run["id"]);
+    let page = read(&api, &format!("/api/v1/runs/{id}/attempts/1/jobs")).await;
+    let setup = text(&job_named(&page, "setup")["id"]).to_owned();
+    let build = text(&job_named(&page, "build")["id"]).to_owned();
+
+    let (status, token) = api
+        .post(
+            "/api/v1/registration-tokens",
+            &json!({ "pool": "default", "reusable": true, "expires_at": null }),
+        )
+        .await;
+    assert_eq!(status, 201, "{token}");
+    let first = FakeAgent::register(api.address, text(&token["token"]), "runner1", &[]).await;
+    let mut connection = first.connect(api.address).await;
+    connection.idle();
+    let assignment = connection.assignment().await;
+    assert_eq!(assignment.job_key, "setup");
+    connection.send(Report::Accept(Accept {
+        execution_id: assignment.execution_id.clone(),
+    }));
+    connection.finish_job(
+        &assignment.execution_id,
+        Conclusion::Success,
+        &[("label", "GPU"), ("unsaid", "x")],
+    );
+    let placed = until(&api, &format!("/api/v1/jobs/{build}"), |job| {
+        job["status"] == "queued"
+    })
+    .await;
+    assert_eq!(placed["labels"], json!(["gpu"]));
+    assert_eq!(
+        read(&api, &format!("/api/v1/jobs/{setup}")).await["outputs"],
+        json!({ "label": "GPU" })
+    );
+
+    let gpu = FakeAgent::register(api.address, text(&token["token"]), "gpu1", &["gpu"]).await;
+    let mut on_gpu = gpu.connect(api.address).await;
+    on_gpu.idle();
+    let assignment = on_gpu.assignment().await;
+    assert_eq!(
+        (assignment.job_key.as_str(), assignment.job_id),
+        ("build", build)
+    );
+}
+
+#[tokio::test]
+async fn the_warnings_of_its_revision_are_the_notices_of_a_run() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::start(&database).await;
+    let run = dispatch_source(&api, "ci", &fixture("workflows/template-condition.yml")).await;
+    let shown = read(&api, &format!("/api/v1/runs/{}", text(&run["id"]))).await;
+    let expected: Value = serde_json::from_str(&fixture("api/run.json")).expect("a run");
+    assert_eq!(
+        (&shown["display_name"], &shown["notices"]),
+        (&expected["display_name"], &expected["notices"])
+    );
+}
+
+#[tokio::test]
+async fn an_expression_that_fails_on_the_server_fails_its_job_with_an_error_notice() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::start(&database).await;
+    let run = dispatch_source(&api, "ci", &fixture("workflows/timeout-minutes.yml")).await;
+    let id = text(&run["id"]);
+    let page = read(&api, &format!("/api/v1/runs/{id}/attempts/1/jobs")).await;
+    let slow = job_named(&page, "slow");
+    assert_eq!(
+        (&slow["status"], &slow["conclusion"]),
+        (&json!("completed"), &json!("failure"))
+    );
+    assert_eq!(job_named(&page, "build")["status"], "queued");
+    let event: Value = serde_json::from_str(&fixture("events/run-notice.json")).expect("an event");
+    let mut expected = json!({ "job_id": slow["id"] });
+    for (key, value) in event["data"].as_object().expect("the data of the event") {
+        expected[key] = value.clone();
+    }
+    let shown = read(&api, &format!("/api/v1/runs/{id}")).await;
+    assert_eq!(shown["notices"], json!([expected]));
+    assert_eq!(run["notices"], shown["notices"]);
 }

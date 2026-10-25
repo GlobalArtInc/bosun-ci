@@ -202,6 +202,7 @@ impl Pump {
         self.report(Message::JobFinished(JobFinished {
             execution_id: self.execution.to_string(),
             conclusion: concluded(conclusion).into(),
+            outputs: Default::default(),
         }));
         if let Err(error) = self.spool.finish(self.execution) {
             warn!(execution_id = %self.execution, %error, "the log spool could not record the end of a job");

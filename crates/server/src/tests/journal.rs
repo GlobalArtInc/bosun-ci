@@ -1,20 +1,23 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::Duration;
 
+use bosun_types::command::Command;
 use bosun_types::event::Event;
 use bosun_types::id::{ExecutionId, JobId, RunId};
+use bosun_types::ir::{Evaluable, JobTemplate};
 use bosun_types::status::{
-    Conclusion, ExecutionStatus, JobStatus, RunConclusion, RunStatus, StepStatus,
+    Conclusion, ExecutionStatus, JobStatus, RunConclusion, RunStatus, StatusReason, StepStatus,
 };
 use proptest::bool::weighted;
 use proptest::collection::vec;
-use proptest::prelude::{Just, Strategy, any};
+use proptest::prelude::{Just, Strategy, any, prop_oneof};
 use proptest::test_runner::{Config, TestCaseError, TestRunner};
 
-use super::{Projection, World, job_cancel, replay, run_cancel, template, workflow};
+use super::{Projection, World, finished, job_cancel, replay, run_cancel, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
 use crate::commands::Applied;
 use crate::queue;
+use crate::site::Site;
 
 const MOST_JOBS: usize = 6;
 
@@ -25,6 +28,7 @@ struct Case {
     jobs: Vec<Planned>,
     order: Vec<usize>,
     commands: bool,
+    cancel_after: Option<usize>,
     choices: Vec<u32>,
 }
 
@@ -32,6 +36,77 @@ struct Case {
 struct Planned {
     needs: Vec<usize>,
     steps: Vec<bool>,
+    condition: Condition,
+    continue_on_error: bool,
+    computed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Condition {
+    Implicit,
+    Success,
+    Failure,
+    Always,
+    Cancelled,
+    NotCancelled,
+    FailureOrCancelled,
+    NotSuccess,
+    Holds,
+    Fails,
+}
+
+impl Condition {
+    fn text(self) -> Option<&'static str> {
+        match self {
+            Condition::Implicit => None,
+            Condition::Success => Some("success()"),
+            Condition::Failure => Some("${{ failure() }}"),
+            Condition::Always => Some("always()"),
+            Condition::Cancelled => Some("cancelled()"),
+            Condition::NotCancelled => Some("!cancelled()"),
+            Condition::FailureOrCancelled => Some("failure() || cancelled()"),
+            Condition::NotSuccess => Some("${{ !success() }}"),
+            Condition::Holds => Some("github.event_name == 'workflow_dispatch'"),
+            Condition::Fails => Some("${{ github.event_name == 'push' }}"),
+        }
+    }
+
+    fn calls_status(self) -> bool {
+        !matches!(
+            self,
+            Condition::Implicit | Condition::Holds | Condition::Fails
+        )
+    }
+
+    fn holds(self, succeeded: bool, failed: bool, cancelling: bool) -> bool {
+        let success = !cancelling && succeeded;
+        let failure = !cancelling && failed;
+        match self {
+            Condition::Implicit | Condition::Success | Condition::Holds => success,
+            Condition::Failure => failure,
+            Condition::Always => true,
+            Condition::Cancelled => cancelling,
+            Condition::NotCancelled => !cancelling,
+            Condition::FailureOrCancelled => failure || cancelling,
+            Condition::NotSuccess => !success,
+            Condition::Fails => false,
+        }
+    }
+}
+
+fn conditions() -> impl Strategy<Value = Condition> {
+    prop_oneof![
+        4 => Just(Condition::Implicit),
+        1 => Just(Condition::Success),
+        3 => Just(Condition::Failure),
+        2 => Just(Condition::Always),
+        1 => Just(Condition::Cancelled),
+        1 => Just(Condition::NotCancelled),
+        1 => Just(Condition::FailureOrCancelled),
+        1 => Just(Condition::NotSuccess),
+        1 => Just(Condition::Holds),
+        1 => Just(Condition::Fails),
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,36 +128,76 @@ fn cases() -> impl Strategy<Value = Case> {
     (1..=MOST_JOBS)
         .prop_flat_map(|count| {
             let jobs: Vec<_> = (0..count)
-                .map(|index| (vec(any::<bool>(), index), vec(weighted(0.9), 1..=3)))
+                .map(|index| {
+                    (
+                        vec(any::<bool>(), index),
+                        vec(weighted(0.75), 1..=3),
+                        conditions(),
+                        weighted(0.3),
+                        any::<bool>(),
+                    )
+                })
                 .collect();
             (
                 jobs,
                 Just((0..count).collect::<Vec<usize>>()).prop_shuffle(),
                 any::<bool>(),
+                proptest::option::of(0..16_usize),
                 vec(any::<u32>(), 0..64),
             )
         })
-        .prop_map(|(jobs, order, commands, choices)| Case {
+        .prop_map(|(jobs, order, commands, cancel_after, choices)| Case {
             jobs: jobs
                 .into_iter()
-                .map(|(needs, steps)| Planned {
-                    needs: needs
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, needed)| **needed)
-                        .map(|(index, _)| index)
-                        .collect(),
-                    steps,
-                })
+                .map(
+                    |(needs, steps, condition, continue_on_error, computed)| Planned {
+                        needs: needs
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, needed)| **needed)
+                            .map(|(index, _)| index)
+                            .collect(),
+                        steps,
+                        condition,
+                        continue_on_error,
+                        computed,
+                    },
+                )
                 .collect(),
             order,
             commands,
+            cancel_after,
             choices,
         })
 }
 
 fn key(index: usize) -> String {
     format!("j{index}")
+}
+
+fn planned_template(index: usize, planned: &Planned) -> JobTemplate {
+    let needs: Vec<String> = planned.needs.iter().map(|&need| key(need)).collect();
+    let needs: Vec<&str> = needs.iter().map(String::as_str).collect();
+    let mut job = template(&key(index), &needs, planned.steps.len());
+    job.r#if = planned.condition.text().map(|text| {
+        bosun_expr::condition(text)
+            .expect("a condition that parses")
+            .expect("a condition")
+    });
+    job.continue_on_error = if planned.computed {
+        let event = if planned.continue_on_error {
+            "workflow_dispatch"
+        } else {
+            "push"
+        };
+        Evaluable::Template(
+            bosun_expr::template(&format!("${{{{ github.event_name == '{event}' }}}}"))
+                .expect("a template"),
+        )
+    } else {
+        Evaluable::Literal(planned.continue_on_error)
+    };
+    job
 }
 
 #[test]
@@ -93,7 +208,7 @@ fn projected_statuses_always_equal_a_replay_of_the_journal() {
         .expect("a runtime");
     let world = runtime.block_on(World::new());
     let mut runner = TestRunner::new(Config {
-        cases: 128,
+        cases: 192,
         failure_persistence: None,
         ..Config::default()
     });
@@ -108,18 +223,13 @@ async fn drive(world: &World, case: &Case) -> Result<(), TestCaseError> {
     let templates = case
         .order
         .iter()
-        .map(|&index| {
-            let planned = &case.jobs[index];
-            let needs: Vec<String> = planned.needs.iter().map(|&need| key(need)).collect();
-            let needs: Vec<&str> = needs.iter().map(String::as_str).collect();
-            template(&key(index), &needs, planned.steps.len())
-        })
+        .map(|&index| planned_template(index, &case.jobs[index]))
         .collect();
     let run = world.dispatch(&workflow(templates)).await;
     let mut choices = case.choices.iter().copied();
     let mut cancelled_at = None;
     let mut settled = false;
-    for _ in 0..MOST_ACTIONS {
+    for performed in 0..MOST_ACTIONS {
         let projection = consistent(world, run).await?;
         let controls = world.controls().await;
         let (progress, extra) = actions(case, &projection, &controls);
@@ -128,6 +238,7 @@ async fn drive(world: &World, case: &Case) -> Result<(), TestCaseError> {
             break;
         };
         let action = match choices.next() {
+            _ if case.cancel_after == Some(performed) => Action::CancelRun,
             Some(choice) if case.commands && !extra.is_empty() && choice % 5 == 0 => {
                 extra[(choice as usize / 5) % extra.len()]
             }
@@ -136,8 +247,21 @@ async fn drive(world: &World, case: &Case) -> Result<(), TestCaseError> {
         };
         let accepted_cancel = perform(world, run, action).await?;
         if accepted_cancel && cancelled_at.is_none() {
-            cancelled_at = world.journal(run).await.last().map(|event| event.seq);
-            right_after_cancel(world, run).await?;
+            cancelled_at =
+                world
+                    .journal(run)
+                    .await
+                    .iter()
+                    .rev()
+                    .find_map(|event| match &event.event {
+                        Event::CommandAccepted(accepted)
+                            if accepted.command.command == Command::RunCancel =>
+                        {
+                            Some(event.seq)
+                        }
+                        _ => None,
+                    });
+            right_after_cancel(world, case, run).await?;
         }
     }
 
@@ -178,16 +302,16 @@ async fn drive(world: &World, case: &Case) -> Result<(), TestCaseError> {
             "a completed run left {open:?} outside completed"
         )));
     }
-    let expected = conclusion(&projection);
+    let expected = conclusion(case, &projection);
     if run_row.conclusion != Some(expected) {
         return Err(TestCaseError::fail(format!(
             "the run concluded {:?}, and its jobs say {expected:?}: {projection:#?}",
             run_row.conclusion
         )));
     }
-    dependencies_respected(case, &projection)?;
+    conditions_decided(world, case, run, &projection, cancelled_at).await?;
     if let Some(cancelled_at) = cancelled_at {
-        nothing_started_after(world, run, cancelled_at).await?;
+        only_admitted_jobs_started_after(world, case, run, cancelled_at).await?;
     }
 
     match world.command(run, &run_cancel()).await {
@@ -302,7 +426,7 @@ async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, Test
             return Ok(false);
         }
         Action::Lose(execution) => {
-            progress::lose_forgotten(db, agent.id, execution)
+            progress::lose_forgotten(db, agent.id, execution, &Site::default())
                 .await
                 .map_err(|error| TestCaseError::fail(error.to_string()))?;
             return Ok(false);
@@ -319,7 +443,7 @@ async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, Test
             return Ok(false);
         }
         Action::TimeOut(job) => {
-            let cancelled = queue::cancel_unclaimed(db, job, Duration::ZERO)
+            let cancelled = queue::cancel_unclaimed(db, job, Duration::ZERO, &Site::default())
                 .await
                 .map_err(|error| TestCaseError::fail(error.to_string()))?;
             if !cancelled {
@@ -330,7 +454,9 @@ async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, Test
             return Ok(false);
         }
         Action::Reject(execution) => progress::rejected(db, agent, execution).await,
-        Action::Accept(execution) => progress::accepted(db, agent, execution).await,
+        Action::Accept(execution) => {
+            progress::accepted(db, agent, execution, &Site::default()).await
+        }
         Action::StartStep(execution, index) => {
             progress::step_started(db, agent, execution, index, None).await
         }
@@ -349,7 +475,7 @@ async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, Test
             .await
         }
         Action::FinishJob(execution, result) => {
-            progress::job_finished(db, agent, execution, result).await
+            progress::job_finished(db, agent, execution, finished(result), &Site::default()).await
         }
     };
     match reported.map_err(|error| TestCaseError::fail(error.to_string()))? {
@@ -360,7 +486,7 @@ async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, Test
     }
 }
 
-async fn right_after_cancel(world: &World, run: RunId) -> Result<(), TestCaseError> {
+async fn right_after_cancel(world: &World, case: &Case, run: RunId) -> Result<(), TestCaseError> {
     let projection = world.project(run).await;
     let controls = world.controls().await;
     for (&job, row) in &projection.jobs {
@@ -370,7 +496,12 @@ async fn right_after_cancel(world: &World, run: RunId) -> Result<(), TestCaseErr
             .any(|(execution, current)| {
                 current.status == ExecutionStatus::InProgress && controls.contains(execution)
             });
-        if row.status != JobStatus::Completed && !(row.status == JobStatus::InProgress && told) {
+        let admits = case.jobs[index_of(&row.key)].condition.calls_status();
+        let kept = admits && matches!(row.status, JobStatus::Pending | JobStatus::Queued);
+        if row.status != JobStatus::Completed
+            && !(row.status == JobStatus::InProgress && told)
+            && !kept
+        {
             return Err(TestCaseError::fail(format!(
                 "run.cancel left job `{}` {:?} without stopping it",
                 row.key, row.status
@@ -380,11 +511,13 @@ async fn right_after_cancel(world: &World, run: RunId) -> Result<(), TestCaseErr
     Ok(())
 }
 
-async fn nothing_started_after(
+async fn only_admitted_jobs_started_after(
     world: &World,
+    case: &Case,
     run: RunId,
     cancelled_at: u64,
 ) -> Result<(), TestCaseError> {
+    let projection = world.project(run).await;
     for event in world.journal(run).await {
         if event.seq <= cancelled_at {
             continue;
@@ -395,26 +528,44 @@ async fn nothing_started_after(
                 JobStatus::Queued | JobStatus::Assigned | JobStatus::InProgress
             )
         {
-            return Err(TestCaseError::fail(format!(
-                "a job went to {:?} after run.cancel",
-                changed.to
-            )));
+            let job = event.job_id.and_then(|job| projection.jobs.get(&job));
+            let admits =
+                job.is_some_and(|job| case.jobs[index_of(&job.key)].condition.calls_status());
+            if !admits {
+                return Err(TestCaseError::fail(format!(
+                    "a job whose `if` calls no status function went to {:?} after run.cancel",
+                    changed.to
+                )));
+            }
         }
     }
     Ok(())
 }
 
-fn conclusion(projection: &Projection) -> RunConclusion {
+fn effective(case: &Case, key: &str, conclusion: Option<Conclusion>) -> Option<Conclusion> {
+    match conclusion {
+        Some(Conclusion::Failure | Conclusion::TimedOut)
+            if case.jobs[index_of(key)].continue_on_error =>
+        {
+            Some(Conclusion::Success)
+        }
+        conclusion => conclusion,
+    }
+}
+
+fn conclusion(case: &Case, projection: &Projection) -> RunConclusion {
     let concluded: Vec<Option<Conclusion>> =
         projection.jobs.values().map(|job| job.conclusion).collect();
     let cancel_requested = projection
         .run
         .as_ref()
         .is_some_and(|run| run.cancel_requested);
-    if concluded
-        .iter()
-        .any(|conclusion| matches!(conclusion, Some(Conclusion::Failure | Conclusion::TimedOut)))
-    {
+    if projection.jobs.values().any(|job| {
+        matches!(
+            effective(case, &job.key, job.conclusion),
+            Some(Conclusion::Failure | Conclusion::TimedOut)
+        )
+    }) {
         RunConclusion::Failure
     } else if cancel_requested || concluded.contains(&Some(Conclusion::Cancelled)) {
         RunConclusion::Cancelled
@@ -428,29 +579,76 @@ fn conclusion(projection: &Projection) -> RunConclusion {
     }
 }
 
-fn dependencies_respected(case: &Case, projection: &Projection) -> Result<(), TestCaseError> {
+fn ancestors(case: &Case, index: usize) -> BTreeSet<usize> {
+    let mut found = BTreeSet::new();
+    let mut open = case.jobs[index].needs.clone();
+    while let Some(need) = open.pop() {
+        if found.insert(need) {
+            open.extend(case.jobs[need].needs.iter().copied());
+        }
+    }
+    found
+}
+
+async fn conditions_decided(
+    world: &World,
+    case: &Case,
+    run: RunId,
+    projection: &Projection,
+    cancelled_at: Option<u64>,
+) -> Result<(), TestCaseError> {
     let concluded: HashMap<usize, Option<Conclusion>> = projection
         .jobs
         .values()
-        .map(|job| (index_of(&job.key), job.conclusion))
+        .map(|job| {
+            let index = index_of(&job.key);
+            (index, effective(case, &job.key, job.conclusion))
+        })
         .collect();
-    for (&id, job) in &projection.jobs {
-        let needs = &case.jobs[index_of(&job.key)].needs;
-        let all_succeeded = needs
-            .iter()
-            .all(|need| concluded.get(need) == Some(&Some(Conclusion::Success)));
-        let ran = !projection.executions_of(id).is_empty();
-        if ran && !all_succeeded {
-            return Err(TestCaseError::fail(format!(
-                "job `{}` ran although a job it needs did not succeed",
-                job.key
-            )));
-        }
-        if job.conclusion == Some(Conclusion::Skipped) && all_succeeded {
-            return Err(TestCaseError::fail(format!(
-                "job `{}` was skipped although every job it needs succeeded",
-                job.key
-            )));
+    let mut targeted = HashSet::new();
+    let mut decided = HashSet::new();
+    for event in world.journal(run).await {
+        match &event.event {
+            Event::CommandAccepted(accepted) if accepted.command.command == Command::JobCancel => {
+                targeted.extend(accepted.command.target.job);
+            }
+            Event::JobStatusChanged(changed) if changed.from == JobStatus::Pending => {
+                let job = event
+                    .job_id
+                    .ok_or_else(|| TestCaseError::fail("a job.status without a job"))?;
+                if !decided.insert(job) {
+                    continue;
+                }
+                let row = &projection.jobs[&job];
+                let index = index_of(&row.key);
+                let planned = &case.jobs[index];
+                let lineage = ancestors(case, index);
+                let succeeded = lineage
+                    .iter()
+                    .all(|ancestor| concluded[ancestor] == Some(Conclusion::Success));
+                let failed = lineage
+                    .iter()
+                    .any(|ancestor| concluded[ancestor] == Some(Conclusion::Failure));
+                let cancelling = cancelled_at.is_some_and(|cancelled| cancelled < event.seq);
+                let expected = planned.condition.holds(succeeded, failed, cancelling);
+                let cancelled = cancelling && (!planned.condition.calls_status() || !expected);
+                match (changed.to, changed.reason) {
+                    (JobStatus::Queued, None) if expected => {}
+                    (JobStatus::Completed, Some(StatusReason::IfFalse))
+                        if !expected && !cancelling => {}
+                    (JobStatus::Completed, Some(StatusReason::Command))
+                        if targeted.contains(&job) || cancelled => {}
+                    (to, reason) => {
+                        return Err(TestCaseError::fail(format!(
+                            "job `{}` with {:?} after ancestors that succeeded: {succeeded}, \
+                             failed: {failed}, while cancelling: {cancelling}, went to {to:?} \
+                             with {reason:?}",
+                            row.key, planned.condition
+                        )));
+                    }
+                }
+            }
+            _ => {}
         }
     }
     Ok(())

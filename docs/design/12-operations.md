@@ -238,6 +238,10 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
 
 - `server.listen` defaults to `0.0.0.0:8080`; port 0 takes a free port, which the `listening` line
   of the log names.
+- `server.public_url` is the address people and agents reach the server at, an http or https
+  address with a host and maybe a path, without a user, a query or a fragment. It has no default;
+  without it the `bosun.url` and `bosun.run_url` of expressions are empty
+  ([03-expressions.md](03-expressions.md)).
 - `database.url` has no default. `database.max_connections` defaults to 32 and is at least 2,
   because the migrations at start hold two pooled connections at once.
 - The KEK is 64 hexadecimal digits (`openssl rand -hex 32`), in the file `keys.kek_file` or

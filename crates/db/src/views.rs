@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use bosun_types::actor::Actor;
-use bosun_types::api::{Execution, Job, Run, Step};
+use bosun_types::api::{Execution, Job, Notice, Run, Step};
 use bosun_types::id::{ExecutionId, JobId, RunId};
 use sea_orm::prelude::Uuid;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value;
 
-use crate::entity::{attempt, execution, job, run, step};
+use crate::entity::{attempt, execution, job, run, run_event, step};
 use crate::row::statement;
 use crate::{Error, row};
 
@@ -25,6 +25,20 @@ pub async fn run<C: ConnectionTrait>(db: &C, id: RunId) -> Result<Option<Run>, E
         "run",
         found.trigger.get("actor").cloned().unwrap_or(Value::Null),
     )?;
+    let notices = run_event::Entity::find()
+        .filter(run_event::Column::RunId.eq(found.id))
+        .filter(run_event::Column::Kind.eq("run.notice"))
+        .order_by_asc(run_event::Column::Seq)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|event| {
+            Ok(Notice {
+                job_id: row::optional_id("run_event", event.job_id)?,
+                diagnostic: row::json("run_event", event.data)?,
+            })
+        })
+        .collect::<Result<Vec<Notice>, Error>>()?;
     Ok(Some(Run {
         id,
         project_id: row::id("run", found.project_id)?,
@@ -32,6 +46,7 @@ pub async fn run<C: ConnectionTrait>(db: &C, id: RunId) -> Result<Option<Run>, E
         revision_id: row::id("run", found.revision_id)?,
         number: row::unsigned("run", found.number)?,
         global_number: row::unsigned("run", found.global_number)?,
+        display_name: found.display_name.unwrap_or_default(),
         event: found.event,
         status: row::name("run", found.status)?,
         conclusion: found
@@ -40,6 +55,7 @@ pub async fn run<C: ConnectionTrait>(db: &C, id: RunId) -> Result<Option<Run>, E
             .transpose()?,
         attempt: whole("attempt", latest.number)?,
         actor,
+        notices,
         created_at: found.created_at,
         started_at: found.started_at,
         completed_at: found.completed_at,
@@ -181,6 +197,7 @@ fn decode_job(job: job::Model, run: RunId, execution: Option<ExecutionId>) -> Re
             .conclusion_source
             .map(|source| row::name("job", source))
             .transpose()?,
+        outputs: row::json("job", job.outputs)?,
         execution_id: execution,
         queued_at: job.queued_at,
         started_at: job.started_at,

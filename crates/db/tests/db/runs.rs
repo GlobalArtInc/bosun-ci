@@ -71,6 +71,7 @@ async fn a_dispatch_creates_the_run_its_first_attempt_its_pending_jobs_and_their
     let revision_id = workflow.revision_id.expect("a current revision");
     let ir = two_jobs();
     let actor = actor();
+    let payload = json!({ "inputs": null, "ref": null, "workflow": "ci" });
 
     let transaction = db.begin().await.expect("a transaction");
     let created = runs::dispatch(
@@ -79,6 +80,7 @@ async fn a_dispatch_creates_the_run_its_first_attempt_its_pending_jobs_and_their
             workflow: &workflow,
             revision_id,
             ir: &ir,
+            payload: &payload,
             actor: &actor,
         },
     )
@@ -90,6 +92,8 @@ async fn a_dispatch_creates_the_run_its_first_attempt_its_pending_jobs_and_their
     assert_eq!(created.workflow_id, workflow.id);
     assert_eq!(created.revision_id, revision_id);
     assert_eq!(created.number, 1);
+    assert_eq!(created.display_name, "ci");
+    assert_eq!(created.notices, []);
     assert_eq!(created.event, "workflow_dispatch");
     assert_eq!(created.status, RunStatus::Queued);
     assert_eq!(created.conclusion, None);
@@ -111,8 +115,9 @@ async fn a_dispatch_creates_the_run_its_first_attempt_its_pending_jobs_and_their
     assert_eq!(stored.inputs, json!({}));
     assert_eq!(
         stored.trigger,
-        json!({ "actor": actor, "payload": { "inputs": {} } })
+        json!({ "actor": actor, "payload": payload })
     );
+    assert_eq!(stored.display_name.as_deref(), Some("ci"));
     assert_eq!((stored.git_ref, stored.sha), (None, None));
 
     let attempts = attempt::Entity::find()
@@ -235,6 +240,7 @@ async fn run_numbers_count_per_workflow_and_a_rolled_back_dispatch_uses_none() {
                     workflow: &workflow,
                     revision_id: workflow.revision_id.expect("a current revision"),
                     ir: &ir,
+                    payload: &json!({}),
                     actor: &actor,
                 },
             )
@@ -252,6 +258,7 @@ async fn run_numbers_count_per_workflow_and_a_rolled_back_dispatch_uses_none() {
             workflow: &ci,
             revision_id: ci.revision_id.expect("a current revision"),
             ir: &ir,
+            payload: &json!({}),
             actor: &actor,
         },
     )

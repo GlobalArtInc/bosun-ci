@@ -63,6 +63,7 @@ impl Site {
             shutdown: shutdown::channel().1,
             agent_binaries: Arc::from(directory.path().join("agent")),
             clock: clock.clone(),
+            site: crate::site::Site::default(),
             sign_in: Arc::new(sign_in::Settings::new(
                 trusted_proxies
                     .iter()

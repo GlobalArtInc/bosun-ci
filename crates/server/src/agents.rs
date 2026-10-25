@@ -78,6 +78,7 @@ pub(crate) fn start(
     dispatcher: Arc<Dispatcher>,
     followers: Arc<Followers>,
 ) -> Tasks {
+    let site = dispatcher.site().clone();
     Tasks(vec![
         tokio::spawn(replica::forward(
             db.clone(),
@@ -86,7 +87,7 @@ pub(crate) fn start(
             dispatcher,
             followers,
         )),
-        tokio::spawn(sweep::run(db, settings)),
+        tokio::spawn(sweep::run(db, settings, site)),
     ])
 }
 

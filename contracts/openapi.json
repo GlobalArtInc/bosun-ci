@@ -684,6 +684,12 @@
             },
             "type": "array"
           },
+          "outputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "queued_at": {
             "format": "date-time",
             "type": [
@@ -728,6 +734,7 @@
           "waiting_reason",
           "conclusion",
           "conclusion_source",
+          "outputs",
           "execution_id",
           "queued_at",
           "started_at",
@@ -880,6 +887,48 @@
           "user",
           "csrf_token",
           "password_change_required"
+        ],
+        "type": "object"
+      },
+      "Notice": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/PathSegment"
+            },
+            "type": "array"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "span": {
+            "$ref": "#/components/schemas/Span"
+          }
+        },
+        "required": [
+          "job_id",
+          "severity",
+          "code",
+          "message",
+          "file",
+          "span",
+          "path"
         ],
         "type": "object"
       },
@@ -1135,6 +1184,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "display_name": {
+            "type": "string"
+          },
           "event": {
             "type": "string"
           },
@@ -1146,6 +1198,12 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "notices": {
+            "items": {
+              "$ref": "#/components/schemas/Notice"
+            },
+            "type": "array"
           },
           "number": {
             "format": "uint64",
@@ -1182,11 +1240,13 @@
           "revision_id",
           "number",
           "global_number",
+          "display_name",
           "event",
           "status",
           "conclusion",
           "attempt",
           "actor",
+          "notices",
           "created_at",
           "started_at",
           "completed_at"
@@ -1414,6 +1474,22 @@
               "data"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/Diagnostic"
+              },
+              "kind": {
+                "const": "run.notice",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
           }
         ],
         "properties": {
@@ -1513,7 +1589,8 @@
       "Severity": {
         "enum": [
           "error",
-          "warning"
+          "warning",
+          "notice"
         ],
         "type": "string"
       },
@@ -1596,6 +1673,7 @@
       "StatusReason": {
         "enum": [
           "if_false",
+          "evaluation_failed",
           "command",
           "lease_expired",
           "rejected_by_agent",

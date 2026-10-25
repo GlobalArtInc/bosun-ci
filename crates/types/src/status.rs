@@ -199,6 +199,7 @@ impl WaitingReason {
 #[serde(rename_all = "snake_case")]
 pub enum StatusReason {
     IfFalse,
+    EvaluationFailed,
     Command,
     LeaseExpired,
     RejectedByAgent,
@@ -208,8 +209,9 @@ pub enum StatusReason {
 }
 
 impl StatusReason {
-    pub const ALL: [StatusReason; 7] = [
+    pub const ALL: [StatusReason; 8] = [
         StatusReason::IfFalse,
+        StatusReason::EvaluationFailed,
         StatusReason::Command,
         StatusReason::LeaseExpired,
         StatusReason::RejectedByAgent,

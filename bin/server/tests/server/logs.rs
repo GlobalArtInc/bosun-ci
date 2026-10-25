@@ -282,6 +282,7 @@ impl Job {
         self.connection.send(Report::JobFinished(JobFinished {
             execution_id: self.execution.clone(),
             conclusion: Conclusion::Success.into(),
+            outputs: Default::default(),
         }));
     }
 }

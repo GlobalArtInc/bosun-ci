@@ -14,6 +14,9 @@
       "waiting_reason": null,
       "conclusion": "success",
       "conclusion_source": "natural",
+      "outputs": {
+        "version": "1.4.2"
+      },
       "execution_id": "0192f3a4-5b6c-7d8e-9f01-00000000000b",
       "queued_at": "2026-10-24T18:34:50.078Z",
       "started_at": "2026-10-24T18:34:51Z",
@@ -35,6 +38,7 @@
       "waiting_reason": null,
       "conclusion": null,
       "conclusion_source": null,
+      "outputs": {},
       "execution_id": null,
       "queued_at": "2026-10-24T18:35:07.512Z",
       "started_at": null,

@@ -9,9 +9,10 @@ use bosun_types::status::{
 use sea_orm::TransactionTrait;
 use sea_orm::prelude::Uuid;
 
-use super::{World, job_cancel, operator, replay, run_cancel, template, workflow};
+use super::{World, finished, job_cancel, operator, replay, run_cancel, template, workflow};
 use crate::agents::progress::{self, Progress, Reporter};
 use crate::commands::{self, Applied};
+use crate::site::Site;
 
 #[tokio::test]
 async fn a_cancelled_run_completes_every_job_and_tells_the_agent_to_stop_the_running_one() {
@@ -26,7 +27,7 @@ async fn a_cancelled_run_completes_every_job_and_tells_the_agent_to_stop_the_run
     let (build, _) = world.project(run).await.job("build");
     let execution = world.assign(run, build).await;
     let agent = world.agent();
-    progress::accepted(world.db(), agent, execution)
+    progress::accepted(world.db(), agent, execution, &Site::default())
         .await
         .expect("an acceptance");
     progress::step_started(world.db(), agent, execution, 0, None)
@@ -80,9 +81,15 @@ async fn a_cancelled_run_completes_every_job_and_tells_the_agent_to_stop_the_run
     );
 
     assert_eq!(
-        progress::job_finished(world.db(), agent, execution, Conclusion::Cancelled)
-            .await
-            .expect("a finished job"),
+        progress::job_finished(
+            world.db(),
+            agent,
+            execution,
+            finished(Conclusion::Cancelled),
+            &Site::default()
+        )
+        .await
+        .expect("a finished job"),
         Progress::Applied
     );
     let projection = world.project(run).await;
@@ -131,13 +138,19 @@ async fn a_run_cancelled_while_its_last_job_finishes_well_still_ends_cancelled()
         .await;
     let (build, _) = world.project(run).await.job("build");
     let execution = world.assign(run, build).await;
-    progress::accepted(world.db(), world.agent(), execution)
+    progress::accepted(world.db(), world.agent(), execution, &Site::default())
         .await
         .expect("an acceptance");
     world.command(run, &run_cancel()).await;
-    progress::job_finished(world.db(), world.agent(), execution, Conclusion::Success)
-        .await
-        .expect("a finished job");
+    progress::job_finished(
+        world.db(),
+        world.agent(),
+        execution,
+        finished(Conclusion::Success),
+        &Site::default(),
+    )
+    .await
+    .expect("a finished job");
     let run_row = world.project(run).await.run.expect("the run");
     assert_eq!(
         (run_row.status, run_row.conclusion),
@@ -219,7 +232,7 @@ async fn an_assigned_job_is_cancelled_at_once_and_its_late_acceptance_ignored() 
         [execution]
     );
     assert!(matches!(
-        progress::accepted(world.db(), world.agent(), execution)
+        progress::accepted(world.db(), world.agent(), execution, &Site::default())
             .await
             .expect("an answer"),
         Progress::Ignored(_)
@@ -238,25 +251,25 @@ async fn an_execution_whose_agent_is_lost_fails_its_job_and_the_planner_takes_th
         .await;
     let (build, _) = world.project(run).await.job("build");
     let execution = world.assign(run, build).await;
-    progress::accepted(world.db(), world.agent(), execution)
+    progress::accepted(world.db(), world.agent(), execution, &Site::default())
         .await
         .expect("an acceptance");
 
     world.set_online(true).await;
     assert!(
-        !progress::lose_after_grace(world.db(), execution)
+        !progress::lose_after_grace(world.db(), execution, &Site::default())
             .await
             .expect("a loss"),
         "the execution of an online agent was lost"
     );
     world.set_online(false).await;
     assert!(
-        progress::lose_after_grace(world.db(), execution)
+        progress::lose_after_grace(world.db(), execution, &Site::default())
             .await
             .expect("a loss")
     );
     assert!(
-        !progress::lose_after_grace(world.db(), execution)
+        !progress::lose_after_grace(world.db(), execution, &Site::default())
             .await
             .expect("a loss"),
         "a completed execution was lost twice"
@@ -296,21 +309,28 @@ async fn reports_that_do_not_fit_the_execution_change_nothing() {
     let before = world.project(run).await;
 
     for outcome in [
-        progress::accepted(world.db(), &stranger, execution).await,
+        progress::accepted(world.db(), &stranger, execution, &Site::default()).await,
         progress::step_started(world.db(), world.agent(), execution, 0, None).await,
-        progress::job_finished(world.db(), world.agent(), execution, Conclusion::Success).await,
+        progress::job_finished(
+            world.db(),
+            world.agent(),
+            execution,
+            finished(Conclusion::Success),
+            &Site::default(),
+        )
+        .await,
     ] {
         assert!(
             matches!(outcome.expect("an answer"), Progress::Ignored(_)),
             "a report that does not fit was applied"
         );
     }
-    progress::accepted(world.db(), world.agent(), execution)
+    progress::accepted(world.db(), world.agent(), execution, &Site::default())
         .await
         .expect("an acceptance");
     for outcome in [
         progress::step_started(world.db(), world.agent(), execution, 3, None).await,
-        progress::accepted(world.db(), world.agent(), execution).await,
+        progress::accepted(world.db(), world.agent(), execution, &Site::default()).await,
     ] {
         assert!(
             matches!(outcome.expect("an answer"), Progress::Ignored(_)),
@@ -369,7 +389,7 @@ async fn a_command_with_a_target_it_does_not_take_is_invalid_input_and_not_recor
             .await
             .expect("a lock")
             .expect("the run");
-        let refused = commands::apply(&mut locked, &operator(), &request)
+        let refused = commands::apply(&mut locked, &operator(), &request, &Site::default())
             .await
             .err()
             .unwrap_or_else(|| panic!("{request:?} was applied"));

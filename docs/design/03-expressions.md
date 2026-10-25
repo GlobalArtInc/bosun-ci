@@ -147,9 +147,16 @@ error, found before a run starts.
 ### Status functions
 
 In a job's `if`, the status functions look at the job's ancestors, the jobs it needs directly or
-through other jobs: `success()` is true when all of them succeeded, `failure()` when any failed,
-`cancelled()` when the run is being cancelled, and `always()` is always true. In a step's `if` they look at the previous steps of the job in the same
-way. An `if` that calls none of them behaves as `success() && (<expression>)`.
+through other jobs: `success()` is true when all of them succeeded, `failure()` when any failed or
+timed out, `cancelled()` when the run is being cancelled, and `always()` is always true. While the
+run is being cancelled, `success()` and `failure()` are false, as the target's runner keeps one
+status that is then `cancelled`, so only an `if` that calls `cancelled()` or `always()`, or negates
+a status function, admits a cancelled run. An ancestor that failed or timed out under
+`continue-on-error` counts as succeeded. In a step's `if` they look at the previous steps of the
+job in the same way. An `if` that calls none of them behaves as `success() && (<expression>)`, and
+`success()` is evaluated first, so the rest is not evaluated when it is false.
+`bosun_expr::holds` evaluates an `if` with this rule, and `bosun_expr::calls_status` says whether
+an `if` calls a status function, so the server and the agent decide the same way.
 
 A job or a step skipped by an operator ([04-runs.md](04-runs.md)) counts as skipped for these
 functions, exactly as one skipped by its own `if`. A job marked succeeded by an operator counts as
@@ -173,8 +180,38 @@ Bosun adds one context, `bosun`, available wherever `github` is:
 | `bosun.project` | `org/project` path of the project |
 | `bosun.trigger` | who or what started the run: `{ kind, login }` |
 
+`bosun.url` is the server's `server.public_url` without a trailing `/`, and `bosun.run_url` is
+`<url>/runs/<run_id>`; both are empty while the installation names no public address
+([12-operations.md](12-operations.md)). `bosun.run_id` is the run's id, `bosun.attempt` a number,
+and `bosun.project` the slugs of the organisation and the project. `bosun.trigger.kind` is the kind
+of the actor that started the run (`user`, `token`, `agent` or `system`), and `login` its login, the
+name of an agent, or `null` for the system.
+
 Using `bosun` in a file under `.github/workflows/` produces the extension warning of
 [02-workflows.md](02-workflows.md).
+
+### The contexts the server supplies
+
+The planner evaluates the server's keys with these contexts:
+
+- `github`, derived as [06-runtime-services.md](06-runtime-services.md) specifies from the run's
+  event and payload and the facts the server holds: the project, its repository when it has one,
+  the workflow's `name` and file, the run's numbers, the actor of the run and of the attempt, and
+  the job's key, which is empty for `run-name`. The workspace is the agent's, so `github.workspace`
+  is empty on the server. `retention_days` is 90, the default of the log retention
+  ([07-storage.md](07-storage.md)), until project settings change it.
+- `inputs`, the run's inputs, which are empty until dispatch inputs arrive (step 30 of
+  [../plan.md](../plan.md)).
+- `vars` and `secrets`, empty objects until secrets and variables arrive (step 24).
+- `needs`, one property per job the job needs directly, each `{ result, outputs }`: `result` is
+  `success`, `failure`, `cancelled` or `skipped`, where a job that failed or timed out under
+  `continue-on-error` is `success` and one that timed out otherwise is `failure`, and `outputs` are
+  the outputs its agent reported for the names the job declares.
+- `bosun`, as above.
+- `env` in `defaults.run`, the job's `env` as the planner rendered it; the workflow's `env` joins
+  it from step 20, which evaluates it.
+- `strategy` and `matrix` are `null` until matrices arrive (step 16). Every other context is `null`
+  on the server.
 
 ## Where each expression is evaluated
 
@@ -288,7 +325,10 @@ fails them never evaluates, even partly, and fails with the code of the check.
 An expression that fails at run time (invalid JSON for `fromJSON`, a `timeout-minutes` that is not
 a number, a `runs-on` that is neither a string nor a list) fails the job when the server evaluates
 it, and the step when the agent does. The error carries the span of the expression, so the run page
-points at the line; an error of the evaluator itself is at the span of the call at fault.
+points at the line; an error of the evaluator itself is at the span of the call at fault. The server
+records it as a run notice, with `function_failed` for an error of the evaluator and
+`invalid_type` or `invalid_value` for a value its key cannot use ([04-runs.md](04-runs.md)), and an
+error in `run-name` leaves the run its default name.
 
 | Code | Failure |
 |------|---------|

@@ -163,19 +163,20 @@ The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-s
   becomes current again. A source with errors is `422 invalid_input` with the field `source`, the
   message `the workflow is not valid` and the diagnostics, and stores nothing
   ([02-workflows.md](02-workflows.md)). `GET /workflows/{workflow}/revisions` lists newest first.
-- `POST /workflows/{workflow}/dispatch` takes `ref` and `inputs` and answers `201` with the run,
-  `queued`, whose actor is the token of the request. In the same transaction it creates attempt 1,
-  one `pending` job per job template and their journal events, stores the IR of the current
-  revision as lowered by this server, and plans the run, so the jobs that need no other job are
-  `queued` when the response leaves ([04-runs.md](04-runs.md)). A project without a repository has
-  no refs, so `ref` must be `null`; until `workflow_dispatch` inputs arrive in M1, every input is an
-  `invalid_input` naming `inputs.<name>`. A disabled workflow, and a current revision that this
-  server's parser refuses, are `409 invalid_state`, the latter with its diagnostics. So is, until
-  the planner applies it, a revision that uses a key the planner would otherwise ignore, so that a
-  run never quietly differs from its workflow: a job's `if`, an expression in `runs-on` and a job's
-  `continue-on-error` until step 15 of [../plan.md](../plan.md), `strategy` until step 16,
-  `concurrency` until step 17 and a step that uses an action until step 33, because the assignment
-  carries no such step before. The message names the key and the step that brings it.
+- `POST /workflows/{workflow}/dispatch` takes `ref` and `inputs` and answers `201` with the run as
+  planning left it, whose actor is the token of the request. In the same transaction it creates
+  attempt 1, one `pending` job per job template and their journal events, stores the IR of the
+  current revision as lowered by this server, records the revision's warnings as notices, renders
+  the display name, and plans the run, so the jobs that need no other job are `queued`, or
+  completed when their `if` or an evaluation decided so, when the response leaves
+  ([04-runs.md](04-runs.md)). A project without a repository has no refs, so `ref` must be `null`;
+  until `workflow_dispatch` inputs arrive in M1, every input is an `invalid_input` naming
+  `inputs.<name>`. A disabled workflow, and a current revision that this server's parser refuses,
+  are `409 invalid_state`, the latter with its diagnostics. So is, until the planner applies it, a
+  revision that uses a key the planner would otherwise ignore, so that a run never quietly differs
+  from its workflow: `strategy` until step 16 of [../plan.md](../plan.md), `concurrency` until step
+  17 and a step that uses an action until step 33, because the assignment carries no such step
+  before. The message names the key and the step that brings it.
 
 ### Commands
 
@@ -195,10 +196,13 @@ The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-s
 
 - `GET /runs/{run}` answers with the run, in the shape `POST /workflows/{workflow}/dispatch`
   returns; its `attempt` is the number of its latest attempt, and the list of its attempts is not
-  served yet.
+  served yet. `display_name` is the run's display name and `notices` its run notices in the order
+  of the journal, each a diagnostic with the `job_id` it concerns or `null`
+  ([04-runs.md](04-runs.md#run-notices)).
 - `GET /runs/{run}/attempts/{n}/jobs` lists the jobs of attempt `n` in the order they were
   created, as a cursor page without filters. A job carries `execution_id`, the id of its latest
-  execution, or `null` while no agent has claimed it.
+  execution, or `null` while no agent has claimed it, and `outputs`, the outputs its agent reported
+  for the names the job declares, `{}` until then.
 - `GET /jobs/{job}` answers with one job in the same shape, and `GET /executions/{execution}` with
   one execution and its `steps`, ordered by `index`, empty until the agent starts the job.
 - `{run}`, `{job}` and `{execution}` are ids. Any other segment, and an id of nothing, are

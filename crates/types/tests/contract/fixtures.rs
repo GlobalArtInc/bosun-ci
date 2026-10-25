@@ -286,6 +286,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/job-created.json", round_trip::<RunEvent>),
         ("events/job-status.json", round_trip::<RunEvent>),
         ("events/run-created.json", round_trip::<RunEvent>),
+        ("events/run-notice.json", round_trip::<RunEvent>),
         ("events/run-status.json", round_trip::<RunEvent>),
         ("events/step-created.json", round_trip::<RunEvent>),
         ("events/step-status.json", round_trip::<RunEvent>),

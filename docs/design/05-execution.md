@@ -113,7 +113,9 @@ all lowercased; they replace the labels given at registration.
 a transaction of its own under the run's lock ([07-storage.md](07-storage.md)), and plans the run
 after it ([04-runs.md](04-runs.md)). `Accept` starts the execution and its job and creates the
 job's steps; `StepStarted` and `StepFinished` move a step, with the times the agent gives;
-`JobFinished` completes the execution with its conclusion, the steps it left open and the job. A
+`JobFinished` completes the execution with its conclusion, the steps it left open and the job, and
+stores on the job the outputs it reports for the names the job declares; the server logs and drops
+any other name, so a dependent's `needs` hold only declared outputs. A
 report about an execution of another agent, or one that does not fit the execution's state, such as
 a `StepStarted` for a step that already started or an `Accept` for an assignment a cancel already
 completed, is ignored and logged at warning level; a report whose execution id or conclusion is

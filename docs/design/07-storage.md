@@ -78,12 +78,13 @@ The central columns:
 ```
 workflow     id, project_id, name, source_kind, enabled, revision_id, last_run_number, created_at
 run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_number,
-             event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
+             display_name, event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
              status, conclusion, cancel_requested_at, created_at, started_at, completed_at
 attempt      id, run_id, number, reason, actor jsonb, created_at
 job          id, attempt_id, key, name, group_id, matrix jsonb, needs text[], kind,
-             status, waiting_reason, conclusion, conclusion_source, outputs jsonb,
-             priority, labels text[], pool_ids uuid[], pinned_agent_id, carried_from,
+             status, waiting_reason, conclusion, conclusion_source, continue_on_error,
+             evaluated jsonb, outputs jsonb, priority, labels text[], pool_ids uuid[],
+             pinned_agent_id, carried_from,
              queued_at, started_at, completed_at
 execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
              completed_at, log_bytes, log_compacted_at
@@ -96,17 +97,25 @@ run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, k
 ```
 
 A run's `trigger` holds the actor and the payload of the event, `{"actor": …, "payload": …}`; for
-`workflow_dispatch` the payload is `{"inputs": …}`. A run's `cancel_requested_at` is the time an
-accepted `run.cancel` reached it. A job is created with its key, display name and `needs`; its
-`labels` and `pool_ids` are written when the planner evaluates `runs-on` as the job becomes ready
-([04-runs.md](04-runs.md)). `labels` are lowercased; `pool_ids` are the pools the job may run in:
-the pool `runs-on.group` names, none when no pool has that name, and without a group every pool
-open to the project, which until pool access lists arrive in M1 is every pool.
+`workflow_dispatch` the payload is the one [06-runtime-services.md](06-runtime-services.md)
+describes, which `github.event` shows. A run's `display_name` is its rendered `run-name` or its
+default name ([04-runs.md](04-runs.md#planning)); runs created before the column existed got the
+workflow's name. A run's `cancel_requested_at` is the time an accepted `run.cancel` reached it. A
+job is created with its key, display name and `needs`; its `labels` and `pool_ids` are written when
+the planner evaluates `runs-on` as the job becomes ready ([04-runs.md](04-runs.md)), together with
+its rendered `name`, its `continue-on-error`, which the conclusion of the run reads, and in
+`evaluated` the values its assignment carries: `{"timeout_minutes", "env", "shell",
+"working_directory"}`, where `env` maps names to rendered values and the other two are `null` when
+`defaults.run` does not set them. `labels` are lowercased; `pool_ids` are the pools the job may run
+in: the pool `runs-on.group` names, none when no pool has that name, and without a group every pool
+open to the project, which until pool access lists arrive in M1 is every pool. A job's `outputs` are
+the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then.
 
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
-`derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `outputs`,
-`pinned_agent_id` and `carried_from` of jobs, `parent_step_id` and `outputs` of steps) arrive with
-their milestones as additive migrations. The indexes of the queue arrived with the claim (step 11
+`derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `pinned_agent_id` and
+`carried_from` of jobs, `parent_step_id` and `outputs` of steps) arrive with their milestones as
+additive migrations; the display name of runs and the evaluated values and outputs of jobs arrived
+with the planner's expressions (step 15 of [../plan.md](../plan.md)). The indexes of the queue arrived with the claim (step 11
 of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
 'assigned'` that the lease expiry reads. The partial index on `execution (completed_at) where status =
 'completed' and log_compacted_at is null` that the compaction of logs reads arrived with the logs

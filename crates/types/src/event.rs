@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::actor::Actor;
 use crate::command::CommandRequest;
+use crate::diagnostic::Diagnostic;
 use crate::error::ErrorCode;
 use crate::id::{AgentId, AttemptId, ExecutionId, JobId, RevisionId, RunId, StepId, WorkflowId};
 use crate::key::JobKey;
@@ -51,6 +52,8 @@ pub enum Event {
     CommandAccepted(CommandAccepted),
     #[serde(rename = "command.refused")]
     CommandRefused(CommandRefused),
+    #[serde(rename = "run.notice")]
+    RunNotice(Diagnostic),
 }
 
 impl Event {
@@ -67,6 +70,7 @@ impl Event {
             Event::StepStatusChanged(_) => "step.status",
             Event::CommandAccepted(_) => "command.accepted",
             Event::CommandRefused(_) => "command.refused",
+            Event::RunNotice(_) => "run.notice",
         }
     }
 }

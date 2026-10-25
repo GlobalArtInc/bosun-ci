@@ -4,8 +4,9 @@ use tracing::{info, warn};
 
 use super::progress;
 use crate::config::Agents;
+use crate::site::Site;
 
-pub(crate) async fn run(db: DatabaseConnection, settings: Agents) {
+pub(crate) async fn run(db: DatabaseConnection, settings: Agents, site: Site) {
     let mut ticks = interval(settings.heartbeat_interval);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
@@ -21,7 +22,7 @@ pub(crate) async fn run(db: DatabaseConnection, settings: Agents) {
                     );
                 }
                 for execution_id in sweep.abandoned {
-                    match progress::lose_after_grace(&db, execution_id).await {
+                    match progress::lose_after_grace(&db, execution_id, &site).await {
                         Ok(true) => warn!(
                             %execution_id,
                             grace_ms = settings.grace.as_millis(),

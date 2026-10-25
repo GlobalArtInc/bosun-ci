@@ -17,6 +17,7 @@ use tracing::{info, warn};
 use crate::agents::{Offer, Replica, Turn, Turned};
 use crate::config::Queue;
 use crate::planner;
+use crate::site::Site;
 
 const SWEEP: Duration = Duration::from_secs(5);
 
@@ -28,6 +29,7 @@ pub(crate) struct Dispatcher {
     db: DatabaseConnection,
     replica: Arc<Replica>,
     settings: Queue,
+    site: Site,
 }
 
 impl Dispatcher {
@@ -35,12 +37,18 @@ impl Dispatcher {
         db: DatabaseConnection,
         replica: Arc<Replica>,
         settings: Queue,
+        site: Site,
     ) -> Arc<Dispatcher> {
         Arc::new(Dispatcher {
             db,
             replica,
             settings,
+            site,
         })
+    }
+
+    pub(crate) fn site(&self) -> &Site {
+        &self.site
     }
 
     pub(crate) fn idle(self: &Arc<Self>, agent: AgentId, number: u64) {
@@ -135,7 +143,12 @@ pub(crate) async fn sweep(dispatcher: Arc<Dispatcher>) {
         ticks.tick().await;
         dispatcher.wake_all();
         expire_leases(&dispatcher.db, dispatcher.settings.lease).await;
-        time_out(&dispatcher.db, dispatcher.settings.max_queue_time).await;
+        time_out(
+            &dispatcher.db,
+            dispatcher.settings.max_queue_time,
+            &dispatcher.site,
+        )
+        .await;
     }
 }
 
@@ -182,7 +195,7 @@ pub(crate) async fn expire(
     Ok(Some(job))
 }
 
-async fn time_out(db: &DatabaseConnection, max_queue_time: Duration) {
+async fn time_out(db: &DatabaseConnection, max_queue_time: Duration, site: &Site) {
     let overdue = match bosun_db::queue::overdue(db, max_queue_time).await {
         Ok(Some(overdue)) => overdue,
         Ok(None) => return,
@@ -192,7 +205,7 @@ async fn time_out(db: &DatabaseConnection, max_queue_time: Duration) {
         }
     };
     for job_id in overdue {
-        match cancel_unclaimed(db, job_id, max_queue_time).await {
+        match cancel_unclaimed(db, job_id, max_queue_time, site).await {
             Ok(true) => warn!(
                 %job_id,
                 max_queue_time_ms = max_queue_time.as_millis(),
@@ -212,6 +225,7 @@ pub(crate) async fn cancel_unclaimed(
     db: &DatabaseConnection,
     job: JobId,
     max_queue_time: Duration,
+    site: &Site,
 ) -> Result<bool, Error> {
     let transaction = db.begin().await?;
     let Some(mut run) = bosun_db::runs::lock_job(&transaction, job).await? else {
@@ -220,7 +234,7 @@ pub(crate) async fn cancel_unclaimed(
     if !run.time_out(job, max_queue_time).await? {
         return Ok(false);
     }
-    planner::plan(&mut run).await?;
+    planner::plan(&mut run, site).await?;
     transaction.commit().await?;
     Ok(true)
 }
