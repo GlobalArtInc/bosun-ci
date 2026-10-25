@@ -1,4 +1,4 @@
-import { Badge, Box, Code, DataList, Flex, Grid, Heading, Link, Text } from '@radix-ui/themes';
+import { Badge, Box, Code, DataList, Flex, Heading, Link, Text } from '@radix-ui/themes';
 import { hashKey, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, GitCommitHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -20,11 +20,13 @@ import { addressOf, type LogAddress, withStep } from '../logs/address';
 import { Annotations } from '../logs/annotations';
 import { Summaries } from '../logs/summary';
 import { LogViewer } from '../logs/viewer';
+import { Admit, awaitsAdmission } from '../runs/admit';
 import { Cancel } from '../runs/cancel';
+import { JobGraph } from '../runs/job-graph';
 import { actorName, shortSha } from '../runs/labels';
 import { RunTrigger } from '../runs/run-list';
 import { bySeverity, SEVERITIES } from '../runs/severity';
-import { StateBadge, WAITING } from '../runs/state';
+import { StateBadge } from '../runs/state';
 import { nest } from '../runs/steps';
 import { duration, span, stamp, useNow } from '../runs/time';
 import { permissionsOn } from '../session/permissions';
@@ -45,17 +47,6 @@ interface HeaderProps {
 interface NoticesProps {
   notices: Notice[];
   jobs: Job[];
-}
-
-interface JobsProps {
-  jobs: Job[];
-  selected: string | null;
-}
-
-interface JobItemProps {
-  job: Job;
-  members: Job[];
-  selected: string | null;
 }
 
 interface JobPanelProps {
@@ -104,7 +95,10 @@ function Header({ run, jobs, allowed }: HeaderProps) {
             </Heading>
             <StateBadge status={run.status} conclusion={run.conclusion} source={runSource(run, jobs)} />
           </Flex>
-          {run.status !== 'completed' && allowed.has('run.cancel') ? <Cancel run={run} /> : null}
+          <Flex align="start" gap="3" wrap="wrap">
+            {allowed.has('run.override') && awaitsAdmission(run, jobs) ? <Admit run={run} /> : null}
+            {run.status !== 'completed' && allowed.has('run.cancel') ? <Cancel run={run} /> : null}
+          </Flex>
         </Flex>
         <DataList.Root orientation={{ initial: 'vertical', sm: 'horizontal' }} size="2">
           <DataList.Item>
@@ -180,73 +174,6 @@ function Notices({ notices, jobs }: NoticesProps) {
           );
         })}
       </ol>
-    </Flex>
-  );
-}
-
-function JobItem({ job, members, selected }: JobItemProps) {
-  const { t } = useI18n();
-  const now = useNow(job.status !== 'completed');
-  const took = span(job.started_at, job.completed_at, now);
-  return (
-    <li>
-      <Flex direction="column" gap="1" py="1">
-        <Flex align="center" justify="between" gap="3" wrap="wrap">
-          <Link asChild size="2" weight="medium">
-            <RouterLink
-              to={`?job=${job.id}`}
-              className="job-link"
-              aria-current={selected === job.id ? 'true' : undefined}
-            >
-              {job.name}
-            </RouterLink>
-          </Link>
-          <Flex align="center" gap="3">
-            {took === null ? null : <Text size="1">{duration(t, took)}</Text>}
-            <StateBadge status={job.status} conclusion={job.conclusion} source={job.conclusion_source} />
-          </Flex>
-        </Flex>
-        {job.status === 'waiting' && job.waiting_reason !== null ? (
-          <Text size="1" color="amber">
-            {t(WAITING[job.waiting_reason])}
-          </Text>
-        ) : null}
-        {members.length === 0 ? null : (
-          <Box asChild pl="4" m="0">
-            <ul className="plain-list">
-              {members.map((member) => (
-                <JobItem key={member.id} job={member} members={[]} selected={selected} />
-              ))}
-            </ul>
-          </Box>
-        )}
-      </Flex>
-    </li>
-  );
-}
-
-function Jobs({ jobs, selected }: JobsProps) {
-  const { t } = useI18n();
-  const tops = jobs.filter((job) => job.group_id === null);
-  if (jobs.length === 0) {
-    return (
-      <Text as="p" size="2" color="gray">
-        {t('runPage.jobs.empty')}
-      </Text>
-    );
-  }
-  return (
-    <Flex asChild direction="column" gap="1" m="0" p="0">
-      <ul className="plain-list" aria-label={t('runPage.jobs.title')}>
-        {tops.map((job) => (
-          <JobItem
-            key={job.id}
-            job={job}
-            members={jobs.filter((member) => member.group_id === job.id)}
-            selected={selected}
-          />
-        ))}
-      </ul>
     </Flex>
   );
 }
@@ -431,26 +358,27 @@ function RunView({ run }: RunViewProps) {
           <Notices notices={run.notices} jobs={jobs.data ?? []} />
         </Section>
       )}
-      <Grid columns={{ initial: '1', md: '5' }} gap="5" align="start">
-        <Box gridColumn={{ initial: '1', md: 'span 2' }}>
-          <Section title={t('runPage.jobs.title')}>
-            {jobs.isPending ? <Loading /> : null}
-            {jobs.isError ? <Failure error={jobs.error} onRetry={() => jobs.refetch()} /> : null}
-            {jobs.data === undefined ? null : <Jobs jobs={jobs.data} selected={selected} />}
-          </Section>
-        </Box>
-        <Box gridColumn={{ initial: '1', md: 'span 3' }}>
-          <Section title={t('runPage.panel.title')}>
-            {job === undefined ? (
-              <Text as="p" size="2" color="gray">
-                {t('runPage.panel.choose')}
-              </Text>
-            ) : (
-              <JobPanel key={job.id} run={run} job={job} allowed={allowed} />
-            )}
-          </Section>
-        </Box>
-      </Grid>
+      <Section title={t('runPage.jobs.title')}>
+        {jobs.isPending ? <Loading /> : null}
+        {jobs.isError ? <Failure error={jobs.error} onRetry={() => jobs.refetch()} /> : null}
+        {jobs.data !== undefined && jobs.data.length === 0 ? (
+          <Text as="p" size="2" color="gray">
+            {t('runPage.jobs.empty')}
+          </Text>
+        ) : null}
+        {jobs.data !== undefined && jobs.data.length > 0 ? (
+          <JobGraph jobs={jobs.data} selected={selected} />
+        ) : null}
+      </Section>
+      <Section title={t('runPage.panel.title')}>
+        {job === undefined ? (
+          <Text as="p" size="2" color="gray">
+            {t('runPage.panel.choose')}
+          </Text>
+        ) : (
+          <JobPanel key={job.id} run={run} job={job} allowed={allowed} />
+        )}
+      </Section>
     </Flex>
   );
 }

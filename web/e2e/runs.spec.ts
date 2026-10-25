@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
   asOwner,
   created,
@@ -44,6 +44,11 @@ interface Answer {
   code: string;
 }
 
+interface Painted {
+  tone: string | undefined;
+  painted: boolean;
+}
+
 const JOB_MS = 60_000;
 
 function twoJobs(url: string): string {
@@ -72,6 +77,40 @@ jobs:
       - run: exec sleep 600
 `;
 
+function diamond(url: string): string {
+  return `name: diamond
+on: workflow_dispatch
+jobs:
+  prepare:
+    runs-on: [self-hosted]
+    steps:
+      - name: Wait for the gate
+        run: until curl -fsS --noproxy '*' -o /dev/null "${url}"; do sleep 0.2; done
+  build:
+    runs-on: [self-hosted]
+    needs: prepare
+    steps:
+      - run: echo "build runs after prepare"
+  lint:
+    runs-on: [self-hosted]
+    needs: prepare
+    steps:
+      - run: echo "lint runs after prepare"
+  ship:
+    runs-on: [self-hosted]
+    needs: [build, lint]
+    steps:
+      - run: echo "ship runs after build and lint"
+`;
+}
+
+const DEPENDENCIES = [
+  ['build', 'prepare'],
+  ['lint', 'prepare'],
+  ['ship', 'build'],
+  ['ship', 'lint'],
+] as const;
+
 const STUCK = `name: stuck
 on: workflow_dispatch
 jobs:
@@ -85,11 +124,23 @@ function header(page: Page, title: string) {
   return page.getByRole('region', { name: title });
 }
 
+function graph(page: Page) {
+  return page.getByRole('application', { name: english('runPage.jobs.title') });
+}
+
 function job(page: Page, name: string) {
-  return page
-    .getByRole('list', { name: english('runPage.jobs.title') })
-    .getByRole('listitem')
-    .filter({ has: page.getByRole('link', { name, exact: true }) });
+  return graph(page).getByRole('group', { name, exact: true });
+}
+
+async function paint(node: Locator): Promise<Painted> {
+  return node.locator('.job-node').evaluate((element: HTMLElement) => {
+    const probe = document.createElement('span');
+    probe.style.color = `var(--${element.dataset.tone}-9)`;
+    element.append(probe);
+    const expected = getComputedStyle(probe).color;
+    probe.remove();
+    return { tone: element.dataset.tone, painted: getComputedStyle(element).borderLeftColor === expected };
+  });
 }
 
 test('the jobs of a dispatched workflow turn green without a reload, and cancel stops a running run', async ({
@@ -137,6 +188,50 @@ test('the jobs of a dispatched workflow turn green without a reload, and cancel 
     );
     const ended = await created<Run>(owner.get(`/api/v1/runs/${slept}`));
     expect([ended.status, ended.conclusion]).toEqual(['completed', 'cancelled']);
+  } finally {
+    await opening.close();
+  }
+});
+
+test('the graph draws an edge per dependency and colours each node as its job completes', async ({
+  page,
+  playwright,
+}, info) => {
+  const opening = await gate();
+  try {
+    const owner = await asOwner(playwright);
+    const path = await project(owner, unique(info.project.name));
+    const drawn = await workflow(owner, path, diamond(opening.url));
+    const viewer = await person(owner, unique(info.project.name), 'viewer', path);
+    await signIn(page, viewer);
+
+    const run = await dispatch(owner, drawn);
+    await page.goto(`/runs/${run}`);
+    await expect(job(page, 'prepare')).toContainText(english('state.status.in_progress'), {
+      timeout: JOB_MS,
+    });
+    await expect.poll(() => paint(job(page, 'prepare'))).toEqual({ tone: 'blue', painted: true });
+    for (const name of ['build', 'lint', 'ship']) {
+      await expect(job(page, name)).toContainText(english('state.status.pending'));
+      await expect.poll(() => paint(job(page, name))).toEqual({ tone: 'gray', painted: true });
+    }
+    await expect(graph(page).locator('.react-flow__edge')).toHaveCount(DEPENDENCIES.length);
+    for (const [dependent, need] of DEPENDENCIES) {
+      await expect(
+        graph(page).getByRole('img', {
+          name: english('runPage.graph.needs', { job: dependent, need }),
+          exact: true,
+        }),
+      ).toHaveCount(1);
+    }
+
+    opening.open();
+    for (const name of ['prepare', 'build', 'lint', 'ship']) {
+      await expect(job(page, name)).toContainText(english('state.conclusion.success'), { timeout: JOB_MS });
+      await expect.poll(() => paint(job(page, name))).toEqual({ tone: 'green', painted: true });
+    }
+    await expect(header(page, 'diamond #1')).toContainText(english('state.conclusion.success'));
+    await expect(graph(page).locator('.react-flow__edge')).toHaveCount(DEPENDENCIES.length);
   } finally {
     await opening.close();
   }

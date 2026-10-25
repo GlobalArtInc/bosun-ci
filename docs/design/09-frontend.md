@@ -190,6 +190,47 @@ Step 41 of M1 ([../plan.md](../plan.md)) settled the pages of M1 where runs are 
   everything.
 - A held job opens the terminal in a drawer, writable for one person and read-only for others.
 
+Step 42 of M1 ([../plan.md](../plan.md)) settled the graph of jobs and the admission of runs from
+forks:
+
+- **Place.** The graph spans the width of the run page, below the notices, and the job panel
+  follows it. Each node links to `?job=<id>`, which opens the panel of its job, as the list of
+  step 41 did.
+- **Nodes and edges.** A job that no member names is a node of its own; a group, the job its
+  members name ([11-api.md](11-api.md#runs-jobs-and-executions)), is one node, collapsed until
+  someone expands it. A collapsed group shows how many of its members are complete out of how
+  many there are; expanded, it becomes a container whose members are nodes inside it, in the order
+  the API lists them, each with its name and its combination as `key: value` pairs. A group with
+  no members yet, before its matrix is expanded, is drawn as a job. The edges come from the
+  `needs` of the jobs outside groups and join the nodes of the keys they name, so an edge to a
+  group stays on the group, collapsed or expanded, and a member draws none of its own.
+- **Colours and reasons.** A node takes the colour of the badge of its state: green for success,
+  red for failure, a timeout and a startup failure, blue while it is assigned or in progress, amber
+  while it waits, orange while paused or held, grey otherwise. A group keeps its own state once it is completed; before that, since a
+  group stays `pending` while its members run, it shows the state of its most active member, in
+  the order held, paused, in progress, assigned, queued, waiting, pending, and the waiting reason
+  of the first member that waits. A waiting node shows its reason under its badge.
+- **Layout.** ELK lays the graph out left to right with its layered algorithm, in the order the
+  API lists the jobs, and each expanded group as a column of its members under a header. Every node
+  of a job has one fixed size, so a change of status never moves anything: the layout is computed again
+  only when the set of nodes or edges changes, when members are created or a group is expanded or
+  collapsed. The box of the graph is as tall as the layout, between 160 and 560 pixels, and the
+  layout is fitted into it, never above its natural size, whenever either changes; the graph is not
+  rebuilt for that, so the focus stays on the control that expanded a group. ELK is loaded on demand in a chunk of its own, which the
+  build's warning limit for chunk sizes admits.
+- **Interaction.** Nodes are neither dragged nor selected; the graph pans by dragging and zooms
+  with the controls or a pinch, and leaves the scroll wheel to the page. The links and the switch
+  of a group are the stops of the tab order; the edges are named "`<job>` needs `<need>`" for
+  assistive technology.
+- **Admission.** `run.admit` is offered in the header of a run that is not completed and has a job
+  waiting with the reason `untrusted`, to a user whose permissions on the run's project hold
+  `run.override`, computed as for `run.cancel`. It asks for a confirmation that says what an
+  admitted run receives ([08-access.md](08-access.md#code-from-outside-the-team)), and is sent
+  with an `Idempotency-Key` of its own and no reason, as `bosun run admit` sends it; the stream
+  then queues the jobs and the control leaves with the last job that waited.
+- **Keys.** The graph's strings are under `runPage.graph.` and the admission's under
+  `runPage.admit.`.
+
 Step 43 of M1 ([../plan.md](../plan.md)) settled the logs, the annotations and the step summaries
 of the job panel:
 

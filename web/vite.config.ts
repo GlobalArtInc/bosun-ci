@@ -12,7 +12,7 @@ export default defineConfig({
     outDir: 'dist/interface',
     emptyOutDir: true,
     assetsDir: 'assets',
-    chunkSizeWarningLimit: 1024,
+    chunkSizeWarningLimit: 1536,
   },
   test: {
     environment: 'jsdom',

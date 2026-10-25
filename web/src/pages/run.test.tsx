@@ -120,11 +120,11 @@ describe('the run page', () => {
     expect(second).toHaveTextContent(run.notices[0]?.message ?? '');
   });
 
-  it('shows the header, the jobs with their status and the reason a job waits', async () => {
-    const waiting = { ...jobs.items[1], status: 'waiting', waiting_reason: 'concurrency' };
+  it('shows the header, and the jobs in the graph with their status and the reason a job waits', async () => {
+    const waiting = { ...jobs.items[2], status: 'waiting', waiting_reason: 'concurrency' };
     renderAt(`/runs/${run.id}`, (request) =>
       path(request) === `GET /api/v1/runs/${run.id}/attempts/1/jobs`
-        ? json(200, { items: [jobs.items[0], waiting, jobs.items[2]], next: null })
+        ? json(200, { items: [jobs.items[0], jobs.items[1], waiting], next: null })
         : serve({ run: run as Run })(request),
     );
 
@@ -133,15 +133,14 @@ describe('the run page', () => {
     expect(header).toHaveTextContent('workflow_dispatch');
     expect(header).toHaveTextContent('roman');
     expect(header).toHaveTextContent(translate('en', 'time.seconds', { seconds: 17 }));
-    const list = await screen.findByRole('list', { name: translate('en', 'runPage.jobs.title') });
-    expect(within(list).getByText('build').closest('li')).toHaveTextContent(
-      translate('en', 'state.conclusion.success'),
+    const graph = await screen.findByRole('application', { name: translate('en', 'runPage.jobs.title') });
+    await waitFor(() =>
+      expect(within(graph).getByRole('group', { name: 'build' })).toHaveTextContent(
+        translate('en', 'state.conclusion.success'),
+      ),
     );
-    expect(within(list).getByText('test').closest('li')).toHaveTextContent(
+    expect(within(graph).getByRole('group', { name: 'test' })).toHaveTextContent(
       translate('en', 'state.waiting.concurrency'),
-    );
-    expect(within(list).getByText('test (linux, 20)').closest('li')).toHaveTextContent(
-      translate('en', 'state.status.queued'),
     );
   });
 

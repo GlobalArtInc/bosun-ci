@@ -14,12 +14,12 @@ const pulled: Pulled = JSON.parse(
   readFileSync(new URL('../generated/dictionaries.json', import.meta.url), 'utf8'),
 );
 
-export function english(key: string): string {
+export function english(key: string, params: Record<string, string> = {}): string {
   const text = pulled.translations.en?.[key];
   if (text === undefined) {
     throw new Error(`the English dictionary has no ${key}`);
   }
-  return text;
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) => params[name] ?? whole);
 }
 
 export function firstStart(theme: string): FirstStart {

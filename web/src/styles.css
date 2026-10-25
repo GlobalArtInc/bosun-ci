@@ -456,3 +456,124 @@ body {
 .markdown summary {
   cursor: pointer;
 }
+
+.job-graph {
+  --xy-edge-stroke: var(--gray-8);
+  --xy-edge-stroke-width: 1.5;
+  --xy-attribution-background-color: transparent;
+  width: 100%;
+  border-radius: var(--radius-3);
+  background-color: var(--gray-a2);
+}
+
+.job-graph .react-flow__attribution a {
+  color: var(--gray-11);
+}
+
+.job-graph .react-flow__controls {
+  box-shadow: var(--shadow-2);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+}
+
+.job-graph .react-flow__controls-button {
+  border: none;
+  color: var(--gray-12);
+  background-color: var(--color-panel-solid);
+  cursor: pointer;
+}
+
+.job-graph .react-flow__controls-button:hover {
+  background-color: var(--gray-a3);
+}
+
+.job-graph .react-flow__controls-button:focus-visible {
+  outline: 2px solid var(--focus-8);
+  outline-offset: -2px;
+}
+
+.job-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.job-node {
+  --tone-surface: var(--gray-2);
+  --tone-border: var(--gray-a7);
+  --tone-mark: var(--gray-9);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  height: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--tone-border);
+  border-left: 4px solid var(--tone-mark);
+  border-radius: var(--radius-3);
+  background-color: var(--tone-surface);
+  color: var(--gray-12);
+}
+
+.job-group {
+  background-color: var(--gray-a2);
+  border-style: dashed;
+  border-left-style: solid;
+}
+
+.job-node[data-current="true"] {
+  outline: 2px solid var(--accent-9);
+  outline-offset: 2px;
+}
+
+.job-node[data-tone="green"] {
+  --tone-surface: var(--green-2);
+  --tone-border: var(--green-a7);
+  --tone-mark: var(--green-9);
+}
+
+.job-node[data-tone="red"] {
+  --tone-surface: var(--red-2);
+  --tone-border: var(--red-a7);
+  --tone-mark: var(--red-9);
+}
+
+.job-node[data-tone="blue"] {
+  --tone-surface: var(--blue-2);
+  --tone-border: var(--blue-a7);
+  --tone-mark: var(--blue-9);
+}
+
+.job-node[data-tone="amber"] {
+  --tone-surface: var(--amber-2);
+  --tone-border: var(--amber-a7);
+  --tone-mark: var(--amber-9);
+}
+
+.job-node[data-tone="orange"] {
+  --tone-surface: var(--orange-2);
+  --tone-border: var(--orange-a7);
+  --tone-mark: var(--orange-9);
+}
+
+.job-node .job-link {
+  min-width: 0;
+}
+
+.job-node .job-link:focus-visible {
+  outline: 2px solid var(--focus-8);
+  outline-offset: 2px;
+  border-radius: var(--radius-1);
+}
+
+.job-time {
+  flex-shrink: 0;
+}
+
+.job-reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}

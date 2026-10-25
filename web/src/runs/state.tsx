@@ -27,11 +27,13 @@ import { type Key, useI18n } from '../i18n/i18n';
 
 type Status = RunStatus | JobStatus | StepStatus;
 
-type Color = ComponentProps<typeof Badge>['color'];
+type Tone = ComponentProps<typeof Badge>['color'];
+
+type Size = ComponentProps<typeof Badge>['size'];
 
 interface Look {
   key: Key;
-  color: Color;
+  color: Tone;
   icon: LucideIcon;
 }
 
@@ -39,6 +41,7 @@ interface StateBadgeProps {
   status: Status;
   conclusion: RunConclusion | null;
   source?: ConclusionSource | null;
+  size?: Size;
 }
 
 const STATUSES: Record<Status, Look> = {
@@ -85,18 +88,26 @@ export const STATUS_FILTERS: Record<RunStatus | RunConclusion, Key> = {
   startup_failure: CONCLUSIONS.startup_failure.key,
 };
 
-export function StateBadge({ status, conclusion, source = null }: StateBadgeProps) {
+function lookOf(status: Status, conclusion: RunConclusion | null): Look {
+  return status === 'completed' && conclusion !== null ? CONCLUSIONS[conclusion] : STATUSES[status];
+}
+
+export function toneOf(status: Status, conclusion: RunConclusion | null): Tone {
+  return lookOf(status, conclusion).color;
+}
+
+export function StateBadge({ status, conclusion, source = null, size = '2' }: StateBadgeProps) {
   const { t } = useI18n();
-  const look = status === 'completed' && conclusion !== null ? CONCLUSIONS[conclusion] : STATUSES[status];
+  const look = lookOf(status, conclusion);
   const Icon = look.icon;
   return (
     <Flex as="span" align="center" gap="2" wrap="wrap">
-      <Badge color={look.color} size="2" variant="soft" highContrast>
-        <Icon size={14} aria-hidden />
+      <Badge color={look.color} size={size} variant="soft" highContrast>
+        <Icon size={size === '1' ? 12 : 14} aria-hidden />
         {t(look.key)}
       </Badge>
       {source === 'operator' ? (
-        <Badge color="violet" size="2" variant="outline" highContrast>
+        <Badge color="violet" size={size} variant="outline" highContrast>
           {t('state.source.operator')}
         </Badge>
       ) : null}
