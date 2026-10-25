@@ -22,7 +22,7 @@ immutable; `index.html` is served with `no-cache`, so a deployment is picked up 
 navigation and never mixes old and new chunks.
 
 Strings are translated into English and Russian through OwnLate, in a project of the interface's
-own; keys exist in OwnLate before the change that uses them is pushed, because the build pulls the
+own, `bosun-web`; keys exist in OwnLate before the change that uses them is pushed, because the build pulls the
 dictionaries. The interface has a light and a dark theme.
 
 ### Serving

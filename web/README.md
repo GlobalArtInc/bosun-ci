@@ -11,7 +11,7 @@ corepack pnpm test
 corepack pnpm build
 ```
 
-`pnpm test` and `pnpm build` first pull the dictionaries of the interface's OwnLate project into
+`pnpm test` and `pnpm build` first pull the dictionaries of the interface's OwnLate project, `bosun-web`, into
 `generated/dictionaries.json`; `pnpm build` also generates the API client's types from
 `../contracts/openapi.json` into `generated/api.ts`, checks the types and writes the interface to
 `dist/interface/`, which the next `cargo build` embeds in `bosun-server`.

@@ -2,7 +2,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BUNDLES = 'https://api.ownlate.com/public/v1/ota/OWNLATE_ACCESS_KEY/bundles';
+const BUNDLES =
+  'https://api.ownlate.com/public/v1/ota/b3f75001bc7444b79c472ebead725429d81ba42a8da24badb4a4e1e18be33914/bundles';
 
 const LANGUAGES = ['en', 'ru'];
 
