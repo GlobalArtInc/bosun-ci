@@ -7,10 +7,13 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+bosun-expr.workspace = true
+bosun-proto.workspace = true
 bosun-types.workspace = true
 bosun-workflow.workspace = true
 rustix = { workspace = true, features = ["process"] }
 serde_json.workspace = true
+sha2.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "process", "rt", "sync", "time"] }
 uuid = { workspace = true, features = ["v7"] }
 

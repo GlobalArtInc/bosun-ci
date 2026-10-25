@@ -1,0 +1,11 @@
+conclusion = "success"
+timeout-minutes = 0
+
+[[steps]]
+timeout-minutes = 0
+run = """
+sleep 1.5
+echo done
+"""
+outcome = "success"
+output = ["done"]

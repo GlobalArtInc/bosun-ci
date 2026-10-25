@@ -1,0 +1,16 @@
+conclusion = "failure"
+
+[[steps]]
+run = "echo first"
+outcome = "success"
+output = ["first"]
+
+[[steps]]
+run = "exit 3"
+outcome = "failure"
+output = []
+
+[[steps]]
+run = "echo never"
+outcome = "skipped"
+output = []

@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment journal-replay interface"
+scenarios="$scenarios step-environment step-outputs journal-replay interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -578,6 +578,53 @@ print("the step saw the %d variables of the fixture and the payload of the run" 
 PY
     fail "the environment of the step differs: $(cat "$work/out/environment.txt")"
   cat "$work/out/environment.txt"
+  passed
+}
+
+scenario_step_outputs() {
+  begin step-outputs \
+    "an output a step writes, also as a heredoc, reaches a later step, the job outputs and the needs of a dependent job"
+  local job outputs
+  push outputs <<'YAML'
+name: outputs
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      notes: ${{ steps.version.outputs.notes }}
+    steps:
+      - id: version
+        run: |
+          echo "version=1.2.3" >> "$GITHUB_OUTPUT"
+          {
+            echo "notes<<END"
+            echo "first line"
+            echo "second line"
+            echo "END"
+          } >> "$GITHUB_OUTPUT"
+      - run: echo "the next step saw ${{ steps.version.outputs.version }}"
+  test:
+    runs-on: [self-hosted, alpha]
+    needs: build
+    steps:
+      - run: |
+          echo "the dependent job saw ${{ needs.build.outputs.version }}"
+          echo '${{ toJSON(needs.build.outputs.notes) }}'
+YAML
+  watch a outputs
+  watch_ended 60 outputs
+  [ "$reaped" -eq 0 ] ||
+    fail "bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
+  expect_line "$watched" "build | the next step saw 1.2.3" "a later step did not see the output"
+  expect_line "$watched" "test | the dependent job saw 1.2.3" "the dependent job did not see the output"
+  expect_line "$watched" 'test | "first line\nsecond line"' "the dependent job did not see the heredoc"
+  job="$(job_id build)"
+  [ -n "$job" ] || fail "the watch named no job: $(cat "$watched")"
+  outputs="$(api GET "/api/v1/jobs/$job" | jq -cS .outputs)" || fail "the job $job could not be read"
+  [ "$outputs" = '{"notes":"first line\nsecond line","version":"1.2.3"}' ] ||
+    fail "the job stored the outputs $outputs"
   passed
 }
 

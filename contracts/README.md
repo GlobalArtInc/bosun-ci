@@ -18,7 +18,21 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/steps/`: jobs of `run` steps on the host, from step 12 of M0, each with the conclusion,
   the outcome of every step that starts and the output lines the execution engine must produce.
   They pin the shell rules of the target: the default and the named shells, custom templates,
-  `working-directory`, `env` and the order of the output.
+  `working-directory`, `env` and the order of the output. From step 21 of M1, a step may write
+  expressions in `if`, `run`, `env`, `working-directory`, `continue-on-error` and `timeout-minutes`,
+  and expects its `outcome`, its `conclusion` when that differs, and the `outputs` it reports; a step
+  whose `if` does not hold expects `skipped`, and one without an `outcome` must not be reached. The
+  job may have `defaults` for `run`, a `timeout-minutes`, `outputs` with the outputs it must have
+  `reported`, and a line of output on which the test cancels it (`cancel-on`). A minute lasts one
+  second in these cases. They pin conditions and the status functions, `continue-on-error`, the two
+  timeouts and a cancel.
+- `fixtures/file-commands/`: cases in the format of `fixtures/steps/`, from step 21 of M1. They pin
+  `GITHUB_ENV`, `GITHUB_OUTPUT`, `GITHUB_PATH` and `GITHUB_STATE`, with the multi-line form, and the
+  outputs of steps and jobs.
+- `fixtures/hash-files/`: `cases.json`, from step 21 of M1, a list of cases each with a
+  `description`, the `patterns` given to `hashFiles`, and either the `files` of `tree/` it hashes, in
+  their order, or `fails`. The test copies `tree/` into a workspace and compares the result of each
+  case with a hash it computes over those files with `sha256sum`.
 - `fixtures/expr/`: expression cases and the availability table of contexts and functions per key,
   from step 2 of M1, and the evaluation and rendering cases with their contexts and results, from
   step 3 of M1, in the format of `docs/design/03-expressions.md`. From step 45 of M1, a case

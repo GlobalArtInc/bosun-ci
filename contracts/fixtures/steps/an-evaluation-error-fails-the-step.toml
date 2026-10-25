@@ -1,0 +1,30 @@
+conclusion = "failure"
+
+[[steps]]
+env = { BROKEN = "${{ fromJSON('x') }}" }
+run = "echo never"
+outcome = "failure"
+
+[[steps]]
+if = "failure()"
+run = '''echo "${{ fromJSON('not JSON') }}"'''
+continue-on-error = true
+outcome = "failure"
+conclusion = "success"
+
+[[steps]]
+if = "${{ always() && fromJSON('nope') }}"
+run = "echo never"
+outcome = "failure"
+
+[[steps]]
+if = "always()"
+timeout-minutes = "${{ 'ten' }}"
+run = "echo never"
+outcome = "failure"
+
+[[steps]]
+if = "always()"
+continue-on-error = "${{ 'yes' }}"
+run = "exit 1"
+outcome = "failure"

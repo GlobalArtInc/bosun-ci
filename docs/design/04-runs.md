@@ -299,10 +299,13 @@ arrival and none is cancelled; it cannot be combined with `cancel-in-progress`. 
 group applies to runs, the job-level one to jobs.
 
 Timeouts: `timeout-minutes` of a job (default 360) counts only the time spent `in_progress`, so
-pauses and holds do not consume it. Paused and held time has its own limit, `max_pause` (default
-24 hours) and the hold duration ([02-workflows.md](02-workflows.md)); when it runs out, the job is
-cancelled or released as failed. A paused or held job keeps its agent slot, and the queue page
-says which slots are occupied this way.
+pauses and holds do not consume it. The agent enforces it, as it does a step's `timeout-minutes`: a
+job that runs out of time concludes `timed_out`, and a step that does concludes `timed_out` and
+fails its job unless the step may fail under `continue-on-error`
+([05-execution.md](05-execution.md#main-steps)). Paused and held time has its own limit,
+`max_pause` (default 24 hours) and the hold duration ([02-workflows.md](02-workflows.md)); when it
+runs out, the job is cancelled or released as failed. A paused or held job keeps its agent slot,
+and the queue page says which slots are occupied this way.
 
 ## The journal
 

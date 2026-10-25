@@ -1,0 +1,17 @@
+conclusion = "success"
+
+[env]
+MINUTES = "1"
+
+[[steps]]
+id = "slow"
+timeout-minutes = "${{ fromJSON(env.MINUTES) }}"
+continue-on-error = true
+run = "sleep 30"
+outcome = "timed_out"
+conclusion = "success"
+
+[[steps]]
+run = 'echo "${{ steps.slow.outcome }} ${{ steps.slow.conclusion }} ${{ job.status }}"'
+outcome = "success"
+output = ["failure success success"]

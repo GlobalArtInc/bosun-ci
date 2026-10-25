@@ -1,0 +1,21 @@
+conclusion = "failure"
+
+[[steps]]
+id = "slow"
+timeout-minutes = 1
+run = """
+echo started
+sleep 30
+"""
+outcome = "timed_out"
+output = ["started", "the step ran beyond its `timeout-minutes`"]
+
+[[steps]]
+if = "failure()"
+run = 'echo "${{ steps.slow.outcome }} ${{ steps.slow.conclusion }} ${{ job.status }}"'
+outcome = "success"
+output = ["failure failure failure"]
+
+[[steps]]
+run = "echo never"
+outcome = "skipped"

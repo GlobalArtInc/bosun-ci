@@ -1,0 +1,50 @@
+conclusion = "failure"
+
+[[steps]]
+run = "echo first"
+outcome = "success"
+
+[[steps]]
+if = "failure()"
+run = "echo not after a success"
+outcome = "skipped"
+output = []
+
+[[steps]]
+if = "success()"
+run = "echo after a success"
+outcome = "success"
+output = ["after a success"]
+
+[[steps]]
+id = "broken"
+run = "exit 1"
+outcome = "failure"
+
+[[steps]]
+if = "failure()"
+run = 'echo "after the failure of a step that ${{ steps.broken.outcome }}"'
+outcome = "success"
+output = ["after the failure of a step that failure"]
+
+[[steps]]
+if = "${{ failure() && job.status == 'failure' }}"
+run = "echo the status is failure"
+outcome = "success"
+output = ["the status is failure"]
+
+[[steps]]
+if = "success()"
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+if = "cancelled()"
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+if = "always()"
+run = "echo always"
+outcome = "success"
+output = ["always"]

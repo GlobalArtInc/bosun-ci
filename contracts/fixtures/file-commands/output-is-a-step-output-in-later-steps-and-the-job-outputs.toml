@@ -1,0 +1,69 @@
+conclusion = "success"
+
+[outputs]
+version = "${{ steps.version.outputs.version }}"
+notes = "${{ steps.version.outputs.notes }}"
+missing = "${{ steps.version.outputs.missing }}"
+both = "${{ steps.version.outputs.version }} and ${{ steps.later.outputs.again }}"
+
+[reported]
+version = "1.2.3"
+notes = "first line\nsecond line"
+both = "1.2.3 and 2"
+
+[[steps]]
+id = "version"
+run = '''
+echo "version=1.2.3" >> "$GITHUB_OUTPUT"
+{
+  echo "notes<<EOF"
+  echo "first line"
+  echo "second line"
+  echo "EOF"
+} >> "$GITHUB_OUTPUT"
+echo "now=${{ steps.version.outputs.version }}"
+'''
+outcome = "success"
+output = ["now="]
+outputs = { version = "1.2.3", notes = "first line\nsecond line" }
+
+[[steps]]
+id = "later"
+run = '''
+echo "${{ steps.version.outputs.version }}"
+echo '${{ toJSON(steps.version.outputs.notes) }}'
+test ! -s "$GITHUB_OUTPUT"
+echo "again=1" >> "$GITHUB_OUTPUT"
+echo "again=2" >> "$GITHUB_OUTPUT"
+'''
+outcome = "success"
+output = ["1.2.3", '"first line\nsecond line"']
+outputs = { again = "2" }
+
+[[steps]]
+run = "echo 'unnamed=kept' >> \"$GITHUB_OUTPUT\""
+outcome = "success"
+outputs = { unnamed = "kept" }
+
+[[steps]]
+run = "echo '${{ toJSON(steps) }}'"
+outcome = "success"
+output = [
+  "{",
+  '  "version": {',
+  '    "outputs": {',
+  '      "notes": "first line\nsecond line",',
+  '      "version": "1.2.3"',
+  "    },",
+  '    "outcome": "success",',
+  '    "conclusion": "success"',
+  "  },",
+  '  "later": {',
+  '    "outputs": {',
+  '      "again": "2"',
+  "    },",
+  '    "outcome": "success",',
+  '    "conclusion": "success"',
+  "  }",
+  "}",
+]

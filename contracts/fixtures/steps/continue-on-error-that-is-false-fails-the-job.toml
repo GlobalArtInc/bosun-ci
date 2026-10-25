@@ -1,14 +1,13 @@
 conclusion = "failure"
 
-[[steps]]
-run = "echo first"
-outcome = "success"
-output = ["first"]
+[env]
+TOLERATE = "no"
 
 [[steps]]
 run = "exit 3"
+continue-on-error = "${{ env.TOLERATE == 'yes' }}"
 outcome = "failure"
-output = []
 
 [[steps]]
 run = "echo never"
+outcome = "skipped"

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -8,9 +7,9 @@ use bosun_proto::agent::v1::{
     Assignment, Conclusion as Concluded, JobFinished, StepFinished, StepStarted,
 };
 use bosun_proto::assignment::Documents;
-use bosun_runner::{BosunFacts, Event, Job, Runner, Step, Tracking};
+use bosun_runner::{BosunFacts, Completed, Event, Job, Runner, Tracking};
 use bosun_types::id::ExecutionId;
-use bosun_types::ir::{self, Action, Evaluable, JobKind, Shell, Template};
+use bosun_types::ir::{self, Action, JobKind, Shell};
 use bosun_types::slug::{SLUG_RULE, is_slug};
 use bosun_types::status::Conclusion;
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -28,6 +27,8 @@ use crate::spool::Spool;
 const CHUNK: usize = 64 * 1024;
 
 const FLUSH_AFTER: Duration = Duration::from_millis(200);
+
+const MINUTE: Duration = Duration::from_secs(60);
 
 pub(crate) enum Out {
     Log { execution: ExecutionId, seq: u64 },
@@ -83,13 +84,10 @@ pub(crate) fn prepare(
         contexts,
         evaluated,
     } = Documents::read(&assignment)?;
-    let JobKind::Steps(templates) = job.kind;
-    let steps = (0..)
-        .zip(templates)
-        .map(|(index, step)| runnable(index, step))
-        .collect::<Result<Vec<Step>, String>>()?;
-    let mut env: BTreeMap<String, String> = config.proxies().into_iter().collect();
-    env.extend(evaluated.env);
+    let JobKind::Steps(steps) = &job.kind;
+    for (index, step) in (0..).zip(steps) {
+        runnable(index, step)?;
+    }
     let bosun = BosunFacts {
         url: property(&contexts.bosun, "url"),
         run_id: property(&contexts.bosun, "run_id"),
@@ -97,7 +95,9 @@ pub(crate) fn prepare(
         job_id: assignment.job_id.clone(),
         draft: contexts.bosun.get("draft") == Some(&Value::Bool(true)),
     };
-    let repository = repository(&contexts.github)?.unwrap_or(&assignment.project);
+    let repository = repository(&contexts.github)?
+        .unwrap_or(&assignment.project)
+        .to_owned();
     let work = config.dir.join("work");
     Ok(Prepared {
         execution,
@@ -116,10 +116,12 @@ pub(crate) fn prepare(
                 os: host::os().to_owned(),
                 arch: host::arch().to_owned(),
             },
-            github: contexts.github,
             bosun,
-            env,
-            steps,
+            proxies: config.proxies().into_iter().collect(),
+            template: job,
+            contexts,
+            evaluated,
+            minute: MINUTE,
         },
     })
 }
@@ -154,67 +156,18 @@ fn property(context: &Map<String, Value>, name: &str) -> String {
         .to_owned()
 }
 
-fn runnable(index: u32, step: ir::Step) -> Result<Step, String> {
-    let ir::Step {
-        key,
-        r#if,
-        action,
-        shell,
-        working_directory,
-        env,
-        continue_on_error,
-        timeout_minutes,
-        ..
-    } = step;
-    let later =
-        |what: &str| format!("step {index} sets `{what}`, which agents apply from M1 step 21");
-    if r#if.is_some() {
-        return Err(later("if"));
+fn runnable(index: u32, step: &ir::Step) -> Result<(), String> {
+    if let Action::Uses(reference) = &step.action {
+        return Err(format!(
+            "step {index} uses the action `{reference}`, which agents run from M1 step 33"
+        ));
     }
-    if continue_on_error != Evaluable::Literal(false) {
-        return Err(later("continue-on-error"));
-    }
-    if timeout_minutes.is_some() {
-        return Err(later("timeout-minutes"));
-    }
-    let script = match action {
-        Action::Run { script } => literal(index, "run", &script)?,
-        Action::Uses(reference) => {
-            return Err(format!(
-                "step {index} uses the action `{reference}`, which agents run from M1 step 33"
-            ));
-        }
-    };
-    if let Some(Shell::Custom(template)) = &shell {
+    if let Some(Shell::Custom(template)) = &step.shell {
         template
             .parse::<Shell>()
             .map_err(|error| format!("the shell of step {index} is {error}"))?;
     }
-    let working_directory = working_directory
-        .map(|directory| literal(index, "working-directory", &directory))
-        .transpose()?
-        .filter(|directory| !directory.is_empty());
-    let mut variables = BTreeMap::new();
-    for (name, value) in env {
-        let text = literal(index, &format!("env.{name}"), &value)?;
-        variables.insert(name, text);
-    }
-    Ok(Step {
-        index,
-        key: key.map(|key| key.to_string()),
-        script,
-        shell,
-        working_directory,
-        env: variables,
-    })
-}
-
-fn literal(index: u32, what: &str, template: &Template) -> Result<String, String> {
-    template.as_literal().ok_or_else(|| {
-        format!(
-            "step {index} holds an expression in `{what}`, which agents evaluate from M1 step 21"
-        )
-    })
+    Ok(())
 }
 
 pub(crate) fn start(
@@ -254,10 +207,10 @@ impl Pump {
     async fn run(
         mut self,
         mut events: UnboundedReceiver<Event>,
-        runner: impl Future<Output = Conclusion>,
+        runner: impl Future<Output = Completed>,
     ) {
         let mut runner = std::pin::pin!(runner);
-        let mut conclusion = None;
+        let mut completed = None;
         loop {
             let deadline = self.deadline;
             tokio::select! {
@@ -265,22 +218,25 @@ impl Pump {
                     Some(event) => self.handle(event).await,
                     None => break,
                 },
-                finished = &mut runner, if conclusion.is_none() => conclusion = Some(finished),
+                finished = &mut runner, if completed.is_none() => completed = Some(finished),
                 () = sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
                     self.flush().await;
                 }
             }
         }
         self.flush().await;
-        let conclusion = match conclusion {
-            Some(conclusion) => conclusion,
+        let Completed {
+            conclusion,
+            outputs,
+        } = match completed {
+            Some(completed) => completed,
             None => runner.await,
         };
         info!(execution_id = %self.execution, ?conclusion, "finished a job");
         self.report(Message::JobFinished(JobFinished {
             execution_id: self.execution.to_string(),
             conclusion: concluded(conclusion).into(),
-            outputs: Default::default(),
+            outputs: outputs.into_iter().collect(),
         }));
         if let Err(error) = self.spool.finish(self.execution) {
             warn!(execution_id = %self.execution, %error, "the log spool could not record the end of a job");
@@ -313,6 +269,7 @@ impl Pump {
                 at,
                 outcome,
                 conclusion,
+                outputs,
             } => {
                 self.flush().await;
                 self.report(Message::StepFinished(StepFinished {
@@ -321,7 +278,7 @@ impl Pump {
                     completed_at: Some(at.into()),
                     outcome: concluded(outcome).into(),
                     conclusion: concluded(conclusion).into(),
-                    outputs: Default::default(),
+                    outputs: outputs.into_iter().collect(),
                 }));
             }
         }
@@ -398,7 +355,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
     use std::sync::Arc;
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
     use bosun_proto::agent::v1::Assignment;
     use bosun_proto::assignment::{Contexts, Documents, Evaluated};
@@ -544,7 +501,6 @@ mod tests {
             PathBuf::from("/var/lib/bosun/agents/1/tools")
         );
         assert_eq!(job.runner.name, "runner1-1");
-        assert_eq!(job.github, documents.contexts.github);
         assert_eq!(
             (
                 job.bosun.url.as_str(),
@@ -561,18 +517,19 @@ mod tests {
                 true
             )
         );
-        assert_eq!(job.env["HTTP_PROXY"], "http://proxy:3128");
-        assert_eq!(job.env["http_proxy"], "http://job:8080");
-        let step = &job.steps[0];
-        assert_eq!(step.index, 0);
-        assert_eq!(step.key.as_deref(), Some("make"));
-        assert_eq!(step.script, "make");
         assert_eq!(
-            step.shell,
-            Some(Shell::Custom("bash -c \"{0}\"".to_owned()))
+            job.proxies,
+            [
+                ("HTTP_PROXY", "http://proxy:3128"),
+                ("http_proxy", "http://proxy:3128")
+            ]
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .into()
         );
-        assert_eq!(step.working_directory, None);
-        assert_eq!(step.env["A"], "b");
+        assert_eq!(job.evaluated, documents.evaluated);
+        assert_eq!(job.contexts, documents.contexts);
+        assert_eq!(job.template, documents.job);
+        assert_eq!(job.minute, Duration::from_secs(60));
     }
 
     #[test]

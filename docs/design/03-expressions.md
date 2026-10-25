@@ -162,6 +162,33 @@ A job or a step skipped by an operator ([04-runs.md](04-runs.md)) counts as skip
 functions, exactly as one skipped by its own `if`. A job marked succeeded by an operator counts as
 succeeded.
 
+### `hashFiles`
+
+`hashFiles` finds its files as the globber of the target's toolkit does. Its arguments are joined
+into lines; each line is trimmed, and a line that is empty or starts with `#` holds no pattern. A
+pattern that starts with `!` excludes, and a second `!` takes that back. A pattern is relative to the
+workspace unless it starts with `/`; a leading `./` names the workspace, `.` and `..` may be no other
+part of it, and a run of `/` counts as one. Within one part of a path, `*` matches any characters,
+including a leading dot, `?` matches one character, `[...]` one character of a set or a range,
+`[!...]` and `[^...]` one outside it, and `\` makes the next character literal; a `[` without its
+`]` and a range that runs backwards are literal. A part that is exactly `**` matches any number of
+directories, none among them. A pattern that matches a directory also matches everything below it,
+and one that ends with `/` matches only directories itself. The patterns apply in order: each one
+adds what it matches, and each `!` pattern removes what it matches from what the patterns before it
+added.
+
+The walk starts at the directory of every pattern that does not exclude, as far as the pattern has
+no wildcard, in the order of the patterns, and leaves out a directory inside another one it walks
+and one that does not exist. It descends into each directory before it goes on to the next entry,
+takes the entries of a directory in the byte order of their names, and does not follow a symbolic
+link to a directory. Every file it reaches that the patterns match, that lies below the workspace
+and that is not a directory, the target of a symbolic link included, is hashed: the result is the
+SHA-256, in lowercase hexadecimal, of the SHA-256 digests of the files one after the other in the
+order of the walk, or the empty string when no file is hashed. A pattern with `.` or `..` among its
+parts, a file that cannot be read and a symbolic link that leads nowhere make `hashFiles` fail with
+`function_failed`. The cases in `contracts/fixtures/hash-files/` pin these rules over the tree
+beside them.
+
 ## Contexts
 
 `github`, `env`, `vars`, `job`, `jobs`, `steps`, `runner`, `secrets`, `strategy`, `matrix`,

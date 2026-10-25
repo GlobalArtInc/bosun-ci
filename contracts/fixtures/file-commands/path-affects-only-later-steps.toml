@@ -1,0 +1,35 @@
+conclusion = "success"
+
+[[steps]]
+run = '''
+mkdir -p "$RUNNER_TEMP/first" "$RUNNER_TEMP/second"
+printf '#!/bin/sh\necho first\n' > "$RUNNER_TEMP/first/greet"
+printf '#!/bin/sh\necho second\n' > "$RUNNER_TEMP/second/greet"
+chmod +x "$RUNNER_TEMP/first/greet" "$RUNNER_TEMP/second/greet"
+echo "$RUNNER_TEMP/first" >> "$GITHUB_PATH"
+command -v greet || echo "not yet"
+'''
+outcome = "success"
+output = ["not yet"]
+
+[[steps]]
+run = '''
+greet
+echo "$RUNNER_TEMP/second" >> "$GITHUB_PATH"
+'''
+outcome = "success"
+output = ["first"]
+
+[[steps]]
+run = '''
+greet
+test "${PATH%%:*}" = "$RUNNER_TEMP/second"
+echo "$RUNNER_TEMP/first" >> "$GITHUB_PATH"
+'''
+outcome = "success"
+output = ["second"]
+
+[[steps]]
+run = "greet"
+outcome = "success"
+output = ["first"]

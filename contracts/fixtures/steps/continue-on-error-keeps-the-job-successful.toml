@@ -1,0 +1,28 @@
+conclusion = "success"
+
+[env]
+TOLERATE = "yes"
+
+[[steps]]
+id = "flaky"
+run = "exit 2"
+continue-on-error = true
+outcome = "failure"
+conclusion = "success"
+
+[[steps]]
+run = 'echo "${{ steps.flaky.outcome }} ${{ steps.flaky.conclusion }} ${{ job.status }}"'
+outcome = "success"
+output = ["failure success success"]
+
+[[steps]]
+run = "exit 3"
+continue-on-error = "${{ env.TOLERATE == 'yes' }}"
+outcome = "failure"
+conclusion = "success"
+
+[[steps]]
+run = "echo the job goes on"
+continue-on-error = true
+outcome = "success"
+output = ["the job goes on"]

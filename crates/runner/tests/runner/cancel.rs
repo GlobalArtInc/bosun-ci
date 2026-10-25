@@ -15,10 +15,7 @@ struct Cancelled {
 
 async fn cancel_after_ready(script: &str) -> Cancelled {
     let directory = tempfile::tempdir().expect("a directory");
-    let job = job(
-        directory.path(),
-        vec![step(0, script), step(1, "echo never")],
-    );
+    let job = job(directory.path(), vec![step(script), step("echo never")]);
     let (cancel, cancelled) = watch::channel(false);
     let (events, mut received) = mpsc::unbounded_channel();
     let running = tokio::spawn(async move {
@@ -42,7 +39,7 @@ async fn cancel_after_ready(script: &str) -> Cancelled {
         }
         seen.push(event);
     }
-    let conclusion = running.await.expect("the job runs to its end");
+    let conclusion = running.await.expect("the job runs to its end").conclusion;
     let (Some(cancelled_at), Some(finished_at)) = (cancelled_at, finished_at) else {
         panic!("the step never became ready or never finished: {seen:#?}");
     };

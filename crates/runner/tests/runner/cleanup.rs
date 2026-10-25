@@ -9,12 +9,11 @@ async fn background_processes_a_step_detached_are_gone_after_the_job() {
         directory.path(),
         vec![
             step(
-                0,
                 "nohup sleep 300 > /dev/null 2>&1 &\n\
                  echo \"nohup $!\"\n\
                  ( sleep 300 > /dev/null 2>&1 & echo \"subshell $!\" )\n",
             ),
-            step(1, "echo second"),
+            step("echo second"),
         ],
     ))
     .await;
@@ -42,12 +41,11 @@ async fn a_background_process_lives_on_into_the_next_step() {
         directory.path(),
         vec![
             step(
-                0,
                 "sleep 300 > /dev/null 2>&1 &\n\
                  echo \"$!\" > \"$RUNNER_TEMP/pid\"\n\
                  echo \"background $!\"\n",
             ),
-            step(1, "kill -0 \"$(cat \"$RUNNER_TEMP/pid\")\" && echo alive"),
+            step("kill -0 \"$(cat \"$RUNNER_TEMP/pid\")\" && echo alive"),
         ],
     ))
     .await;

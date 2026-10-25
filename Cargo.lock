@@ -336,6 +336,7 @@ name = "bosun-agent"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bosun-expr",
  "bosun-proto",
  "bosun-runner",
  "bosun-types",
@@ -458,11 +459,14 @@ dependencies = [
 name = "bosun-runner"
 version = "0.1.0"
 dependencies = [
+ "bosun-expr",
+ "bosun-proto",
  "bosun-types",
  "bosun-workflow",
  "rustix",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "toml",

@@ -1,0 +1,25 @@
+conclusion = "success"
+
+[env]
+TARGET = "release"
+PLACE = "sub"
+
+[[steps]]
+run = "mkdir -p sub/release"
+outcome = "success"
+
+[[steps]]
+env = { MODE = "${{ env.TARGET }}-mode", PLACE = "${{ env.PLACE }}/${{ env.TARGET }}" }
+working-directory = "${{ env.PLACE }}"
+run = '''
+echo "${PWD#"$GITHUB_WORKSPACE"/}"
+echo "$MODE ${{ env.MODE }} $PLACE ${{ env.PLACE }}"
+echo '${{ format('{0}+{1}', 'a', 'b') }}'
+'''
+outcome = "success"
+output = ["sub/release", "release-mode release-mode sub/release sub/release", "a+b"]
+
+[[steps]]
+run = 'echo "${{ env.MODE }}|${{ env.PLACE }}"'
+outcome = "success"
+output = ["|sub"]

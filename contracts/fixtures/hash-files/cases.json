@@ -1,0 +1,117 @@
+[
+  {
+    "description": "a pattern matches every file below the workspace, in the order of a walk that enters each directory and takes its entries in the byte order of their names",
+    "patterns": ["**"],
+    "files": [
+      ".config/settings.json",
+      "Cargo.lock",
+      "a/b.txt",
+      "a.txt",
+      "docs/guide.md",
+      "docs/notes/todo.md",
+      "package-lock.json",
+      "src/lib.rs",
+      "src/main.rs",
+      "src/nested/deep/mod.rs",
+      "web/package-lock.json",
+      "x1.log",
+      "x2.log",
+      "xa.log"
+    ]
+  },
+  {
+    "description": "`**` matches any number of directories, none among them",
+    "patterns": ["**/package-lock.json"],
+    "files": ["package-lock.json", "web/package-lock.json"]
+  },
+  {
+    "description": "the walk enters a directory before it reaches a sibling whose name extends the directory's",
+    "patterns": ["**/*.txt"],
+    "files": ["a/b.txt", "a.txt"]
+  },
+  {
+    "description": "a directory matches every file below it, and is not hashed itself",
+    "patterns": ["src"],
+    "files": ["src/lib.rs", "src/main.rs", "src/nested/deep/mod.rs"]
+  },
+  {
+    "description": "a pattern after `!` excludes what it matches, and the files below a directory it matches",
+    "patterns": ["src/**/*.rs", "!src/nested"],
+    "files": ["src/lib.rs", "src/main.rs"]
+  },
+  {
+    "description": "a wildcard matches a name that starts with a dot",
+    "patterns": ["*/settings.json"],
+    "files": [".config/settings.json"]
+  },
+  {
+    "description": "`?` matches one character",
+    "patterns": ["x?.log"],
+    "files": ["x1.log", "x2.log", "xa.log"]
+  },
+  {
+    "description": "a class matches one character of a range",
+    "patterns": ["x[0-9].log"],
+    "files": ["x1.log", "x2.log"]
+  },
+  {
+    "description": "a class that starts with `!` matches one character outside it",
+    "patterns": ["x[!0-9].log"],
+    "files": ["xa.log"]
+  },
+  {
+    "description": "a pattern within the directory of another is found by the walk of that other",
+    "patterns": ["docs/notes/*.md", "**/*.md"],
+    "files": ["docs/guide.md", "docs/notes/todo.md"]
+  },
+  {
+    "description": "patterns whose directories lie apart are walked in the order they are given",
+    "patterns": ["web/**", "a/**"],
+    "files": ["web/package-lock.json", "a/b.txt"]
+  },
+  {
+    "description": "a file that two patterns match is hashed once",
+    "patterns": ["a.txt", "*.txt"],
+    "files": ["a.txt"]
+  },
+  {
+    "description": "an argument holds a pattern on each line, without the white space around it, and a blank line or one that starts with `#` holds none",
+    "patterns": ["# the lock file\n\nCargo.lock", " a.txt "],
+    "files": ["Cargo.lock", "a.txt"]
+  },
+  {
+    "description": "a pattern that ends with `/` matches the files below its directory",
+    "patterns": ["docs/"],
+    "files": ["docs/guide.md", "docs/notes/todo.md"]
+  },
+  {
+    "description": "a leading `./` names the workspace",
+    "patterns": ["./web/package-lock.json"],
+    "files": ["web/package-lock.json"]
+  },
+  {
+    "description": "a second `!` takes back the first",
+    "patterns": ["!!a.txt"],
+    "files": ["a.txt"]
+  },
+  {
+    "description": "patterns that only exclude match nothing, which hashes to the empty string",
+    "patterns": ["!src/**"],
+    "files": []
+  },
+  {
+    "description": "a pattern that matches nothing hashes to the empty string",
+    "patterns": ["missing/**"],
+    "files": []
+  },
+  {
+    "description": "`..` cannot be a part of a pattern",
+    "patterns": ["../tree/a.txt"],
+    "fails": true
+  },
+  {
+    "description": "`.` can be a part of a pattern only at its start",
+    "patterns": ["src/./main.rs"],
+    "fails": true
+  }
+]

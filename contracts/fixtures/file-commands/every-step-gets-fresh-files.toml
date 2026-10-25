@@ -1,0 +1,24 @@
+conclusion = "success"
+
+[[steps]]
+run = '''
+for file in "$GITHUB_ENV" "$GITHUB_OUTPUT" "$GITHUB_PATH" "$GITHUB_STATE" "$GITHUB_STEP_SUMMARY"; do
+  test -f "$file" && test ! -s "$file"
+  echo "WRITTEN=1" >> "$file"
+done
+echo "$GITHUB_OUTPUT" > "$RUNNER_TEMP/first"
+'''
+outcome = "success"
+outputs = { WRITTEN = "1" }
+
+[[steps]]
+run = '''
+test "$(cat "$RUNNER_TEMP/first")" != "$GITHUB_OUTPUT"
+for file in "$GITHUB_ENV" "$GITHUB_OUTPUT" "$GITHUB_PATH" "$GITHUB_STATE" "$GITHUB_STEP_SUMMARY"; do
+  test -f "$file" && test ! -s "$file"
+done
+echo "fresh $WRITTEN"
+'''
+outcome = "success"
+output = ["fresh 1"]
+outputs = {}

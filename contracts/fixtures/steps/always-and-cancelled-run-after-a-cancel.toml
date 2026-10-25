@@ -1,0 +1,46 @@
+conclusion = "cancelled"
+cancel-on = "ready"
+
+[[steps]]
+id = "wait"
+run = """
+echo ready
+sleep 30
+"""
+outcome = "cancelled"
+output = ["ready"]
+
+[[steps]]
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+if = "failure()"
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+if = "!cancelled()"
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+if = "always()"
+run = """
+echo "${{ job.status }} ${{ steps.wait.outcome }} ${{ steps.wait.conclusion }}"
+sleep 1
+echo "a step after the cancel runs to its end"
+"""
+outcome = "success"
+output = ["cancelled cancelled cancelled", "a step after the cancel runs to its end"]
+
+[[steps]]
+if = "cancelled()"
+run = "exit 4"
+outcome = "failure"
+
+[[steps]]
+if = "${{ cancelled() }}"
+run = 'echo "${{ job.status }}"'
+outcome = "success"
+output = ["cancelled"]

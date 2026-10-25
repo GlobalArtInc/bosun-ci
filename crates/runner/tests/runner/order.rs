@@ -7,7 +7,7 @@ use crate::{job, run, step};
 async fn the_output_of_a_step_comes_before_the_end_of_the_step() {
     let directory = tempfile::tempdir().expect("a directory");
     let steps = (0..100)
-        .map(|index| step(index, &format!("echo out {index}\necho err {index} >&2")))
+        .map(|index| step(&format!("echo out {index}\necho err {index} >&2")))
         .collect();
     let finished = run(job(directory.path(), steps)).await;
     assert_eq!(finished.conclusion, Conclusion::Success);

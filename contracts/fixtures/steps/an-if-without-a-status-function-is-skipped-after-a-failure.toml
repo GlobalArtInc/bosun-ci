@@ -1,0 +1,35 @@
+conclusion = "failure"
+
+[env]
+DEPLOY = "yes"
+
+[[steps]]
+if = "env.DEPLOY == 'yes'"
+run = "echo before"
+outcome = "success"
+output = ["before"]
+
+[[steps]]
+if = "env.DEPLOY == 'no'"
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+run = "exit 1"
+outcome = "failure"
+
+[[steps]]
+if = "env.DEPLOY == 'yes'"
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+if = "${{ true }}"
+run = "echo never"
+outcome = "skipped"
+
+[[steps]]
+if = "!success()"
+run = "echo not success"
+outcome = "success"
+output = ["not success"]

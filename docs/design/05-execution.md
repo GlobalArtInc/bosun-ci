@@ -152,8 +152,10 @@ dropped.
 after the log chunks that precede them. While the agent has no stream it keeps them in memory and
 sends them after the next `Welcome`, after the spooled chunks; its `Hello` lists the execution it
 runs and every execution whose `JobFinished` it still holds, so the server does not complete them
-as lost. Only steps that started are reported: a failing or cancelled step ends the job, the steps
-after it do not start, and the server completes them when the job ends
+as lost. Every step the engine reaches is reported: one whose `if` does not hold with a
+`StepFinished` of outcome and conclusion `skipped` and no `StepStarted`, every other one with both.
+The steps the engine does not reach, after the job's timeout or after a job that could not be
+prepared, are not reported, and the server completes them when the job ends
 ([04-runs.md](04-runs.md#states)).
 
 **A lost connection.** A job keeps running when the stream drops. The server marks the agent
@@ -214,7 +216,9 @@ documents beside it, which the agent reads with every field it does not know ref
   job's as the server evaluated them ([04-runs.md](04-runs.md#matrices)): the strategy of a single
   job and `null` for a job without a matrix;
 - `evaluated`, the values the server evaluated: `env`, `shell` and `working_directory` of
-  `defaults.run`, `timeout_minutes` and `continue_on_error`. `env` is the workflow's `env`,
+  `defaults.run`, `timeout_minutes` and `continue_on_error`. A setting of `defaults.run` the job does
+  not set is the workflow's, as the target lets the more specific default of the same name win.
+  `env` is the workflow's `env`,
   evaluated when the job is assigned with the contexts that key sees
   ([03-expressions.md](03-expressions.md#where-each-expression-is-evaluated)), with the job's `env`,
   which the planner evaluated when the job became ready, merged over it, so a name in both takes the
@@ -254,11 +258,8 @@ A step's `shell` travels as the IR holds it: `bash`, `sh`, `pwsh`, `python`, or 
 which must contain `{0}`. The agent answers `Accept` before it starts a job, or `Reject` with the
 reason when it is running another job, when it is stopping, or when the assignment holds something
 it cannot run: a field it does not know, a step that uses an action (until step 33 of
-[../plan.md](../plan.md)), a custom shell without `{0}`, or slugs that are not slugs; and, until the
-agent evaluates the expressions of steps and applies their keys (step 21), a step whose `run`,
-`env` or `working-directory` holds an expression, or that sets `if`, `continue-on-error` or
-`timeout-minutes`. After a `Reject` with its slot free, and whenever its slot becomes free, it sends
-`Idle`.
+[../plan.md](../plan.md)), a custom shell without `{0}`, or slugs that are not slugs. After a
+`Reject` with its slot free, and whenever its slot becomes free, it sends `Idle`.
 
 ## The execution engine
 
@@ -275,6 +276,90 @@ agent evaluates the expressions of steps and applies their keys (step 21), a ste
 4. **Post steps** in the reverse order of their actions, when `post-if` holds (default
    `always()`). Then evaluate the job outputs, tear down, and report `JobFinished`, so that a job
    reported as finished has no process left on the agent and the slot is free for the next one.
+
+### Main steps
+
+**Conditions.** A job has one status, as in the target: `success` until a step concludes `failure`
+or `timed_out`, then `failure`, and `cancelled` from the moment a cancel reaches the agent, whatever
+it was before. Before a step starts, the agent evaluates its `if` with `bosun_expr::holds`:
+`success()` is true while the status is `success`, `failure()` while it is `failure` and
+`cancelled()` while it is `cancelled`, so a step without `if`, or whose `if` calls no status
+function, runs only while the status is `success`. A step whose `if` does not hold is skipped. An
+`if` that fails to evaluate fails the step, without `continue-on-error`, and its error is the step's
+log.
+
+**Templates.** Once the step starts, the agent evaluates `timeout-minutes`, `env`,
+`working-directory` and `run`, in this order, and `continue-on-error` when the step failed or timed
+out. A key that is one `${{ }}` takes the type of its value, any other text is a string:
+`timeout-minutes` must be a whole number of at least 0 and `continue-on-error` a boolean. An
+expression that fails, or a value its key cannot use, fails the step, with the error and its line and
+column as the step's log; `continue-on-error` applies to such a failure as to any other, as the
+target applies it to every failure of a step whose condition held, and one that fails to evaluate
+counts as false. Each value of the step's `env` sees the `env` context without the step's own
+variables; `working-directory`, `run` and `continue-on-error` see it with them. The agent does not
+render `name`, since no report carries the display name of a step and the server names steps when
+it creates them; `with` belongs to steps that use an action (step 33 of [../plan.md](../plan.md)),
+and `shell` takes no expression ([02-workflows.md](02-workflows.md)).
+
+**Defaults.** A step without `shell` runs with the `shell` of `defaults.run` in `evaluated`, or else
+with the default shell below. A step without `working-directory`, or whose `working-directory`
+renders empty, runs in the `working_directory` of `defaults.run`, or else in the workspace.
+
+**Contexts.** The expressions of a step see the contexts of the assignment and those the agent
+keeps:
+
+- `github`, the job's with `workspace` and the properties of the step
+  ([06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment));
+- `env`: what earlier steps wrote to `GITHUB_ENV`, under the job's `env`, under the step's own once
+  it is evaluated. A value from the file does not replace one of the job's, in the context as in the
+  environment, as in the target, where the job's `env` is laid over the file's values before each
+  step;
+- `job`: `{ status }`, the status above;
+- `steps`: for each step with an `id` that the engine reached, `{ outputs, outcome, conclusion }`,
+  where a timed-out step shows `failure`, the target's only value for it. A step without an `id` has
+  no entry, as in the target, though its outputs are reported;
+- `runner`: `os`, `arch`, `name`, `environment` (`self-hosted`), `tool_cache`, `temp` and
+  `workspace`, from the facts of the runner. `debug` is `1` on a debug run (M3) and absent
+  otherwise, as the target leaves it out.
+
+`jobs` is `null` in a step.
+
+**Outcome and conclusion.** A step's outcome is `success` when its shell exits with 0 and its file
+commands are valid, `failure` otherwise, `cancelled` when a cancel ended it, and `timed_out` when a
+timeout ended it. Its conclusion is its outcome, except that `continue-on-error` turns `failure` and
+a `timed_out` of the step's own timeout into `success`.
+
+**Timeouts.** A step's `timeout-minutes` counts from the start of the step and the job's (default
+360) from the start of the job on the agent, which until pauses and holds arrive (M3) is all of the
+job's time in progress. Zero sets no limit, as the target's step timeout does, and for a job too.
+When a limit is reached, the agent ends the running step with the signals of a cancel
+([`shell`](#shell)) and logs which limit it was. The two limits end differently, and the cases in
+`contracts/fixtures/steps/` pin both:
+
+- A step over its own `timeout-minutes` concludes `timed_out`, or `success` under
+  `continue-on-error`. The job's status becomes `failure` unless `continue-on-error` holds, and the
+  later steps follow their `if`, so `if: failure()` and `if: always()` run after it. The job then
+  concludes `failure`, not `timed_out`: the step ran out of time, the job did not.
+- A job over its own `timeout-minutes` ends its running step, which concludes `timed_out` whatever
+  its `continue-on-error`, starts no further step, not even one whose `if` admits a failure or a
+  cancellation, since the job has no time left, and concludes `timed_out`. Its dependents see it as
+  `failure` in `needs.<job>.result`, or as `success` when the job may fail under its own
+  `continue-on-error` ([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)),
+  and it fails the run ([04-runs.md](04-runs.md#matrices)). A test of the server pins
+  `needs.<job>.result`.
+
+**Cancellation.** A cancel ends the running step with the signals of [`shell`](#shell), and the step
+concludes `cancelled`. The agent then evaluates the `if` of every remaining step with the status
+`cancelled`, so only a step whose `if` calls `always()` or `cancelled()`, or negates a status
+function, runs. A step that starts after the cancel runs to its end, within its own timeout and the
+job's.
+
+**The job.** After the last step the agent renders each of the job's `outputs` with the contexts of a
+step, `github` without the properties of a step, and reports those that are not empty in
+`JobFinished`, as the target leaves an empty output out. An output that fails to evaluate fails the
+job, none is reported, and the error goes to the log of the last step that started. The job
+concludes with the first of these that holds: `timed_out` after its timeout, `cancelled` after a
+cancel, `failure` when its status is `failure` or its outputs failed, and `success`.
 
 ### Kinds of steps
 
@@ -296,8 +381,10 @@ agent evaluates the expressions of steps and applies their keys (step 21), a ste
   environment is the agent's own, then the variables of a step of
   [06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment) (`CI`,
   `GITHUB_ACTIONS`, the `GITHUB_*` of the step's context, `GITHUB_WORKSPACE` among them, `RUNNER_*`
-  from the facts of the runner, and `BOSUN_*`), then the proxy settings of the agent, the job's
-  `env` and the step's `env`, each overriding the ones before it. The facts of the runner are the
+  from the facts of the runner, and `BOSUN_*`), then the proxy settings of the agent, what earlier
+  steps wrote to `GITHUB_ENV`, the job's `env` and the step's `env`, each overriding the ones before
+  it; the directories earlier steps wrote to `GITHUB_PATH` come first in `PATH`, the latest first.
+  The facts of the runner are the
   agent's name, which the `Welcome` carries, its operating system and architecture as its labels
   name them, and `RUNNER_TEMP` (`work/_temp`), `RUNNER_TOOL_CACHE` (`tools/`) and
   `RUNNER_WORKSPACE`, which the agent creates before the first step. Before the first step it also
@@ -321,9 +408,25 @@ agent evaluates the expressions of steps and applies their keys (step 21), a ste
 
 ### File commands and workflow commands
 
-Before each step the engine creates fresh files for `GITHUB_ENV`, `GITHUB_OUTPUT`, `GITHUB_PATH`,
-`GITHUB_STATE` and `GITHUB_STEP_SUMMARY`, and reads them after the step, including the multi-line
-`name<<DELIMITER` form. The step summary is limited to 1 MiB and uploaded to the server.
+Before each step the engine creates fresh, empty files for `GITHUB_ENV`, `GITHUB_OUTPUT`,
+`GITHUB_PATH`, `GITHUB_STATE` and `GITHUB_STEP_SUMMARY`, and after the step, whatever its outcome,
+it reads the first four. `GITHUB_ENV`, `GITHUB_OUTPUT` and `GITHUB_STATE` hold one entry after
+another: a line `NAME=VALUE`, split at its first `=`, or a line `NAME<<DELIMITER` followed by the
+lines of the value and a line that is exactly the delimiter. The value of the second form is those
+lines without the line break before the delimiter; a line ends at `\n` or `\r\n`, empty lines between
+entries are skipped, and neither names nor values are trimmed, as in the target. A line of neither
+form, an entry without a name or a delimiter, and a value whose delimiter never comes fail the step,
+with a line in its log that names the file. `GITHUB_PATH` holds a directory per line, and empty
+lines are skipped.
+
+What `GITHUB_ENV` sets reaches the environment and the `env` context of the later steps, below the
+job's `env`; what `GITHUB_PATH` adds goes to the front of their `PATH`, and a directory added again
+moves to the front. Neither changes the step that wrote it. `GITHUB_OUTPUT` sets the outputs of the
+step, the last value of a name winning, which `StepFinished` reports and `steps.<id>.outputs` shows
+from the next step on. `GITHUB_STATE` is read and checked like the others; its values are the state
+that the pre, main and post steps of a Node action pass on to each other, which arrive with them
+(step 33 of [../plan.md](../plan.md)). The cases in `contracts/fixtures/file-commands/` pin these
+rules. The step summary is limited to 1 MiB and uploaded to the server.
 
 Lines on standard output are scanned for workflow commands: `::debug::`, `::notice`, `::warning`
 and `::error` with `file`, `line`, `endLine`, `col`, `endColumn` and `title`, `::group::` and

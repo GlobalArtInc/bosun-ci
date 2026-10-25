@@ -1,0 +1,31 @@
+conclusion = "failure"
+
+[[steps]]
+run = 'echo "no separator" >> "$GITHUB_OUTPUT"'
+outcome = "failure"
+output = ["GITHUB_OUTPUT: the line `no separator` is neither `NAME=VALUE` nor `NAME<<DELIMITER`"]
+
+[[steps]]
+if = "always()"
+run = '''
+printf 'notes<<EOF\nfirst\n' >> "$GITHUB_ENV"
+'''
+continue-on-error = true
+outcome = "failure"
+conclusion = "success"
+output = ["GITHUB_ENV: the value of `notes` never ends with a line `EOF`"]
+
+[[steps]]
+if = "always()"
+run = '''
+echo "kept=1" >> "$GITHUB_STATE"
+echo "=1" >> "$GITHUB_STATE"
+'''
+outcome = "failure"
+output = ["GITHUB_STATE: the line `=1` has no name before its `=`"]
+
+[[steps]]
+if = "always()"
+run = 'echo "state=1" >> "$GITHUB_STATE"'
+outcome = "success"
+output = []

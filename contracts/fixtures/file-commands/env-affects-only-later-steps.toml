@@ -1,0 +1,39 @@
+conclusion = "success"
+
+[env]
+KEPT = "job"
+
+[[steps]]
+run = '''
+echo "GREETING=hello" >> "$GITHUB_ENV"
+{
+  echo "LINES<<END"
+  echo "one"
+  echo "two"
+  echo "END"
+} >> "$GITHUB_ENV"
+echo "KEPT=file" >> "$GITHUB_ENV"
+echo "FROM_FILE=file" >> "$GITHUB_ENV"
+echo "[${GREETING:-unset}] [${{ env.GREETING }}]"
+'''
+outcome = "success"
+output = ["[unset] []"]
+
+[[steps]]
+run = '''
+echo "[$GREETING] [${{ env.GREETING }}] [$KEPT] [${{ env.KEPT }}]"
+printf '%s\n' "$LINES"
+'''
+outcome = "success"
+output = ["[hello] [hello] [job] [job]", "one", "two"]
+
+[[steps]]
+env = { FROM_FILE = "step" }
+run = 'echo "$FROM_FILE ${{ env.FROM_FILE }}"'
+outcome = "success"
+output = ["step step"]
+
+[[steps]]
+run = 'echo "$FROM_FILE"'
+outcome = "success"
+output = ["file"]

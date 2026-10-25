@@ -26,7 +26,6 @@ async fn a_process_that_leaves_the_process_group_of_its_step_dies_with_the_cgrou
     let job = job(
         directory.path(),
         vec![step(
-            0,
             "setsid sleep 300 > /dev/null 2>&1 < /dev/null &\necho \"setsid $!\"",
         )],
     );

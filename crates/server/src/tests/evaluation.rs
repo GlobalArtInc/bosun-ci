@@ -622,3 +622,47 @@ async fn every_runtime_notice_code_is_in_the_table_of_the_design() {
     }
     assert_eq!(produced, runtime_codes());
 }
+
+#[tokio::test]
+async fn a_job_takes_each_setting_of_defaults_run_it_does_not_set_from_the_workflow() {
+    let world = World::new().await;
+    let run = world
+        .dispatch(&parse(
+            "on: workflow_dispatch
+defaults:
+  run:
+    shell: sh
+    working-directory: crates
+jobs:
+  inherits:
+    runs-on: self-hosted
+    steps:
+      - run: make
+  overrides:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: ${{ 'bash' }}
+    steps:
+      - run: make
+",
+        ))
+        .await;
+    let projection = world.project(run).await;
+    let mut found = Vec::new();
+    for key in ["inherits", "overrides"] {
+        let (id, row) = projection.job(key);
+        assert_eq!(row.status, JobStatus::Queued, "{key}");
+        let evaluated: Evaluated =
+            serde_json::from_value(stored(&world, id).await.evaluated.expect("values"))
+                .expect("values");
+        found.push((evaluated.shell, evaluated.working_directory));
+    }
+    assert_eq!(
+        found,
+        [
+            (Some(Shell::Sh), Some("crates".to_owned())),
+            (Some(Shell::Bash), Some("crates".to_owned())),
+        ]
+    );
+}

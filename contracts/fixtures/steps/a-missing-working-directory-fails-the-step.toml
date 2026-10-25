@@ -7,3 +7,5 @@ outcome = "failure"
 
 [[steps]]
 run = "echo never"
+outcome = "skipped"
+output = []

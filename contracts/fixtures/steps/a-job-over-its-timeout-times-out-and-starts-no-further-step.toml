@@ -1,0 +1,20 @@
+conclusion = "timed_out"
+timeout-minutes = 2
+
+[[steps]]
+run = "echo quick"
+outcome = "success"
+
+[[steps]]
+timeout-minutes = 10
+continue-on-error = true
+run = """
+echo started
+sleep 30
+"""
+outcome = "timed_out"
+output = ["started", "the job ran beyond its `timeout-minutes`"]
+
+[[steps]]
+if = "always()"
+run = "echo never"

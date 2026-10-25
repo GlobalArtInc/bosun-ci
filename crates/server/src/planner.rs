@@ -618,7 +618,7 @@ async fn decide(
     }
     let strategy = job.strategy.or(single).unwrap_or(SINGLE);
     contexts.strategy = serde_json::from_value(serde_json::to_value(strategy)?)?;
-    let prepared = match prepare(template, &mut contexts, job) {
+    let prepared = match prepare(template, &world.ir.defaults, &mut contexts, job) {
         Ok(prepared) => prepared,
         Err(fault) => return fail(run, world, job, fault).await.map(Some),
     };
@@ -827,6 +827,7 @@ struct Prepared {
 
 fn prepare(
     job: &JobTemplate,
+    workflow: &ir::Defaults,
     contexts: &mut Contexts,
     state: &JobState,
 ) -> Result<Prepared, Fault> {
@@ -901,7 +902,10 @@ fn prepare(
             .collect(),
     );
     let shell = match &job.defaults.shell {
-        None => None,
+        None => match &workflow.shell {
+            Some(Evaluable::Literal(shell)) => Some(shell.clone()),
+            Some(Evaluable::Template(_)) | None => None,
+        },
         Some(Evaluable::Literal(shell)) => Some(shell.clone()),
         Some(Evaluable::Template(template)) => {
             let place = Place::of(
@@ -927,7 +931,10 @@ fn prepare(
             )
             .text(template, contexts)?,
         ),
-        None => None,
+        None => workflow
+            .working_directory
+            .as_ref()
+            .and_then(Template::as_literal),
     };
     Ok(Prepared {
         name,

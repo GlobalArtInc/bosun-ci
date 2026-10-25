@@ -572,3 +572,55 @@ async fn the_members_of_a_computed_matrix_are_listed_with_their_group_and_run_on
         ]
     );
 }
+
+const TIMED_OUT: &str = "on: workflow_dispatch\njobs:\n  slow:\n    runs-on: [self-hosted]\n    \
+                         timeout-minutes: 1\n    steps:\n      - run: sleep 120\n  tolerated:\n    \
+                         runs-on: [self-hosted]\n    timeout-minutes: 1\n    \
+                         continue-on-error: true\n    steps:\n      - run: sleep 120\n  report:\n    \
+                         needs: [slow, tolerated]\n    if: always()\n    runs-on: [self-hosted]\n    \
+                         steps:\n      - run: echo report\n";
+
+#[tokio::test]
+async fn a_job_that_timed_out_is_a_failure_in_needs_unless_it_may_fail() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::start(&database).await;
+    let run = dispatch_source(&api, "ci", TIMED_OUT).await;
+    let id = text(&run["id"]);
+    let (status, token) = api
+        .post(
+            "/api/v1/registration-tokens",
+            &json!({ "pool": "default", "reusable": false, "expires_at": null }),
+        )
+        .await;
+    assert_eq!(status, 201, "{token}");
+    let agent = FakeAgent::register(api.address, text(&token["token"]), "runner1", &[]).await;
+    let mut connection = agent.connect(api.address).await;
+    for _ in 0..2 {
+        connection.idle();
+        let assignment = connection.assignment().await;
+        connection.send(Report::Accept(Accept {
+            execution_id: assignment.execution_id.clone(),
+        }));
+        connection.finish_job(&assignment.execution_id, Conclusion::TimedOut, &[]);
+        until(
+            &api,
+            &format!("/api/v1/jobs/{}", assignment.job_id),
+            |job| job["status"] == "completed",
+        )
+        .await;
+    }
+    connection.idle();
+    let (assignment, documents) = connection.job().await;
+    assert_eq!(assignment.job_key, "report");
+    assert_eq!(
+        Value::Object(documents.contexts.needs),
+        json!({
+            "slow": { "result": "failure", "outputs": {} },
+            "tolerated": { "result": "success", "outputs": {} },
+        })
+    );
+    let page = read(&api, &format!("/api/v1/runs/{id}/attempts/1/jobs")).await;
+    for key in ["slow", "tolerated"] {
+        assert_eq!(job_named(&page, key)["conclusion"], "timed_out", "{key}");
+    }
+}

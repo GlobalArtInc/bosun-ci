@@ -1,0 +1,23 @@
+conclusion = "success"
+
+[defaults]
+shell = 'bash -c "echo defaulted; . {0}"'
+working-directory = "sub"
+
+[[steps]]
+working-directory = "."
+run = "mkdir -p sub other"
+outcome = "success"
+output = ["defaulted"]
+
+[[steps]]
+run = 'echo "${PWD#"$GITHUB_WORKSPACE"/}"'
+outcome = "success"
+output = ["defaulted", "sub"]
+
+[[steps]]
+working-directory = "other"
+shell = "bash {0}"
+run = 'echo "${PWD#"$GITHUB_WORKSPACE"/}"'
+outcome = "success"
+output = ["other"]

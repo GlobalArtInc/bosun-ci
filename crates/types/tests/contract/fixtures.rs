@@ -29,7 +29,7 @@ struct ActionCase {
     diagnostics: Vec<Diagnostic>,
 }
 
-const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github", "matrix", "triggers"];
+const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github", "hash-files", "matrix", "triggers"];
 
 fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, String> {
     let typed: T = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
