@@ -6,6 +6,7 @@ mod config;
 mod health;
 mod http;
 mod logs;
+mod openapi;
 mod owner;
 mod projects;
 mod proxy;

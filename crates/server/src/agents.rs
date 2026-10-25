@@ -8,17 +8,14 @@ mod sweep;
 use std::future::Future;
 use std::sync::Arc;
 
-use axum::Router;
-use axum::middleware;
-use axum::routing::{get, post};
 use bosun_db::notify::Listener;
 use sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
 
 use crate::config::Agents;
 use crate::logs::Followers;
+use crate::openapi::Api;
 use crate::queue::Dispatcher;
-use crate::{AppState, auth};
 
 pub(crate) use replica::{Offer, Replica, Turn, Turned};
 pub(crate) use stream::Connector;
@@ -55,12 +52,11 @@ impl Drop for Tasks {
     }
 }
 
-pub(crate) fn routes(state: AppState) -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/agents", get(http::list))
-        .route("/api/v1/registration-tokens", post(http::create_token))
-        .route_layer(middleware::from_fn_with_state(state, auth::owner))
-        .route("/api/v1/agents/register", post(http::register))
+pub(crate) fn routes() -> Api {
+    Api::new()
+        .get("/api/v1/agents", http::list)
+        .post("/api/v1/registration-tokens", http::create_token)
+        .merge(Api::public().post("/api/v1/agents/register", http::register))
 }
 
 fn valid_name(name: &str) -> bool {

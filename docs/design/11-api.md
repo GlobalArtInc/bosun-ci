@@ -27,12 +27,14 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   A limit outside 1 to 500, a malformed cursor, and a query parameter the list does not take are
   `invalid_input`.
 - Writes that create something accept an `Idempotency-Key` header; a repeated request with the same
-  key and body returns the first response. A key is 1 to 255 visible ASCII characters and belongs
-  to the user who sent it. The request it stands for is its method, its path with the query and the
-  bytes of its body; the same key with another request within 24 hours is `409 conflict`. The
-  response is kept in the transaction of the write, and only when the write created something, so
-  a request that failed can be repeated with its key, and requests that race with one key create
-  one resource and all get its response.
+  key and body returns the first response. The two whose answer holds a secret that is shown once,
+  `POST /registration-tokens` and `POST /agents/register`, take no key, since keeping their answer
+  would show it again. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
+  it. The request it stands for is its method, its path with the query and the bytes of its body;
+  the same key with another request within 24 hours is `409 conflict`. The response is kept in the
+  transaction of the write, and only when the write created something, so a request that failed can
+  be repeated with its key, and requests that race with one key create one resource and all get its
+  response.
 - Updates of documents that people edit concurrently (drafts, settings, environments) require
   `If-Match` with the version from `ETag`, and fail with `412` when it moved.
 - Errors share one shape, with a stable `code`, the fields at fault for invalid input, and the
@@ -72,7 +74,7 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
 | `internal` | 500 |
 
 The OpenAPI document is generated from the handlers and committed as `contracts/openapi.json`; CI
-fails when the generated document differs from the committed one.
+fails when the generated document differs from the committed one ([below](#the-openapi-document)).
 
 ## Resources
 
@@ -195,6 +197,85 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
   apply to a followed log.
 - Any other query parameter, a value that is not a number of lines or a boolean, and a
   `Last-Event-ID` that is not a line number are `422 invalid_input`.
+
+## The OpenAPI document
+
+`contracts/openapi.json` describes, in OpenAPI 3.1, every operation served under `/api/v1`. Paths
+outside it are not part of the document: `/hooks`, `/_runtime`, `/twirp`, the health endpoints and
+gRPC. `bosun-server openapi` prints the document without reading a configuration, and
+`hack/openapi.sh` writes it into `contracts/openapi.json`. A test fails when the committed file
+differs from the document the handlers describe, and its message names the script, so a change of
+an endpoint regenerates the file in the same commit; the file is never edited or merged by hand.
+
+The generator is Bosun's own, `crates/server/src/openapi.rs`, over the JSON Schemas that the API
+shapes of `bosun-types` derive with schemars. Step 1 of M1 ([../plan.md](../plan.md)) chose it by
+two criteria: the document is derived from the request and response types the handlers use, so it
+cannot drift from them, and the shared parts are described once. Of the libraries that generate
+OpenAPI for axum, utoipa derives the schemas, but its operations, their bodies and responses among
+them, are written by hand in an attribute beside each handler, and nothing checks them against the
+handler, so they drift. aide derives operations from the handlers' signatures, but documents each
+handler under the route string it is registered at: the projects' wildcard route, which tells an id
+from two slugs, would be one operation answering two shapes, and describing the operations it
+dispatches to would mean writing them by hand. Its released version is also tied to schemars 0.9,
+with the version on schemars 1 still an alpha. Bosun's own generator is a few hundred lines that
+cover exactly the extractors and responses its handlers use.
+
+How the document follows the handlers:
+
+- Routes under `/api/v1` are registered through `Api` (`get`, `post`, `put`), which routes the
+  handler and records its operation in one call. The operation is derived from the handler's
+  signature, at compile time, through two traits: each argument contributes what it reads, and the
+  return type the responses. `Body<T>` is a JSON body of `T`; `Idempotent<T>` is that body and the
+  `Idempotency-Key` header; `Listing<F>` is `limit`, `cursor` and the filters of `F`; the query of
+  a log and the agent list have their own extractors. `Json<T>` answers `200` with `T`,
+  `Created<T>` `201`, `Saved<T>` `201` or `200`, and `ApiError` the error envelope. A handler that
+  reads a raw query, header map or body, or returns an untyped response, has no operation, and so
+  cannot be registered.
+- The path parameters come from the path template. Each name has its description and schema in
+  `openapi.rs`, and a name without one fails the tests.
+- The routes of projects are one wildcard route that tells an id from two slugs
+  ([Conventions](#conventions)) and hands the request to the handler of `/projects/{project}` or
+  `/projects/{project}/workflows`; those handlers are registered as the operations, with
+  `{project}` described as an id or `<organisation>/<project>`. A test sends a request with the
+  owner's token to every operation of the document, with each `{project}` as an id and as
+  `globalart%2Fops`, and fails on the `not_found` of an unserved path.
+- Operations behind the token require the `bearer` scheme from the document's root.
+  `POST /agents/register`, which the registration token in its body authenticates, has an empty
+  `security`.
+
+The shared parts are described once:
+
+- the error envelope is the schema `ErrorEnvelope`, and the response `Error` holds it; every
+  operation's `default` response is `Error`, since every operation answers its failures, and those
+  behind the token their `401`, with the envelope;
+- the cursor page is the schema `Page`, with `items` and `next`; a list answers with `allOf` of
+  `Page` and the schema of its items, and a test checks that an operation answers with a page
+  exactly when it takes a cursor;
+- `limit`, `cursor` and `Idempotency-Key` are the parameters `Limit`, `Cursor` and
+  `IdempotencyKey`;
+- `ETag` and `If-Match` join them as the header `ETag` and the parameter `IfMatch` with the first
+  endpoint that uses them (step 25 of M1), contributed by a response type and an extractor like
+  the others.
+
+The schemas describe the shapes as the server writes them (schemars' serialize contract): every
+field is present, with `null` when it has no value, as the conventions require of responses.
+Request bodies are described by the same schemas, so a field that may be `null` is listed as
+required in them too; the server also takes a request that leaves such a field out, and reads it
+as `null`. Ids are strings of the format `uuid`, times strings of the format `date-time`, and job
+keys strings with their pattern.
+
+A followed log is `text/event-stream`, and OpenAPI 3.1 has no schema for the events of a stream.
+The media type carries the extension `x-bosun-events`, which maps each event name to the schema of
+its data: `message` to `LogLine` and `end` to `LogEnd`. OpenAPI 3.2's `itemSchema` can replace it
+once the tools that read the document take 3.2.
+
+`info.version` is `v1`, the version plane of the REST API, not the version of the binaries. Keys
+are written sorted, with two spaces of indentation and a final newline, so that the file does not
+depend on the order in which routes are registered.
+
+Every fixture in `contracts/fixtures/api/` belongs to a request or a response of an operation, or
+to a schema that one of them refers to, and validates against that schema; a fixture of a shape no
+operation serves fails the suite, so such a fixture arrives with its endpoint.
 
 ## The event stream
 

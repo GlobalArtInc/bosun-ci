@@ -1,6 +1,7 @@
 mod cancel;
 mod journal;
 mod logs;
+mod openapi;
 mod planning;
 mod queue;
 

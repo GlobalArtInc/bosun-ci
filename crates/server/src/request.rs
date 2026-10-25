@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
+use std::marker::PhantomData;
 
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
@@ -7,12 +8,15 @@ use axum::extract::{FromRequest, FromRequestParts, Path, Query, Request};
 use axum::http::request::Parts;
 use bosun_types::api::Page;
 use bosun_types::error::{ErrorBody, ErrorCode, FieldError};
+use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
+use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
 
 use crate::envelope::{self, ApiError};
 use crate::idempotency::Idempotency;
+use crate::openapi::{self, Input, Spec};
 
 const DEFAULT_LIMIT: usize = 50;
 
@@ -22,32 +26,63 @@ const LIMIT: &str = "limit";
 
 const CURSOR: &str = "cursor";
 
-pub(crate) struct Body<T> {
-    pub(crate) value: T,
-    pub(crate) idempotency: Option<Idempotency>,
-}
+pub(crate) struct Body<T>(pub(crate) T);
 
 impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for Body<T> {
     type Rejection = ApiError;
 
     async fn from_request(request: Request, state: &S) -> Result<Body<T>, ApiError> {
+        let bytes = bytes(request, state).await?;
+        decode(&bytes).map(Body)
+    }
+}
+
+impl<T: JsonSchema> Input for Body<T> {
+    fn input(spec: &mut Spec<'_>) {
+        spec.body::<T>();
+    }
+}
+
+pub(crate) struct Idempotent<T> {
+    pub(crate) value: T,
+    pub(crate) idempotency: Option<Idempotency>,
+}
+
+impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for Idempotent<T> {
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Idempotent<T>, ApiError> {
         let (parts, body) = request.into_parts();
         let pending = Idempotency::prepare(&parts)?;
-        let bytes = Bytes::from_request(Request::from_parts(parts, body), state)
-            .await
-            .map_err(|rejection| {
-                invalid(format!(
-                    "the request body could not be read: {}",
-                    rejection.body_text()
-                ))
-            })?;
-        let value = serde_json::from_slice(&bytes)
-            .map_err(|error| invalid(format!("the request body does not fit: {error}")))?;
-        Ok(Body {
-            value,
+        let bytes = bytes(Request::from_parts(parts, body), state).await?;
+        Ok(Idempotent {
+            value: decode(&bytes)?,
             idempotency: pending.map(|pending| pending.finish(&bytes)),
         })
     }
+}
+
+impl<T: JsonSchema> Input for Idempotent<T> {
+    fn input(spec: &mut Spec<'_>) {
+        spec.reference(openapi::IDEMPOTENCY_KEY);
+        spec.body::<T>();
+    }
+}
+
+async fn bytes<S: Send + Sync>(request: Request, state: &S) -> Result<Bytes, ApiError> {
+    Bytes::from_request(request, state)
+        .await
+        .map_err(|rejection| {
+            invalid(format!(
+                "the request body could not be read: {}",
+                rejection.body_text()
+            ))
+        })
+}
+
+fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
+    serde_json::from_slice(bytes)
+        .map_err(|error| invalid(format!("the request body does not fit: {error}")))
 }
 
 pub(crate) struct Segment(pub(crate) String);
@@ -61,6 +96,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Segment {
             Err(_) => Err(envelope::absent(&parts.method, &parts.uri)),
         }
     }
+}
+
+impl Input for Segment {
+    fn input(_: &mut Spec<'_>) {}
 }
 
 #[derive(Default)]
@@ -89,17 +128,52 @@ impl Faults {
     }
 }
 
-pub(crate) struct Listing {
+pub(crate) trait Filters {
+    const NAMES: &'static [&'static str];
+}
+
+pub(crate) struct Unfiltered;
+
+impl Filters for Unfiltered {
+    const NAMES: &'static [&'static str] = &[];
+}
+
+pub(crate) struct Listing<F = Unfiltered> {
     limit: usize,
     cursor: Option<Uuid>,
     filters: BTreeMap<String, String>,
+    filtered: PhantomData<F>,
 }
 
-impl Listing {
-    pub(crate) fn parse(
+impl<S: Send + Sync, F: Filters> FromRequestParts<S> for Listing<F> {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Listing<F>, ApiError> {
+        let query = Query::<Vec<(String, String)>>::from_request_parts(parts, state).await;
+        Listing::parse(query)
+    }
+}
+
+impl<F: Filters> Input for Listing<F> {
+    fn input(spec: &mut Spec<'_>) {
+        spec.reference(openapi::LIMIT);
+        spec.reference(openapi::CURSOR);
+        for name in F::NAMES {
+            spec.parameter(json!({
+                "name": name,
+                "in": "query",
+                "description": format!("only the items whose `{name}` is this value"),
+                "schema": { "type": "string" }
+            }));
+        }
+    }
+}
+
+impl<F: Filters> Listing<F> {
+    fn parse(
         query: Result<Query<Vec<(String, String)>>, QueryRejection>,
-        filters: &[&str],
-    ) -> Result<Listing, ApiError> {
+    ) -> Result<Listing<F>, ApiError> {
+        let filters = F::NAMES;
         let Query(pairs) = query.map_err(|rejection| {
             invalid(format!(
                 "the query string could not be read: {}",
@@ -110,6 +184,7 @@ impl Listing {
             limit: DEFAULT_LIMIT,
             cursor: None,
             filters: BTreeMap::new(),
+            filtered: PhantomData,
         };
         for (name, value) in pairs {
             match name.as_str() {

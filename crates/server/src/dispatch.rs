@@ -1,23 +1,22 @@
 use axum::Extension;
 use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::Response;
 use bosun_db::runs::NewRun;
-use bosun_types::api::DispatchRequest;
+use bosun_types::api::{DispatchRequest, Run};
 use bosun_types::error::{ErrorBody, ErrorCode};
 use sea_orm::TransactionTrait;
 
 use crate::auth::Principal;
 use crate::envelope::ApiError;
-use crate::request::{Body, Faults, Segment, database, failed};
+use crate::reply::Created;
+use crate::request::{Faults, Idempotent, Segment, database, failed};
 use crate::{AppState, idempotency, planner, workflows};
 
 pub(crate) async fn dispatch(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Segment(reference): Segment,
-    body: Result<Body<DispatchRequest>, ApiError>,
-) -> Result<Response, ApiError> {
+    body: Result<Idempotent<DispatchRequest>, ApiError>,
+) -> Result<Created<Run>, ApiError> {
     let workflow = workflows::find(&state.db, &reference).await?;
     let body = body?;
     let request = &body.value;
@@ -99,12 +98,5 @@ pub(crate) async fn dispatch(
     )
     .await
     .map_err(database)?;
-    idempotency::commit(
-        &state.db,
-        transaction,
-        body.idempotency.as_ref(),
-        StatusCode::CREATED,
-        &run,
-    )
-    .await
+    idempotency::commit(&state.db, transaction, body.idempotency.as_ref(), run).await
 }

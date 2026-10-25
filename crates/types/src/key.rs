@@ -1,6 +1,8 @@
+use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
 
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,3 +83,17 @@ macro_rules! keys {
 }
 
 keys!(JobKey => "job key", StepKey => "step key");
+
+impl JsonSchema for JobKey {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "JobKey".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({ "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" })
+    }
+}

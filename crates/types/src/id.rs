@@ -1,6 +1,8 @@
+use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
 
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
@@ -70,6 +72,20 @@ macro_rules! ids {
                         value: value.to_string(),
                     })?;
                     Self::try_from(uuid)
+                }
+            }
+
+            impl JsonSchema for $name {
+                fn inline_schema() -> bool {
+                    true
+                }
+
+                fn schema_name() -> Cow<'static, str> {
+                    stringify!($name).into()
+                }
+
+                fn json_schema(_: &mut SchemaGenerator) -> Schema {
+                    json_schema!({ "type": "string", "format": "uuid" })
                 }
             }
         )*

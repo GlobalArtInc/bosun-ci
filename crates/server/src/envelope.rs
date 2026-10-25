@@ -3,6 +3,8 @@ use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use bosun_types::error::{ErrorBody, ErrorCode, ErrorEnvelope};
 
+use crate::openapi::{Output, Spec};
+
 pub(crate) struct ApiError(pub(crate) ErrorBody);
 
 impl ApiError {
@@ -22,6 +24,12 @@ impl IntoResponse for ApiError {
         let status = StatusCode::from_u16(self.0.code.http_status())
             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         (status, Json(ErrorEnvelope { error: self.0 })).into_response()
+    }
+}
+
+impl Output for ApiError {
+    fn output(spec: &mut Spec<'_>) {
+        spec.error();
     }
 }
 

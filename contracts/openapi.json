@@ -1,0 +1,2670 @@
+{
+  "components": {
+    "parameters": {
+      "Cursor": {
+        "description": "the `next` of the previous page",
+        "in": "query",
+        "name": "cursor",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IdempotencyKey": {
+        "description": "a key of the caller's choosing, so that a repeated request with the same key and body returns the first response",
+        "in": "header",
+        "name": "Idempotency-Key",
+        "schema": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "description": "the number of items on the page",
+        "in": "query",
+        "name": "limit",
+        "schema": {
+          "default": 50,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        },
+        "description": "an error, whose `code` says which"
+      }
+    },
+    "schemas": {
+      "Actor": {
+        "oneOf": [
+          {
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "const": "user",
+                "type": "string"
+              },
+              "login": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "login"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "const": "token",
+                "type": "string"
+              },
+              "login": {
+                "type": "string"
+              },
+              "user_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "user_id",
+              "login"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "const": "agent",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "kind": {
+                "const": "system",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Agent": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "pool_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "pool_id",
+          "labels",
+          "capabilities",
+          "version",
+          "online",
+          "last_seen_at",
+          "execution_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "AttemptCreated": {
+        "properties": {
+          "number": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "type": "object"
+      },
+      "Capability": {
+        "enum": [
+          "shell",
+          "podman"
+        ],
+        "type": "string"
+      },
+      "CommandAccepted": {
+        "properties": {
+          "command": {
+            "$ref": "#/components/schemas/CommandRequest"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "CommandRefused": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "command": {
+            "$ref": "#/components/schemas/CommandRequest"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "CommandRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "type": {
+                "const": "run.cancel",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "job.cancel",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          }
+        },
+        "required": [
+          "target",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "Conclusion": {
+        "enum": [
+          "success",
+          "failure",
+          "cancelled",
+          "skipped",
+          "timed_out"
+        ],
+        "type": "string"
+      },
+      "ConclusionSource": {
+        "enum": [
+          "natural",
+          "operator"
+        ],
+        "type": "string"
+      },
+      "CreateOrganisationRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CreateProjectRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "organisation": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "organisation",
+          "slug",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CreateWorkflowRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source"
+        ],
+        "type": "object"
+      },
+      "Diagnostic": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/PathSegment"
+            },
+            "type": "array"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "span": {
+            "$ref": "#/components/schemas/Span"
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "message",
+          "file",
+          "span",
+          "path"
+        ],
+        "type": "object"
+      },
+      "DispatchRequest": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "inputs"
+        ],
+        "type": "object"
+      },
+      "ErrorBody": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/Diagnostic"
+            },
+            "type": "array"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "fields",
+          "diagnostics"
+        ],
+        "type": "object"
+      },
+      "ErrorCode": {
+        "enum": [
+          "unauthenticated",
+          "forbidden",
+          "not_found",
+          "conflict",
+          "invalid_state",
+          "precondition_failed",
+          "invalid_input",
+          "rate_limited",
+          "internal"
+        ],
+        "type": "string"
+      },
+      "ErrorEnvelope": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "Execution": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "number": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatusReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExecutionStatus"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "number",
+          "agent_id",
+          "status",
+          "conclusion",
+          "reason",
+          "started_at",
+          "completed_at",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "ExecutionCreated": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "number": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number",
+          "agent_id"
+        ],
+        "type": "object"
+      },
+      "ExecutionStatus": {
+        "enum": [
+          "assigned",
+          "in_progress",
+          "paused",
+          "held",
+          "completed"
+        ],
+        "type": "string"
+      },
+      "ExecutionStatusChanged": {
+        "properties": {
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "$ref": "#/components/schemas/ExecutionStatus"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatusReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "$ref": "#/components/schemas/ExecutionStatus"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "conclusion",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "FieldError": {
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "message"
+        ],
+        "type": "object"
+      },
+      "Job": {
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conclusion_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConclusionSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "execution_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs": {
+            "items": {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "queued_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "waiting_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaitingReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "attempt_id",
+          "key",
+          "name",
+          "needs",
+          "labels",
+          "status",
+          "waiting_reason",
+          "conclusion",
+          "conclusion_source",
+          "execution_id",
+          "queued_at",
+          "started_at",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "JobCreated": {
+        "properties": {
+          "key": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs": {
+            "items": {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "needs"
+        ],
+        "type": "object"
+      },
+      "JobStatus": {
+        "enum": [
+          "pending",
+          "waiting",
+          "queued",
+          "assigned",
+          "in_progress",
+          "paused",
+          "held",
+          "completed"
+        ],
+        "type": "string"
+      },
+      "JobStatusChanged": {
+        "properties": {
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conclusion_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConclusionSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatusReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "waiting_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaitingReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "waiting_reason",
+          "conclusion",
+          "conclusion_source",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "LogEnd": {
+        "properties": {
+          "lines": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "type": "object"
+      },
+      "LogLine": {
+        "properties": {
+          "line": {
+            "type": "string"
+          },
+          "number": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number",
+          "line"
+        ],
+        "type": "object"
+      },
+      "Me": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "type": "object"
+      },
+      "Organisation": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "Page": {
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "type": "object"
+      },
+      "PathSegment": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        ]
+      },
+      "Project": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organisation_id",
+          "slug",
+          "name",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "RegisterAgentRequest": {
+        "properties": {
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "name",
+          "labels"
+        ],
+        "type": "object"
+      },
+      "RegisterAgentResponse": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "credential": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "credential"
+        ],
+        "type": "object"
+      },
+      "RegistrationTokenCreated": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "pool_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reusable": {
+            "type": "boolean"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "pool_id",
+          "token",
+          "reusable",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "RegistrationTokenRequest": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pool": {
+            "type": "string"
+          },
+          "reusable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pool",
+          "reusable",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "Revision": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow_id",
+          "sha256",
+          "source",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "Run": {
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/Actor"
+          },
+          "attempt": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunConclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "global_number": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "number": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "workflow_id",
+          "revision_id",
+          "number",
+          "global_number",
+          "event",
+          "status",
+          "conclusion",
+          "attempt",
+          "actor",
+          "created_at",
+          "started_at",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "RunConclusion": {
+        "enum": [
+          "success",
+          "failure",
+          "cancelled",
+          "skipped",
+          "timed_out",
+          "startup_failure"
+        ],
+        "type": "string"
+      },
+      "RunCreated": {
+        "properties": {
+          "event": {
+            "type": "string"
+          },
+          "global_number": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "number": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "revision_id",
+          "number",
+          "global_number",
+          "event"
+        ],
+        "type": "object"
+      },
+      "RunEvent": {
+        "oneOf": [
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RunCreated"
+              },
+              "kind": {
+                "const": "run.created",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AttemptCreated"
+              },
+              "kind": {
+                "const": "attempt.created",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/JobCreated"
+              },
+              "kind": {
+                "const": "job.created",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ExecutionCreated"
+              },
+              "kind": {
+                "const": "execution.created",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/StepCreated"
+              },
+              "kind": {
+                "const": "step.created",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RunStatusChanged"
+              },
+              "kind": {
+                "const": "run.status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/JobStatusChanged"
+              },
+              "kind": {
+                "const": "job.status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ExecutionStatusChanged"
+              },
+              "kind": {
+                "const": "execution.status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/StepStatusChanged"
+              },
+              "kind": {
+                "const": "step.status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CommandAccepted"
+              },
+              "kind": {
+                "const": "command.accepted",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CommandRefused"
+              },
+              "kind": {
+                "const": "command.refused",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/Actor"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "attempt_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "step_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "run_id",
+          "attempt_id",
+          "job_id",
+          "execution_id",
+          "step_id",
+          "actor",
+          "at"
+        ],
+        "type": "object"
+      },
+      "RunStatus": {
+        "enum": [
+          "queued",
+          "in_progress",
+          "waiting",
+          "paused",
+          "completed"
+        ],
+        "type": "string"
+      },
+      "RunStatusChanged": {
+        "properties": {
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunConclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "to": {
+            "$ref": "#/components/schemas/RunStatus"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "conclusion"
+        ],
+        "type": "object"
+      },
+      "Severity": {
+        "enum": [
+          "error",
+          "warning"
+        ],
+        "type": "string"
+      },
+      "Span": {
+        "additionalProperties": false,
+        "properties": {
+          "column": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "end_column": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "end_line": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "line": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line",
+          "column",
+          "end_line",
+          "end_column"
+        ],
+        "type": "object"
+      },
+      "StatusReason": {
+        "enum": [
+          "if_false",
+          "command",
+          "lease_expired",
+          "rejected_by_agent",
+          "no_agent",
+          "agent_lost",
+          "agent_removed"
+        ],
+        "type": "string"
+      },
+      "Step": {
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conclusion_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConclusionSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "execution_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/StepStatus"
+          }
+        },
+        "required": [
+          "id",
+          "execution_id",
+          "index",
+          "name",
+          "status",
+          "outcome",
+          "conclusion",
+          "conclusion_source",
+          "started_at",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "StepCreated": {
+        "properties": {
+          "index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "name"
+        ],
+        "type": "object"
+      },
+      "StepStatus": {
+        "enum": [
+          "pending",
+          "in_progress",
+          "paused",
+          "completed"
+        ],
+        "type": "string"
+      },
+      "StepStatusChanged": {
+        "properties": {
+          "conclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conclusion_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConclusionSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "$ref": "#/components/schemas/StepStatus"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Conclusion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "$ref": "#/components/schemas/StepStatus"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "outcome",
+          "conclusion",
+          "conclusion_source"
+        ],
+        "type": "object"
+      },
+      "Target": {
+        "properties": {
+          "attempt": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "job": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "step": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "attempt",
+          "job",
+          "step"
+        ],
+        "type": "object"
+      },
+      "UpdateSourceRequest": {
+        "properties": {
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "login",
+          "name",
+          "email",
+          "owner",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "WaitingReason": {
+        "enum": [
+          "untrusted",
+          "approval",
+          "wait_timer",
+          "policy",
+          "concurrency",
+          "max_parallel",
+          "paused"
+        ],
+        "type": "string"
+      },
+      "Workflow": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/WorkflowSource"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "source",
+          "enabled",
+          "revision_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "WorkflowSource": {
+        "oneOf": [
+          {
+            "properties": {
+              "kind": {
+                "const": "server",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "description": "a personal token, `bst_…`",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Bosun",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/agents": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Agent"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/register": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterAgentResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/executions/{execution}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the execution's id",
+            "in": "path",
+            "name": "execution",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Execution"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/executions/{execution}/steps/{step}/log": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the execution's id",
+            "in": "path",
+            "name": "execution",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "the id of a step of the execution",
+            "in": "path",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "the number of lines to skip",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "the most lines to answer with; without it the answer runs to the end",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "answer with an event stream that follows the log until its step ends",
+            "in": "query",
+            "name": "follow",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "the number of the last line a followed log delivered, to resume after it",
+            "in": "header",
+            "name": "Last-Event-ID",
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-bosun-events": {
+                  "end": {
+                    "$ref": "#/components/schemas/LogEnd"
+                  },
+                  "message": {
+                    "$ref": "#/components/schemas/LogLine"
+                  }
+                }
+              },
+              "text/plain; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the job's id",
+            "in": "path",
+            "name": "job",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/organisations": {
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganisationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organisation"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/organisations/{organisation}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the organisation's id or slug",
+            "in": "path",
+            "name": "organisation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organisation"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/workflows": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "description": "only the items whose `name` is this value",
+            "in": "query",
+            "name": "name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Workflow"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/registration-tokens": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationTokenCreated"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the run's id",
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run}/attempts/{attempt}/jobs": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the run's id",
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "the number of an attempt of the run, counted from 1",
+            "in": "path",
+            "name": "attempt",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Job"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run}/commands": {
+      "post": {
+        "parameters": [
+          {
+            "description": "the run's id",
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEvent"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{workflow}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the workflow's id",
+            "in": "path",
+            "name": "workflow",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{workflow}/dispatch": {
+      "post": {
+        "parameters": [
+          {
+            "description": "the workflow's id",
+            "in": "path",
+            "name": "workflow",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{workflow}/revisions": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the workflow's id",
+            "in": "path",
+            "name": "workflow",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Revision"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{workflow}/source": {
+      "put": {
+        "parameters": [
+          {
+            "description": "the workflow's id",
+            "in": "path",
+            "name": "workflow",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ]
+}

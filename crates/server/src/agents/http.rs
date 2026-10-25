@@ -1,23 +1,24 @@
 use axum::Json;
-use axum::body::Bytes;
-use axum::extract::{RawQuery, State};
-use axum::http::StatusCode;
+use axum::extract::{FromRequestParts, RawQuery, State};
+use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_types::api::{
-    Page, RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
+    Agent, Page, RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
     RegistrationTokenRequest,
 };
 use bosun_types::error::{ErrorBody, ErrorCode, FieldError};
 use bosun_types::id::AgentId;
 use chrono::{TimeDelta, Utc};
-use serde::de::DeserializeOwned;
 use tracing::{error, info};
 
 use super::{LABEL_RULE, NAME_RULE, valid_label, valid_name};
 use crate::AppState;
 use crate::auth::Refusal;
 use crate::envelope::ApiError;
+use crate::openapi::{self, Input, Output, Spec};
+use crate::reply::Created;
+use crate::request::Body;
 use crate::token::{AGENT, REGISTRATION, Token};
 
 const DEFAULT_LIFETIME: TimeDelta = TimeDelta::hours(24);
@@ -30,9 +31,8 @@ const LARGEST_LIMIT: u64 = 500;
 
 pub(crate) async fn register(
     State(state): State<AppState>,
-    body: Bytes,
-) -> Result<Response, Failure> {
-    let request: RegisterAgentRequest = decode(&body, "an agent registration")?;
+    Body(request): Body<RegisterAgentRequest>,
+) -> Result<Created<RegisterAgentResponse>, Failure> {
     let token = Token::parse(REGISTRATION, &request.token).ok_or(Failure::Refused(
         Refusal::Unauthenticated("the token is not a well-formed registration token"),
     ))?;
@@ -87,21 +87,16 @@ pub(crate) async fn register(
         }
     };
     info!(agent_id = %agent.id, name = agent.name, pool_id = %agent.pool_id, "registered an agent");
-    Ok((
-        StatusCode::CREATED,
-        Json(RegisterAgentResponse {
-            agent_id: agent.id,
-            credential: credential.into_string(),
-        }),
-    )
-        .into_response())
+    Ok(Created::New(RegisterAgentResponse {
+        agent_id: agent.id,
+        credential: credential.into_string(),
+    }))
 }
 
 pub(crate) async fn create_token(
     State(state): State<AppState>,
-    body: Bytes,
-) -> Result<Response, Failure> {
-    let request: RegistrationTokenRequest = decode(&body, "a registration token request")?;
+    Body(request): Body<RegistrationTokenRequest>,
+) -> Result<Created<RegistrationTokenCreated>, Failure> {
     let now = Utc::now();
     let expires_at = request.expires_at.unwrap_or(now + DEFAULT_LIFETIME);
     let mut fields = Vec::new();
@@ -147,66 +142,91 @@ pub(crate) async fn create_token(
         expires_at = %stored.expires_at,
         "created a registration token"
     );
-    Ok((
-        StatusCode::CREATED,
-        Json(RegistrationTokenCreated {
-            id: stored.id,
-            pool_id: stored.pool_id,
-            token: token.into_string(),
-            reusable: stored.reusable,
-            expires_at: stored.expires_at,
-        }),
-    )
-        .into_response())
+    Ok(Created::New(RegistrationTokenCreated {
+        id: stored.id,
+        pool_id: stored.pool_id,
+        token: token.into_string(),
+        reusable: stored.reusable,
+        expires_at: stored.expires_at,
+    }))
+}
+
+pub(crate) struct Paging {
+    limit: u64,
+    cursor: Option<AgentId>,
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for Paging {
+    type Rejection = Failure;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Paging, Failure> {
+        let Ok(RawQuery(query)) = RawQuery::from_request_parts(parts, state).await;
+        let query = query.unwrap_or_default();
+        let mut paging = Paging {
+            limit: DEFAULT_LIMIT,
+            cursor: None,
+        };
+        let mut fields = Vec::new();
+        for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+            let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+            match name {
+                "limit" => match value.parse() {
+                    Ok(given) if (1..=LARGEST_LIMIT).contains(&given) => paging.limit = given,
+                    _ => fields.push(field(
+                        "limit",
+                        &format!("is `{value}`, and a limit is a number from 1 to {LARGEST_LIMIT}"),
+                    )),
+                },
+                "cursor" => match value.parse::<AgentId>() {
+                    Ok(after) => paging.cursor = Some(after),
+                    Err(_) => fields.push(field(
+                        "cursor",
+                        &format!("is `{value}`, which is not the `next` of a page"),
+                    )),
+                },
+                _ => {}
+            }
+        }
+        if !fields.is_empty() {
+            return Err(invalid("the query is not valid", fields));
+        }
+        Ok(paging)
+    }
+}
+
+impl Input for Paging {
+    fn input(spec: &mut Spec<'_>) {
+        spec.reference(openapi::LIMIT);
+        spec.reference(openapi::CURSOR);
+    }
 }
 
 pub(crate) async fn list(
     State(state): State<AppState>,
-    RawQuery(query): RawQuery,
-) -> Result<Response, Failure> {
-    let query = query.unwrap_or_default();
-    let mut limit = DEFAULT_LIMIT;
-    let mut cursor = None;
-    let mut fields = Vec::new();
-    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
-        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
-        match name {
-            "limit" => match value.parse() {
-                Ok(given) if (1..=LARGEST_LIMIT).contains(&given) => limit = given,
-                _ => fields.push(field(
-                    "limit",
-                    &format!("is `{value}`, and a limit is a number from 1 to {LARGEST_LIMIT}"),
-                )),
-            },
-            "cursor" => match value.parse::<AgentId>() {
-                Ok(after) => cursor = Some(after),
-                Err(_) => fields.push(field(
-                    "cursor",
-                    &format!("is `{value}`, which is not the `next` of a page"),
-                )),
-            },
-            _ => {}
-        }
-    }
-    if !fields.is_empty() {
-        return Err(invalid("the query is not valid", fields));
-    }
-    let mut items = bosun_db::agents::list(&state.db, cursor, limit + 1)
+    paging: Paging,
+) -> Result<Json<Page<Agent>>, Failure> {
+    let mut items = bosun_db::agents::list(&state.db, paging.cursor, paging.limit + 1)
         .await
         .map_err(internal)?;
-    let next = if items.len() as u64 > limit {
-        items.truncate(limit as usize);
+    let next = if items.len() as u64 > paging.limit {
+        items.truncate(paging.limit as usize);
         items.last().map(|agent| agent.id.to_string())
     } else {
         None
     };
-    Ok(Json(Page { items, next }).into_response())
+    Ok(Json(Page { items, next }))
 }
 
 pub(crate) enum Failure {
     Invalid(ApiError),
     Refused(Refusal),
     Internal,
+}
+
+impl Output for Failure {
+    fn output(spec: &mut Spec<'_>) {
+        spec.error();
+    }
 }
 
 impl IntoResponse for Failure {
@@ -220,15 +240,6 @@ impl IntoResponse for Failure {
             }
         }
     }
-}
-
-fn decode<T: DeserializeOwned>(body: &[u8], what: &str) -> Result<T, Failure> {
-    serde_json::from_slice(body).map_err(|failure| {
-        Failure::Invalid(ApiError::new(
-            ErrorCode::InvalidInput,
-            format!("the body is not {what}: {failure}"),
-        ))
-    })
 }
 
 fn field(name: &str, message: &str) -> FieldError {

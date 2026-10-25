@@ -1,8 +1,5 @@
+use axum::Extension;
 use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::Response;
-use axum::routing::post;
-use axum::{Extension, Router};
 use bosun_db::control::{self, Kind};
 use bosun_db::runs::{JobState, Locked};
 use bosun_types::actor::Actor;
@@ -15,11 +12,13 @@ use sea_orm::TransactionTrait;
 
 use crate::auth::Principal;
 use crate::envelope::ApiError;
-use crate::request::{Body, Faults, Segment, database};
+use crate::openapi::Api;
+use crate::reply::Created;
+use crate::request::{Faults, Idempotent, Segment, database};
 use crate::{AppState, idempotency, planner};
 
-pub(crate) fn routes() -> Router<AppState> {
-    Router::new().route("/api/v1/runs/{run}/commands", post(command))
+pub(crate) fn routes() -> Api {
+    Api::new().post("/api/v1/runs/{run}/commands", command)
 }
 
 #[derive(Debug)]
@@ -37,8 +36,8 @@ async fn command(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Segment(reference): Segment,
-    body: Result<Body<CommandRequest>, ApiError>,
-) -> Result<Response, ApiError> {
+    body: Result<Idempotent<CommandRequest>, ApiError>,
+) -> Result<Created<RunEvent>, ApiError> {
     let missing = || {
         ApiError::new(
             ErrorCode::NotFound,
@@ -59,14 +58,7 @@ async fn command(
     }
     match apply(&mut run, &principal.actor(), &body.value).await? {
         Applied::Accepted(event) => {
-            idempotency::commit(
-                &state.db,
-                transaction,
-                body.idempotency.as_ref(),
-                StatusCode::CREATED,
-                &event,
-            )
-            .await
+            idempotency::commit(&state.db, transaction, body.idempotency.as_ref(), *event).await
         }
         Applied::Refused(message) => {
             transaction.commit().await.map_err(database)?;

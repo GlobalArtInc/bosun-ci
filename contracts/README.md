@@ -36,6 +36,12 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from step 6 of M1.
   Every key of the tables of arrivals and of extensions in `docs/design/02-workflows.md` carries
   its milestone as `x-bosun-from`, and every extension `x-bosun-extension: true`.
-- `openapi.json`: the description of the REST API generated from the handlers, from M1.
+- `fixtures/api/`: request and response bodies of the REST API. From step 1 of M1, each one belongs
+  to a request or a response of an operation in `openapi.json`, or to a schema one of them refers
+  to, and validates against that schema; a fixture of a shape no operation serves fails the suite.
+- `openapi.json`: the description of the REST API generated from the handlers, from step 1 of M1.
+  `hack/openapi.sh` writes it, a test fails when it differs from the generated document, and it is
+  never edited or merged by hand
+  ([../docs/design/11-api.md](../docs/design/11-api.md#the-openapi-document)).
 
 A change to a file here is a change of a contract, and its commit message says so.

@@ -11,11 +11,13 @@ mod idempotency;
 mod keys;
 mod logs;
 mod me;
+mod openapi;
 mod organisations;
 mod owner;
 mod planner;
 mod projects;
 mod queue;
+mod reply;
 mod request;
 mod runs;
 mod shutdown;
@@ -126,27 +128,33 @@ pub async fn create_owner(config: &Config, login: &str) -> Result<String, Error>
     owner::create(&db, login).await
 }
 
+pub fn openapi() -> String {
+    openapi::render(&api().document())
+}
+
 async fn connect(config: &Config) -> Result<DatabaseConnection, Error> {
     bosun_db::connect(&config.database.url, config.database.max_connections)
         .await
         .map_err(Error::Connect)
 }
 
-fn app(state: AppState, connector: agents::Connector, shutdown: shutdown::Shutdown) -> Router {
-    let api = Router::new()
-        .route("/api/v1/me", get(me::show))
+fn api() -> openapi::Api {
+    openapi::Api::new()
+        .get("/api/v1/me", me::show)
         .merge(organisations::routes())
         .merge(projects::routes())
         .merge(workflows::routes())
         .merge(commands::routes())
         .merge(runs::routes())
         .merge(logs::routes())
-        .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner));
+        .merge(agents::routes())
+}
+
+fn app(state: AppState, connector: agents::Connector, shutdown: shutdown::Shutdown) -> Router {
     let http = Router::new()
         .route("/healthz", get(health::alive))
         .route("/readyz", get(health::ready))
-        .merge(api)
-        .merge(agents::routes(state.clone()))
+        .merge(api().into_router(&state))
         .fallback(envelope::no_route)
         .method_not_allowed_fallback(envelope::no_route)
         .with_state(state);

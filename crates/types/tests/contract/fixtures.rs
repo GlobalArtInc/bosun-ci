@@ -3,10 +3,10 @@ use std::fs;
 use std::path::Path;
 
 use bosun_types::api::{
-    Agent, Attempt, CreateOrganisationRequest, CreateProjectRequest, CreateWorkflowRequest,
-    DispatchRequest, Execution, Job, LogEnd, LogLine, Me, Organisation, Page, Pool, Project,
-    RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
-    RegistrationTokenRequest, Revision, Run, Step, UpdateSourceRequest, Workflow,
+    Agent, CreateOrganisationRequest, CreateProjectRequest, CreateWorkflowRequest, DispatchRequest,
+    Execution, Job, LogEnd, LogLine, Me, Organisation, Page, Project, RegisterAgentRequest,
+    RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest, Revision, Run, Step,
+    UpdateSourceRequest, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -91,7 +91,6 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<ActionCase>,
         ),
         ("api/agent.json", round_trip::<Agent>),
-        ("api/attempt.json", round_trip::<Attempt>),
         ("api/command-job-cancel.json", round_trip::<CommandRequest>),
         ("api/command-run-cancel.json", round_trip::<CommandRequest>),
         (
@@ -115,8 +114,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/log-line.json", round_trip::<LogLine>),
         ("api/me.json", round_trip::<Me>),
         ("api/organisation.json", round_trip::<Organisation>),
-        ("api/page-runs.json", round_trip::<Page<Run>>),
-        ("api/pool.json", round_trip::<Pool>),
+        ("api/page-jobs.json", round_trip::<Page<Job>>),
         ("api/project.json", round_trip::<Project>),
         (
             "api/register-agent-request.json",

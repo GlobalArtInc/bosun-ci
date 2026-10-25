@@ -1,0 +1,45 @@
+{
+  "items": [
+    {
+      "id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+      "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+      "attempt_id": "0192f3a4-5b6c-7d8e-9f01-000000000008",
+      "key": "build",
+      "name": "build",
+      "needs": [],
+      "labels": [
+        "shell"
+      ],
+      "status": "completed",
+      "waiting_reason": null,
+      "conclusion": "success",
+      "conclusion_source": "natural",
+      "execution_id": "0192f3a4-5b6c-7d8e-9f01-00000000000b",
+      "queued_at": "2026-10-24T18:34:50.078Z",
+      "started_at": "2026-10-24T18:34:51Z",
+      "completed_at": "2026-10-24T18:35:07.512Z"
+    },
+    {
+      "id": "0192f3a4-5b6c-7d8e-9f01-00000000000a",
+      "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+      "attempt_id": "0192f3a4-5b6c-7d8e-9f01-000000000008",
+      "key": "test",
+      "name": "test",
+      "needs": [
+        "build"
+      ],
+      "labels": [
+        "shell"
+      ],
+      "status": "queued",
+      "waiting_reason": null,
+      "conclusion": null,
+      "conclusion_source": null,
+      "execution_id": null,
+      "queued_at": "2026-10-24T18:35:07.512Z",
+      "started_at": null,
+      "completed_at": null
+    }
+  ],
+  "next": "0192f3a4-5b6c-7d8e-9f01-00000000000a"
+}

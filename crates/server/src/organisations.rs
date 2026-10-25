@@ -1,8 +1,5 @@
+use axum::Json;
 use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::Response;
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use bosun_types::api::{CreateOrganisationRequest, Organisation};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::OrganisationId;
@@ -11,13 +8,15 @@ use sea_orm::{ConnectionTrait, TransactionTrait};
 use crate::AppState;
 use crate::envelope::ApiError;
 use crate::idempotency;
-use crate::request::{Body, Faults, Segment, database};
+use crate::openapi::Api;
+use crate::reply::Created;
+use crate::request::{Faults, Idempotent, Segment, database};
 use crate::slug;
 
-pub(crate) fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/organisations", post(create))
-        .route("/api/v1/organisations/{organisation}", get(show))
+pub(crate) fn routes() -> Api {
+    Api::new()
+        .post("/api/v1/organisations", create)
+        .get("/api/v1/organisations/{organisation}", show)
 }
 
 pub(crate) async fn find<C: ConnectionTrait>(
@@ -37,8 +36,8 @@ pub(crate) fn missing(reference: &str) -> String {
 
 async fn create(
     State(state): State<AppState>,
-    body: Body<CreateOrganisationRequest>,
-) -> Result<Response, ApiError> {
+    body: Idempotent<CreateOrganisationRequest>,
+) -> Result<Created<Organisation>, ApiError> {
     let request = &body.value;
     let mut faults = Faults::default();
     if slug::check_slug(&mut faults, "slug", "a slug", &request.slug)
@@ -67,8 +66,7 @@ async fn create(
         &state.db,
         transaction,
         body.idempotency.as_ref(),
-        StatusCode::CREATED,
-        &organisation,
+        organisation,
     )
     .await
 }

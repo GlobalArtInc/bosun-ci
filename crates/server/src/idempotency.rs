@@ -1,7 +1,5 @@
-use axum::Json;
 use axum::http::request::Parts;
 use axum::http::{Method, StatusCode, Uri};
-use axum::response::{IntoResponse, Response};
 use bosun_db::idempotency::Stored;
 use bosun_types::error::ErrorCode;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction};
@@ -10,6 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::auth::Principal;
 use crate::envelope::ApiError;
+use crate::reply::Created;
 use crate::request::{database, failed, invalid};
 
 const HEADER: &str = "idempotency-key";
@@ -80,10 +79,10 @@ impl Pending {
     }
 }
 
-pub(crate) async fn replay<C: ConnectionTrait>(
+pub(crate) async fn replay<C: ConnectionTrait, T>(
     db: &C,
     idempotency: Option<&Idempotency>,
-) -> Result<Option<Response>, ApiError> {
+) -> Result<Option<Created<T>>, ApiError> {
     let Some(idempotency) = idempotency else {
         return Ok(None);
     };
@@ -102,29 +101,26 @@ pub(crate) async fn replay<C: ConnectionTrait>(
             ),
         ));
     }
-    let status = StatusCode::from_u16(stored.status)
-        .map_err(|error| failed(format!("a stored response has no valid status: {error}")))?;
-    Ok(Some((status, Json(stored.response)).into_response()))
+    Ok(Some(Created::Kept(stored.response)))
 }
 
 pub(crate) async fn commit<T: Serialize>(
     db: &DatabaseConnection,
     transaction: DatabaseTransaction,
     idempotency: Option<&Idempotency>,
-    status: StatusCode,
-    body: &T,
-) -> Result<Response, ApiError> {
-    let response = serde_json::to_value(body)
-        .map_err(|error| failed(format!("a response could not be encoded: {error}")))?;
+    body: T,
+) -> Result<Created<T>, ApiError> {
     if let Some(idempotency) = idempotency {
+        let response = serde_json::to_value(&body)
+            .map_err(|error| failed(format!("a response could not be encoded: {error}")))?;
         let recorded = bosun_db::idempotency::record(
             &transaction,
             &idempotency.principal,
             &idempotency.key,
             Stored {
                 request_sha256: idempotency.sha256.clone(),
-                status: status.as_u16(),
-                response: response.clone(),
+                status: StatusCode::CREATED.as_u16(),
+                response,
             },
         )
         .await
@@ -137,5 +133,5 @@ pub(crate) async fn commit<T: Serialize>(
         }
     }
     transaction.commit().await.map_err(database)?;
-    Ok((status, Json(response)).into_response())
+    Ok(Created::New(body))
 }

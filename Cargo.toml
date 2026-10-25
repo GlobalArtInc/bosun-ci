@@ -43,6 +43,7 @@ rustix = "1.1"
 rustls-pki-types = "1"
 ruzstd = "0.9"
 saphyr-parser = "0.2"
+schemars = { version = "1.2", default-features = false, features = ["chrono04", "derive", "std"] }
 sea-orm = { version = "1.1", default-features = false, features = [
     "macros",
     "runtime-tokio-rustls",

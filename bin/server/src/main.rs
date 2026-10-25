@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::future::Future;
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -38,6 +38,8 @@ enum Command {
     Migrate,
     #[command(subcommand, about = "Administer the installation")]
     Admin(Admin),
+    #[command(about = "Print the OpenAPI document of the REST API")]
+    Openapi,
 }
 
 #[derive(Subcommand)]
@@ -55,7 +57,7 @@ enum Admin {
 async fn main() -> ExitCode {
     let arguments = Arguments::parse();
     logs(match arguments.command {
-        Command::Admin(_) => BoxMakeWriter::new(io::stderr),
+        Command::Admin(_) | Command::Openapi => BoxMakeWriter::new(io::stderr),
         Command::Serve | Command::Migrate => BoxMakeWriter::new(io::stdout),
     });
     match run(arguments).await {
@@ -68,19 +70,24 @@ async fn main() -> ExitCode {
 }
 
 async fn run(arguments: Arguments) -> Result<(), Box<dyn Error>> {
-    let file = arguments
-        .config
-        .or_else(|| Some(PathBuf::from(DEFAULT_CONFIG)).filter(|path| path.exists()));
-    let config = Config::load(file.as_deref())?;
-    match arguments.command {
-        Command::Serve => bosun_server::serve(config, stop()?).await?,
-        Command::Migrate => bosun_server::migrate(&config).await?,
+    let Arguments { config, command } = arguments;
+    match command {
+        Command::Serve => bosun_server::serve(load(config)?, stop()?).await?,
+        Command::Migrate => bosun_server::migrate(&load(config)?).await?,
         Command::Admin(Admin::Create { login }) => {
-            let token = bosun_server::create_owner(&config, &login).await?;
+            let token = bosun_server::create_owner(&load(config)?, &login).await?;
             println!("{token}");
         }
+        Command::Openapi => io::stdout()
+            .lock()
+            .write_all(bosun_server::openapi().as_bytes())?,
     }
     Ok(())
+}
+
+fn load(file: Option<PathBuf>) -> Result<Config, bosun_server::Error> {
+    let file = file.or_else(|| Some(PathBuf::from(DEFAULT_CONFIG)).filter(|path| path.exists()));
+    Config::load(file.as_deref())
 }
 
 fn stop() -> io::Result<impl Future<Output = String> + Send + 'static> {

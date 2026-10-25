@@ -3,18 +3,18 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
 use axum::body::{Body, Bytes};
-use axum::extract::rejection::{PathRejection, QueryRejection};
-use axum::extract::{Path, Query, State};
+use axum::extract::rejection::PathRejection;
+use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::header::CONTENT_TYPE;
-use axum::http::{HeaderMap, Method, Uri};
+use axum::http::request::Parts;
+use axum::http::{Method, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
 use bosun_types::api::{LogEnd, LogLine};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::{ExecutionId, StepId};
+use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_stream::wrappers::ReceiverStream;
@@ -24,6 +24,7 @@ use super::followers::Subscription;
 use super::reader::{Failure, Read, Reader};
 use crate::AppState;
 use crate::envelope::{self, ApiError};
+use crate::openapi::{Api, Input, Output, Spec};
 use crate::request::{failed, invalid};
 
 const OFFSET: &str = "offset";
@@ -32,7 +33,7 @@ const LIMIT: &str = "limit";
 
 const FOLLOW: &str = "follow";
 
-const LAST_EVENT_ID: &str = "last-event-id";
+const LAST_EVENT_ID: &str = "Last-Event-ID";
 
 const POLL: Duration = Duration::from_secs(1);
 
@@ -44,18 +45,25 @@ struct Asked {
     follow: bool,
 }
 
-pub(crate) fn routes() -> Router<AppState> {
-    Router::new().route("/api/v1/executions/{execution}/steps/{step}/log", get(show))
+struct Log(Response);
+
+impl IntoResponse for Log {
+    fn into_response(self) -> Response {
+        self.0
+    }
+}
+
+pub(crate) fn routes() -> Api {
+    Api::new().get("/api/v1/executions/{execution}/steps/{step}/log", show)
 }
 
 async fn show(
     State(state): State<AppState>,
     method: Method,
     uri: Uri,
-    headers: HeaderMap,
     path: Result<Path<(String, String)>, PathRejection>,
-    query: Result<Query<Vec<(String, String)>>, QueryRejection>,
-) -> Result<Response, ApiError> {
+    asked: Result<Asked, ApiError>,
+) -> Result<Log, ApiError> {
     let Ok(Path((execution, step))) = path else {
         return Err(envelope::absent(&method, &uri));
     };
@@ -67,7 +75,7 @@ async fn show(
     };
     let execution_id: ExecutionId = execution.parse().map_err(|_| missing())?;
     let step_id: StepId = step.parse().map_err(|_| missing())?;
-    let asked = parse(query, &headers)?;
+    let asked = asked?;
     let subscription = asked
         .follow
         .then(|| state.followers.subscribe(execution_id));
@@ -83,22 +91,75 @@ async fn show(
         Err(Failure::Missing) => return Err(missing()),
         Err(failure) => return Err(failed(failure)),
     };
-    Ok(match subscription {
+    Ok(Log(match subscription {
         Some(subscription) => follow(state, reader, first, subscription),
         None => range(reader, first, asked.limit),
-    })
+    }))
 }
 
-fn parse(
-    query: Result<Query<Vec<(String, String)>>, QueryRejection>,
-    headers: &HeaderMap,
-) -> Result<Asked, ApiError> {
-    let Query(pairs) = query.map_err(|rejection| {
-        invalid(format!(
-            "the query string could not be read: {}",
-            rejection.body_text()
-        ))
-    })?;
+impl<S: Send + Sync> FromRequestParts<S> for Asked {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Asked, ApiError> {
+        let Query(pairs) = Query::<Vec<(String, String)>>::from_request_parts(parts, state)
+            .await
+            .map_err(|rejection| {
+                invalid(format!(
+                    "the query string could not be read: {}",
+                    rejection.body_text()
+                ))
+            })?;
+        asked(pairs, parts)
+    }
+}
+
+impl Input for Asked {
+    fn input(spec: &mut Spec<'_>) {
+        spec.parameter(json!({
+            "name": OFFSET,
+            "in": "query",
+            "description": "the number of lines to skip",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+        }));
+        spec.parameter(json!({
+            "name": LIMIT,
+            "in": "query",
+            "description": "the most lines to answer with; without it the answer runs to the end",
+            "schema": { "type": "integer", "minimum": 1 }
+        }));
+        spec.parameter(json!({
+            "name": FOLLOW,
+            "in": "query",
+            "description": "answer with an event stream that follows the log until its step ends",
+            "schema": { "type": "boolean", "default": false }
+        }));
+        spec.parameter(json!({
+            "name": LAST_EVENT_ID,
+            "in": "header",
+            "description": "the number of the last line a followed log delivered, to resume after it",
+            "schema": { "type": "integer", "minimum": 0 }
+        }));
+    }
+}
+
+impl Output for Log {
+    fn output(spec: &mut Spec<'_>) {
+        let line = spec.schema::<LogLine>();
+        let end = spec.schema::<LogEnd>();
+        spec.content(
+            StatusCode::OK,
+            json!({
+                "text/plain; charset=utf-8": { "schema": { "type": "string" } },
+                "text/event-stream": {
+                    "schema": { "type": "string" },
+                    "x-bosun-events": { "message": line, "end": end }
+                }
+            }),
+        );
+    }
+}
+
+fn asked(pairs: Vec<(String, String)>, parts: &Parts) -> Result<Asked, ApiError> {
     let mut asked = Asked {
         offset: 0,
         limit: None,
@@ -143,7 +204,7 @@ fn parse(
                 "`{LIMIT}` does not apply to a followed log, which ends with its step"
             )));
         }
-        if let Some(value) = headers.get(LAST_EVENT_ID) {
+        if let Some(value) = parts.headers.get(LAST_EVENT_ID) {
             asked.offset = value
                 .to_str()
                 .ok()

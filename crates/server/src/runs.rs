@@ -1,22 +1,22 @@
-use axum::extract::rejection::{PathRejection, QueryRejection};
-use axum::extract::{Path, Query, State};
+use axum::Json;
+use axum::extract::rejection::PathRejection;
+use axum::extract::{Path, State};
 use axum::http::{Method, Uri};
-use axum::routing::get;
-use axum::{Json, Router};
 use bosun_types::api::{Execution, Job, Page, Run};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::{ExecutionId, JobId, RunId};
 
 use crate::AppState;
 use crate::envelope::{self, ApiError};
+use crate::openapi::Api;
 use crate::request::{Listing, Segment, database};
 
-pub(crate) fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/runs/{run}", get(run))
-        .route("/api/v1/runs/{run}/attempts/{attempt}/jobs", get(jobs))
-        .route("/api/v1/jobs/{job}", get(job))
-        .route("/api/v1/executions/{execution}", get(execution))
+pub(crate) fn routes() -> Api {
+    Api::new()
+        .get("/api/v1/runs/{run}", run)
+        .get("/api/v1/runs/{run}/attempts/{attempt}/jobs", jobs)
+        .get("/api/v1/jobs/{job}", job)
+        .get("/api/v1/executions/{execution}", execution)
 }
 
 fn missing(what: &str, reference: &str) -> ApiError {
@@ -43,7 +43,7 @@ async fn jobs(
     method: Method,
     uri: Uri,
     path: Result<Path<(String, String)>, PathRejection>,
-    query: Result<Query<Vec<(String, String)>>, QueryRejection>,
+    listing: Result<Listing, ApiError>,
 ) -> Result<Json<Page<Job>>, ApiError> {
     let Ok(Path((run, attempt))) = path else {
         return Err(envelope::absent(&method, &uri));
@@ -56,7 +56,7 @@ async fn jobs(
     };
     let run_id: RunId = run.parse().map_err(|_| missing("run", &run))?;
     let number: u32 = attempt.parse().map_err(|_| absent())?;
-    let listing = Listing::parse(query, &[])?;
+    let listing = listing?;
     let Some(jobs) =
         bosun_db::views::jobs(&state.db, run_id, number, listing.cursor(), listing.fetch())
             .await

@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::actor::Actor;
@@ -11,7 +12,7 @@ use crate::status::{
     StatusReason, StepStatus, WaitingReason,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunEvent {
     pub seq: u64,
     pub run_id: RunId,
@@ -25,7 +26,7 @@ pub struct RunEvent {
     pub event: Event,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", content = "data")]
 pub enum Event {
     #[serde(rename = "run.created")]
@@ -70,7 +71,7 @@ impl Event {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunCreated {
     pub workflow_id: WorkflowId,
     pub revision_id: RevisionId,
@@ -79,38 +80,38 @@ pub struct RunCreated {
     pub event: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AttemptCreated {
     pub number: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct JobCreated {
     pub key: JobKey,
     pub name: String,
     pub needs: Vec<JobKey>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ExecutionCreated {
     pub number: u32,
     pub agent_id: AgentId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct StepCreated {
     pub index: u32,
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunStatusChanged {
     pub from: RunStatus,
     pub to: RunStatus,
     pub conclusion: Option<RunConclusion>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct JobStatusChanged {
     pub from: JobStatus,
     pub to: JobStatus,
@@ -120,7 +121,7 @@ pub struct JobStatusChanged {
     pub reason: Option<StatusReason>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ExecutionStatusChanged {
     pub from: ExecutionStatus,
     pub to: ExecutionStatus,
@@ -128,7 +129,7 @@ pub struct ExecutionStatusChanged {
     pub reason: Option<StatusReason>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct StepStatusChanged {
     pub from: StepStatus,
     pub to: StepStatus,
@@ -137,12 +138,12 @@ pub struct StepStatusChanged {
     pub conclusion_source: Option<ConclusionSource>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandAccepted {
     pub command: CommandRequest,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandRefused {
     pub command: CommandRequest,
     pub code: ErrorCode,
