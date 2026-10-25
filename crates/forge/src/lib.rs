@@ -89,6 +89,20 @@ pub trait Forge: Send + Sync {
         repository: &Repository,
         commit: &str,
     ) -> impl Future<Output = Result<Download, Error>> + Send;
+
+    fn resolve_public(
+        &self,
+        owner: &str,
+        name: &str,
+        reference: &str,
+    ) -> impl Future<Output = Result<Option<String>, Error>> + Send;
+
+    fn public_tarball(
+        &self,
+        owner: &str,
+        name: &str,
+        commit: &str,
+    ) -> impl Future<Output = Result<Download, Error>> + Send;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

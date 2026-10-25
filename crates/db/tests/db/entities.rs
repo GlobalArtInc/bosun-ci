@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
 use bosun_db::entity::{
-    agent, api_token, api_token_scope, attempt, control_message, execution, forge_check_run,
-    forge_installation, forge_repository, idempotency_key, job, label_alias, log_chunk, log_object,
-    organisation, outbox, pool, pool_access, project, registration_token, role, role_binding, run,
-    run_event, schema_version, secret, session, sign_in_failure, step, stream_event, team,
-    team_member, user, variable, webhook_delivery, workflow, workflow_revision,
+    action_ref, agent, api_token, api_token_scope, attempt, control_message, execution,
+    forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
+    log_chunk, log_object, organisation, outbox, pool, pool_access, project, registration_token,
+    role, role_binding, run, run_event, schema_version, secret, session, sign_in_failure, step,
+    stream_event, team, team_member, tool_object, user, variable, webhook_delivery, workflow,
+    workflow_revision,
 };
 use bosun_testkit::TestDatabase;
 use sea_orm::EntityName;
@@ -23,6 +24,7 @@ async fn every_entity_round_trips_a_row() {
 async fn every_table_has_an_entity() {
     let database = TestDatabase::migrated().await;
     let entities: BTreeSet<String> = [
+        action_ref::Entity.table_name(),
         agent::Entity.table_name(),
         api_token::Entity.table_name(),
         api_token_scope::Entity.table_name(),
@@ -55,6 +57,7 @@ async fn every_table_has_an_entity() {
         stream_event::Entity.table_name(),
         team::Entity.table_name(),
         team_member::Entity.table_name(),
+        tool_object::Entity.table_name(),
         user::Entity.table_name(),
         variable::Entity.table_name(),
         webhook_delivery::Entity.table_name(),

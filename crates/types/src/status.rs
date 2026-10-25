@@ -218,10 +218,11 @@ pub enum StatusReason {
     NoAgent,
     AgentLost,
     AgentRemoved,
+    ActionUnavailable,
 }
 
 impl StatusReason {
-    pub const ALL: [StatusReason; 9] = [
+    pub const ALL: [StatusReason; 10] = [
         StatusReason::IfFalse,
         StatusReason::EvaluationFailed,
         StatusReason::Command,
@@ -231,5 +232,6 @@ impl StatusReason {
         StatusReason::NoAgent,
         StatusReason::AgentLost,
         StatusReason::AgentRemoved,
+        StatusReason::ActionUnavailable,
     ];
 }

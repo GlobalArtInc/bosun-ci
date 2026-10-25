@@ -1,0 +1,66 @@
+{
+  "id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "project_id": "0192f3a4-5b6c-7d8e-9f01-000000000002",
+  "workflow_id": "0192f3a4-5b6c-7d8e-9f01-000000000005",
+  "revision_id": "0192f3a4-5b6c-7d8e-9f01-000000000006",
+  "number": 12,
+  "global_number": 4031,
+  "display_name": "ci",
+  "event": "workflow_dispatch",
+  "ref": null,
+  "sha": null,
+  "status": "in_progress",
+  "conclusion": null,
+  "attempt": 1,
+  "actor": {
+    "kind": "token",
+    "id": "0192f3a4-5b6c-7d8e-9f01-000000000004",
+    "user_id": "0192f3a4-5b6c-7d8e-9f01-000000000003",
+    "login": "roman"
+  },
+  "notices": [
+    {
+      "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+      "severity": "warning",
+      "code": "node_substituted",
+      "message": "the action `acme/legacy@v1` declares `node16`, which this server runs on Node 24.22.1",
+      "file": "ci",
+      "span": {
+        "line": 6,
+        "column": 9,
+        "end_line": 6,
+        "end_column": 29
+      },
+      "path": [
+        "jobs",
+        "legacy",
+        "steps",
+        0,
+        "uses"
+      ]
+    },
+    {
+      "job_id": "0192f3a4-5b6c-7d8e-9f01-00000000000a",
+      "severity": "error",
+      "code": "action_unresolved",
+      "message": "the action `other/private@v1` cannot be resolved: the installation of the GitHub App of organisation `globalart` sees no repository `other/private` with a ref `v1`",
+      "file": "ci",
+      "span": {
+        "line": 10,
+        "column": 9,
+        "end_line": 10,
+        "end_column": 31
+      },
+      "path": [
+        "jobs",
+        "private",
+        "steps",
+        0,
+        "uses"
+      ]
+    }
+  ],
+  "created_at": "2026-10-24T18:34:50.078Z",
+  "started_at": "2026-10-24T18:34:51Z",
+  "completed_at": null
+}

@@ -272,6 +272,7 @@ pub fn documents(steps: Vec<Step>) -> Documents {
             timeout_minutes: 360,
             continue_on_error: false,
         },
+        actions: Vec::new(),
     }
 }
 

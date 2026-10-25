@@ -223,6 +223,14 @@ client_id = "bosun"
 client_secret_file = "/etc/bosun/oidc-secret"
 groups_claim = "groups"
 
+[tools]
+node_upstream = "https://nodejs.org/dist"
+node_musl_upstream = "https://unofficial-builds.nodejs.org/download/release"
+node12 = "24.22.1"
+node16 = "24.22.1"
+node20 = "24.22.1"
+node24 = "24.22.1"
+
 [agents]
 binary_dir = "/usr/lib/bosun/agent"
 heartbeat_interval = "30s"
@@ -311,6 +319,21 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   both files and builds the App's client before it connects to the database, so an unreadable
   file, a key the client refuses and an empty secret stop it with an error line that names the
   file.
+- `[tools]` configures the actions and tools the server hands to agents
+  ([05-execution.md](05-execution.md#actions-and-tools)). `tools.node12`, `tools.node16`,
+  `tools.node20` and `tools.node24` are the runtime map: the exact version of Node, three numbers
+  such as `24.22.1`, that runs an action whose `using` names that runtime. Each defaults to
+  `24.22.1`, so every Node action runs on Node 24 as on current hosted runners, and a run notes an
+  action that runs on another major version than it declares. `tools.node_upstream`, by default
+  `https://nodejs.org/dist`, is where the server fetches the glibc builds of those versions, and
+  `tools.node_musl_upstream`, by default `https://unofficial-builds.nodejs.org/download/release`,
+  the musl builds, each with its `SHASUMS256.txt`; either is an http or https address with a host,
+  or a file address of a directory with the same layout, such as a mirror on a host without access
+  to the internet, without a user, a password, a query or a fragment, so that no credential
+  reaches the messages that name an upstream address. The server fetches an archive the first
+  time an agent asks for it, with the proxy of its environment (`HTTPS_PROXY`), and keeps it in the
+  object store. Actions come from the forge through the GitHub App, so a server without one runs no
+  job that uses an action.
 - `agents.heartbeat_interval` defaults to 30 seconds and `agents.offline_after` to 60 seconds,
   which must be longer than the interval; `limits.agent_grace` defaults to 10 minutes
   ([05-execution.md](05-execution.md)). `agents.assignment_lease`, the time an agent has to accept

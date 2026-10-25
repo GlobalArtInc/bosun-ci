@@ -10,6 +10,7 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult, TransactionTrait};
 use serde_json::Value;
 
+use crate::actions::Pin;
 use crate::periodic::{self, Task};
 use crate::row::statement;
 use crate::runs::{self, Evaluated, Locked, RUN_STATE};
@@ -45,6 +46,8 @@ pub struct ClaimedJob {
     pub job: JobTemplate,
     pub evaluated: Evaluated,
     pub continue_on_error: bool,
+    pub installation: Option<u64>,
+    pub pins: Option<Vec<Pin>>,
 }
 
 const CANDIDATES: &str = "FROM job j JOIN attempt a ON a.id = j.attempt_id \
@@ -149,9 +152,10 @@ async fn assign(
     let found = transaction
         .query_one(statement(
             "SELECT r.ir, o.slug AS organisation, p.slug AS project, j.evaluated, \
-             j.continue_on_error FROM run r JOIN project p ON p.id = r.project_id \
+             j.continue_on_error, j.actions, fi.id AS installation FROM run r \
+             JOIN project p ON p.id = r.project_id \
              JOIN organisation o ON o.id = p.organisation_id JOIN job j ON j.id = $2 \
-             WHERE r.id = $1",
+             LEFT JOIN forge_installation fi ON fi.organisation_id = o.id WHERE r.id = $1",
             [Uuid::from(run_id).into(), Uuid::from(job_id).into()],
         ))
         .await?
@@ -184,6 +188,14 @@ async fn assign(
         job,
         evaluated: row::json("job", evaluated)?,
         continue_on_error: found.try_get("", "continue_on_error")?,
+        installation: found
+            .try_get::<Option<i64>>("", "installation")?
+            .map(|installation| row::unsigned("forge_installation", installation))
+            .transpose()?,
+        pins: found
+            .try_get::<Option<Value>>("", "actions")?
+            .map(|pins| row::json("job", pins))
+            .transpose()?,
     })
 }
 

@@ -154,7 +154,10 @@ Outside `/api/v1`: `/hooks/github` ([06-runtime-services.md](06-runtime-services
 and `/hooks/plugins/{instance}` for incoming webhooks,
 `/twirp/` and `/_runtime/` for the services jobs call ([06-runtime-services.md](06-runtime-services.md)), `/mcp`,
 `/healthz`, `/readyz`, `/metrics`, `/install-agent.sh` and the agent binaries at
-`/_runtime/agent/linux-<arch>` without a token ([12-operations.md](12-operations.md#agents)), and
+`/_runtime/agent/linux-<arch>` without a token ([12-operations.md](12-operations.md#agents)), the
+tarballs of actions at `/_runtime/actions/<owner>/<repo>/<commit>.tar.gz` and Node runtimes at
+`/_runtime/tools/node/<version>/<platform>.tar.xz` with an agent's credential
+([05-execution.md](05-execution.md#actions-and-tools)), and
 the gRPC services `bosun.agent.v1.Agent` and `bosun.plugin.v1.*` on the same listener. Every other
 path belongs to the web interface ([09-frontend.md](09-frontend.md#serving)).
 
@@ -382,8 +385,8 @@ A step that adds an endpoint adds its row here.
   are `409 invalid_state`, the latter with its diagnostics. So is, until the planner applies it, a
   revision that uses a key the planner would otherwise ignore, so that a run never quietly differs
   from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md) and a step that uses an
-  action until step 33, because the assignment carries no such step before. The message names the
-  key and the step that brings it.
+  action until step 33, because the assignment carries resolved actions from step 32 on but no agent
+  runs them before. The message names the key and the step that brings it.
 - `POST /projects/{project}/events` sends the project an event of the kind `repository_dispatch`,
   as the forge's own endpoint for it does, and needs `run.dispatch`. It takes `event_type`, 1 to
   100 characters, which is the event's `action`, and `client_payload`, an object of at most 10

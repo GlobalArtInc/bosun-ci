@@ -14,9 +14,7 @@ use bosun_types::api::{Capability, TrustLevel};
 use bosun_types::diagnostic::{PathSegment, Severity};
 use bosun_types::event::{Event, JobStatusChanged, RunEvent};
 use bosun_types::id::{AgentId, JobId, PoolId};
-use bosun_types::ir::{
-    self, Action, ActionReference, Evaluable, JobKind, JobTemplate, RunsOn, Template,
-};
+use bosun_types::ir::{self, Evaluable, JobTemplate, RunsOn, Template};
 use bosun_types::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, RunConclusion, RunStatus,
     StatusReason,
@@ -219,37 +217,6 @@ async fn a_claim_takes_the_first_queued_job_by_priority_then_age_that_the_agent_
 }
 
 #[tokio::test]
-async fn a_claimed_job_with_a_step_that_uses_an_action_is_not_offered_to_the_agent() {
-    let world = World::new().await;
-    let db = world.db();
-    let replica = Uuid::now_v7();
-    let mut build = template("build", &[], 2);
-    let JobKind::Steps(steps) = &mut build.kind;
-    steps[1].action = Action::Uses(ActionReference {
-        owner: "actions".to_owned(),
-        repository: "checkout".to_owned(),
-        path: None,
-        r#ref: "v4".to_owned(),
-    });
-    world.dispatch(&workflow(vec![build])).await;
-    let agent = connected(&world, "runner1-1", &LABELS, replica).await;
-    let claimed = claim(db, agent.id, replica, LEASE, &[])
-        .await
-        .expect("a claim");
-    assert_eq!(
-        queue::assignment(db, claimed, &site(), &keys())
-            .await
-            .map(|_| ())
-            .map_err(|error| error.to_string()),
-        Err(
-            "a row of run holds a value bosun-types does not accept: step 1 of job `build` uses \
-             an action, which an agent runs from M1 step 33"
-                .to_owned()
-        )
-    );
-}
-
-#[tokio::test]
 async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment_needs() {
     let world = World::new().await;
     let db = world.db();
@@ -299,7 +266,7 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
             false
         )
     );
-    let (assignment, documents) = assigned(db, claimed.clone()).await;
+    let (assignment, documents) = assigned(&world, claimed.clone()).await;
     assert_eq!(assignment.execution_id, claimed.execution_id.to_string());
     assert_eq!(documents.job, ir.jobs[0]);
     assert_eq!(
@@ -362,16 +329,14 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
     assert_eq!(next.run_id, second);
 }
 
-pub(super) async fn assigned(
-    db: &DatabaseConnection,
-    claimed: ClaimedJob,
-) -> (Assignment, Documents) {
-    let Some(Message::Assignment(assignment)) = queue::assignment(db, claimed, &site(), &keys())
-        .await
-        .expect("an assignment")
-        .expect("an offer")
-        .message
-        .message
+pub(super) async fn assigned(world: &World, claimed: ClaimedJob) -> (Assignment, Documents) {
+    let Some(Message::Assignment(assignment)) =
+        queue::assignment(world.db(), claimed, &site(), &keys(), world.actions())
+            .await
+            .expect("an assignment")
+            .expect("an offer")
+            .message
+            .message
     else {
         panic!("the offer of a claim is not an assignment");
     };
@@ -417,7 +382,7 @@ jobs:
     let claimed = claim(world.db(), agent.id, replica, LEASE, &[])
         .await
         .expect("a claim");
-    let (_, documents) = assigned(world.db(), claimed).await;
+    let (_, documents) = assigned(&world, claimed).await;
     assert_eq!(
         documents.evaluated,
         Evaluated {
@@ -479,7 +444,7 @@ jobs:
     assert_eq!(claimed.run_id, run);
     let execution = claimed.execution_id;
     assert!(
-        queue::assignment(db, claimed, &site(), &keys())
+        queue::assignment(db, claimed, &site(), &keys(), world.actions())
             .await
             .expect("a failed assignment")
             .is_none(),

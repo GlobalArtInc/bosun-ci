@@ -229,6 +229,14 @@ async fn an_assignment_with_a_field_the_agent_does_not_know_is_rejected_naming_t
                 ..assignment(vec![step("echo")])
             },
         ),
+        (
+            "actions",
+            "inputs",
+            Assignment {
+                actions: json!([{ "inputs": {} }]).to_string(),
+                ..assignment(vec![step("echo")])
+            },
+        ),
     ] {
         let reject = rejected(&mut stream, assignment).await;
         let named = format!(

@@ -81,6 +81,12 @@ pub struct RecordedRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedDownload {
+    pub repository: String,
+    pub commit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedStatus {
     pub repository: String,
     pub sha: String,
@@ -109,6 +115,7 @@ struct State {
     tokens: Vec<MintedToken>,
     check_runs: Vec<RecordedCheckRun>,
     statuses: Vec<RecordedStatus>,
+    downloads: Vec<RecordedDownload>,
     buckets: HashMap<u64, Bucket>,
 }
 
@@ -124,6 +131,7 @@ struct Repository {
     owner: String,
     name: String,
     default_branch: String,
+    public: bool,
     refs: BTreeMap<String, String>,
     commits: HashMap<String, Tree>,
     blobs: HashMap<String, Vec<u8>>,
@@ -171,6 +179,7 @@ impl FakeForge {
                 tokens: Vec::new(),
                 check_runs: Vec::new(),
                 statuses: Vec::new(),
+                downloads: Vec::new(),
                 buckets: HashMap::new(),
             }),
         });
@@ -230,6 +239,7 @@ impl FakeForge {
                 owner: owner.to_owned(),
                 name: name.to_owned(),
                 default_branch: DEFAULT_BRANCH.to_owned(),
+                public: false,
                 refs: BTreeMap::new(),
                 commits: HashMap::new(),
                 blobs: HashMap::new(),
@@ -237,6 +247,10 @@ impl FakeForge {
             },
         );
         id
+    }
+
+    pub fn publish(&self, full_name: &str) {
+        self.shared.lock().repository(full_name).public = true;
     }
 
     pub fn rename_repository(&self, full_name: &str, name: &str) {
@@ -365,6 +379,10 @@ impl FakeForge {
 
     pub fn statuses(&self) -> Vec<RecordedStatus> {
         self.shared.lock().statuses.clone()
+    }
+
+    pub fn downloads(&self) -> Vec<RecordedDownload> {
+        self.shared.lock().downloads.clone()
     }
 
     pub fn webhook(&self, event: &str, payload: &serde_json::Value) -> Webhook {

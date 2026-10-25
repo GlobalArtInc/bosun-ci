@@ -1,4 +1,5 @@
 mod access;
+mod actions;
 mod address;
 mod agents;
 mod aliases;
@@ -8,6 +9,7 @@ mod check;
 mod clock;
 mod commands;
 mod config;
+mod digest;
 mod dispatch;
 mod envelope;
 mod error;
@@ -38,6 +40,7 @@ mod request;
 mod retry;
 mod roles;
 mod runs;
+mod runtime;
 mod scope;
 mod secrets;
 mod sessions;
@@ -52,6 +55,7 @@ mod teams;
 mod tests;
 mod token;
 mod tokens;
+mod tools;
 mod trace;
 mod users;
 mod variables;
@@ -93,6 +97,7 @@ struct AppState {
     forge: Option<Arc<forge::Forge>>,
     parses: Arc<forge_events::Parses>,
     keys: Arc<keys::Keyring>,
+    tools: Arc<tools::Tools>,
 }
 
 pub struct Rewrapped {
@@ -140,12 +145,24 @@ pub async fn serve(
     let notifications = bosun_db::notify::Listener::connect(&config.database.url, replica.id())
         .await
         .map_err(Error::Notifications)?;
+    let tools = Arc::new(tools::Tools::new(
+        db.clone(),
+        Arc::clone(&store),
+        config.tools.clone(),
+    )?);
+    let actions = Arc::new(actions::Actions::new(
+        db.clone(),
+        Arc::clone(&store),
+        forge.clone(),
+        config.tools.runtimes.clone(),
+    ));
     let dispatcher = queue::Dispatcher::new(
         db.clone(),
         Arc::clone(&replica),
         config.queue,
         config.site.clone(),
         Arc::clone(&keys),
+        actions,
     );
     let followers = Arc::new(logs::Followers::default());
     let deliveries = Arc::new(Notify::new());
@@ -214,6 +231,7 @@ pub async fn serve(
         forge,
         parses,
         keys,
+        tools,
     };
     axum::serve(
         listener,
@@ -300,6 +318,7 @@ fn app(
         .route("/readyz", get(health::ready))
         .merge(api().into_router(&state))
         .merge(install::routes())
+        .merge(runtime::routes())
         .merge(hooks::routes())
         .fallback(move |method: Method, uri: Uri| interface::answer(interface, method, uri))
         .method_not_allowed_fallback(envelope::no_route)

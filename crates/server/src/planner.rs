@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bosun_db::Error;
 use bosun_db::control::{self, Kind};
+use bosun_db::queue::ClaimedJob;
 use bosun_db::runs::{Evaluated, JobState, Locked, NewRun, RunFacts, Strategy};
 use bosun_expr::{Context, Scope, Status, Value};
 use bosun_proto::assignment;
@@ -21,6 +22,7 @@ use bosun_workflow::github::{self, Account, Facts, WorkflowFile};
 use sea_orm::DatabaseTransaction;
 use serde_json::{Map, json};
 
+use crate::actions;
 use crate::keys::Keyring;
 use crate::secrets;
 use crate::site::{ForgeSite, Site};
@@ -361,15 +363,22 @@ pub(crate) struct Assigned {
     pub(crate) working_directory: Option<String>,
 }
 
+pub(crate) enum Outcome {
+    Assigned(Box<Assigned>),
+    Failed(StatusReason),
+}
+
 pub(crate) async fn assign(
     run: &mut Locked<'_>,
     site: &Site,
     keys: &Keyring,
-    execution: ExecutionId,
-    job_id: JobId,
-    workflow_env: &BTreeMap<String, Template>,
-    stored: &Evaluated,
-) -> Result<Option<Assigned>, Error> {
+    claimed: &ClaimedJob,
+    prepared: &actions::Prepared,
+) -> Result<Outcome, Error> {
+    let execution = claimed.execution_id;
+    let job_id = claimed.job_id;
+    let workflow_env = &claimed.env;
+    let stored = &claimed.evaluated;
     let world = World::load(run, site).await?;
     let jobs = run.jobs().await?;
     let job = jobs
@@ -379,6 +388,13 @@ pub(crate) async fn assign(
             table: "run",
             message: format!("the current attempt of the run has no job `{job_id}`"),
         })?;
+    if let actions::Prepared::Failed(faults) = prepared {
+        for fault in faults {
+            run.notice(Some(job.id), &fault.diagnostic(&world.facts.workflow))
+                .await?;
+        }
+        return fail_assigned(run, site, world, execution, StatusReason::ActionUnavailable).await;
+    }
     let template = world.template(&job.key)?;
     let read = secrets::read(
         run.transaction(),
@@ -471,7 +487,19 @@ pub(crate) async fn assign(
         }
     };
     env.extend(job_values.env);
-    Ok(Some(Assigned {
+    if let actions::Prepared::Ready {
+        pins: Some(pins),
+        notices,
+        ..
+    } = prepared
+    {
+        bosun_db::actions::pin(run.transaction(), job.id, pins).await?;
+        for notice in notices {
+            run.notice(Some(job.id), &notice.diagnostic(&world.facts.workflow))
+                .await?;
+        }
+    }
+    Ok(Outcome::Assigned(Box::new(Assigned {
         contexts: assignment::Contexts {
             github,
             needs,
@@ -485,7 +513,20 @@ pub(crate) async fn assign(
         env,
         shell: job_values.shell,
         working_directory: job_values.working_directory,
-    }))
+    })))
+}
+
+async fn fail_assigned(
+    run: &mut Locked<'_>,
+    site: &Site,
+    world: World,
+    execution: ExecutionId,
+    reason: StatusReason,
+) -> Result<Outcome, Error> {
+    run.finish_execution(execution, Conclusion::Failure, Some(reason), &Actor::System)
+        .await?;
+    planned(run, site, Some(world)).await?;
+    Ok(Outcome::Failed(reason))
 }
 
 async fn refuse(
@@ -495,17 +536,9 @@ async fn refuse(
     job: JobId,
     execution: ExecutionId,
     fault: Fault,
-) -> Result<Option<Assigned>, Error> {
+) -> Result<Outcome, Error> {
     run.notice(Some(job), &world.diagnostic(fault)).await?;
-    run.finish_execution(
-        execution,
-        Conclusion::Failure,
-        Some(StatusReason::EvaluationFailed),
-        &Actor::System,
-    )
-    .await?;
-    planned(run, site, Some(world)).await?;
-    Ok(None)
+    fail_assigned(run, site, world, execution, StatusReason::EvaluationFailed).await
 }
 
 struct World {

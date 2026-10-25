@@ -2794,7 +2794,8 @@
           "rejected_by_agent",
           "no_agent",
           "agent_lost",
-          "agent_removed"
+          "agent_removed",
+          "action_unavailable"
         ],
         "type": "string"
       },

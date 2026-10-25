@@ -242,6 +242,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Response("200"),
     ),
     (
+        "run-actions.json",
+        "get",
+        "/api/v1/runs/{run}",
+        Part::Response("200"),
+    ),
+    (
         "run-startup-failure.json",
         "get",
         "/api/v1/runs/{run}",

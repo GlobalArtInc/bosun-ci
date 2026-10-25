@@ -20,7 +20,8 @@ use uuid::Uuid;
 use super::git::{self, Node};
 use super::{
     APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedCheckRun,
-    RecordedRequest, RecordedStatus, Repository, Shared, State as Model, events, jwt,
+    RecordedDownload, RecordedRequest, RecordedStatus, Repository, Shared, State as Model, events,
+    jwt,
 };
 
 type Fake = State<Arc<Shared>>;
@@ -599,7 +600,7 @@ async fn installation_repositories(
             })
         },
     );
-    conditional(&mut model, &headers, installation, answer)
+    conditional(&mut model, &headers, Some(installation), answer)
 }
 
 pub(super) async fn observe(State(shared): Fake, request: Request, next: Next) -> Response {
@@ -813,20 +814,21 @@ async fn codeload(
     State(shared): Fake,
     Path((owner, repo, sha)): Path<(String, String, String)>,
 ) -> Response {
-    let model = shared.lock();
-    let Some(repository) = model.repositories.get(&format!("{owner}/{repo}")) else {
+    let mut model = shared.lock();
+    let full_name = format!("{owner}/{repo}");
+    let Some(repository) = model.repositories.get(&full_name) else {
         return Answer::not_found().into_response();
     };
     let Some(tree) = repository.commits.get(&sha) else {
         return Answer::not_found().into_response();
     };
     let prefix = format!("{}-{}-{}", repository.owner, repository.name, &sha[..7]);
-    Answer::raw(
-        StatusCode::OK,
-        "application/x-gzip",
-        git::tarball(&prefix, tree, &repository.blobs),
-    )
-    .into_response()
+    let tarball = git::tarball(&prefix, tree, &repository.blobs);
+    model.downloads.push(RecordedDownload {
+        repository: full_name,
+        commit: sha,
+    });
+    Answer::raw(StatusCode::OK, "application/x-gzip", tarball).into_response()
 }
 
 fn read(
@@ -839,7 +841,7 @@ fn read(
 ) -> Response {
     let full_name = format!("{owner}/{repo}");
     let mut model = shared.lock();
-    let installation = match model.authorize(headers, &full_name, permission, "read") {
+    let installation = match model.reader(headers, &full_name, permission) {
         Ok(installation) => installation,
         Err(refused) => return refused.into_response(),
     };
@@ -853,7 +855,7 @@ fn read(
 fn conditional(
     model: &mut Model,
     headers: &HeaderMap,
-    installation: u64,
+    installation: Option<u64>,
     mut answer: Answer,
 ) -> Response {
     if answer.status == StatusCode::OK {
@@ -890,7 +892,7 @@ fn write(
         Ok(installation) => installation,
         Err(refused) => return refused.into_response(),
     };
-    let rate = match model.spend(installation) {
+    let rate = match model.spend(Some(installation)) {
         Ok(rate) => rate,
         Err(limited) => return limited.into_response(),
     };
@@ -936,7 +938,30 @@ impl Model {
         Ok(repository.installation)
     }
 
-    fn spend(&mut self, installation: u64) -> Result<Vec<(HeaderName, String)>, Answer> {
+    fn reader(
+        &self,
+        headers: &HeaderMap,
+        full_name: &str,
+        permission: &str,
+    ) -> Result<Option<u64>, Answer> {
+        let public = self
+            .repositories
+            .get(full_name)
+            .is_some_and(|repository| repository.public);
+        match (public, bearer(headers)) {
+            (true, None) => Ok(None),
+            (false, None) => Err(Answer::not_found()),
+            (true, Some(_)) => self.live(headers).map(|minted| Some(minted.installation)),
+            (false, Some(_)) => self
+                .authorize(headers, full_name, permission, "read")
+                .map(Some),
+        }
+    }
+
+    fn spend(&mut self, installation: Option<u64>) -> Result<Vec<(HeaderName, String)>, Answer> {
+        let Some(installation) = installation else {
+            return Ok(Vec::new());
+        };
         let Some(bucket) = self.buckets.get_mut(&installation) else {
             return Ok(Vec::new());
         };

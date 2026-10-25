@@ -8,19 +8,20 @@ use bosun_db::control::{self, Kind};
 use bosun_db::queue::{Claim, Claimed, ClaimedJob};
 use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::agent::v1::{Assignment, ServerMessage};
-use bosun_proto::assignment::{Documents, Evaluated};
+use bosun_proto::assignment::{self as document, Documents, Evaluated};
 use bosun_types::id::{AgentId, ExecutionId, JobId};
-use bosun_types::ir::{Action, JobKind};
 use bosun_types::status::ExecutionStatus;
-use sea_orm::{DatabaseConnection, TransactionTrait};
+use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{info, warn};
 
+use crate::actions::Actions;
 use crate::agents::{Offer, Replica, Turn, Turned};
 use crate::config::Queue;
 use crate::keys::Keyring;
-use crate::planner::{self, Assigned};
+use crate::planner::{self, Assigned, Outcome};
 use crate::site::Site;
+use crate::tools;
 
 pub(crate) use http::routes;
 
@@ -30,12 +31,33 @@ const FIRST_RETRY: Duration = Duration::from_millis(10);
 
 const LAST_RETRY: Duration = Duration::from_secs(1);
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum Unoffered {
+    #[error(transparent)]
+    Database(#[from] Error),
+    #[error("the actions of the job could not be prepared: {0}")]
+    Actions(#[from] tools::Failure),
+}
+
+impl From<DbErr> for Unoffered {
+    fn from(error: DbErr) -> Unoffered {
+        Unoffered::Database(error.into())
+    }
+}
+
+impl From<serde_json::Error> for Unoffered {
+    fn from(error: serde_json::Error) -> Unoffered {
+        Unoffered::Database(error.into())
+    }
+}
+
 pub(crate) struct Dispatcher {
     db: DatabaseConnection,
     replica: Arc<Replica>,
     settings: Queue,
     site: Site,
     keys: Arc<Keyring>,
+    actions: Arc<Actions>,
 }
 
 impl Dispatcher {
@@ -45,6 +67,7 @@ impl Dispatcher {
         settings: Queue,
         site: Site,
         keys: Arc<Keyring>,
+        actions: Arc<Actions>,
     ) -> Arc<Dispatcher> {
         Arc::new(Dispatcher {
             db,
@@ -52,6 +75,7 @@ impl Dispatcher {
             settings,
             site,
             keys,
+            actions,
         })
     }
 
@@ -98,7 +122,9 @@ impl Dispatcher {
                         "assigned a job to an agent"
                     );
                     let job_id = claimed.job_id;
-                    match assignment(&self.db, *claimed, &self.site, &self.keys).await {
+                    match assignment(&self.db, *claimed, &self.site, &self.keys, &self.actions)
+                        .await
+                    {
                         Ok(Some(offer)) => Turned::Offered(Box::new(offer)),
                         Ok(None) => {
                             contended = 0;
@@ -256,8 +282,10 @@ pub(crate) async fn assignment(
     claimed: ClaimedJob,
     site: &Site,
     keys: &Keyring,
-) -> Result<Option<Offer>, Error> {
+    actions: &Actions,
+) -> Result<Option<Offer>, Unoffered> {
     let execution = claimed.execution_id;
+    let prepared = actions.prepare(&claimed).await?;
     let transaction = db.begin().await?;
     let Some((mut run, state)) = bosun_db::runs::lock_execution(&transaction, execution).await?
     else {
@@ -266,46 +294,28 @@ pub(crate) async fn assignment(
     if state.status != ExecutionStatus::Assigned {
         return Ok(None);
     }
-    let assigned = planner::assign(
-        &mut run,
-        site,
-        keys,
-        execution,
-        claimed.job_id,
-        &claimed.env,
-        &claimed.evaluated,
-    )
-    .await?;
+    let outcome = planner::assign(&mut run, site, keys, &claimed, &prepared).await?;
     transaction.commit().await?;
-    match assigned {
-        Some(assigned) => offer(claimed, assigned).map(Some),
-        None => {
+    match outcome {
+        Outcome::Assigned(assigned) => offer(claimed, *assigned, prepared.into_actions()).map(Some),
+        Outcome::Failed(reason) => {
             warn!(
                 job_id = %claimed.job_id,
                 %execution,
-                "a job failed at its assignment because an expression the server evaluates then \
-                 failed or a secret it reads could not be decrypted; the notices of its run say \
-                 which"
+                reason = ?reason,
+                "a job failed at its assignment, before it reached an agent; the notices of its \
+                 run say why"
             );
             Ok(None)
         }
     }
 }
 
-fn offer(claimed: ClaimedJob, assigned: Assigned) -> Result<Offer, Error> {
-    let JobKind::Steps(steps) = &claimed.job.kind;
-    if let Some(index) = steps
-        .iter()
-        .position(|step| matches!(step.action, Action::Uses(_)))
-    {
-        return Err(Error::Row {
-            table: "run",
-            message: format!(
-                "step {index} of job `{}` uses an action, which an agent runs from M1 step 33",
-                claimed.key
-            ),
-        });
-    }
+fn offer(
+    claimed: ClaimedJob,
+    assigned: Assigned,
+    actions: Vec<document::Action>,
+) -> Result<Offer, Unoffered> {
     let documents = Documents {
         job: claimed.job,
         contexts: assigned.contexts,
@@ -316,6 +326,7 @@ fn offer(claimed: ClaimedJob, assigned: Assigned) -> Result<Offer, Error> {
             timeout_minutes: claimed.evaluated.timeout_minutes,
             continue_on_error: claimed.continue_on_error,
         },
+        actions,
     };
     let mut assignment = Assignment {
         run_id: claimed.run_id.to_string(),

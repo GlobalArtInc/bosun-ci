@@ -309,7 +309,8 @@ An assignment carries everything an agent needs and nothing more:
 - contexts: `github`, `needs`, `strategy`, `matrix`, `inputs`, `vars`, `secrets`, `bosun`;
 - the runtime: the job token, the addresses of the runtime services and the forge token
   ([06-runtime-services.md](06-runtime-services.md));
-- every `uses` resolved to a commit and to a download address on the server;
+- every `uses` resolved to a commit and to a download address on the server, with the action's
+  metadata and the Node that runs it ([Actions and tools](#actions-and-tools));
 - breakpoints set before the job started, and the cache volumes it mounts.
 
 `secrets` holds only the secrets the job's expressions reference, plus `GITHUB_TOKEN`. When a job
@@ -324,7 +325,7 @@ organisation and the project, as the server's own expressions see them
 with the forge token (step 34 of [../plan.md](../plan.md)), and keeping secrets from untrusted runs
 with step 29.
 
-**Encoding.** The identity travels in fields of `Assignment`. Everything else travels in three JSON
+**Encoding.** The identity travels in fields of `Assignment`. Everything else travels in four JSON
 documents beside it, which the agent reads with every field it does not know refused:
 
 - `job`, the job's template from the IR exactly as the run's snapshot stores it
@@ -344,6 +345,14 @@ documents beside it, which the agent reads with every field it does not know ref
   which the planner evaluated when the job became ready, merged over it, so a name in both takes the
   job's value. When the job's `env` or `defaults.run` read secrets, the assignment evaluates them,
   rather than the planner ([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)).
+- `actions`, a list with one entry per distinct `uses` of the job's steps, in the order of the steps:
+  `uses`, the step's reference as the job template holds it, an object with `owner`, `repository`,
+  `path` (`null` for an action at the root of its repository) and `ref`, not the text the step
+  writes; `commit`, the commit it resolved to; `download`, the path of its tarball on the server
+  (`/_runtime/actions/<owner>/<repo>/<commit>.tar.gz`), which the agent asks of the server address
+  it connects to; `metadata`, the action's metadata as `bosun_workflow::action` lowers it; and
+  `node`, the version of Node that runs it, such as `24.22.1`
+  ([Actions and tools](#actions-and-tools)). A job without a `uses` has an empty list.
 
 JSON rather than protobuf messages carries these for two reasons. The IR is already serialised as
 JSON for the run's snapshot, so the server hands over the template it stores, and the agent reads it
@@ -838,19 +847,114 @@ different pools.
 ## Actions and tools
 
 Agents do not download actions from the internet. At assignment the server resolves every
-`owner/repo@ref` to a commit through the forge, using the installation's forge credentials so that
-private actions of the organisation work, stores the tarball in the object store keyed by the
-commit, and gives the agent an address on the server. A tag that moves between assignment and
-execution has no effect on a running job.
+`owner/repo@ref` and `owner/repo/path@ref` to a commit through the forge, stores the tarball in the
+object store keyed by the commit, reads the action's metadata from it, and gives the agent an
+address on the server. A tag that moves between assignment and execution has no effect on a running
+job.
 
 The organisation's action policy decides which actions may be used: all, only those owned by the
 organisation, or those matching listed patterns. A job that uses a forbidden action fails before it
-reaches an agent, naming the action.
+reaches an agent, naming the action. The policy arrives in M2.
 
 Node runtimes reach agents the same way: the agent fetches
 `/_runtime/tools/node/<version>/<os>-<arch>[-musl].tar.xz` from the server, which caches it from
 the configured upstream. Tools that actions download for themselves, such as language toolchains,
 use the job's network and proxy settings, not Bosun.
+
+Step 32 of M1 ([../plan.md](../plan.md)) settled how.
+
+**Resolution.** When a replica has claimed a job for an agent, and before it takes the run's lock,
+it prepares the job's actions: each distinct `uses` of its steps once, in their order. The owner
+and the repository are compared ignoring case, as the forge compares them, and are kept in lower
+case wherever Bosun stores them; the ref is compared exactly.
+
+- An organisation that an installation of the GitHub App maps to
+  ([06-runtime-services.md](06-runtime-services.md#installations-and-repositories)) resolves
+  through that installation's token, so the private actions of the organisation resolve, and so
+  does every public repository, which every installation token can read. A private repository of
+  another account does not: the forge answers as if it did not exist.
+- An organisation without an installation, such as one that has only repository-less projects,
+  resolves without credentials, within the forge's rate limit for requests without a token. Only
+  public repositories resolve that way; a private one fails with a message that says the
+  organisation has no installation. The two other rules were refused: resolving through another
+  organisation's installation would let one organisation read the private actions of another and
+  spend another organisation's rate limit, and refusing every action would keep repository-less
+  projects from `actions/setup-node` and its kind. The forge answers a conditional request that
+  finds nothing new with `304`, which does not count against the limit, so a steady use of a few
+  public actions stays well within it.
+- A server without a GitHub App resolves no action, and every job that uses one fails.
+
+The ref resolves to a commit through the forge's `commits/<ref>`
+([06-runtime-services.md](06-runtime-services.md#the-github-app-client)). The first assignment of
+a job pins its commits: the server writes them to the job's `actions`
+([07-storage.md](07-storage.md#tables)) as a list of owner, repository, ref and commit, in the
+transaction that sends the assignment. A later assignment of the same job, after a `Reject` or an
+expired lease, takes the pinned commits and resolves nothing, so moving the tag after a job was
+first assigned never changes the commit that job receives; another job resolves the tag again and
+gets the commit it names then.
+
+**The store.** The tarball of a commit is fetched once into `actions/<owner>/<repo>/<commit>.tar.gz`
+and recorded in `action_ref`, with its size, its SHA-256 and every `action.yml` and `action.yaml` it
+holds below its top directory, keyed by its path in the repository: the text of each of at most
+1 MiB, and the size of a larger one, which the server does not read. A replica that finds no row
+takes a transaction-level advisory lock on the key and checks again, so of two assignments of the
+same new action at once, by two replicas or by one replica for two of its agents, one downloads it
+and the other waits for its row; a waiting replica asks for the lock again every 100 milliseconds,
+holding no snapshot in between, for at most ten minutes. The tarball streams from the forge into the
+store while its digest is taken; it is then read back once to collect the metadata files, and only
+after both is the row written, in the lock's transaction. A tarball that is not gzip-compressed tar
+is deleted from the store again.
+
+**Metadata and runtimes.** The metadata of each `uses` is the `action.yml` of the action's directory
+in the row, or else its `action.yaml`, lowered with `bosun_workflow::action`
+([02-workflows.md](02-workflows.md#lowering-action-metadata)) at every assignment. Its `using` names
+the Node that runs it through the installation's runtime map, the settings `tools.node12`,
+`tools.node16`, `tools.node20` and `tools.node24` ([12-operations.md](12-operations.md#configuration)),
+each an exact version of Node, by default all the same version of Node 24, as current hosted
+runners run them. An action whose `using` names another major version than the one it is assigned
+adds the warning `node_substituted` to the run's notices at its step, once, when the job is first
+assigned ([04-runs.md](04-runs.md#run-notices)).
+
+**Failures.** The job fails before it reaches an agent when one of its actions:
+
+- cannot be resolved, or its tarball cannot be downloaded or read: `action_unresolved`. A forge that
+  refuses, is rate limited or cannot be reached fails the job too, with the forge's error in the
+  message, rather than leaving it queued;
+- has no metadata in its directory, metadata larger than 1 MiB, which the message names with its
+  size, or metadata with errors: `action_invalid`, quoting the first error with its file, line and
+  column;
+- declares `using: composite` or `using: docker`: `not_implemented`, naming M2.
+
+Each such action adds an error notice at its step whose message names it, and then, in one
+transaction under the run's lock, the execution and the job complete as `failure` with the reason
+`action_unavailable`, the planner takes the run on, the agent is sent nothing, and the replica claims
+the next job for it at once, as after an error in the workflow's `env`. A failure of the object store
+or of the database while the actions are prepared fails nothing: the replica logs it and does not
+offer the job, whose lease returns it to the queue for another attempt. The lease counts while the
+actions are prepared, so a download that outlasts it returns the job to the queue as well, and the
+tarball it stored serves the next claim.
+
+**Downloads.** An agent downloads with its credential, `Authorization: Bearer bat_…`, which the
+server checks as it checks the stream's. A request without one, with a malformed one or with an
+unknown one is `401 unauthenticated`.
+
+- `GET /_runtime/actions/<owner>/<repo>/<commit>.tar.gz` serves the stored tarball only to an agent
+  that holds an execution, not yet completed, whose job pinned that commit of that repository;
+  another agent, and the same agent once its execution completed, gets `403 forbidden`. An action
+  is code that runs with the job's secrets, and a private action is the organisation's code, so an
+  agent reads only what a job it runs uses.
+- `GET /_runtime/tools/node/<version>/<platform>.tar.xz` serves Node to any agent, since Node is
+  public; `<platform>` is `linux-x64`, `linux-arm64`, `linux-x64-musl` or `linux-arm64-musl`, and the
+  version must be one the runtime map names, so an agent cannot make the server fetch arbitrary
+  files. Anything else is `404 not_found`. The archive is fetched once, under the same lock as an
+  action's tarball, from `tools.node_upstream` for glibc and `tools.node_musl_upstream` for musl,
+  as `<upstream>/v<version>/node-v<version>-<platform>.tar.xz`, and checked against the line for it
+  in `<upstream>/v<version>/SHASUMS256.txt`, the checksum list Node publishes. It streams into
+  `tools/node/<version>/<platform>.tar.xz` while its digest is taken, and a digest that differs from
+  the list fails the store's put, so nothing of it is kept; the request is then `500 internal` with
+  a message that names both digests. A stored archive, recorded in `tool_object`, is served from the
+  store to every later request. An upstream is an http or https address, or a file address of a
+  directory laid out the same way, for a host without access to the internet.
 
 ## Local execution
 

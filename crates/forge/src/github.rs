@@ -146,7 +146,11 @@ impl GitHubApp {
     }
 
     fn repository_url(&self, repository: &Repository, segments: &[&str], path: &str) -> Url {
-        let mut all = vec!["repos", repository.owner.as_str(), repository.name.as_str()];
+        self.repository_path(&repository.owner, &repository.name, segments, path)
+    }
+
+    fn repository_path(&self, owner: &str, name: &str, segments: &[&str], path: &str) -> Url {
+        let mut all = vec!["repos", owner, name];
         all.extend_from_slice(segments);
         self.url(&all, path)
     }
@@ -345,33 +349,13 @@ impl Forge for GitHubApp {
         repository: &Repository,
         reference: &str,
     ) -> Result<Option<String>, Error> {
-        if reference.split('/').all(str::is_empty) {
-            return Ok(None);
-        }
-        let url = self.repository_url(repository, &["commits"], reference);
-        let reply = self
-            .request(
-                Credential::Installation(repository.installation),
-                Method::GET,
-                url,
-                SHA,
-                None,
-            )
-            .await?;
-        if matches!(
-            reply.status,
-            StatusCode::NOT_FOUND | StatusCode::UNPROCESSABLE_ENTITY
-        ) {
-            return Ok(None);
-        }
-        reply.done()?;
-        let sha = String::from_utf8_lossy(&reply.body).trim().to_owned();
-        if sha.is_empty() || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(Error::Body(format!(
-                "`{reference}` resolved to `{sha}`, which is not a commit"
-            )));
-        }
-        Ok(Some(sha))
+        self.resolve_as(
+            Credential::Installation(repository.installation),
+            &repository.owner,
+            &repository.name,
+            reference,
+        )
+        .await
     }
 
     async fn file(
@@ -599,13 +583,75 @@ impl Forge for GitHubApp {
     }
 
     async fn tarball(&self, repository: &Repository, commit: &str) -> Result<Download, Error> {
-        let url = self.repository_url(repository, &["tarball"], commit);
         let secret = self.installation_token(repository.installation).await?;
-        let response = self
-            .http
-            .get(url)
-            .header(ACCEPT, JSON)
-            .bearer_auth(secret)
+        self.download(Some(secret), &repository.owner, &repository.name, commit)
+            .await
+    }
+
+    async fn resolve_public(
+        &self,
+        owner: &str,
+        name: &str,
+        reference: &str,
+    ) -> Result<Option<String>, Error> {
+        self.resolve_as(Credential::Anonymous, owner, name, reference)
+            .await
+    }
+
+    async fn public_tarball(
+        &self,
+        owner: &str,
+        name: &str,
+        commit: &str,
+    ) -> Result<Download, Error> {
+        self.download(None, owner, name, commit).await
+    }
+}
+
+impl GitHubApp {
+    async fn resolve_as(
+        &self,
+        credential: Credential<'_>,
+        owner: &str,
+        name: &str,
+        reference: &str,
+    ) -> Result<Option<String>, Error> {
+        if reference.split('/').all(str::is_empty) {
+            return Ok(None);
+        }
+        let url = self.repository_path(owner, name, &["commits"], reference);
+        let reply = self
+            .request(credential, Method::GET, url, SHA, None)
+            .await?;
+        if matches!(
+            reply.status,
+            StatusCode::NOT_FOUND | StatusCode::UNPROCESSABLE_ENTITY
+        ) {
+            return Ok(None);
+        }
+        reply.done()?;
+        let sha = String::from_utf8_lossy(&reply.body).trim().to_owned();
+        if sha.is_empty() || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(Error::Body(format!(
+                "`{reference}` resolved to `{sha}`, which is not a commit"
+            )));
+        }
+        Ok(Some(sha))
+    }
+
+    async fn download(
+        &self,
+        secret: Option<String>,
+        owner: &str,
+        name: &str,
+        commit: &str,
+    ) -> Result<Download, Error> {
+        let url = self.repository_path(owner, name, &["tarball"], commit);
+        let mut request = self.http.get(url).header(ACCEPT, JSON);
+        if let Some(secret) = secret {
+            request = request.bearer_auth(secret);
+        }
+        let response = request
             .send()
             .await
             .map_err(|error| Error::Transport(error.without_url()))?;
@@ -625,9 +671,7 @@ impl Forge for GitHubApp {
             .map(|chunk| chunk.map_err(|error| io::Error::other(error.without_url())));
         Ok(Download::new(StreamReader::new(body)))
     }
-}
 
-impl GitHubApp {
     async fn contents(
         &self,
         repository: &Repository,

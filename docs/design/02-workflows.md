@@ -381,7 +381,7 @@ job reads ([05-execution.md](05-execution.md)).
 - `using: node12`, `node16`, `node20` and `node24` with `main`, `pre`, `post`, `pre-if` and
   `post-if`. The installation's runtime map decides which Node runs which `using`; by default, as
   on current hosted runners, `node12`, `node16` and `node20` all run on Node 24, and the run page
-  notes the substitution.
+  notes the substitution ([05-execution.md](05-execution.md#actions-and-tools)).
 - `using: composite` with `steps`, where `run` steps require `shell`, and with `outputs` mapped
   from step outputs.
 - `using: docker` with `image` as a Dockerfile path or `docker://`, `args`, `env`, `entrypoint`,

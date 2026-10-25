@@ -383,6 +383,7 @@ that is not self-explanatory:
 | `no_agent` | the job stayed queued longer than `max_queue_time` |
 | `agent_lost` | the agent did not come back within the grace period |
 | `agent_removed` | the agent was deleted while it held the job: a job it ran fails, and one it had not accepted yet returns to the queue ([05-execution.md](05-execution.md#draining-and-deleting-agents)) |
+| `action_unavailable` | an action a step uses could not be resolved, downloaded or read, or is of a kind the server does not run yet; the run's notices name the action ([05-execution.md](05-execution.md#actions-and-tools)) |
 
 ### Run notices
 
@@ -397,8 +398,11 @@ that is not a status. Notices are `run.notice` events, so they keep the order of
 - when a file with errors yields a run that ends with `startup_failure`, from every diagnostic of
   the file, and from a key the planner does not apply yet as `not_implemented`, with their codes
   from [02-workflows.md](02-workflows.md#repository-workflows) and without a job;
-- from later milestones: a Node runtime substituted for an action (step 32 of
-  [../plan.md](../plan.md)), and a scope of the forge token that the App lacks (step 34).
+- when the server prepares the actions of a job at its assignment and one of them cannot be used,
+  as an error at the step that uses it, or when it runs one on another Node than its `using`
+  names, as a warning there ([05-execution.md](05-execution.md#actions-and-tools));
+- from later milestones: a scope of the forge token that the App lacks (step 34 of
+  [../plan.md](../plan.md)).
 
 The codes of runtime notices:
 
@@ -409,6 +413,15 @@ The codes of runtime notices:
 | `invalid_value` | error | the value has the right type but the key cannot use it, such as `timeout-minutes: 1.5`, an empty label, a shell that does not exist or an empty vector of a matrix |
 | `limit_exceeded` | error | a matrix expands to more jobs than the installation's limit ([Matrices](#matrices)) |
 | `secret_unreadable` | error | a secret the job reads does not decrypt when the job is assigned: the configuration lacks the KEK of its data key, or its ciphertext or data key is not the one written for its scope and name ([07-storage.md](07-storage.md#secrets-at-rest)) |
+
+The codes of the notices about actions:
+
+| Code | Severity | Meaning |
+|------|----------|---------|
+| `action_unresolved` | error | the forge does not resolve the `uses` to a commit for the job's organisation, refuses the request or cannot be reached, or the tarball of the commit cannot be downloaded or is not a tarball |
+| `action_invalid` | error | the action has no `action.yml` or `action.yaml` in its directory, or its metadata has errors; the message quotes the first one with its line |
+| `not_implemented` | error | the action declares `using: composite` or `using: docker`, which arrive in M2 |
+| `node_substituted` | warning | the installation's runtime map runs the action on another major version of Node than its `using` names |
 
 The journal is the source for:
 

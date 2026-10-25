@@ -401,6 +401,7 @@ async fn a_stored_chunk_wakes_the_followers_of_its_execution_through_bosun_log()
         },
         Site::default(),
         Arc::new(keys()),
+        Arc::clone(logged.world.actions()),
     );
     let followers = Arc::new(Followers::default());
     let mut following = followers.subscribe(logged.execution);

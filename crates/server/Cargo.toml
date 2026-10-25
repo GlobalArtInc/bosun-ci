@@ -18,12 +18,13 @@ bosun-types.workspace = true
 bosun-workflow.workspace = true
 chrono = { workspace = true, features = ["now"] }
 crc.workspace = true
+flate2.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
 http-body.workspace = true
 ipnet.workspace = true
 prost-types.workspace = true
-reqwest = { workspace = true, features = ["json"] }
+reqwest = { workspace = true, features = ["json", "rustls-tls-webpki-roots", "stream"] }
 ring.workspace = true
 ruzstd.workspace = true
 schemars.workspace = true
@@ -31,11 +32,12 @@ sea-orm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "net", "rt", "sync", "time"] }
 tokio-stream.workspace = true
-tokio-util = { workspace = true, features = ["io"] }
+tokio-util = { workspace = true, features = ["io", "io-util"] }
 toml.workspace = true
 tonic = { workspace = true, features = ["router"] }
 tower = { workspace = true, features = ["util"] }

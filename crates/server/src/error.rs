@@ -113,4 +113,6 @@ pub enum Error {
     Unready { address: SocketAddr, reason: String },
     #[error("the operating system gave no random bytes: {0}")]
     Random(#[source] getrandom::Error),
+    #[error("the downloads of actions and tools cannot start: {0}")]
+    Tools(String),
 }

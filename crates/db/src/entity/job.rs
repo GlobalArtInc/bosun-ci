@@ -30,6 +30,8 @@ pub struct Model {
     pub started_at: Option<DateTimeUtc>,
     pub completed_at: Option<DateTimeUtc>,
     pub capabilities: Vec<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub actions: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

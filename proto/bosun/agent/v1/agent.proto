@@ -111,6 +111,7 @@ message Assignment {
   string job = 11;
   string contexts = 12;
   string evaluated = 13;
+  string actions = 14;
 }
 
 message Accept {

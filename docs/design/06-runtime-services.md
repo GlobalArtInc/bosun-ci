@@ -47,7 +47,9 @@ the forge truncated the list of changed files, lists the files of a pull request
 repositories an installation can see with their default branches, reads the App's own identity
 (its slug and the account of its bot), mints an installation token for given repositories and
 permissions and revokes a token, creates and updates a check run, creates a commit status, and
-downloads a repository's tarball at a commit. Creating a commit and a pull request join
+downloads a repository's tarball at a commit. It also resolves a ref and downloads a tarball
+without credentials, which reaches public repositories only and serves the organisations that have
+no installation ([05-execution.md](05-execution.md#actions-and-tools)). Creating a commit and a pull request join
 it with the editor in M4. A second forge implements the same trait
 ([13-decisions.md](13-decisions.md)).
 
@@ -177,9 +179,10 @@ server or the fake below.
   there, so a comparison with 300 files counts as truncated, one of exactly 300 changes included.
   What a truncated comparison means for path filters is settled with the planning of pushes
   ([02-workflows.md](02-workflows.md)).
-- **Tarballs** are requested with the installation token and streamed from wherever the forge
-  redirects, without the `Authorization` header when that is another origin. Transport errors of a
-  download leave out its address, which may carry a short-lived download token.
+- **Tarballs** are requested with the installation token, or with no token for a public
+  repository, and streamed from wherever the forge redirects, without the `Authorization` header
+  when that is another origin. Transport errors of a download leave out its address, which may
+  carry a short-lived download token.
 - **Reports.** A check run is created with its name, head commit, details address and status, and
   updated with the same fields. Bosun's conclusions map one to one onto the forge's: `success`,
   `failure`, `cancelled`, `skipped` and `timed_out`.
@@ -192,7 +195,10 @@ in place of the forge, since no test reaches the forge or the internet. Its REST
 with a path. It holds, in memory:
 
 - installations with their account and permissions; repositories of an installation's account,
-  each with an id, branches, tags, commits and pull requests between two branches. A commit is the
+  each with an id, branches, tags, commits and pull requests between two branches, and private
+  unless a test publishes it. A public repository is read like the forge's: without a token, or
+  with the live token of any installation, whose rate limit the request then counts against; a
+  request without a token for a private repository is answered `404`, as the forge answers it. A commit is the
   full tree of paths and blob hashes, the hashes being git's own, and a commit to a new branch
   starts from the default branch. A test renames a repository, which keeps its id;
 - the token endpoints. `/app` and the access token endpoint accept only a JWT that verifies against
@@ -213,7 +219,8 @@ with a path. It holds, in memory:
 - check runs and commit statuses, recorded for assertions;
 - comparisons cut at 300 files, pull request files in pages of 30 by default and 100 at most with
   `Link` headers, and tarballs that redirect to a download path and hold the tree under
-  `<owner>-<repo>-<short commit>/`;
+  `<owner>-<repo>-<short commit>/`, each download recorded with its repository and commit for
+  assertions;
 - a sender of webhooks, signed with `X-Hub-Signature-256` under a secret drawn for each fake, with
   `X-GitHub-Event` and a fresh `X-GitHub-Delivery`. Sending the same webhook twice is a
   redelivery. The payloads of `installation`, `installation_repositories` and `repository` events

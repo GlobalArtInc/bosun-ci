@@ -196,6 +196,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/revision.json", round_trip::<Revision>),
         ("api/role-binding.json", round_trip::<RoleBinding>),
         ("api/role.json", round_trip::<Role>),
+        ("api/run-actions.json", round_trip::<Run>),
         ("api/run.json", round_trip::<Run>),
         ("api/run-startup-failure.json", round_trip::<Run>),
         ("api/secret.json", round_trip::<Secret>),

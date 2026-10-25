@@ -1,9 +1,9 @@
 use bosun_db::entity::{
-    agent, api_token, api_token_scope, attempt, control_message, execution, forge_check_run,
-    forge_installation, forge_repository, idempotency_key, job, label_alias, log_chunk, log_object,
-    organisation, outbox, pool_access, project, registration_token, role, role_binding, run,
-    run_event, secret, session, sign_in_failure, step, stream_event, team, team_member, user,
-    variable, webhook_delivery, workflow, workflow_revision,
+    action_ref, agent, api_token, api_token_scope, attempt, control_message, execution,
+    forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
+    log_chunk, log_object, organisation, outbox, pool_access, project, registration_token, role,
+    role_binding, run, run_event, secret, session, sign_in_failure, step, stream_event, team,
+    team_member, tool_object, user, variable, webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -40,6 +40,8 @@ pub const DELIVERY: u8 = 0x18;
 pub const SCOPE: u8 = 0x19;
 pub const SECRET: u8 = 0x1a;
 pub const VARIABLE: u8 = 0x1b;
+pub const ACTION: u8 = 0x1c;
+pub const TOOL: u8 = 0x1d;
 
 pub const OUTBOX: i64 = 41;
 pub const CHECK_RUN: i64 = 7_301_115_026;
@@ -98,6 +100,8 @@ pub struct Rows {
     pub variable: variable::Model,
     pub outbox: outbox::Model,
     pub forge_check_run: forge_check_run::Model,
+    pub action_ref: action_ref::Model,
+    pub tool_object: tool_object::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -269,9 +273,20 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .expect("an attempt");
 
     let mut jobs = Vec::new();
-    for (number, key, needs, status) in [
-        (BUILD, "build", vec![], "in_progress"),
-        (TEST, "test", vec!["build".to_owned()], "pending"),
+    for (number, key, needs, status, actions) in [
+        (
+            BUILD,
+            "build",
+            vec![],
+            "in_progress",
+            Some(json!([{
+                "owner": "actions",
+                "repository": "checkout",
+                "ref": "v4",
+                "commit": format!("{label:0>40}"),
+            }])),
+        ),
+        (TEST, "test", vec!["build".to_owned()], "pending", None),
     ] {
         let job = job::ActiveModel {
             id: ActiveValue::Set(id(number)),
@@ -296,6 +311,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
             queued_at: ActiveValue::Set(Some(at("2026-10-24T18:34:50.078Z"))),
             started_at: ActiveValue::Set(None),
             completed_at: ActiveValue::Set(None),
+            actions: ActiveValue::Set(actions),
         }
         .insert(db)
         .await
@@ -596,6 +612,35 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a check run");
 
+    let action_ref = action_ref::ActiveModel {
+        id: ActiveValue::Set(id(ACTION)),
+        owner: ActiveValue::Set("actions".to_owned()),
+        repository: ActiveValue::Set("checkout".to_owned()),
+        sha: ActiveValue::Set(format!("{label:0>40}")),
+        key: ActiveValue::Set(format!("actions/actions/checkout/{label:0>40}.tar.gz")),
+        size: ActiveValue::Set(184_320),
+        sha256: ActiveValue::Set(vec![0x44; 32]),
+        metadata: ActiveValue::Set(json!({ "action.yml": format!("name: Checkout {label}\n") })),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a stored action");
+
+    let tool_object = tool_object::ActiveModel {
+        id: ActiveValue::Set(id(TOOL)),
+        tool: ActiveValue::Set("node".to_owned()),
+        version: ActiveValue::Set("24.22.1".to_owned()),
+        platform: ActiveValue::Set(format!("linux-x64-{label}")),
+        key: ActiveValue::Set(format!("tools/node/24.22.1/linux-x64-{label}.tar.xz")),
+        size: ActiveValue::Set(31_457_280),
+        sha256: ActiveValue::Set(vec![0x55; 32]),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a stored tool");
+
     Rows {
         organisation,
         project,
@@ -632,6 +677,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         variable,
         outbox,
         forge_check_run,
+        action_ref,
+        tool_object,
     }
 }
 
@@ -710,5 +757,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         variable: one::<_, variable::Entity>(db, id(VARIABLE)).await,
         outbox: one::<_, outbox::Entity>(db, OUTBOX).await,
         forge_check_run: one::<_, forge_check_run::Entity>(db, id(BUILD)).await,
+        action_ref: one::<_, action_ref::Entity>(db, id(ACTION)).await,
+        tool_object: one::<_, tool_object::Entity>(db, id(TOOL)).await,
     }
 }

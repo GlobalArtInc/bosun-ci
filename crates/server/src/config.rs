@@ -13,6 +13,7 @@ use crate::Error;
 use crate::address;
 use crate::owner::{self, LOGIN_RULE};
 use crate::site::Site;
+use crate::tools::Runtimes;
 
 const DEFAULT_LISTEN: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
 
@@ -62,6 +63,12 @@ const ENTERPRISE_API: [&str; 2] = ["api", "v3"];
 
 const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m or h, such as 30s";
 
+const NODE_UPSTREAM: &str = "https://nodejs.org/dist";
+
+const NODE_MUSL_UPSTREAM: &str = "https://unofficial-builds.nodejs.org/download/release";
+
+const DEFAULT_NODE: &str = "24.22.1";
+
 pub struct Config {
     pub(crate) listen: SocketAddr,
     pub(crate) data_dir: PathBuf,
@@ -76,6 +83,14 @@ pub struct Config {
     pub(crate) agent_binaries: PathBuf,
     pub(crate) failed_sign_ins: u32,
     pub(crate) github: Option<GitHub>,
+    pub(crate) tools: Tools,
+}
+
+#[derive(Clone)]
+pub(crate) struct Tools {
+    pub(crate) node_upstream: Url,
+    pub(crate) node_musl_upstream: Url,
+    pub(crate) runtimes: Runtimes,
 }
 
 pub(crate) struct GitHub {
@@ -126,6 +141,7 @@ struct File {
     limits: LimitsFile,
     store: StoreFile,
     github: GitHubFile,
+    tools: ToolsFile,
 }
 
 #[derive(Default, Deserialize)]
@@ -188,6 +204,17 @@ struct GitHubFile {
     webhook_secret_file: Option<PathBuf>,
     server_url: Option<String>,
     api_url: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ToolsFile {
+    node_upstream: Option<String>,
+    node_musl_upstream: Option<String>,
+    node12: Option<String>,
+    node16: Option<String>,
+    node20: Option<String>,
+    node24: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -343,6 +370,7 @@ impl Config {
             Some(github) => site.with_forge(&github.server_url, &github.api_url),
             None => site,
         };
+        let tools = tools(file.tools)?;
         let agent_binaries = path("agents", "binary_dir", file.agents.binary_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_AGENT_BINARIES));
         Ok(Config {
@@ -369,8 +397,72 @@ impl Config {
             agent_binaries,
             failed_sign_ins,
             github,
+            tools,
         })
     }
+}
+
+fn tools(file: ToolsFile) -> Result<Tools, Error> {
+    let node_upstream = upstream("node_upstream", file.node_upstream, NODE_UPSTREAM)?;
+    let node_musl_upstream = upstream(
+        "node_musl_upstream",
+        file.node_musl_upstream,
+        NODE_MUSL_UPSTREAM,
+    )?;
+    let runtimes = Runtimes {
+        node12: node("node12", file.node12)?,
+        node16: node("node16", file.node16)?,
+        node20: node("node20", file.node20)?,
+        node24: node("node24", file.node24)?,
+    };
+    Ok(Tools {
+        node_upstream,
+        node_musl_upstream,
+        runtimes,
+    })
+}
+
+fn node(key: &str, file: Option<String>) -> Result<String, Error> {
+    let version = variable("tools", key)?
+        .or(file)
+        .unwrap_or_else(|| DEFAULT_NODE.to_owned());
+    if Runtimes::is_version(&version) {
+        Ok(version)
+    } else {
+        Err(invalid(
+            "tools",
+            key,
+            format!("is `{version}`, which is not a version of Node such as {DEFAULT_NODE}"),
+        ))
+    }
+}
+
+fn upstream(key: &str, file: Option<String>, default: &str) -> Result<Url, Error> {
+    let text = variable("tools", key)?
+        .or(file)
+        .unwrap_or_else(|| default.to_owned());
+    let refused =
+        |problem: &str| invalid("tools", key, format!("is `{text}`, which is not {problem}"));
+    let url = Url::parse(&text).map_err(|_| refused("an address"))?;
+    match url.scheme() {
+        "http" | "https" if url.host_str().is_some() => {}
+        "file" if url.to_file_path().is_ok() => {}
+        _ => {
+            return Err(refused(
+                "an http or https address with a host, or a file address of a directory",
+            ));
+        }
+    }
+    if url.query().is_some()
+        || url.fragment().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(refused(
+            "an address without a user, a password, a query or a fragment",
+        ));
+    }
+    Ok(url)
 }
 
 fn trusted_proxies(file: Option<Vec<String>>) -> Result<Vec<IpNet>, Error> {
@@ -730,9 +822,63 @@ fn invalid(section: &str, key: &str, problem: String) -> Error {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::time::Duration;
 
-    use super::parse_duration;
+    use super::{Config, parse_duration};
+    use crate::tools::Runtimes;
+
+    const DATABASE: &str = "[database]\nurl = \"postgres://bosun@127.0.0.1:1/bosun\"\n";
+
+    fn load(text: &str) -> Config {
+        let directory = tempfile::tempdir().expect("a directory for the configuration");
+        let path = directory.path().join("server.toml");
+        fs::write(&path, text).expect("a configuration file");
+        Config::load(Some(&path)).unwrap_or_else(|error| panic!("{text}: {error}"))
+    }
+
+    #[test]
+    fn without_tools_every_node_runtime_runs_on_node_24_from_the_builds_of_the_node_project() {
+        let tools = load(DATABASE).tools;
+        assert_eq!(
+            tools.runtimes,
+            Runtimes {
+                node12: "24.22.1".to_owned(),
+                node16: "24.22.1".to_owned(),
+                node20: "24.22.1".to_owned(),
+                node24: "24.22.1".to_owned(),
+            }
+        );
+        assert_eq!(tools.node_upstream.as_str(), "https://nodejs.org/dist");
+        assert_eq!(
+            tools.node_musl_upstream.as_str(),
+            "https://unofficial-builds.nodejs.org/download/release"
+        );
+    }
+
+    #[test]
+    fn each_setting_of_tools_reaches_its_own_runtime_and_upstream() {
+        let tools = load(&format!(
+            "{DATABASE}\n[tools]\nnode12 = \"12.22.12\"\nnode16 = \"16.20.2\"\nnode20 = \
+             \"20.19.5\"\nnode24 = \"24.11.0\"\nnode_upstream = \
+             \"https://mirror.example.org/node/\"\nnode_musl_upstream = \"file:///srv/node-musl\"\n"
+        ))
+        .tools;
+        assert_eq!(
+            tools.runtimes,
+            Runtimes {
+                node12: "12.22.12".to_owned(),
+                node16: "16.20.2".to_owned(),
+                node20: "20.19.5".to_owned(),
+                node24: "24.11.0".to_owned(),
+            }
+        );
+        assert_eq!(
+            tools.node_upstream.as_str(),
+            "https://mirror.example.org/node/"
+        );
+        assert_eq!(tools.node_musl_upstream.as_str(), "file:///srv/node-musl");
+    }
 
     #[test]
     fn a_duration_is_a_whole_number_with_a_unit() {

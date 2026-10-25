@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bosun_types::ir::{JobTemplate, Shell};
+use bosun_types::ir::{ActionMetadata, ActionReference, JobTemplate, Shell};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -30,11 +30,22 @@ pub struct Evaluated {
     pub continue_on_error: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Action {
+    pub uses: ActionReference,
+    pub commit: String,
+    pub download: String,
+    pub metadata: ActionMetadata,
+    pub node: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Documents {
     pub job: JobTemplate,
     pub contexts: Contexts,
     pub evaluated: Evaluated,
+    pub actions: Vec<Action>,
 }
 
 impl Documents {
@@ -43,6 +54,7 @@ impl Documents {
             job: document("job", &assignment.job)?,
             contexts: document("contexts", &assignment.contexts)?,
             evaluated: document("evaluated", &assignment.evaluated)?,
+            actions: document("actions", &assignment.actions)?,
         })
     }
 
@@ -50,6 +62,7 @@ impl Documents {
         assignment.job = serde_json::to_string(&self.job)?;
         assignment.contexts = serde_json::to_string(&self.contexts)?;
         assignment.evaluated = serde_json::to_string(&self.evaluated)?;
+        assignment.actions = serde_json::to_string(&self.actions)?;
         Ok(())
     }
 }

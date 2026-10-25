@@ -356,7 +356,7 @@ jobs:
             .await
             .expect("a claim");
         let key = claimed.key.to_string();
-        documents.insert(key, assigned(world.db(), claimed).await.1);
+        documents.insert(key, assigned(&world, claimed).await.1);
     }
     let named = &documents["named"];
     assert_eq!(
@@ -427,7 +427,7 @@ jobs:
         .await
         .expect("a claim");
     assert!(
-        queue::assignment(world.db(), claimed, &site(), &keys())
+        queue::assignment(world.db(), claimed, &site(), &keys(), world.actions())
             .await
             .expect("a failed assignment")
             .is_none(),

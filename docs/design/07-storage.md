@@ -86,7 +86,7 @@ attempt      id, run_id, number, reason, actor jsonb, created_at
 job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, needs text[], kind,
              status, waiting_reason, conclusion, conclusion_source, continue_on_error,
              evaluated jsonb, outputs jsonb, priority, labels text[], pool_ids uuid[],
-             capabilities text[], pinned_agent_id, carried_from,
+             capabilities text[], actions jsonb, pinned_agent_id, carried_from,
              queued_at, started_at, completed_at
 execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
              completed_at, log_bytes, log_compacted_at
@@ -181,6 +181,19 @@ blob, by which the file is found again without reading it, and which is `null` f
 server-side workflows ([02-workflows.md](02-workflows.md#repository-workflows)). A run's `ref` and
 `sha` are the ref and the commit of its event, `null` for a run of a project without a repository.
 They arrived with step 27 of [../plan.md](../plan.md).
+
+A job's `actions` are the commits its first assignment pinned for the actions its steps use, a list
+of `{"owner", "repository", "ref", "commit"}` with the owner and the repository in lower case, and
+`null` until then or for a job without a `uses`; they arrived with the action store (step 32 of
+[../plan.md](../plan.md)), together with two tables of what the object store keeps for agents.
+`action_ref` holds `id, owner, repository, sha, key, size, sha256, metadata jsonb, created_at`, one
+row per commit of an action repository, unique by owner, repository and commit, where `key` is the
+tarball's object, `sha256` its digest and `metadata` maps the path of every `action.yml` and
+`action.yaml` in it to its text, a JSON string, or to its size in bytes, a JSON number, when it is
+larger than the 1 MiB the server reads. `tool_object` holds `id, tool, version, platform, key, size,
+sha256, created_at`, one row per archive of a tool, unique by tool, version and platform, such as
+`node`, `24.22.1` and `linux-x64` ([05-execution.md](05-execution.md#actions-and-tools)). Neither
+table references another, and no row is deleted in M1.
 
 An agent records its current replica in `agent.replica_id`, which no row references: replicas are
 processes, not rows. `agent.drain` says whether the agent is drained and `agent.deleted_at` when it

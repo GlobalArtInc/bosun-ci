@@ -1,6 +1,11 @@
-use bosun_testkit::TestDatabase;
+use std::net::SocketAddr;
 
-use crate::{CONFIG, Launch, errors, eventually};
+use bosun_testkit::TestDatabase;
+use bosun_testkit::agent::FakeAgent;
+use serde_json::{Value, json};
+use url::Url;
+
+use crate::{CONFIG, Launch, client, errors, eventually, owner};
 
 type Refused = (
     &'static str,
@@ -10,6 +15,11 @@ type Refused = (
 
 const S3_WITHOUT_CREDENTIALS: &str =
     "[store]\nkind = \"s3\"\nendpoint = \"http://127.0.0.1:1\"\nbucket = \"bosun\"\n";
+
+const NODE_ARCHIVE: &str = "the packed Node runtime for linux-x64";
+
+const NODE_ARCHIVE_SHA256: &str =
+    "07112f82d32127fcbf02e40859adb8137d01c340ba0097ff1f16b2ce63aae091";
 
 #[tokio::test]
 async fn variables_override_the_configuration_file() {
@@ -28,7 +38,7 @@ async fn variables_override_the_configuration_file() {
 
 #[tokio::test]
 async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fault() {
-    let cases: [Refused; 33] = [
+    let cases: [Refused; 37] = [
         (
             "[database]\nurll = \"postgres://bosun@db/bosun\"\n",
             &[],
@@ -235,6 +245,33 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             "the setting limits.failed_sign_ins (BOSUN_LIMITS_FAILED_SIGN_INS) is `many`, which \
              is not a number of failed sign-ins",
         ),
+        (
+            "[tools]\nnode16 = \"16\"\n",
+            &[],
+            "the setting tools.node16 (BOSUN_TOOLS_NODE16) is `16`, which is not a version of \
+             Node such as 24.22.1",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            &[("BOSUN_TOOLS_NODE_UPSTREAM", Some("ftp://nodejs.org/dist"))],
+            "the setting tools.node_upstream (BOSUN_TOOLS_NODE_UPSTREAM) is \
+             `ftp://nodejs.org/dist`, which is not an http or https address with a host, or a \
+             file address of a directory",
+        ),
+        (
+            "[tools]\nnode_musl_upstream = \"https://builds.example.org/node?mirror=1\"\n",
+            &[],
+            "the setting tools.node_musl_upstream (BOSUN_TOOLS_NODE_MUSL_UPSTREAM) is \
+             `https://builds.example.org/node?mirror=1`, which is not an address without a user, \
+             a password, a query or a fragment",
+        ),
+        (
+            "[tools]\nnode_upstream = \"https://:secret@mirror.example.org/dist\"\n",
+            &[],
+            "the setting tools.node_upstream (BOSUN_TOOLS_NODE_UPSTREAM) is \
+             `https://:secret@mirror.example.org/dist`, which is not an address without a user, a \
+             password, a query or a fragment",
+        ),
     ];
     for (config, variables, expected) in cases {
         let mut launch = Launch::serve("postgres://bosun@127.0.0.1:1/bosun").config(config);
@@ -297,4 +334,112 @@ async fn the_object_store_is_the_directory_the_configuration_names() {
         store.join("objects").is_dir(),
         "the store was not opened there"
     );
+}
+
+async fn runtime(address: SocketAddr, path: &str, credential: Option<&str>) -> (u16, Vec<u8>) {
+    let mut request = client().get(format!("http://{address}{path}"));
+    if let Some(credential) = credential {
+        request = request.bearer_auth(credential);
+    }
+    let response = request
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("GET {path}: {error}"));
+    let status = response.status().as_u16();
+    let body = response.bytes().await.expect("a body");
+    (status, body.to_vec())
+}
+
+fn refusal(body: &[u8]) -> (String, String) {
+    let error: Value = serde_json::from_slice(body).unwrap_or_else(|error| {
+        panic!(
+            "a body that is not an error envelope ({error}): {}",
+            String::from_utf8_lossy(body)
+        )
+    });
+    let field = |name: &str| error["error"][name].as_str().unwrap_or_default().to_owned();
+    (field("code"), field("message"))
+}
+
+#[tokio::test]
+async fn the_runtime_map_takes_versions_from_the_file_and_the_variables_and_serves_those() {
+    let database = TestDatabase::migrated().await;
+    let owner = owner(&database.url(), "roman").await;
+    let launch = Launch::serve(&database.url());
+    for version in ["16.20.2", "20.19.5", "24.22.1"] {
+        let archive = format!("node-v{version}-linux-x64.tar.xz");
+        launch.file(&format!("upstream/v{version}/{archive}"), NODE_ARCHIVE);
+        launch.file(
+            &format!("upstream/v{version}/SHASUMS256.txt"),
+            &format!("{NODE_ARCHIVE_SHA256}  {archive}\n"),
+        );
+    }
+    let upstream =
+        Url::from_directory_path(launch.data_dir().join("upstream")).expect("a file address");
+    let mut server = launch
+        .config(&format!(
+            "{CONFIG}\n[tools]\nnode16 = \"16.20.2\"\nnode20 = \"20.0.0\"\nnode_upstream = \
+             \"{upstream}\"\n"
+        ))
+        .env("BOSUN_TOOLS_NODE20", "20.19.5")
+        .spawn();
+    let address = server.listening().await;
+    eventually(address, "/readyz", 200).await;
+
+    for path in [
+        "/_runtime/tools/node/16.20.2/linux-x64.tar.xz".to_owned(),
+        format!(
+            "/_runtime/actions/actions/checkout/{}.tar.gz",
+            "a".repeat(40)
+        ),
+    ] {
+        let (status, body) = runtime(address, &path, None).await;
+        assert_eq!(status, 401, "{path}: {}", String::from_utf8_lossy(&body));
+        assert_eq!(
+            refusal(&body),
+            (
+                "unauthenticated".to_owned(),
+                "the request carries no agent credential".to_owned()
+            ),
+            "{path}"
+        );
+    }
+
+    let response = client()
+        .post(format!("http://{address}/api/v1/registration-tokens"))
+        .bearer_auth(&owner)
+        .json(&json!({ "pool": "default", "reusable": false, "expires_at": null }))
+        .send()
+        .await
+        .expect("a registration token");
+    assert_eq!(response.status().as_u16(), 201);
+    let token: Value = response.json().await.expect("a JSON body");
+    let agent = FakeAgent::register(
+        address,
+        token["token"].as_str().expect("a token"),
+        "runner1-1",
+        &[],
+    )
+    .await;
+    for version in ["16.20.2", "20.19.5", "24.22.1"] {
+        let path = format!("/_runtime/tools/node/{version}/linux-x64.tar.xz");
+        let (status, body) = runtime(address, &path, Some(agent.credential())).await;
+        assert_eq!(status, 200, "{path}: {}", String::from_utf8_lossy(&body));
+        assert_eq!(body, NODE_ARCHIVE.as_bytes(), "{path}");
+    }
+    for version in ["20.0.0", "16.20.3"] {
+        let path = format!("/_runtime/tools/node/{version}/linux-x64.tar.xz");
+        let (status, body) = runtime(address, &path, Some(agent.credential())).await;
+        assert_eq!(status, 404, "{path}: {}", String::from_utf8_lossy(&body));
+        assert_eq!(
+            refusal(&body),
+            (
+                "not_found".to_owned(),
+                format!(
+                    "the server serves no Node {version}, since its runtime map names no action \
+                     runtime that runs on it"
+                )
+            )
+        );
+    }
 }

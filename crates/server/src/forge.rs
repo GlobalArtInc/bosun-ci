@@ -8,6 +8,7 @@ use tokio::sync::OnceCell;
 
 use crate::Error;
 use crate::config::GitHub;
+use crate::digest::unhex;
 
 const SIGNATURE_PREFIX: &str = "sha256=";
 
@@ -48,11 +49,20 @@ impl Forge {
         Ok(identity.bot.id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn of(app: GitHubApp) -> Forge {
+        Forge {
+            app,
+            secret: Vec::new(),
+            identity: OnceCell::new(),
+        }
+    }
+
     pub(crate) fn signed(&self, signature: &[u8], body: &[u8]) -> bool {
         let Some(digits) = signature.strip_prefix(SIGNATURE_PREFIX.as_bytes()) else {
             return false;
         };
-        let Some(expected) = unhex(digits) else {
+        let Some(expected) = std::str::from_utf8(digits).ok().and_then(unhex) else {
             return false;
         };
         let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(&self.secret) else {
@@ -60,34 +70,5 @@ impl Forge {
         };
         mac.update(body);
         mac.verify_slice(&expected).is_ok()
-    }
-}
-
-fn unhex(digits: &[u8]) -> Option<Vec<u8>> {
-    if !digits.len().is_multiple_of(2) {
-        return None;
-    }
-    digits
-        .chunks(2)
-        .map(|pair| {
-            let high = char::from(pair[0]).to_digit(16)?;
-            let low = char::from(pair[1]).to_digit(16)?;
-            u8::try_from(high * 16 + low).ok()
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::unhex;
-
-    #[test]
-    fn a_signature_is_read_as_hexadecimal_digits() {
-        assert_eq!(unhex(b"00ff7a"), Some(vec![0x00, 0xff, 0x7a]));
-        assert_eq!(unhex(b"00FF7A"), Some(vec![0x00, 0xff, 0x7a]));
-        assert_eq!(unhex(b""), Some(Vec::new()));
-        for refused in [&b"0"[..], b"0g", b"zz", b"0 1f"] {
-            assert_eq!(unhex(refused), None, "{refused:?}");
-        }
     }
 }

@@ -1,3 +1,4 @@
+pub mod action_ref;
 pub mod agent;
 pub mod api_token;
 pub mod api_token_scope;
@@ -30,6 +31,7 @@ pub mod step;
 pub mod stream_event;
 pub mod team;
 pub mod team_member;
+pub mod tool_object;
 pub mod user;
 pub mod variable;
 pub mod webhook_delivery;

@@ -1,4 +1,5 @@
 mod access;
+mod actions;
 mod cancel;
 mod evaluation;
 mod events;
@@ -50,13 +51,34 @@ use sea_orm::{
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::actions::Actions;
 use crate::agents::progress::{self, JobEnd, Progress, Reporter};
 use crate::clock::Clock;
 use crate::commands::{self, Applied};
 use crate::keys::{Kek, Keyring};
 use crate::site::Site;
 use crate::store::Backend;
-use crate::{AppState, planner, shutdown};
+use crate::tools::{Runtimes, Tools};
+use crate::{AppState, config, planner, shutdown};
+
+const NODE: &str = "24.22.1";
+
+fn runtimes() -> Runtimes {
+    Runtimes {
+        node12: NODE.to_owned(),
+        node16: NODE.to_owned(),
+        node20: NODE.to_owned(),
+        node24: NODE.to_owned(),
+    }
+}
+
+fn tools_settings(upstream: &url::Url) -> config::Tools {
+    config::Tools {
+        node_upstream: upstream.clone(),
+        node_musl_upstream: upstream.clone(),
+        runtimes: runtimes(),
+    }
+}
 
 async fn state(
     database: &TestDatabase,
@@ -64,12 +86,22 @@ async fn state(
     clock: Clock,
     settings: crate::sign_in::Settings,
 ) -> AppState {
-    let store = Directory::open(directory.join("store"))
-        .await
-        .expect("a directory store");
+    let store = Arc::new(Backend::Directory(
+        Directory::open(directory.join("store"))
+            .await
+            .expect("a directory store"),
+    ));
+    let upstream =
+        url::Url::from_directory_path(directory.join("upstream")).expect("an upstream directory");
+    let tools = Tools::new(
+        database.connection().clone(),
+        Arc::clone(&store),
+        tools_settings(&upstream),
+    )
+    .expect("the tools");
     AppState {
         db: database.connection().clone(),
-        store: Arc::new(Backend::Directory(store)),
+        store,
         followers: Arc::new(crate::logs::Followers::default()),
         events: Arc::new(crate::events::Hub::default()),
         shutdown: shutdown::channel().1,
@@ -80,6 +112,7 @@ async fn state(
         forge: None,
         parses: Arc::new(crate::forge_events::Parses::default()),
         keys: Arc::new(keys()),
+        tools: Arc::new(tools),
     }
 }
 
@@ -93,6 +126,8 @@ struct World {
     database: TestDatabase,
     workflow: Workflow,
     agent: Reporter,
+    actions: Arc<Actions>,
+    _store: tempfile::TempDir,
 }
 
 impl World {
@@ -146,6 +181,16 @@ impl World {
         let Registration::Registered(agent) = registered else {
             panic!("the agent was not registered");
         };
+        let store = tempfile::tempdir().expect("a directory for the store");
+        let directory = Directory::open(store.path())
+            .await
+            .expect("a directory store");
+        let actions = Arc::new(Actions::new(
+            db.clone(),
+            Arc::new(Backend::Directory(directory)),
+            None,
+            runtimes(),
+        ));
         World {
             database,
             workflow,
@@ -153,11 +198,17 @@ impl World {
                 id: agent.id,
                 name: agent.name,
             },
+            actions,
+            _store: store,
         }
     }
 
     fn db(&self) -> &DatabaseConnection {
         self.database.connection()
+    }
+
+    fn actions(&self) -> &Arc<Actions> {
+        &self.actions
     }
 
     fn agent(&self) -> &Reporter {

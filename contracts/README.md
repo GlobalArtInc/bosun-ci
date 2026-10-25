@@ -97,6 +97,10 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   `fixtures/workflows/runs-on-steps-context.yml` as `.bosun/workflows/ci.yml` to the fake forge and
   compare the `display_name`, `event`, `status`, `conclusion`, `actor` and `notices` of the run the
   push yields with this fixture.
+- `fixtures/api/run-actions.json`: from step 32 of M1, the server's tests compare its `notices`
+  with those of a run of two jobs, one using an action declared `node16` and one using an action
+  of a private repository its organisation's installation cannot see, each assigned once, with
+  each `job_id` taken as the id of its job.
 - `fixtures/api/me.json`: from step 9 of M1, the server's tests compare its `permissions` with
   those `GET /api/v1/me` lists for a user bound as the fixture describes
   ([../docs/design/11-api.md](../docs/design/11-api.md#permissions)).

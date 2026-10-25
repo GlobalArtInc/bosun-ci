@@ -53,6 +53,7 @@ async fn forward(world: &World, events: Arc<Hub>, followers: Arc<Followers>) -> 
         },
         Public::default(),
         Arc::new(keys()),
+        Arc::clone(world.actions()),
     );
     agents::start(
         db,

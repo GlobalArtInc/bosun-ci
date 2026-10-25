@@ -86,6 +86,7 @@ pub(crate) fn prepare(
         job,
         contexts,
         evaluated,
+        actions: _,
     } = Documents::read(&assignment)?;
     let JobKind::Steps(steps) = &job.kind;
     for (index, step) in (0..).zip(steps) {
@@ -469,6 +470,7 @@ mod tests {
                 timeout_minutes: 360,
                 continue_on_error: false,
             },
+            actions: Vec::new(),
         }
     }
 
