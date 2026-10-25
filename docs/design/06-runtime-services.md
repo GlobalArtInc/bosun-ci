@@ -350,7 +350,9 @@ and arrives with them in M2.
 the event, with the actor taken from the linked forge account of the Bosun user when there is one:
 
 - `workflow_dispatch`: `inputs`, every value as a string (`true` or `false` for a boolean, a number
-  as written), or `null` when the dispatch has no inputs; `ref`; `workflow`, the file; and
+  as written), or `null` when no input has a value
+  ([02-workflows.md](02-workflows.md#dispatch-inputs)); `ref`, the full ref of the branch or tag the
+  run takes ([11-api.md](11-api.md#projects-and-server-side-workflows)); `workflow`, the file; and
   `repository`, `organization` and `sender` as the forge describes them, when Bosun has them. The
   `inputs` context keeps the typed values.
 - `schedule`: `{ "schedule": "<cron>" }` and nothing else.

@@ -1,5 +1,7 @@
 use axum::extract::State;
-use bosun_types::api::{PlannedRuns, RepositoryDispatchRequest};
+use bosun_db::projects::Binding;
+use bosun_forge::Repository;
+use bosun_types::api::{self, PlannedRuns, RepositoryDispatchRequest};
 use bosun_types::error::ErrorCode;
 use bosun_workflow::github::{self, RepositoryDispatch};
 use sea_orm::TransactionTrait;
@@ -9,6 +11,7 @@ use tracing::warn;
 use super::{Failed, Occurrence, repository_runs, server_runs};
 use crate::access::{Caller, OnProject, RunDispatch};
 use crate::envelope::ApiError;
+use crate::forge::Forge;
 use crate::projects::ProjectPath;
 use crate::reply::Created;
 use crate::request::{Faults, Idempotent, database, failed};
@@ -85,36 +88,18 @@ pub(crate) async fn receive(
             .await
             .map_err(database)?,
         Some(repository) => {
-            let full_name = format!("{}/{}", repository.owner, repository.name);
-            let forge = state.forge.as_deref().ok_or_else(|| {
-                ApiError::new(
-                    ErrorCode::InvalidState,
-                    format!(
-                        "the project is bound to the repository `{full_name}`, and this server \
-                         has no GitHub App to read its workflows with"
-                    ),
-                )
-            })?;
-            let installation = binding.installation.ok_or_else(|| {
-                ApiError::new(
-                    ErrorCode::InvalidState,
-                    format!(
-                        "no installation of the GitHub App sees the repository `{full_name}`, so \
-                         its workflows cannot be read"
-                    ),
-                )
-            })?;
+            let (forge, readable) = readable(state.forge.as_deref(), &binding, repository)?;
             repository_runs(
                 &transaction,
                 forge,
                 &state.parses,
                 &state.site,
                 &binding,
-                installation,
+                readable.installation,
                 &occurrence,
             )
             .await
-            .map_err(|failure| refused(failure, &full_name))?
+            .map_err(|failure| refused(failure, &full_name(repository)))?
             .runs
         }
     };
@@ -127,7 +112,45 @@ pub(crate) async fn receive(
     .await
 }
 
-fn refused(failure: Failed, full_name: &str) -> ApiError {
+pub(crate) fn readable<'a>(
+    forge: Option<&'a Forge>,
+    binding: &Binding,
+    bound: &api::Repository,
+) -> Result<(&'a Forge, Repository), ApiError> {
+    let full_name = full_name(bound);
+    let forge = forge.ok_or_else(|| {
+        ApiError::new(
+            ErrorCode::InvalidState,
+            format!(
+                "the project is bound to the repository `{full_name}`, and this server has no \
+                 GitHub App to read its workflows with"
+            ),
+        )
+    })?;
+    let installation = binding.installation.ok_or_else(|| {
+        ApiError::new(
+            ErrorCode::InvalidState,
+            format!(
+                "no installation of the GitHub App sees the repository `{full_name}`, so its \
+                 workflows cannot be read"
+            ),
+        )
+    })?;
+    Ok((
+        forge,
+        Repository {
+            installation,
+            owner: bound.owner.clone(),
+            name: bound.name.clone(),
+        },
+    ))
+}
+
+pub(crate) fn full_name(bound: &api::Repository) -> String {
+    format!("{}/{}", bound.owner, bound.name)
+}
+
+pub(crate) fn refused(failure: Failed, full_name: &str) -> ApiError {
     match failure {
         Failed::Database(error) => database(error),
         Failed::Payload(message) | Failed::Unmerged(message) => failed(message),
@@ -139,7 +162,7 @@ fn refused(failure: Failed, full_name: &str) -> ApiError {
             ),
         ),
         Failed::Forge(error) => {
-            warn!(%error, repository = full_name, "the forge failed while an event was planned");
+            warn!(%error, repository = full_name, "the forge failed while workflows of a repository were read");
             ApiError::new(
                 ErrorCode::Internal,
                 format!("the workflows of `{full_name}` could not be read from the forge: {error}"),

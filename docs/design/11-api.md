@@ -392,21 +392,40 @@ A step that adds an endpoint adds its row here.
   path, such as `.bosun/workflows/ci.yml`, with the source `{"kind": "repository"}`
   ([02-workflows.md](02-workflows.md#repository-workflows)). Their source changes with the
   repository's commits, so `PUT /workflows/{workflow}/source` refuses them with `409 invalid_state`,
-  and so does `POST /workflows/{workflow}/dispatch` until step 30 of [../plan.md](../plan.md)
-  dispatches the file at a ref.
+  and a dispatch runs the file at the commit of a ref, as below.
 - `POST /workflows/{workflow}/dispatch` takes `ref` and `inputs` and answers `201` with the run as
   planning left it, whose actor is the token of the request. In the same transaction it creates
   attempt 1, one `pending` job per job template and their journal events, stores the IR of the
   current revision as lowered by this server, records the revision's warnings as notices, renders
   the display name, and plans the run, so the jobs that need no other job are `queued`, or
   completed when their `if` or an evaluation decided so, when the response leaves
-  ([04-runs.md](04-runs.md)). A project without a repository has no refs, so `ref` must be `null`;
-  until `workflow_dispatch` inputs arrive in M1, every input is an `invalid_input` naming
-  `inputs.<name>`. A disabled workflow, and a current revision that this server's parser refuses,
-  are `409 invalid_state`, the latter with its diagnostics. So is, until the planner applies it, a
-  revision that uses a key the planner would otherwise ignore, so that a run never quietly differs
-  from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md). The message names the
-  key and the step that brings it.
+  ([04-runs.md](04-runs.md)). A disabled workflow, and a current revision that this server's parser
+  refuses, are `409 invalid_state`, the latter with its diagnostics. So is, until the planner
+  applies it, a revision that uses a key the planner would otherwise ignore, so that a run never
+  quietly differs from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md). The
+  message names the key and the step that brings it.
+  Step 30 of M1 ([../plan.md](../plan.md)) settled `ref` and `inputs`:
+  - A project without a repository has no refs, so `ref` must be `null`.
+  - A project bound to a repository takes `ref`, a branch or a tag: `refs/heads/<branch>`,
+    `refs/tags/<tag>`, or a name, looked up as a branch first and then as a tag; `null` is the
+    default branch. The server resolves the ref to a commit through the forge, and the run records
+    the full ref and that commit, which the `github` context and the payload's `ref` carry. Another
+    ref under `refs/`, an empty one, and a name the repository has as neither branch nor tag, a
+    commit's hash among them, are `invalid_input` naming `ref`. A default branch without a commit,
+    a server without a GitHub App and a repository that no installation sees are
+    `409 invalid_state`.
+  - A repository workflow runs its file at that commit, read as an event reads it
+    ([02-workflows.md](02-workflows.md#repository-workflows)), with the blob cache and the
+    `github_workflows` setting; a commit at which the file is not a workflow of the project is
+    `invalid_input` naming `ref`, and a file with errors there is `409 invalid_state` with its
+    diagnostics. A dispatch of the default branch makes the file's revision the workflow's current
+    one, as an event read there does. A server-side workflow of a bound project runs its current
+    revision with that ref and commit, so that `actions/checkout` takes the code of the ref. A
+    repository workflow of a project that is no longer bound to a repository is
+    `409 invalid_state`.
+  - `inputs` are read against the inputs the source declares, as
+    [02-workflows.md](02-workflows.md#dispatch-inputs) specifies. The faults of `ref` and of the
+    inputs are refused together, `ref` first, with the message `the dispatch is not valid`.
 - `POST /projects/{project}/events` sends the project an event of the kind `repository_dispatch`,
   as the forge's own endpoint for it does, and needs `run.dispatch`. It takes `event_type`, 1 to
   100 characters, which is the event's `action`, and `client_payload`, an object of at most 10
@@ -1026,6 +1045,11 @@ What M0 settles of these commands:
 
 What M1 settles of these commands:
 
+- `bosun workflow dispatch <workflow>` sends `--ref <ref>` as `ref`, and each `--input
+  <name>=<value>`, given as often as needed, as an input whose value is the text after the first
+  `=`, which may hold `=` or be empty; the server reads the text by the input's type
+  ([02-workflows.md](02-workflows.md#dispatch-inputs)). An input given twice fails before any
+  request, and an `--input` without a name and `=` is a usage error.
 - `bosun job logs <job> --grep <text>` prints, for each step under its heading or for the step
   `--step` names alone, the lines that `?search=<text>` finds, each as `<number>: <time> <text>`,
   so the numbers are those of the step's log. It takes no `--follow`, since a search reads the

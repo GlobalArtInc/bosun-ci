@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -8,6 +9,7 @@ use bosun_types::api::{
 };
 use bosun_types::id::WorkflowId;
 use clap::Subcommand;
+use serde_json::Value;
 
 use crate::client::{Client, Failure};
 use crate::{Context, output, run};
@@ -73,6 +75,21 @@ pub(crate) enum Command {
     Dispatch {
         #[arg(help = "The workflow, as <organisation>/<project>/<name> or its id")]
         workflow: String,
+        #[arg(
+            long = "ref",
+            value_name = "REF",
+            help = "The branch or tag whose code the run takes, for a project bound to a \
+                    repository [default: its default branch]"
+        )]
+        git_ref: Option<String>,
+        #[arg(
+            long = "input",
+            value_name = "NAME=VALUE",
+            value_parser = input,
+            help = "An input of the dispatch, sent as text, which the server reads by the input's \
+                    type; repeat it for each input"
+        )]
+        inputs: Vec<(String, String)>,
         #[arg(
             long,
             conflicts_with = "json",
@@ -165,13 +182,22 @@ pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode,
             file,
             name,
         } => push(context, &context.client()?, &project, &file, name).await,
-        Command::Dispatch { workflow, watch } => {
+        Command::Dispatch {
+            workflow,
+            git_ref,
+            inputs,
+            watch,
+        } => {
+            let request = DispatchRequest {
+                r#ref: git_ref,
+                inputs: given(inputs)?,
+            };
             let client = context.client()?;
             let workflow = find(&client, &workflow).await?;
             let run: Run = client
                 .post(
                     &format!("/api/v1/workflows/{}/dispatch", workflow.id),
-                    &DispatchRequest::default(),
+                    &request,
                 )
                 .await?;
             if watch {
@@ -328,6 +354,23 @@ pub(crate) async fn find(client: &Client, reference: &str) -> Result<Workflow, F
         .ok_or_else(|| Failure::new(format!("the project {project} has no workflow `{name}`")))
 }
 
+fn input(text: &str) -> Result<(String, String), String> {
+    text.split_once('=')
+        .filter(|(name, _)| !name.is_empty())
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .ok_or_else(|| format!("`{text}` is not NAME=VALUE"))
+}
+
+fn given(inputs: Vec<(String, String)>) -> Result<BTreeMap<String, Value>, Failure> {
+    let mut given = BTreeMap::new();
+    for (name, value) in inputs {
+        if given.insert(name.clone(), Value::String(value)).is_some() {
+            return Err(Failure::new(format!("--input gives `{name}` twice")));
+        }
+    }
+    Ok(given)
+}
+
 fn split(reference: &str) -> Option<(String, &str)> {
     let mut parts = reference.splitn(3, '/');
     let (organisation, slug, name) = (parts.next()?, parts.next()?, parts.next()?);
@@ -337,7 +380,47 @@ fn split(reference: &str) -> Option<(String, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::split;
+    use serde_json::json;
+
+    use super::{given, input, split};
+
+    #[test]
+    fn an_input_is_a_name_and_the_text_after_its_first_equals_sign() {
+        for (text, name, value) in [
+            ("flag=true", "flag", "true"),
+            ("count=3", "count", "3"),
+            ("note=a=b", "note", "a=b"),
+            ("note=", "note", ""),
+        ] {
+            assert_eq!(
+                input(text),
+                Ok((name.to_owned(), value.to_owned())),
+                "{text}"
+            );
+        }
+        for text in ["flag", "=true"] {
+            assert!(input(text).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_inputs_are_sent_as_text_and_an_input_given_twice_fails() {
+        let sent = given(vec![
+            ("flag".to_owned(), "true".to_owned()),
+            ("count".to_owned(), "3".to_owned()),
+        ])
+        .expect("the inputs");
+        assert_eq!(
+            serde_json::to_value(sent).expect("JSON"),
+            json!({ "count": "3", "flag": "true" })
+        );
+        let twice = given(vec![
+            ("flag".to_owned(), "true".to_owned()),
+            ("flag".to_owned(), "false".to_owned()),
+        ])
+        .expect_err("an input given twice");
+        assert_eq!(twice.message, "--input gives `flag` twice");
+    }
 
     #[test]
     fn a_workflow_is_named_by_its_project_and_a_name_that_may_be_a_path() {

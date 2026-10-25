@@ -38,6 +38,7 @@ const RUN_BY_OTHER_SUITES: &[&str] = &[
     "expr",
     "github",
     "hash-files",
+    "inputs",
     "matchers",
     "matrix",
     "names",

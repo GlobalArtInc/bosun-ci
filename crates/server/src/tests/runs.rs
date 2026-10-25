@@ -9,7 +9,7 @@ use bosun_types::id::RunId;
 use bosun_types::status::{RunConclusion, RunStatus};
 use sea_orm::TransactionTrait;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::access::{Answer, Site, document, forbidden, owner_credentials};
 
@@ -75,6 +75,7 @@ async fn plant(site: &Site, workflow: &Workflow, planted: &Planted) -> RunId {
             git_ref: planted.r#ref.as_deref(),
             sha: None,
             payload: &json!({}),
+            inputs: &Map::new(),
             actor: &planted.actor,
             trust: Trust::Trusted,
         },

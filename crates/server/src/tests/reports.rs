@@ -12,7 +12,7 @@ use bosun_types::ir;
 use bosun_types::status::Conclusion;
 use chrono::{TimeDelta, Utc};
 use sea_orm::{ConnectionTrait, Statement, TransactionTrait};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tempfile::TempDir;
 use tracing_subscriber::fmt::MakeWriter;
 
@@ -122,6 +122,7 @@ impl Scene {
                 git_ref: Some("refs/heads/main"),
                 sha: Some(&self.sha),
                 payload: &payload,
+                inputs: &Map::new(),
                 actor: &operator(),
                 trust: Trust::Trusted,
             },
@@ -377,6 +378,7 @@ async fn with_statuses_a_run_reports_commit_statuses_with_bosun_contexts_and_no_
             git_ref: Some("refs/heads/main"),
             sha: Some(&scene.sha),
             payload: &payload,
+            inputs: &Map::new(),
             actor: &operator(),
             trust: Trust::Trusted,
         },
@@ -429,6 +431,7 @@ async fn a_startup_failure_is_reported_as_a_settled_check_run_named_after_its_wo
             git_ref: Some("refs/heads/main"),
             sha: Some(&scene.sha),
             payload: &payload,
+            inputs: &Map::new(),
             actor: &operator(),
             trust: Trust::Trusted,
         },

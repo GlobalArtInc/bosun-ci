@@ -651,17 +651,136 @@ async fn repository_workflows_are_named_by_their_paths_follow_the_default_branch
         "workflow `.bosun/workflows/ci.yml` is a file of the repository, whose source changes \
          with its commits"
     );
+}
+
+fn release(name: &str) -> String {
+    format!(
+        "name: {name}\nrun-name: '{name} ${{{{ github.ref }}}} ${{{{ github.sha }}}} ${{{{ \
+         toJSON(inputs.flag) }}}} ${{{{ toJSON(github.event.inputs.flag) }}}} ${{{{ \
+         toJSON(inputs.count) }}}}'\non:\n  workflow_dispatch:\n    inputs:\n      flag:\n        \
+         type: boolean\n        default: false\n      count:\n        type: number\n        \
+         default: 1\njobs:\n  build:\n    runs-on: [self-hosted]\n    steps:\n      - run: make\n"
+    )
+}
+
+#[tokio::test]
+async fn a_dispatch_runs_the_file_at_the_commit_of_its_ref_and_without_one_at_the_default_branch() {
+    let mut scene = Scene::new(&[]).await;
+    let bare = scene.heads["main"].clone();
+    scene.forge.tag(REPOSITORY, "v0.1", &bare);
+    let path = ".bosun/workflows/release.yml";
+    let tagged = scene.push("main", &[(path, &release("tagged"))]).await;
+    scene.forge.tag(REPOSITORY, "v1.0", &tagged);
+    let current = scene.push("main", &[(path, &release("current"))]).await;
+    assert_eq!(scene.runs().await, Vec::<Value>::new());
+    let workflow = scene.workflow(path).await;
+    let dispatch = format!("/api/v1/workflows/{}/dispatch", text(&workflow["id"]));
+
+    let (status, run) = scene
+        .api
+        .post(
+            &dispatch,
+            &serde_json::from_str(&fixture("api/dispatch.json")).expect("a JSON fixture"),
+        )
+        .await;
+    assert_eq!(status, 201, "{run}");
+    assert_eq!(
+        run["display_name"],
+        format!("tagged refs/tags/v1.0 {tagged} true \"true\" 3")
+    );
+    assert_eq!(run["event"], "workflow_dispatch");
+    assert_eq!(run["ref"], "refs/tags/v1.0");
+    assert_eq!(run["sha"], tagged.as_str());
+
+    let (status, run) = scene
+        .api
+        .post(&dispatch, &json!({ "ref": null, "inputs": {} }))
+        .await;
+    assert_eq!(status, 201, "{run}");
+    assert_eq!(
+        run["display_name"],
+        format!("current refs/heads/main {current} false \"false\" 1")
+    );
+    assert_eq!(run["ref"], "refs/heads/main");
+
+    for (given, expected) in [
+        ("main", "refs/heads/main"),
+        ("refs/tags/v1.0", "refs/tags/v1.0"),
+    ] {
+        let (status, run) = scene
+            .api
+            .post(&dispatch, &json!({ "ref": given, "inputs": {} }))
+            .await;
+        assert_eq!(status, 201, "{given}: {run}");
+        assert_eq!(run["ref"], expected, "{given}");
+    }
+
+    for (given, message) in [
+        (
+            "v9.9".to_owned(),
+            format!("the repository `{REPOSITORY}` has no branch or tag `v9.9`"),
+        ),
+        (
+            current.clone(),
+            format!("the repository `{REPOSITORY}` has no branch or tag `{current}`"),
+        ),
+        (
+            "refs/pull/1/merge".to_owned(),
+            "`refs/pull/1/merge` is neither a branch nor a tag, and a dispatch runs the code of \
+             one"
+            .to_owned(),
+        ),
+        (
+            "v0.1".to_owned(),
+            format!("`{path}` is not a workflow of the project at `refs/tags/v0.1`"),
+        ),
+    ] {
+        let (status, refused) = scene
+            .api
+            .post(&dispatch, &json!({ "ref": given, "inputs": {} }))
+            .await;
+        assert_eq!(status, 422, "{given}: {refused}");
+        assert_eq!(
+            refused["error"]["fields"],
+            json!([{ "field": "ref", "message": message }]),
+            "{given}"
+        );
+    }
     let (status, refused) = scene
         .api
         .post(
-            &format!("/api/v1/workflows/{ci}/dispatch"),
-            &json!({ "ref": null, "inputs": {} }),
+            &dispatch,
+            &json!({ "ref": "v1.0", "inputs": { "flag": "yes", "colour": "blue" } }),
         )
         .await;
-    assert_eq!(status, 409, "{refused}");
+    assert_eq!(status, 422, "{refused}");
+    let fields: Vec<&Value> = refused["error"]["fields"]
+        .as_array()
+        .expect("fields")
+        .iter()
+        .map(|field| &field["field"])
+        .collect();
+    assert_eq!(fields, [&json!("inputs.colour"), &json!("inputs.flag")]);
+
+    let (status, server_side) = scene
+        .api
+        .post(
+            &format!("{PROJECT}/workflows"),
+            &json!({ "name": "nightly", "source": release("nightly") }),
+        )
+        .await;
+    assert_eq!(status, 201, "{server_side}");
+    let (status, run) = scene
+        .api
+        .post(
+            &format!("/api/v1/workflows/{}/dispatch", text(&server_side["id"])),
+            &json!({ "ref": "v1.0", "inputs": { "count": "2" } }),
+        )
+        .await;
+    assert_eq!(status, 201, "{run}");
     assert_eq!(
-        refused["error"]["message"],
-        "workflow `.bosun/workflows/ci.yml` is a file of the repository, which a dispatch runs \
-         from M1 step 30"
+        run["display_name"],
+        format!("nightly refs/tags/v1.0 {tagged} false \"false\" 2")
     );
+    assert_eq!(scene.runs().await.len(), 5);
 }

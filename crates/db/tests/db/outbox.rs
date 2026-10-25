@@ -12,7 +12,7 @@ use bosun_types::ir;
 use bosun_types::status::{Conclusion, RunConclusion, StatusReason, WaitingReason};
 use chrono::{DateTime, SubsecRound, TimeDelta, Utc};
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::{fixture, strings};
 
@@ -88,6 +88,7 @@ async fn dispatch(db: &DatabaseConnection, workflow: &Workflow, sha: Option<&str
             git_ref: Some("refs/heads/main"),
             sha,
             payload: &payload,
+            inputs: &Map::new(),
             actor: &Actor::System,
             trust: Trust::Trusted,
         },

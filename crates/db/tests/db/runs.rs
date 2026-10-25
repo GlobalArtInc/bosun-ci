@@ -15,7 +15,7 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
     TransactionTrait,
 };
-use serde_json::json;
+use serde_json::{Map, json};
 
 use crate::{fixture, rows};
 
@@ -84,6 +84,7 @@ async fn a_dispatch_creates_the_run_its_first_attempt_its_pending_jobs_and_their
             git_ref: None,
             sha: None,
             payload: &payload,
+            inputs: &Map::new(),
             actor: &actor,
             trust: Trust::Trusted,
         },
@@ -252,6 +253,7 @@ async fn run_numbers_count_per_workflow_and_a_rolled_back_dispatch_uses_none() {
                     git_ref: None,
                     sha: None,
                     payload: &json!({}),
+                    inputs: &Map::new(),
                     actor: &actor,
                     trust: Trust::Trusted,
                 },
@@ -274,6 +276,7 @@ async fn run_numbers_count_per_workflow_and_a_rolled_back_dispatch_uses_none() {
             git_ref: None,
             sha: None,
             payload: &json!({}),
+            inputs: &Map::new(),
             actor: &actor,
             trust: Trust::Trusted,
         },

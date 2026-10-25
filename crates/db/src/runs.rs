@@ -22,7 +22,7 @@ use sea_orm::{
     QueryFilter, QueryResult,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::entity::{attempt, job, run, workflow};
 use crate::journal::{self, NewEvent};
@@ -555,6 +555,7 @@ pub struct NewRun<'a> {
     pub git_ref: Option<&'a str>,
     pub sha: Option<&'a str>,
     pub payload: &'a Value,
+    pub inputs: &'a Map<String, Value>,
     pub actor: &'a Actor,
     pub trust: Trust,
 }
@@ -580,7 +581,7 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         trigger: ActiveValue::Set(json!({ "actor": actor, "payload": new.payload })),
         git_ref: ActiveValue::Set(new.git_ref.map(str::to_owned)),
         sha: ActiveValue::Set(new.sha.map(str::to_owned)),
-        inputs: ActiveValue::NotSet,
+        inputs: ActiveValue::Set(Value::Object(new.inputs.clone())),
         status: ActiveValue::Set(row::text(RUNS, RunStatus::Queued)?),
         conclusion: ActiveValue::Set(None),
         created_at: ActiveValue::NotSet,

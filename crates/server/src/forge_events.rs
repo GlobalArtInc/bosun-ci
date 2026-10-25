@@ -12,16 +12,16 @@ use bosun_db::runs::{NewRun, Trust};
 use bosun_db::workflows::Blob;
 use bosun_forge::{Comparison, EntryKind, Forge as _, Repository};
 use bosun_types::actor::Actor;
-use bosun_types::api::{ForkPolicy, Run, Workflow};
+use bosun_types::api::{ForkPolicy, Revision, Run, Workflow};
 use bosun_types::id::RevisionId;
 use bosun_types::ir::{self, Trigger};
 use sea_orm::DatabaseTransaction;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use tracing::info;
 
 pub(crate) use cache::Parses;
-pub(crate) use http::receive;
+pub(crate) use http::{full_name, readable, receive, refused};
 
 use crate::forge::Forge;
 use crate::planner;
@@ -643,6 +643,61 @@ async fn read(
     repository: &Repository,
     commit: &str,
 ) -> Result<(Vec<File>, Counted), Failed> {
+    let listed = listed(forge, binding, repository, commit).await?;
+    let mut counted = Counted::default();
+    if listed.is_empty() {
+        return Ok((Vec::new(), counted));
+    }
+    let paths: Vec<&str> = listed.iter().map(|(path, _)| path.as_str()).collect();
+    let workflows =
+        bosun_db::workflows::repository_files(transaction, binding.project.id, &paths).await?;
+    let mut files = Vec::with_capacity(listed.len());
+    for (path, blob) in &listed {
+        let Some(workflow) = workflows.iter().find(|workflow| &workflow.name == path) else {
+            return Err(bosun_db::Error::Vanished(format!("the workflow `{path}`")).into());
+        };
+        let Some(revision) =
+            revision(transaction, forge, repository, commit, workflow, blob).await?
+        else {
+            continue;
+        };
+        files.push(File {
+            workflow: workflow.clone(),
+            revision_id: revision.id,
+            lowered: parses.lowered(path, blob, &revision.source, &mut counted),
+        });
+    }
+    Ok((files, counted))
+}
+
+pub(crate) async fn file_at(
+    transaction: &DatabaseTransaction,
+    forge: &Forge,
+    parses: &Parses,
+    binding: &Binding,
+    repository: &Repository,
+    commit: &str,
+    workflow: &Workflow,
+) -> Result<Option<(RevisionId, Arc<Lowered>)>, Failed> {
+    let listed = listed(forge, binding, repository, commit).await?;
+    let Some((path, blob)) = listed.iter().find(|(path, _)| *path == workflow.name) else {
+        return Ok(None);
+    };
+    let Some(revision) = revision(transaction, forge, repository, commit, workflow, blob).await?
+    else {
+        return Ok(None);
+    };
+    let mut counted = Counted::default();
+    let lowered = parses.lowered(path, blob, &revision.source, &mut counted);
+    Ok(Some((revision.id, lowered)))
+}
+
+async fn listed(
+    forge: &Forge,
+    binding: &Binding,
+    repository: &Repository,
+    commit: &str,
+) -> Result<Vec<(String, String)>, Failed> {
     let directories = if binding.github_workflows {
         &DIRECTORIES[..]
     } else {
@@ -671,45 +726,37 @@ async fn read(
             }
         }
     }
-    let mut counted = Counted::default();
-    if listed.is_empty() {
-        return Ok((Vec::new(), counted));
+    Ok(listed)
+}
+
+async fn revision(
+    transaction: &DatabaseTransaction,
+    forge: &Forge,
+    repository: &Repository,
+    commit: &str,
+    workflow: &Workflow,
+    blob: &str,
+) -> Result<Option<Revision>, Failed> {
+    if let Some(revision) =
+        bosun_db::workflows::revision_of_blob(transaction, workflow.id, blob).await?
+    {
+        return Ok(Some(revision));
     }
-    let paths: Vec<&str> = listed.iter().map(|(path, _)| path.as_str()).collect();
-    let workflows =
-        bosun_db::workflows::repository_files(transaction, binding.project.id, &paths).await?;
-    let mut files = Vec::with_capacity(listed.len());
-    for (path, blob) in &listed {
-        let Some(workflow) = workflows.iter().find(|workflow| &workflow.name == path) else {
-            return Err(bosun_db::Error::Vanished(format!("the workflow `{path}`")).into());
-        };
-        let revision =
-            match bosun_db::workflows::revision_of_blob(transaction, workflow.id, blob).await? {
-                Some(revision) => revision,
-                None => {
-                    let Some(file) = forge.app.file(repository, commit, path).await? else {
-                        continue;
-                    };
-                    let source = String::from_utf8_lossy(&file.content).into_owned();
-                    bosun_db::workflows::add_blob(
-                        transaction,
-                        workflow.id,
-                        Blob {
-                            sha: blob,
-                            source: &source,
-                            sha256: Sha256::digest(source.as_bytes()).to_vec(),
-                        },
-                    )
-                    .await?
-                }
-            };
-        files.push(File {
-            workflow: workflow.clone(),
-            revision_id: revision.id,
-            lowered: parses.lowered(path, blob, &revision.source, &mut counted),
-        });
-    }
-    Ok((files, counted))
+    let Some(file) = forge.app.file(repository, commit, &workflow.name).await? else {
+        return Ok(None);
+    };
+    let source = String::from_utf8_lossy(&file.content).into_owned();
+    let revision = bosun_db::workflows::add_blob(
+        transaction,
+        workflow.id,
+        Blob {
+            sha: blob,
+            source: &source,
+            sha256: Sha256::digest(source.as_bytes()).to_vec(),
+        },
+    )
+    .await?;
+    Ok(Some(revision))
 }
 
 impl<'a> Candidate<'a> {
@@ -760,6 +807,7 @@ async fn plan(
         return Ok(None);
     }
     let lowered = candidate.lowered;
+    let inputs = Map::new();
     let new = |ir| NewRun {
         workflow: candidate.workflow,
         revision_id: candidate.revision_id,
@@ -768,6 +816,7 @@ async fn plan(
         git_ref: target.and_then(|target| target.git_ref.as_deref()),
         sha: target.map(|target| target.sha.as_str()),
         payload: occurrence.payload,
+        inputs: &inputs,
         actor: occurrence.actor,
         trust,
     };

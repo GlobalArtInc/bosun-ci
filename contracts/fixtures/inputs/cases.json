@@ -1,0 +1,170 @@
+[
+  {
+    "description": "a boolean given as text is a boolean in inputs and that text in github.event.inputs",
+    "declared": { "flag": { "type": "boolean" } },
+    "given": { "flag": "true" },
+    "inputs": { "flag": true },
+    "event": { "flag": "true" }
+  },
+  {
+    "description": "a boolean given as a JSON boolean is written true or false in github.event.inputs",
+    "declared": { "flag": { "type": "boolean" } },
+    "given": { "flag": false },
+    "inputs": { "flag": false },
+    "event": { "flag": "false" }
+  },
+  {
+    "description": "a number given as text is a number in inputs and keeps the text as written",
+    "declared": { "count": { "type": "number" }, "ratio": { "type": "number" } },
+    "given": { "count": "3", "ratio": "2.50" },
+    "inputs": { "count": 3, "ratio": 2.5 },
+    "event": { "count": "3", "ratio": "2.50" }
+  },
+  {
+    "description": "a number given as a JSON number is written as that number",
+    "declared": { "count": { "type": "number" }, "ratio": { "type": "number" } },
+    "given": { "count": 3, "ratio": -0.25 },
+    "inputs": { "count": 3, "ratio": -0.25 },
+    "event": { "count": "3", "ratio": "-0.25" }
+  },
+  {
+    "description": "a string, a choice within its options and an environment are text in both",
+    "declared": {
+      "name": { "description": "who to greet" },
+      "level": { "type": "choice", "options": ["debug", "info"] },
+      "target": { "type": "environment" }
+    },
+    "given": { "name": "Mona the Octocat", "level": "debug", "target": "prod1" },
+    "inputs": { "level": "debug", "name": "Mona the Octocat", "target": "prod1" },
+    "event": { "level": "debug", "name": "Mona the Octocat", "target": "prod1" }
+  },
+  {
+    "description": "the defaults apply to the inputs the dispatch does not give, a required one included",
+    "declared": {
+      "flag": { "type": "boolean", "default": true },
+      "count": { "type": "number", "default": 5 },
+      "name": { "required": true, "default": "Mona" },
+      "level": { "type": "choice", "options": ["debug", "info"], "default": "info" },
+      "target": { "type": "environment", "default": "staging" }
+    },
+    "given": {},
+    "inputs": { "count": 5, "flag": true, "level": "info", "name": "Mona", "target": "staging" },
+    "event": { "count": "5", "flag": "true", "level": "info", "name": "Mona", "target": "staging" }
+  },
+  {
+    "description": "a given value takes the place of the default",
+    "declared": { "flag": { "type": "boolean", "default": true }, "name": { "default": "Mona" } },
+    "given": { "flag": "false", "name": "" },
+    "inputs": { "flag": false, "name": "" },
+    "event": { "flag": "false", "name": "" }
+  },
+  {
+    "description": "an optional input without a default that the dispatch does not give is in neither, and github.event.inputs is null without any",
+    "declared": { "name": {}, "flag": { "type": "boolean" } },
+    "given": {},
+    "inputs": {},
+    "event": null
+  },
+  {
+    "description": "an environment input takes any text until environments arrive in M3",
+    "declared": { "target": { "type": "environment" } },
+    "given": { "target": "an environment nobody made" },
+    "inputs": { "target": "an environment nobody made" },
+    "event": { "target": "an environment nobody made" }
+  },
+  {
+    "description": "an undeclared input is invalid_input naming it",
+    "declared": { "flag": { "type": "boolean" } },
+    "given": { "flag": "true", "colour": "blue" },
+    "fields": [
+      { "field": "inputs.colour", "message": "the workflow declares no input `colour`" }
+    ]
+  },
+  {
+    "description": "a workflow without inputs declares none, so every input is undeclared",
+    "declared": null,
+    "given": { "flag": "true" },
+    "fields": [
+      { "field": "inputs.flag", "message": "the workflow declares no input `flag`" }
+    ]
+  },
+  {
+    "description": "a choice outside its options is invalid_input naming it",
+    "declared": { "level": { "type": "choice", "options": ["debug", "info", "warning"] } },
+    "given": { "level": "trace" },
+    "fields": [
+      {
+        "field": "inputs.level",
+        "message": "the input `level` is one of `debug`, `info` or `warning`, and `trace` is not"
+      }
+    ]
+  },
+  {
+    "description": "a missing required input without a default is invalid_input naming it",
+    "declared": { "name": { "required": true } },
+    "given": {},
+    "fields": [
+      { "field": "inputs.name", "message": "the input `name` is required, and has no default" }
+    ]
+  },
+  {
+    "description": "a boolean is true or false, in that case, as text or as a JSON boolean",
+    "declared": { "flag": { "type": "boolean" }, "other": { "type": "boolean" } },
+    "given": { "flag": "True", "other": 1 },
+    "fields": [
+      {
+        "field": "inputs.flag",
+        "message": "the input `flag` is a boolean, which is `true` or `false`, and `True` is neither"
+      },
+      {
+        "field": "inputs.other",
+        "message": "the input `other` is a boolean, which is `true` or `false`, and `1` is neither"
+      }
+    ]
+  },
+  {
+    "description": "a number given as text reads as a JSON number, without spaces or a sign of plus",
+    "declared": {
+      "a": { "type": "number" },
+      "b": { "type": "number" },
+      "c": { "type": "number" },
+      "d": { "type": "number" },
+      "e": { "type": "number" }
+    },
+    "given": { "a": "three", "b": " 3", "c": "+3", "d": "", "e": true },
+    "fields": [
+      { "field": "inputs.a", "message": "the input `a` is a number, and `three` does not read as one" },
+      { "field": "inputs.b", "message": "the input `b` is a number, and ` 3` does not read as one" },
+      { "field": "inputs.c", "message": "the input `c` is a number, and `+3` does not read as one" },
+      { "field": "inputs.d", "message": "the input `d` is a number, and `` does not read as one" },
+      { "field": "inputs.e", "message": "the input `e` is a number, and `true` is not one" }
+    ]
+  },
+  {
+    "description": "a string, a choice and an environment take text, not JSON values of other types",
+    "declared": {
+      "name": {},
+      "level": { "type": "choice", "options": ["debug", "info"] },
+      "target": { "type": "environment" }
+    },
+    "given": { "name": 3, "level": 1, "target": null },
+    "fields": [
+      { "field": "inputs.level", "message": "the input `level` is one of `debug` or `info`, and `1` is not" },
+      { "field": "inputs.name", "message": "the input `name` is a string, and `3` is not text" },
+      {
+        "field": "inputs.target",
+        "message": "the input `target` names an environment, and `null` is not text"
+      }
+    ]
+  },
+  {
+    "description": "every input at fault is named, in the order of the names",
+    "declared": { "zone": { "required": true }, "count": { "type": "number" } },
+    "given": { "count": "many", "extra": "1" },
+    "fields": [
+      { "field": "inputs.count", "message": "the input `count` is a number, and `many` does not read as one" },
+      { "field": "inputs.extra", "message": "the workflow declares no input `extra`" },
+      { "field": "inputs.zone", "message": "the input `zone` is required, and has no default" }
+    ]
+  }
+]

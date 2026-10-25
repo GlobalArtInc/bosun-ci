@@ -1,4 +1,7 @@
 {
-  "ref": null,
-  "inputs": {}
+  "ref": "v1.0",
+  "inputs": {
+    "flag": "true",
+    "count": 3
+  }
 }

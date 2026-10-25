@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
-scenarios="$scenarios log-search secrets lint admission interface"
+scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -1096,6 +1096,51 @@ EOF
   grep -qE '^status +completed cancelled$' "$shown" || fail "bosun run show printed: $(cat "$shown")"
   grep -qE "^hold +hold +completed cancelled +$job\$" "$shown" ||
     fail "bosun run show does not show the cancelled job: $(cat "$shown")"
+  passed
+}
+
+scenario_dispatch_inputs() {
+  begin dispatch-inputs \
+    "bosun workflow dispatch --input passes inputs that a step sees typed, and an undeclared one is refused"
+  local refused="$work/out/inputs-refused.txt" twice="$work/out/inputs-twice.txt"
+  push inputs <<'EOF'
+name: inputs
+on:
+  workflow_dispatch:
+    inputs:
+      flag:
+        type: boolean
+      count:
+        type: number
+      level:
+        type: choice
+        options: [debug, info]
+        default: info
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - run: echo '${{ toJSON(inputs.flag) }} ${{ toJSON(github.event.inputs.flag) }} ${{ toJSON(inputs.count) }} ${{ inputs.level }}'
+EOF
+  watched="$work/out/watch-inputs.txt"
+  spawn watch-inputs "$watched" "$bin/bosun" --profile a workflow dispatch e2e/m0/inputs \
+    --input flag=true --input count=3 --watch
+  watcher=$spawned
+  watch_ended 60 inputs
+  [ "$reaped" -eq 0 ] ||
+    fail "bosun workflow dispatch --watch with inputs exited with $reaped: $(cat "$watched")"
+  expect_line "$watched" 'build | true "true" 3 info' "the step did not see the inputs typed"
+  if cli --profile a workflow dispatch e2e/m0/inputs --input colour=blue >"$refused" 2>&1; then
+    fail "a dispatch with an undeclared input was accepted: $(cat "$refused")"
+  fi
+  expect_line "$refused" "error: the dispatch is not valid" "the refused dispatch did not say why"
+  expect_line "$refused" '  inputs.colour: the workflow declares no input `colour`' \
+    "the refused dispatch did not name the input"
+  if cli --profile a workflow dispatch e2e/m0/inputs --input flag=true --input flag=false \
+    >"$twice" 2>&1; then
+    fail "a dispatch with an input given twice was sent: $(cat "$twice")"
+  fi
+  expect_line "$twice" 'error: --input gives `flag` twice' "an input given twice was not refused"
   passed
 }
 

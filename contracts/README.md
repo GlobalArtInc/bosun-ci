@@ -87,6 +87,11 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   with a `description`, the `name` given, and the name it is `stored` as, or `null` when the name
   breaks the target's rules. The server's tests send every case to `POST /api/v1/secrets` and
   `POST /api/v1/variables`.
+- `fixtures/inputs/`: `cases.json`, from step 30 of M1, the inputs of a dispatch. Each case has a
+  `description`, the `declared` inputs of `on.workflow_dispatch.inputs` written as JSON, or `null`
+  for a workflow that declares none, and the `inputs` it is `given`; it expects either the `inputs`
+  context of the run and `event`, the `inputs` of its payload, or the `fields` of the refusal. The
+  server's tests dispatch each case to a server-side workflow.
 - `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from step 6 of M1.
   Every key of the tables of arrivals and of extensions in `docs/design/02-workflows.md` carries
   its milestone as `x-bosun-from`, and every extension `x-bosun-extension: true`.
@@ -106,6 +111,9 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   with those of a run of two jobs, one using an action declared `node16` and one using an action
   of a private repository its organisation's installation cannot see, each assigned once, with
   each `job_id` taken as the id of its job.
+- `fixtures/api/dispatch.json`: from step 30 of M1, the server's tests send it to a repository
+  workflow of a project bound to the fake forge, whose file at the tag `v1.0` declares the inputs
+  it gives, and compare the run with the file of that tag.
 - `fixtures/api/me.json`: from step 9 of M1, the server's tests compare its `permissions` with
   those `GET /api/v1/me` lists for a user bound as the fixture describes
   ([../docs/design/11-api.md](../docs/design/11-api.md#permissions)).

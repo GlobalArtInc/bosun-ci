@@ -2,6 +2,7 @@ mod access;
 mod actions;
 mod admission;
 mod cancel;
+mod dispatch;
 mod evaluation;
 mod events;
 mod forge_events;
@@ -53,7 +54,7 @@ use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
 };
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::actions::Actions;
 use crate::agents::progress::{self, JobEnd, Progress, Reporter};
@@ -269,6 +270,7 @@ impl World {
                 git_ref: None,
                 sha: None,
                 payload: &payload,
+                inputs: &Map::new(),
                 actor: &operator(),
                 trust,
             },

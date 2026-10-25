@@ -231,8 +231,8 @@ The planner evaluates the server's keys with these contexts:
   for `run-name`. The workspace is the agent's, so `github.workspace` is empty on the server.
   `retention_days` is 90, the default of the log retention ([07-storage.md](07-storage.md)), until
   project settings change it.
-- `inputs`, the run's inputs, which are empty until dispatch inputs arrive (step 30 of
-  [../plan.md](../plan.md)).
+- `inputs`, the inputs of a dispatch with their types, as
+  [02-workflows.md](02-workflows.md#dispatch-inputs) specifies, and empty for every other event.
 - `vars`, the variables of the run's organisation and project, read when the planner takes the run
   on, a project's variable shadowing its organisation's of the same name
   ([08-access.md](08-access.md#secrets-and-variables)). The names are in upper case, and a property

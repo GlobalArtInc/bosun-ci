@@ -468,7 +468,7 @@ pub struct LintResponse {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DispatchRequest {
     pub r#ref: Option<String>,
     pub inputs: BTreeMap<String, Value>,

@@ -325,6 +325,39 @@ or their absence. The cases are in `contracts/fixtures/triggers/`.
 
 Every filter of a trigger must be met, and a workflow matches when one of its triggers does.
 
+#### Dispatch inputs
+
+Step 30 of M1 ([../plan.md](../plan.md)) settled how a dispatch's inputs are read; the request is
+in [11-api.md](11-api.md#projects-and-server-side-workflows) and the cases are in
+`contracts/fixtures/inputs/`. The declared inputs are those of the `workflow_dispatch` trigger of
+the source the run takes, the repository file at the dispatched commit or the current revision of a
+server-side workflow; a workflow without that trigger or without `inputs` declares none. A given
+input is matched by its exact name.
+
+- A `boolean` takes the JSON booleans and the texts `true` and `false`, in lower case.
+- A `number` takes a JSON number, or a text that reads as one by the JSON grammar, so ` 3`, `+3`,
+  `.5` and the empty text do not.
+- A `string` takes any text, the empty text included, and a `choice` one of its options, compared
+  exactly. An `environment` takes any text, as a `string` does, since environments arrive in M3,
+  which checks it against the environments of the project; the target offers the repository's
+  environments to choose from.
+- None of these takes a JSON value of another kind, `null` included, where it takes text.
+- An input that the dispatch does not give takes its default. A required input without a default
+  that the dispatch does not give is refused; `required` decides nothing else, as in the target.
+  Any other input that is not given is left out of both contexts below, so it reads as `null`: an
+  empty text in a template and false in a condition.
+- An input that the workflow does not declare is refused.
+
+Each refused input is an entry of `fields` named `inputs.<name>`, in the order of the names, and
+nothing is stored. Otherwise the run keeps the inputs with their types as the `inputs` context:
+booleans as booleans, numbers as numbers, with a whole number stored as an integer, and the others
+as text. `github.event.inputs`, in the payload of
+[06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment), holds each
+of them as text: a value given as text as it was written, so `2.50` stays `2.50` there while
+`inputs` holds `2.5`; a JSON number and a default as the shortest decimal of their value; a boolean
+as `true` or `false`. It is `null` when no input has a value. Neither changes after the run is
+created ([04-runs.md](04-runs.md)).
+
 ### Jobs
 
 `name`, `needs`, `if`, `runs-on`, `environment`, `concurrency`, `outputs`, `env`, `defaults`,
