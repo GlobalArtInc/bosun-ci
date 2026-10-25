@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
 
+use bosun_blob::{Key, Store as _};
 use bosun_db::Error;
 use bosun_db::control::{self, Kind};
+use bosun_db::results::Summary;
 use bosun_db::runs::{ExecutionState, Locked};
 use bosun_types::actor::Actor;
+use bosun_types::api::Annotation;
 use bosun_types::id::{AgentId, ExecutionId};
 use bosun_types::status::{Conclusion, ExecutionStatus, StatusReason};
 use chrono::{DateTime, Utc};
@@ -12,6 +15,7 @@ use tracing::warn;
 
 use crate::planner;
 use crate::site::Site;
+use crate::store::Backend;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Progress {
@@ -40,6 +44,8 @@ pub(crate) struct StepEnd {
     pub(crate) outcome: Conclusion,
     pub(crate) conclusion: Conclusion,
     pub(crate) outputs: BTreeMap<String, String>,
+    pub(crate) annotations: Vec<Annotation>,
+    pub(crate) summary: Option<String>,
 }
 
 pub(crate) struct JobEnd {
@@ -114,33 +120,104 @@ pub(crate) async fn step_started(
 
 pub(crate) async fn step_finished(
     db: &DatabaseConnection,
+    store: &Backend,
     agent: &Reporter,
     execution: ExecutionId,
     end: StepEnd,
+) -> Result<Progress, Error> {
+    let summary = match end.summary {
+        Some(text) => summarise(db, store, agent, execution, end.index, text).await?,
+        None => None,
+    };
+    let finished = finish_step(
+        db,
+        agent,
+        execution,
+        end.index,
+        bosun_db::runs::StepEnd {
+            outcome: end.outcome,
+            conclusion: end.conclusion,
+            at: end.at,
+            outputs: end.outputs,
+            annotations: end.annotations,
+            summary: summary.clone(),
+        },
+    )
+    .await;
+    if let (Some(summary), Ok(Progress::Ignored(_))) = (&summary, &finished) {
+        forget(store, execution, summary).await;
+    }
+    finished
+}
+
+async fn finish_step(
+    db: &DatabaseConnection,
+    agent: &Reporter,
+    execution: ExecutionId,
+    index: u32,
+    end: bosun_db::runs::StepEnd,
 ) -> Result<Progress, Error> {
     let transaction = db.begin().await?;
     let run = match open(&transaction, agent, execution).await? {
         Opened::Found(run, _) => run,
         Opened::Ignored(reason) => return Ok(Progress::Ignored(reason)),
     };
-    let finished = run
-        .finish_step(
-            execution,
-            end.index,
-            bosun_db::runs::StepEnd {
-                outcome: end.outcome,
-                conclusion: end.conclusion,
-                at: end.at,
-                outputs: end.outputs,
-            },
-            &agent.actor(),
-        )
-        .await;
+    let finished = run.finish_step(execution, index, end, &agent.actor()).await;
     if let Some(reason) = tolerated(finished)? {
         return Ok(Progress::Ignored(reason));
     }
     transaction.commit().await?;
     Ok(Progress::Applied)
+}
+
+async fn summarise(
+    db: &DatabaseConnection,
+    store: &Backend,
+    agent: &Reporter,
+    execution: ExecutionId,
+    index: u32,
+    text: String,
+) -> Result<Option<Summary>, Error> {
+    let Some(step) = bosun_db::results::summary_target(db, agent.id, execution, index).await?
+    else {
+        return Ok(None);
+    };
+    let key = format!("summaries/{execution}/{step}.md");
+    let size = text.len() as u64;
+    let stored = match Key::new(key.clone()) {
+        Ok(object) => store
+            .put(&object, text.as_bytes())
+            .await
+            .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    match stored {
+        Ok(()) => Ok(Some(Summary { key, size })),
+        Err(error) => {
+            warn!(
+                execution_id = %execution,
+                step_id = %step,
+                %error,
+                "the summary of a step could not be stored, so the step has none"
+            );
+            Ok(None)
+        }
+    }
+}
+
+async fn forget(store: &Backend, execution: ExecutionId, summary: &Summary) {
+    let deleted = match Key::new(summary.key.clone()) {
+        Ok(key) => store.delete(&key).await.map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    if let Err(error) = deleted {
+        warn!(
+            execution_id = %execution,
+            key = summary.key,
+            %error,
+            "the summary of a step whose end was not recorded could not be removed"
+        );
+    }
 }
 
 pub(crate) async fn job_finished(

@@ -7,6 +7,7 @@ pub struct Model {
     pub job_id: Uuid,
     pub id: i64,
     pub created_at: DateTimeUtc,
+    pub annotations: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

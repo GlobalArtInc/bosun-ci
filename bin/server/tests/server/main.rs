@@ -20,6 +20,7 @@ mod projects;
 mod proxy;
 mod queue;
 mod reports;
+mod results;
 mod runs;
 mod secrets;
 mod shutdown;

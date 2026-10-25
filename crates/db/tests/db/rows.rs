@@ -1,10 +1,10 @@
 use bosun_db::entity::{
-    action_ref, agent, api_token, api_token_scope, attempt, control_message, execution,
+    action_ref, agent, annotation, api_token, api_token_scope, attempt, control_message, execution,
     forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
     log_chunk, log_object, oidc_state, organisation, outbox, pool_access, project,
     registration_token, role, role_binding, run, run_event, secret, session, sign_in_failure, step,
-    stream_event, team, team_member, tool_object, user, user_identity, variable, webhook_delivery,
-    workflow, workflow_revision,
+    step_summary, stream_event, team, team_member, tool_object, user, user_identity, variable,
+    webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -85,6 +85,8 @@ pub struct Rows {
     pub stream_event: stream_event::Model,
     pub log_chunk: log_chunk::Model,
     pub log_object: log_object::Model,
+    pub annotation: annotation::Model,
+    pub step_summary: step_summary::Model,
     pub control_message: control_message::Model,
     pub idempotency_key: idempotency_key::Model,
     pub session: session::Model,
@@ -451,6 +453,32 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a log object");
 
+    let annotation = annotation::ActiveModel {
+        step_id: ActiveValue::Set(id(STEP)),
+        ordinal: ActiveValue::Set(0),
+        kind: ActiveValue::Set("error".to_owned()),
+        message: ActiveValue::Set(format!("expected `;` {label}")),
+        title: ActiveValue::Set(Some("rustc".to_owned())),
+        file: ActiveValue::Set(Some("crates/types/src/api.rs".to_owned())),
+        line: ActiveValue::Set(Some(41)),
+        end_line: ActiveValue::Set(Some(41)),
+        start_column: ActiveValue::Set(Some(9)),
+        end_column: ActiveValue::Set(Some(4_294_967_295)),
+    }
+    .insert(db)
+    .await
+    .expect("an annotation");
+
+    let step_summary = step_summary::ActiveModel {
+        step_id: ActiveValue::Set(id(STEP)),
+        key: ActiveValue::Set(format!("summaries/{}/{}.md", id(EXECUTION), id(STEP))),
+        size: ActiveValue::Set(2048),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a step summary");
+
     let control_message = control_message::ActiveModel {
         id: ActiveValue::Set(id(CONTROL)),
         execution_id: ActiveValue::Set(id(EXECUTION)),
@@ -630,6 +658,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         job_id: ActiveValue::Set(id(BUILD)),
         id: ActiveValue::Set(CHECK_RUN),
         created_at: ActiveValue::Set(at("2026-10-24T18:34:51.25Z")),
+        annotations: ActiveValue::Set(50),
     }
     .insert(db)
     .await
@@ -683,6 +712,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         stream_event,
         log_chunk,
         log_object,
+        annotation,
+        step_summary,
         control_message,
         idempotency_key,
         session,
@@ -757,6 +788,8 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
             .expect("a stream event"),
         log_chunk: one::<_, log_chunk::Entity>(db, (id(EXECUTION), 1)).await,
         log_object: one::<_, log_object::Entity>(db, id(STEP)).await,
+        annotation: one::<_, annotation::Entity>(db, (id(STEP), 0)).await,
+        step_summary: one::<_, step_summary::Entity>(db, id(STEP)).await,
         control_message: one::<_, control_message::Entity>(db, id(CONTROL)).await,
         idempotency_key: one::<_, idempotency_key::Entity>(
             db,

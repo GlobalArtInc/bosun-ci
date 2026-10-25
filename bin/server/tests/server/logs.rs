@@ -441,6 +441,62 @@ async fn a_follower_attached_in_the_middle_of_a_step_receives_every_line_once_be
     );
 }
 
+fn found(numbers: impl IntoIterator<Item = u64>) -> Value {
+    let matches: Vec<Value> = numbers
+        .into_iter()
+        .map(|number| json!({ "number": number, "line": line(number) }))
+        .collect();
+    json!({ "matches": matches })
+}
+
+fn parsed(body: &str) -> Value {
+    serde_json::from_str(body).unwrap_or_else(|error| panic!("{error}: {body}"))
+}
+
+fn twelves() -> impl Iterator<Item = u64> {
+    [12].into_iter().chain(120..=129).chain(1200..=1299)
+}
+
+#[tokio::test]
+async fn a_search_returns_the_same_lines_with_the_same_numbers_before_and_after_compaction() {
+    let bench = Bench::start(1).await;
+    let mut job = bench.job(0).await;
+    let path = bench.log_path(&job, 0);
+    for (seq, from) in (1..=5).zip((1..).step_by(500)) {
+        job.log(0, seq, from, from + 499).await;
+    }
+    let searches = [
+        ("?search=LINE%2012", found(twelves())),
+        ("?search=line%201&offset=1250&limit=3", found(1251..=1253)),
+        ("?search=line%2012&offset=1000", found(1200..=1299)),
+        ("?search=line%202500&limit=1", found([2500])),
+        ("?search=10%3A00", found([])),
+        ("?search=line&offset=2500", found([])),
+    ];
+    let mut before = Vec::new();
+    for (query, expected) in &searches {
+        let (status, body) = bench.read(0, &format!("{path}{query}")).await;
+        assert_eq!((status, parsed(&body)), (200, expected.clone()), "{query}");
+        before.push(body);
+    }
+    job.finish_step(0);
+    job.start_step(1);
+    job.finish_step(1);
+    job.finish();
+    bench.until_compacted(&job.execution).await;
+    for ((query, _), before) in searches.iter().zip(before) {
+        assert_eq!(
+            bench.read(0, &format!("{path}{query}")).await,
+            (200, before),
+            "{query} after the compaction"
+        );
+    }
+    let (status, body) = bench
+        .read(0, &format!("{}?search=line", bench.log_path(&job, 1)))
+        .await;
+    assert_eq!((status, parsed(&body)), (200, found([])));
+}
+
 #[tokio::test]
 async fn a_server_configured_with_s3_compacts_logs_into_it_and_serves_them_by_range() {
     let bench = Bench::on_s3(2).await;
@@ -505,6 +561,8 @@ async fn a_server_configured_with_s3_compacts_logs_into_it_and_serves_them_by_ra
         bench.follow(1, &path, Some(2497)).await.rest().await,
         (numbered(2498, 2500), 2500)
     );
+    let (status, body) = bench.read(1, &format!("{path}?search=line%2012")).await;
+    assert_eq!((status, parsed(&body)), (200, found(twelves())));
     assert_eq!(
         bench.read(1, &bench.log_path(&job, 1)).await,
         (200, lines(2501, 2502))
@@ -567,9 +625,21 @@ async fn the_log_of_a_step_refuses_what_it_cannot_serve() {
             "`follow` is `yes`, which is neither `true` nor `false`".to_owned(),
         ),
         (
-            format!("{path}?search=error"),
+            format!("{path}?grep=error"),
             422,
-            "a log has no query parameter `search`; it takes `offset`, `limit` and `follow`"
+            "a log has no query parameter `grep`; it takes `offset`, `limit`, `follow` and \
+             `search`"
+                .to_owned(),
+        ),
+        (
+            format!("{path}?search="),
+            422,
+            "`search` is empty, and a search needs a text to find".to_owned(),
+        ),
+        (
+            format!("{path}?follow=true&search=error"),
+            422,
+            "`search` does not apply to a followed log; a search reads the lines stored so far"
                 .to_owned(),
         ),
         (

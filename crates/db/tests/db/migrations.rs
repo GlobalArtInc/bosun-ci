@@ -7,7 +7,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::strings;
 
-const TABLES: [&str; 41] = [
+const TABLES: [&str; 43] = [
     "organisation",
     "project",
     "user",
@@ -49,6 +49,8 @@ const TABLES: [&str; 41] = [
     "tool_object",
     "user_identity",
     "oidc_state",
+    "annotation",
+    "step_summary",
 ];
 
 const LEDGER: [&str; 2] = ["migrations", "migrations_checksum"];

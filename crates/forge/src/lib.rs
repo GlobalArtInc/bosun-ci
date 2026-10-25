@@ -7,6 +7,7 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use bosun_types::api::Annotation;
 use bosun_types::status::Conclusion;
 use chrono::{DateTime, Utc};
 use tokio::io::{AsyncRead, ReadBuf};
@@ -181,11 +182,23 @@ impl fmt::Debug for InstallationToken {
     }
 }
 
+pub const SUMMARY_LIMIT: usize = 65_535;
+
+pub const ANNOTATIONS_PER_REQUEST: usize = 50;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckRun {
     pub name: String,
     pub details_url: Option<String>,
     pub status: CheckStatus,
+    pub output: Option<CheckOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckOutput {
+    pub title: String,
+    pub summary: String,
+    pub annotations: Vec<Annotation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

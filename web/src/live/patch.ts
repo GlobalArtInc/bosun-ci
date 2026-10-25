@@ -295,6 +295,8 @@ function stepCreated(queryClient: QueryClient, event: Of<'step.created'>) {
     conclusion_source: null,
     started_at: null,
     completed_at: null,
+    annotations: [],
+    summary_size: null,
   };
   revise<Execution>(queryClient, executionKey(execution), (known) =>
     known.steps.some((other) => other.id === id)

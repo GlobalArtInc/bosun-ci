@@ -51,6 +51,12 @@ pub enum State {
     Completed(RunConclusion),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReportedCheckRun {
+    pub id: u64,
+    pub annotations: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Claimed {
     pub id: u64,
@@ -363,25 +369,38 @@ pub async fn pending<C: ConnectionTrait>(db: &C) -> Result<u64, Error> {
     row::unsigned(TABLE, found.try_get("", "pending")?)
 }
 
-pub async fn check_run<C: ConnectionTrait>(db: &C, job: JobId) -> Result<Option<u64>, Error> {
+pub async fn check_run<C: ConnectionTrait>(
+    db: &C,
+    job: JobId,
+) -> Result<Option<ReportedCheckRun>, Error> {
     db.query_one(statement(
-        "SELECT id FROM forge_check_run WHERE job_id = $1",
+        "SELECT id, annotations FROM forge_check_run WHERE job_id = $1",
         [Uuid::from(job).into()],
     ))
     .await?
-    .map(|found| row::unsigned(CHECK_RUNS, found.try_get("", "id")?))
+    .map(|found| {
+        Ok(ReportedCheckRun {
+            id: row::unsigned(CHECK_RUNS, found.try_get("", "id")?)?,
+            annotations: row::unsigned(CHECK_RUNS, found.try_get("", "annotations")?)?,
+        })
+    })
     .transpose()
 }
 
 pub async fn record_check_run<C: ConnectionTrait>(
     db: &C,
     job: JobId,
-    id: u64,
+    reported: &ReportedCheckRun,
 ) -> Result<(), Error> {
     db.execute(statement(
-        "INSERT INTO forge_check_run (job_id, id) SELECT $1, $2 \
-         WHERE EXISTS (SELECT 1 FROM job WHERE id = $1) ON CONFLICT (job_id) DO NOTHING",
-        [Uuid::from(job).into(), row::signed(CHECK_RUNS, id)?.into()],
+        "INSERT INTO forge_check_run (job_id, id, annotations) SELECT $1, $2, $3 \
+         WHERE EXISTS (SELECT 1 FROM job WHERE id = $1) ON CONFLICT (job_id) DO UPDATE \
+         SET annotations = EXCLUDED.annotations WHERE forge_check_run.id = EXCLUDED.id",
+        [
+            Uuid::from(job).into(),
+            row::signed(CHECK_RUNS, reported.id)?.into(),
+            row::signed(CHECK_RUNS, reported.annotations)?.into(),
+        ],
     ))
     .await?;
     Ok(())

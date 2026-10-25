@@ -3,6 +3,7 @@ mod followers;
 mod http;
 mod object;
 pub(crate) mod reader;
+mod search;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 

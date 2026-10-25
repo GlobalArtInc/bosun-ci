@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use bosun_db::installations::Account;
 use bosun_db::runs::NewRun;
 use bosun_testkit::forge::{APP_ID, APP_KEY, FakeForge, RecordedCheckRun, RecordedStatus};
-use bosun_types::api::{Reporting, Repository};
+use bosun_types::api::{Annotation, AnnotationKind, Reporting, Repository};
 use bosun_types::event::Event;
 use bosun_types::id::{JobId, RunId};
 use bosun_types::ir;
@@ -16,7 +17,7 @@ use tempfile::TempDir;
 use tracing_subscriber::fmt::MakeWriter;
 
 use super::{World, finished, job_cancel, operator, site, template, workflow};
-use crate::agents::progress::{self, Progress};
+use crate::agents::progress::{self, Progress, StepEnd};
 use crate::clock::Clock;
 use crate::config::GitHub;
 use crate::outbox::{self, Outbox};
@@ -95,6 +96,7 @@ impl Scene {
         Scene {
             outbox: Outbox {
                 db: db.clone(),
+                store: Arc::clone(world.store()),
                 forge: Arc::new(forge),
                 site: site(),
                 clock: clock.clone(),
@@ -243,6 +245,7 @@ async fn while_the_forge_fails_a_job_changes_state_five_times_and_is_reported_on
             details_url: details(run, job),
             status: "completed".to_owned(),
             conclusion: Some("cancelled".to_owned()),
+            output: None,
         }]
     );
     assert_eq!(scene.rows().await, Vec::new());
@@ -443,6 +446,106 @@ async fn a_startup_failure_is_reported_as_a_settled_check_run_named_after_its_wo
             details_url: Some(format!("https://ci.example.org/runs/{}", failed.id)),
             status: "completed".to_owned(),
             conclusion: Some("failure".to_owned()),
+            output: None,
         }]
+    );
+}
+
+fn noted(step: u32, number: u32) -> Annotation {
+    Annotation {
+        kind: AnnotationKind::Warning,
+        message: format!("warning {number} of step {step}"),
+        title: None,
+        file: None,
+        line: None,
+        end_line: None,
+        column: None,
+        end_column: None,
+    }
+}
+
+#[tokio::test]
+async fn a_completed_job_sends_only_the_annotations_its_check_run_lacks() {
+    let scene = Scene::new().await;
+    let (run, job) = scene
+        .dispatch(&workflow(vec![template("build", &[], 3)]))
+        .await;
+    assert_eq!(scene.drain().await, 1);
+    let world = &scene.world;
+    let execution = world.start(run, job).await;
+    for step in 0..3 {
+        progress::step_started(world.db(), world.agent(), execution, step, None)
+            .await
+            .expect("a started step");
+        let ended = progress::step_finished(
+            world.db(),
+            world.store(),
+            world.agent(),
+            execution,
+            StepEnd {
+                index: step,
+                at: None,
+                outcome: Conclusion::Success,
+                conclusion: Conclusion::Success,
+                outputs: BTreeMap::new(),
+                annotations: (0..40).map(|number| noted(step, number)).collect(),
+                summary: None,
+            },
+        )
+        .await
+        .expect("a finished step");
+        assert_eq!(ended, Progress::Applied);
+    }
+    world.end(execution, finished(Conclusion::Success)).await;
+    world
+        .db()
+        .execute_unprepared(&format!(
+            "UPDATE bosun.forge_check_run SET annotations = 50 WHERE job_id = '{job}'"
+        ))
+        .await
+        .expect("a check run that holds 50 annotations");
+    assert_eq!(scene.drain().await, 1);
+
+    let batches: Vec<usize> = scene
+        .reports()
+        .into_iter()
+        .filter_map(|(_, _, body)| body)
+        .filter_map(|body| {
+            body.pointer("/output/annotations")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+        })
+        .collect();
+    assert_eq!(batches, [50, 20]);
+    let check_runs = scene.fake.check_runs();
+    let output = check_runs[0].output.as_ref().expect("an output");
+    assert_eq!(
+        (output.title.as_str(), output.summary.as_str()),
+        ("build", "The steps of this job wrote no summary.")
+    );
+    let messages: Vec<&str> = output
+        .annotations
+        .iter()
+        .map(|annotation| annotation.message.as_str())
+        .collect();
+    let expected: Vec<String> = (0..3)
+        .flat_map(|step| (0..40).map(move |number| format!("warning {number} of step {step}")))
+        .skip(50)
+        .collect();
+    assert_eq!(messages, expected);
+    assert!(
+        output
+            .annotations
+            .iter()
+            .all(|annotation| annotation.path == ".github" && annotation.start_line == 1),
+        "{:#?}",
+        output.annotations
+    );
+    assert_eq!(
+        bosun_db::outbox::check_run(world.db(), job)
+            .await
+            .expect("a lookup")
+            .map(|recorded| recorded.annotations),
+        Some(120)
     );
 }

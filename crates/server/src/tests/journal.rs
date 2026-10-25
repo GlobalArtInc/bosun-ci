@@ -545,6 +545,7 @@ pub(super) async fn perform(
         Action::FinishStep(execution, index, result) => {
             progress::step_finished(
                 db,
+                world.store(),
                 agent,
                 execution,
                 StepEnd {
@@ -553,6 +554,8 @@ pub(super) async fn perform(
                     outcome: result,
                     conclusion: result,
                     outputs: BTreeMap::new(),
+                    annotations: Vec::new(),
+                    summary: None,
                 },
             )
             .await

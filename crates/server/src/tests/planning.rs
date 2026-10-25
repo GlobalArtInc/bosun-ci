@@ -110,6 +110,7 @@ async fn a_job_waits_for_every_job_it_needs_and_the_run_succeeds_when_all_do() {
                 (
                     progress::step_finished(
                         world.db(),
+                        world.store(),
                         agent,
                         execution,
                         StepEnd {
@@ -118,6 +119,8 @@ async fn a_job_waits_for_every_job_it_needs_and_the_run_succeeds_when_all_do() {
                             outcome: Conclusion::Success,
                             conclusion: Conclusion::Success,
                             outputs: BTreeMap::new(),
+                            annotations: Vec::new(),
+                            summary: None,
                         },
                     )
                     .await,
@@ -365,6 +368,7 @@ async fn a_failing_step_fails_its_job_skips_its_dependents_and_fails_the_run() {
         .expect("a started step");
     progress::step_finished(
         world.db(),
+        world.store(),
         agent,
         execution,
         StepEnd {
@@ -373,6 +377,8 @@ async fn a_failing_step_fails_its_job_skips_its_dependents_and_fails_the_run() {
             outcome: Conclusion::Failure,
             conclusion: Conclusion::Failure,
             outputs: BTreeMap::new(),
+            annotations: Vec::new(),
+            summary: None,
         },
     )
     .await

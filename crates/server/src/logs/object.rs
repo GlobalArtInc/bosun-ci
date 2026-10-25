@@ -1,4 +1,4 @@
-use std::io::{self, Read};
+use std::io::{self, BufRead, BufReader, Read};
 use std::mem;
 
 use ruzstd::decoding::StreamingDecoder;
@@ -69,6 +69,25 @@ impl Encoder {
     }
 }
 
+pub(crate) fn each_line(reader: impl Read, mut each: impl FnMut(&[u8]) -> bool) -> io::Result<()> {
+    let mut input = BufReader::new(reader);
+    let mut line = Vec::new();
+    while !input.fill_buf()?.is_empty() {
+        let mut frame =
+            BufReader::new(StreamingDecoder::new(&mut input).map_err(io::Error::other)?);
+        loop {
+            line.clear();
+            if frame.read_until(b'\n', &mut line)? == 0 {
+                break;
+            }
+            if !each(line.strip_suffix(b"\n").unwrap_or(&line)) {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn decode(frame: Vec<u8>) -> io::Result<Vec<u8>> {
     task::spawn_blocking(move || {
         let mut decoder = StreamingDecoder::new(&frame[..]).map_err(io::Error::other)?;
@@ -86,7 +105,7 @@ mod tests {
 
     use ruzstd::decoding::StreamingDecoder;
 
-    use super::{Encoder, FRAME_LINES, decode, lines};
+    use super::{Encoder, FRAME_LINES, decode, each_line, lines};
 
     fn text(count: u64) -> Vec<u8> {
         (1..=count)
@@ -150,6 +169,37 @@ mod tests {
         assert_eq!(numbers.len() as u64, FRAME_LINES);
         assert_eq!(numbers.first().map(String::as_str), Some("1001"));
         assert_eq!(numbers.last().map(String::as_str), Some("2000"));
+    }
+
+    #[tokio::test]
+    async fn the_lines_of_an_object_stream_out_of_its_frames_in_order() {
+        let mut encoder = Encoder::default();
+        let all = text(2 * FRAME_LINES + 5);
+        encoder.push(&all).await.expect("pushed");
+        let encoded = encoder.finish().await.expect("encoded").expect("an object");
+        let mut streamed = Vec::new();
+        each_line(&encoded.bytes[..], |line| {
+            streamed.extend_from_slice(line);
+            streamed.push(b'\n');
+            true
+        })
+        .expect("a stream");
+        assert_eq!(streamed, all);
+
+        let from = encoded.frames[1] as usize;
+        let mut first = None;
+        let mut seen = 0;
+        each_line(&encoded.bytes[from..], |line| {
+            first.get_or_insert_with(|| line.to_vec());
+            seen += 1;
+            seen < 3
+        })
+        .expect("a stream from the second frame");
+        assert_eq!(seen, 3);
+        assert_eq!(
+            first.as_deref(),
+            Some(&b"2026-10-25T10:00:00.000000000Z line 1001"[..])
+        );
     }
 
     #[tokio::test]

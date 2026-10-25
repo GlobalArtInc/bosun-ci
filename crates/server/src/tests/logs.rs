@@ -93,13 +93,13 @@ impl Logged {
 
     async fn finish(&self) {
         let (db, agent) = (self.world.db(), self.world.agent());
-        progress::step_finished(db, agent, self.execution, end(0))
+        progress::step_finished(db, &self.store, agent, self.execution, end(0))
             .await
             .expect("a finished step");
         progress::step_started(db, agent, self.execution, 1, None)
             .await
             .expect("a started step");
-        progress::step_finished(db, agent, self.execution, end(1))
+        progress::step_finished(db, &self.store, agent, self.execution, end(1))
             .await
             .expect("a finished step");
         progress::job_finished(
@@ -169,6 +169,8 @@ fn end(index: u32) -> StepEnd {
         outcome: Conclusion::Success,
         conclusion: Conclusion::Success,
         outputs: BTreeMap::new(),
+        annotations: Vec::new(),
+        summary: None,
     }
 }
 

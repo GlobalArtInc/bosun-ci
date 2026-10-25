@@ -250,6 +250,79 @@
         ],
         "type": "object"
       },
+      "Annotation": {
+        "properties": {
+          "column": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "end_column": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "end_line": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AnnotationKind"
+          },
+          "line": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "message",
+          "title",
+          "file",
+          "line",
+          "end_line",
+          "column",
+          "end_column"
+        ],
+        "type": "object"
+      },
+      "AnnotationKind": {
+        "enum": [
+          "notice",
+          "warning",
+          "error"
+        ],
+        "type": "string"
+      },
       "AttemptCreated": {
         "properties": {
           "number": {
@@ -1287,6 +1360,20 @@
         "required": [
           "number",
           "line"
+        ],
+        "type": "object"
+      },
+      "LogSearch": {
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "matches"
         ],
         "type": "object"
       },
@@ -2834,6 +2921,12 @@
       },
       "Step": {
         "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/Annotation"
+            },
+            "type": "array"
+          },
           "completed_at": {
             "format": "date-time",
             "type": [
@@ -2896,6 +2989,14 @@
           },
           "status": {
             "$ref": "#/components/schemas/StepStatus"
+          },
+          "summary_size": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
@@ -2908,7 +3009,9 @@
           "conclusion",
           "conclusion_source",
           "started_at",
-          "completed_at"
+          "completed_at",
+          "annotations",
+          "summary_size"
         ],
         "type": "object"
       },
@@ -3994,6 +4097,15 @@
             }
           },
           {
+            "description": "answer with the lines whose text, after their time, holds this text in any case, each with its number; `limit` caps their number",
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
             "description": "the number of the last line a followed log delivered, to resume after it",
             "in": "header",
             "name": "Last-Event-ID",
@@ -4006,6 +4118,11 @@
         "responses": {
           "200": {
             "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogSearch"
+                }
+              },
               "text/event-stream": {
                 "schema": {
                   "type": "string"
@@ -4020,6 +4137,51 @@
                 }
               },
               "text/plain; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.view",
+          "on": "project"
+        }
+      }
+    },
+    "/api/v1/executions/{execution}/steps/{step}/summary": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the execution's id",
+            "in": "path",
+            "name": "execution",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "the id of a step of the execution",
+            "in": "path",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/markdown; charset=utf-8": {
                 "schema": {
                   "type": "string"
                 }

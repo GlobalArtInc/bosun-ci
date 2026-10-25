@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use bosun_types::api::{Annotation, AnnotationKind};
 use bosun_types::status::Conclusion;
 use chrono::{DateTime, TimeDelta, Utc};
 use reqwest::header::{
@@ -47,6 +48,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 const MESSAGE_LIMIT: usize = 200;
+
+const NO_FILE: &str = ".github";
+
+const ANNOTATION_TITLE: usize = 255;
+
+const ANNOTATION_MESSAGE: usize = 65_535;
 
 type Slot = Arc<tokio::sync::Mutex<Option<InstallationToken>>>;
 
@@ -714,7 +721,63 @@ fn check_run_body(check_run: &CheckRun) -> Map<String, Value> {
         }
     };
     body.insert("status".to_owned(), Value::from(status));
+    if let Some(output) = &check_run.output {
+        let mut object = Map::new();
+        object.insert("title".to_owned(), Value::from(output.title.as_str()));
+        object.insert("summary".to_owned(), Value::from(output.summary.as_str()));
+        if !output.annotations.is_empty() {
+            object.insert(
+                "annotations".to_owned(),
+                output.annotations.iter().map(annotation_body).collect(),
+            );
+        }
+        body.insert("output".to_owned(), Value::Object(object));
+    }
     body
+}
+
+fn annotation_body(annotation: &Annotation) -> Value {
+    let start = annotation.line.unwrap_or(1).max(1);
+    let end = annotation.end_line.unwrap_or(start).max(start);
+    let mut body = Map::new();
+    body.insert(
+        "path".to_owned(),
+        Value::from(annotation.file.as_deref().unwrap_or(NO_FILE)),
+    );
+    body.insert("start_line".to_owned(), Value::from(start));
+    body.insert("end_line".to_owned(), Value::from(end));
+    if let Some(column) = annotation.column.filter(|_| start == end) {
+        let column = column.max(1);
+        let end_column = annotation.end_column.unwrap_or(column).max(column);
+        body.insert("start_column".to_owned(), Value::from(column));
+        body.insert("end_column".to_owned(), Value::from(end_column));
+    }
+    let level = match annotation.kind {
+        AnnotationKind::Notice => "notice",
+        AnnotationKind::Warning => "warning",
+        AnnotationKind::Error => "failure",
+    };
+    body.insert("annotation_level".to_owned(), Value::from(level));
+    body.insert(
+        "message".to_owned(),
+        Value::from(within_bytes(&annotation.message, ANNOTATION_MESSAGE)),
+    );
+    if let Some(title) = &annotation.title {
+        let end = title
+            .char_indices()
+            .nth(ANNOTATION_TITLE)
+            .map_or(title.len(), |(end, _)| end);
+        body.insert("title".to_owned(), Value::from(&title[..end]));
+    }
+    Value::Object(body)
+}
+
+fn within_bytes(text: &str, limit: usize) -> &str {
+    let mut end = text.len().min(limit);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 fn conclusion_name(conclusion: Conclusion) -> &'static str {

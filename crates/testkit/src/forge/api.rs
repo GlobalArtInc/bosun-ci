@@ -19,9 +19,9 @@ use uuid::Uuid;
 
 use super::git::{self, Node};
 use super::{
-    APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedCheckRun,
-    RecordedDownload, RecordedRequest, RecordedStatus, Repository, Shared, State as Model, events,
-    jwt,
+    APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedAnnotation,
+    RecordedCheckRun, RecordedDownload, RecordedOutput, RecordedRequest, RecordedStatus,
+    Repository, Shared, State as Model, events, jwt,
 };
 
 type Fake = State<Arc<Shared>>;
@@ -35,6 +35,16 @@ const INLINE: usize = 1 << 20;
 const PAGE: usize = 30;
 
 const LARGEST_PAGE: usize = 100;
+
+const SUMMARY_CHARACTERS: usize = 65_535;
+
+const ANNOTATIONS_PER_REQUEST: usize = 50;
+
+const ANNOTATION_LEVELS: &[&str] = &["notice", "warning", "failure"];
+
+const ANNOTATION_MESSAGE_BYTES: usize = 64 * 1024;
+
+const ANNOTATION_TITLE_CHARACTERS: usize = 255;
 
 const CHECK_STATUSES: &[&str] = &[
     "queued",
@@ -638,6 +648,118 @@ struct CheckRunBody {
     details_url: Option<String>,
     status: Option<String>,
     conclusion: Option<String>,
+    output: Option<OutputBody>,
+}
+
+#[derive(Deserialize)]
+struct OutputBody {
+    title: Option<String>,
+    summary: Option<String>,
+    #[serde(default)]
+    annotations: Vec<AnnotationBody>,
+}
+
+#[derive(Deserialize)]
+struct AnnotationBody {
+    path: Option<String>,
+    start_line: Option<u64>,
+    end_line: Option<u64>,
+    start_column: Option<u64>,
+    end_column: Option<u64>,
+    annotation_level: Option<String>,
+    message: Option<String>,
+    title: Option<String>,
+}
+
+fn output(body: OutputBody, earlier: Option<RecordedOutput>) -> Result<RecordedOutput, Answer> {
+    let (Some(title), Some(summary)) = (body.title, body.summary) else {
+        return Err(Answer::invalid(
+            "Invalid request. title and summary are required in output.",
+        ));
+    };
+    if title.is_empty() || summary.is_empty() {
+        return Err(Answer::invalid(
+            "Invalid request. title and summary of output cannot be blank.",
+        ));
+    }
+    if summary.chars().count() > SUMMARY_CHARACTERS {
+        return Err(Answer::invalid(&format!(
+            "Invalid request. output.summary is longer than {SUMMARY_CHARACTERS} characters."
+        )));
+    }
+    if body.annotations.len() > ANNOTATIONS_PER_REQUEST {
+        return Err(Answer::invalid(&format!(
+            "Invalid request. Only {ANNOTATIONS_PER_REQUEST} annotations are allowed per request."
+        )));
+    }
+    let mut annotations = earlier
+        .map(|earlier| earlier.annotations)
+        .unwrap_or_default();
+    for annotation in body.annotations {
+        annotations.push(recorded_annotation(annotation)?);
+    }
+    Ok(RecordedOutput {
+        title,
+        summary,
+        annotations,
+    })
+}
+
+fn recorded_annotation(body: AnnotationBody) -> Result<RecordedAnnotation, Answer> {
+    let (Some(path), Some(start_line), Some(end_line), Some(level), Some(message)) = (
+        body.path,
+        body.start_line,
+        body.end_line,
+        body.annotation_level,
+        body.message,
+    ) else {
+        return Err(Answer::invalid(
+            "Invalid request. path, start_line, end_line, annotation_level and message are \
+             required in an annotation.",
+        ));
+    };
+    if start_line == 0 || end_line < start_line {
+        return Err(Answer::invalid(&format!(
+            "Invalid request. The lines {start_line} to {end_line} of an annotation are not a \
+             range of lines."
+        )));
+    }
+    if !ANNOTATION_LEVELS.contains(&level.as_str()) {
+        return Err(Answer::invalid(&format!(
+            "Invalid request. `{level}` is not an annotation level."
+        )));
+    }
+    if (body.start_column.is_some() || body.end_column.is_some()) && start_line != end_line {
+        return Err(Answer::invalid(
+            "Invalid request. start_column and end_column are only allowed when start_line and \
+             end_line are the same.",
+        ));
+    }
+    if message.is_empty() || message.len() > ANNOTATION_MESSAGE_BYTES {
+        return Err(Answer::invalid(
+            "Invalid request. The message of an annotation is empty or longer than 64 KB.",
+        ));
+    }
+    if body
+        .title
+        .as_ref()
+        .is_some_and(|title| title.chars().count() > ANNOTATION_TITLE_CHARACTERS)
+    {
+        return Err(Answer::invalid(&format!(
+            "Invalid request. The title of an annotation is longer than \
+             {ANNOTATION_TITLE_CHARACTERS} characters."
+        )));
+    }
+    Ok(RecordedAnnotation {
+        path,
+        start_line,
+        end_line,
+        start_column: body.start_column,
+        end_column: body.end_column,
+        annotation_level: level,
+        message,
+        title: body.title,
+    })
 }
 
 async fn create_check_run(
@@ -670,6 +792,10 @@ async fn create_check_run(
                 Ok(status) => status,
                 Err(refused) => return refused,
             };
+            let output = match body.output.map(|written| output(written, None)).transpose() {
+                Ok(output) => output,
+                Err(refused) => return refused,
+            };
             let record = RecordedCheckRun {
                 id: model.allocate(),
                 repository: full_name.to_owned(),
@@ -678,6 +804,7 @@ async fn create_check_run(
                 details_url: body.details_url,
                 status,
                 conclusion: body.conclusion,
+                output,
             };
             let answer = Answer::json(StatusCode::CREATED, &check_run(&record));
             model.check_runs.push(record);
@@ -716,6 +843,12 @@ async fn update_check_run(
                 Ok(status) => status,
                 Err(refused) => return refused,
             };
+            if let Some(written) = body.output {
+                match output(written, record.output.clone()) {
+                    Ok(output) => record.output = Some(output),
+                    Err(refused) => return refused,
+                }
+            }
             if let Some(name) = body.name {
                 record.name = name;
             }
@@ -1058,6 +1191,11 @@ fn check_run(record: &RecordedCheckRun) -> Value {
         "details_url": record.details_url,
         "status": record.status,
         "conclusion": record.conclusion,
+        "output": {
+            "title": record.output.as_ref().map(|output| output.title.as_str()),
+            "summary": record.output.as_ref().map(|output| output.summary.as_str()),
+            "annotations_count": record.output.as_ref().map_or(0, |output| output.annotations.len()),
+        },
     })
 }
 

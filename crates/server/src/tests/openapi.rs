@@ -149,6 +149,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "/api/v1/executions/{execution}/steps/{step}/log",
         Part::Within("LogLine"),
     ),
+    (
+        "log-search.json",
+        "get",
+        "/api/v1/executions/{execution}/steps/{step}/log",
+        Part::Response("200"),
+    ),
     ("me.json", "get", "/api/v1/me", Part::Response("200")),
     (
         "password-change-request.json",

@@ -12,7 +12,7 @@ use axum::http::{Method, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use bosun_db::projects::Holder;
-use bosun_types::api::{LogEnd, LogLine};
+use bosun_types::api::{LogEnd, LogLine, LogSearch};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::{ExecutionId, StepId};
 use serde_json::json;
@@ -22,7 +22,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::warn;
 
 use super::followers::Subscription;
-use super::reader::{Failure, Read, Reader};
+use super::reader::{Failure, Read, Reader, Scanned};
+use super::search::{self, Needle};
 use crate::AppState;
 use crate::access::{Caller, OnProject, ProjectView};
 use crate::envelope::{self, ApiError};
@@ -35,6 +36,10 @@ const LIMIT: &str = "limit";
 
 const FOLLOW: &str = "follow";
 
+const SEARCH: &str = "search";
+
+const OPENING: &[u8] = b"{\"matches\":[";
+
 const LAST_EVENT_ID: &str = "Last-Event-ID";
 
 const POLL: Duration = Duration::from_secs(1);
@@ -45,6 +50,7 @@ struct Asked {
     offset: u64,
     limit: Option<u64>,
     follow: bool,
+    search: Option<String>,
 }
 
 struct Log(Response);
@@ -92,6 +98,15 @@ async fn show(
         step_id,
         asked.offset,
     );
+    if let Some(text) = asked.search {
+        let first = match reader.scan().await {
+            Ok(first) => first,
+            Err(Failure::Missing) => return Err(missing()),
+            Err(failure) => return Err(failed(failure)),
+        };
+        let needle = Needle::new(&text);
+        return Ok(Log(searched(state, reader, needle, asked.limit, first)));
+    }
     let first = match reader.read().await {
         Ok(first) => first,
         Err(Failure::Missing) => return Err(missing()),
@@ -140,6 +155,12 @@ impl Input for Asked {
             "schema": { "type": "boolean", "default": false }
         }));
         spec.parameter(json!({
+            "name": SEARCH,
+            "in": "query",
+            "description": "answer with the lines whose text, after their time, holds this text in any case, each with its number; `limit` caps their number",
+            "schema": { "type": "string", "minLength": 1 }
+        }));
+        spec.parameter(json!({
             "name": LAST_EVENT_ID,
             "in": "header",
             "description": "the number of the last line a followed log delivered, to resume after it",
@@ -152,6 +173,7 @@ impl Output for Log {
     fn output(spec: &mut Spec<'_>) {
         let line = spec.schema::<LogLine>();
         let end = spec.schema::<LogEnd>();
+        let search = spec.schema::<LogSearch>();
         spec.content(
             StatusCode::OK,
             json!({
@@ -159,7 +181,8 @@ impl Output for Log {
                 "text/event-stream": {
                     "schema": { "type": "string" },
                     "x-bosun-events": { "message": line, "end": end }
-                }
+                },
+                "application/json": { "schema": search }
             }),
         );
     }
@@ -170,6 +193,7 @@ fn asked(pairs: Vec<(String, String)>, parts: &Parts) -> Result<Asked, ApiError>
         offset: 0,
         limit: None,
         follow: false,
+        search: None,
     };
     for (name, value) in pairs {
         match name.as_str() {
@@ -196,13 +220,26 @@ fn asked(pairs: Vec<(String, String)>, parts: &Parts) -> Result<Asked, ApiError>
                     ))
                 })?;
             }
+            SEARCH => {
+                if value.is_empty() {
+                    return Err(invalid(format!(
+                        "`{SEARCH}` is empty, and a search needs a text to find"
+                    )));
+                }
+                asked.search = Some(value);
+            }
             _ => {
                 return Err(invalid(format!(
-                    "a log has no query parameter `{name}`; it takes `{OFFSET}`, `{LIMIT}` and \
-                     `{FOLLOW}`"
+                    "a log has no query parameter `{name}`; it takes `{OFFSET}`, `{LIMIT}`, \
+                     `{FOLLOW}` and `{SEARCH}`"
                 )));
             }
         }
+    }
+    if asked.follow && asked.search.is_some() {
+        return Err(invalid(format!(
+            "`{SEARCH}` does not apply to a followed log; a search reads the lines stored so far"
+        )));
     }
     if asked.follow {
         if asked.limit.is_some() {
@@ -260,6 +297,63 @@ fn range(mut reader: Reader, first: Read, limit: Option<u64>) -> Response {
     });
     (
         [(CONTENT_TYPE, "text/plain; charset=utf-8")],
+        Body::from_stream(ReceiverStream::new(receiver)),
+    )
+        .into_response()
+}
+
+fn searched(
+    state: AppState,
+    reader: Reader,
+    needle: Needle,
+    limit: Option<u64>,
+    first: Scanned,
+) -> Response {
+    let (found, mut matches) = mpsc::channel(BUFFERED);
+    tokio::spawn(search::run(
+        reader,
+        Arc::clone(&state.store),
+        needle,
+        limit.unwrap_or(u64::MAX),
+        first,
+        found,
+    ));
+    let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(BUFFERED);
+    tokio::spawn(async move {
+        let mut opened = false;
+        while let Some(next) = matches.recv().await {
+            let line = match next {
+                Ok(line) => line,
+                Err(failure) => {
+                    warn!(error = %failure, "a log could not be searched to its end");
+                    let _ = sender
+                        .send(Err(io::Error::other(failure.to_string())))
+                        .await;
+                    return;
+                }
+            };
+            let shown = LogLine {
+                number: line.number,
+                line: String::from_utf8_lossy(&line.text).into_owned(),
+            };
+            let mut body = if opened {
+                b",".to_vec()
+            } else {
+                OPENING.to_vec()
+            };
+            opened = true;
+            if serde_json::to_writer(&mut body, &shown).is_err()
+                || sender.send(Ok(Bytes::from(body))).await.is_err()
+            {
+                return;
+            }
+        }
+        let mut end = if opened { Vec::new() } else { OPENING.to_vec() };
+        end.extend_from_slice(b"]}");
+        let _ = sender.send(Ok(Bytes::from(end))).await;
+    });
+    (
+        [(CONTENT_TYPE, "application/json")],
         Body::from_stream(ReceiverStream::new(receiver)),
     )
         .into_response()

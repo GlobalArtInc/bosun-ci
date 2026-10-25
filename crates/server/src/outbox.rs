@@ -1,12 +1,18 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bosun_db::outbox::{Claimed, Kind, Report, State};
-use bosun_forge::{CheckRun, CheckStatus, CommitStatus, Forge as _, Repository, StatusState};
+use bosun_blob::{Key, Store as _};
+use bosun_db::outbox::{Claimed, Kind, Report, ReportedCheckRun, State};
+use bosun_forge::{
+    ANNOTATIONS_PER_REQUEST, CheckOutput, CheckRun, CheckStatus, CommitStatus, Forge as _,
+    Repository, SUMMARY_LIMIT, StatusState,
+};
+use bosun_types::api::Annotation;
 use bosun_types::id::JobId;
 use bosun_types::status::{Conclusion, RunConclusion};
 use chrono::TimeDelta;
 use sea_orm::{DatabaseConnection, TransactionTrait};
+use tokio::io::AsyncReadExt;
 use tokio::sync::Notify;
 use tracing::{error, info, warn};
 
@@ -14,6 +20,7 @@ use crate::clock::Clock;
 use crate::forge::Forge;
 use crate::retry::{Failure, backoff};
 use crate::site::Site;
+use crate::store::Backend;
 
 const POLL: Duration = Duration::from_secs(1);
 
@@ -25,8 +32,14 @@ const DELIVERY: Duration = Duration::from_secs(120);
 
 const DEAD_AFTER: TimeDelta = TimeDelta::hours(24);
 
+const NO_SUMMARY: &str = "The steps of this job wrote no summary.";
+
+const CUT_NOTICE: &str = "\n\n---\n\nThe summaries of this job are longer than a check run \
+     holds, so they end here; the job's page on Bosun shows them whole.\n";
+
 pub(crate) struct Outbox {
     pub(crate) db: DatabaseConnection,
+    pub(crate) store: Arc<Backend>,
     pub(crate) forge: Arc<Forge>,
     pub(crate) site: Site,
     pub(crate) clock: Clock,
@@ -75,10 +88,7 @@ pub(crate) async fn next(outbox: &Outbox) -> Result<bool, bosun_db::Error> {
     let kind = name(claimed.kind);
     let key = claimed.collapse_key.as_str();
     let kept = match result {
-        Ok(created) => {
-            if let Some((job, id)) = created {
-                bosun_db::outbox::record_check_run(&transaction, job, id).await?;
-            }
+        Ok(()) => {
             let kept = bosun_db::outbox::delivered(&transaction, &claimed).await?;
             if kept {
                 info!(
@@ -161,7 +171,7 @@ fn name(kind: Kind) -> &'static str {
     }
 }
 
-async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<Option<(JobId, u64)>, Failure> {
+async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<(), Failure> {
     let report: Report = serde_json::from_value(claimed.payload.clone()).map_err(|error| {
         Failure::Refused(format!("the payload of the row cannot be read: {error}"))
     })?;
@@ -188,24 +198,18 @@ async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<Option<(JobId, u6
                 name: report.name.clone(),
                 details_url: details,
                 status: check_status(report.state),
+                output: None,
             };
             let Some(job) = report.job_id else {
                 app.create_check_run(&repository, &report.sha, &check_run)
                     .await?;
-                return Ok(None);
+                return Ok(());
             };
-            match bosun_db::outbox::check_run(&outbox.db, job).await? {
-                Some(id) => {
-                    app.update_check_run(&repository, id, &check_run).await?;
-                    Ok(None)
-                }
-                None => {
-                    let id = app
-                        .create_check_run(&repository, &report.sha, &check_run)
-                        .await?;
-                    Ok(Some((job, id)))
-                }
-            }
+            let output = match report.state {
+                State::Completed(_) => results(outbox, job, &report.name).await?,
+                State::Queued | State::InProgress => None,
+            };
+            check_run_of_job(outbox, &repository, &report.sha, job, check_run, output).await
         }
         Kind::CommitStatus => {
             let context = match report.job_id {
@@ -219,9 +223,120 @@ async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<Option<(JobId, u6
                 target_url: details,
             };
             app.create_status(&repository, &report.sha, &status).await?;
-            Ok(None)
+            Ok(())
         }
     }
+}
+
+async fn check_run_of_job(
+    outbox: &Outbox,
+    repository: &Repository,
+    sha: &str,
+    job: JobId,
+    mut check_run: CheckRun,
+    output: Option<CheckOutput>,
+) -> Result<(), Failure> {
+    let app = &outbox.forge.app;
+    let recorded = bosun_db::outbox::check_run(&outbox.db, job).await?;
+    let (summary, annotations) = match output {
+        Some(output) => (Some((output.title, output.summary)), output.annotations),
+        None => (None, Vec::new()),
+    };
+    let sent = recorded.map_or(0, |recorded| recorded.annotations);
+    let sent = usize::try_from(sent)
+        .unwrap_or(usize::MAX)
+        .min(annotations.len());
+    let mut batches = annotations[sent..].chunks(ANNOTATIONS_PER_REQUEST);
+    let mut batch = batches.next();
+    let mut reported = recorded;
+    loop {
+        let annotations = batch.map(<[Annotation]>::to_vec).unwrap_or_default();
+        let count = annotations.len() as u64;
+        check_run.output = summary.as_ref().map(|(title, summary)| CheckOutput {
+            title: title.clone(),
+            summary: summary.clone(),
+            annotations,
+        });
+        let next = match reported {
+            Some(known) => {
+                app.update_check_run(repository, known.id, &check_run)
+                    .await?;
+                ReportedCheckRun {
+                    id: known.id,
+                    annotations: known.annotations + count,
+                }
+            }
+            None => ReportedCheckRun {
+                id: app.create_check_run(repository, sha, &check_run).await?,
+                annotations: count,
+            },
+        };
+        bosun_db::outbox::record_check_run(&outbox.db, job, &next).await?;
+        reported = Some(next);
+        batch = batches.next();
+        if batch.is_none() {
+            return Ok(());
+        }
+    }
+}
+
+async fn results(outbox: &Outbox, job: JobId, name: &str) -> Result<Option<CheckOutput>, Failure> {
+    let results = bosun_db::results::of_job(&outbox.db, job).await?;
+    if results.summaries.is_empty() && results.annotations.is_empty() {
+        return Ok(None);
+    }
+    let mut written: Vec<u8> = Vec::new();
+    for summary in &results.summaries {
+        if written.len() > SUMMARY_LIMIT {
+            break;
+        }
+        let wanted = summary.size.min((SUMMARY_LIMIT + 1 - written.len()) as u64);
+        let unreadable = |error: String| Failure::Retry {
+            error: format!(
+                "the step summary `{}` could not be read: {error}",
+                summary.key
+            ),
+            at_least: Duration::ZERO,
+        };
+        let key = Key::new(summary.key.clone()).map_err(|error| unreadable(error.to_string()))?;
+        let mut object = match outbox.store.get(&key, 0..wanted).await {
+            Ok(object) => object,
+            Err(bosun_blob::Error::NotFound(_)) => continue,
+            Err(error) => return Err(unreadable(error.to_string())),
+        };
+        let mut text = Vec::new();
+        object
+            .read_to_end(&mut text)
+            .await
+            .map_err(|error| unreadable(error.to_string()))?;
+        written.extend_from_slice(&text);
+        if !written.ends_with(b"\n") {
+            written.push(b'\n');
+        }
+    }
+    let summary = if written.is_empty() {
+        NO_SUMMARY.to_owned()
+    } else {
+        cut(String::from_utf8_lossy(&written).into_owned())
+    };
+    Ok(Some(CheckOutput {
+        title: name.to_owned(),
+        summary,
+        annotations: results.annotations,
+    }))
+}
+
+fn cut(mut summary: String) -> String {
+    if summary.len() <= SUMMARY_LIMIT {
+        return summary;
+    }
+    let mut end = SUMMARY_LIMIT - CUT_NOTICE.len();
+    while !summary.is_char_boundary(end) {
+        end -= 1;
+    }
+    summary.truncate(end);
+    summary.push_str(CUT_NOTICE);
+    summary
 }
 
 fn check_status(state: State) -> CheckStatus {
@@ -259,5 +374,27 @@ fn description(state: State) -> &'static str {
         State::Completed(RunConclusion::Skipped) => "Skipped",
         State::Completed(RunConclusion::TimedOut) => "Timed out",
         State::Completed(RunConclusion::StartupFailure) => "The workflow could not start",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bosun_forge::SUMMARY_LIMIT;
+
+    use super::{CUT_NOTICE, cut};
+
+    #[test]
+    fn a_summary_longer_than_the_forge_holds_is_cut_at_a_character_with_a_notice() {
+        assert_eq!(cut("## Built\n".to_owned()), "## Built\n");
+        let whole = "\u{e9}".repeat(SUMMARY_LIMIT / 2);
+        assert_eq!(cut(whole.clone()), whole);
+        let long = "\u{20ac}".repeat(SUMMARY_LIMIT / 3 + 1);
+        let shown = cut(long.clone());
+        assert!(shown.len() <= SUMMARY_LIMIT, "{}", shown.len());
+        let kept = shown
+            .strip_suffix(CUT_NOTICE)
+            .expect("the notice at the end");
+        assert!(long.starts_with(kept));
+        assert!(SUMMARY_LIMIT - CUT_NOTICE.len() - kept.len() < 3);
     }
 }

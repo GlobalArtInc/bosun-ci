@@ -15,12 +15,13 @@ use bosun_db::secrets::Scope;
 use bosun_db::tokens::NewToken;
 use bosun_db::workflows::NewWorkflow;
 use bosun_testkit::oidc::{FakeIdentityProvider, Person};
-use bosun_types::api::{Permissions, Project, Workflow};
+use bosun_types::api::{Annotation, AnnotationKind, Permissions, Project, Workflow};
 use bosun_types::id::{
     AgentId, ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, TokenId,
     UserId,
 };
 use bosun_types::permission::Permission;
+use bosun_types::status::Conclusion;
 use chrono::{TimeDelta, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
@@ -29,7 +30,7 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 
 use super::{World, oidc, template, workflow};
-use crate::agents::progress;
+use crate::agents::progress::{self, StepEnd};
 use crate::clock::Clock;
 use crate::commands::{self, COMMANDS};
 use crate::secrets;
@@ -52,6 +53,8 @@ const SOURCE: &str = concat!(
 );
 
 const OWNER: &str = "owner";
+
+const SUMMARY: &str = "## Deployed\n\nto `production`\n";
 
 const ENDPOINTS: &str = "| Operation | Permission | On |";
 
@@ -492,14 +495,18 @@ impl Site {
             .expect("an answer");
         let status = response.status();
         let headers = response.headers().clone();
-        let streamed = headers
+        let kind = headers
             .get("content-type")
-            .is_some_and(|value| value == "text/event-stream");
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
         Answer {
             status,
             headers,
-            body: if streamed {
+            body: if kind == "text/event-stream" {
                 Value::Null
+            } else if kind.starts_with("text/") {
+                text(response.into_body()).await
             } else {
                 read(response.into_body()).await
             },
@@ -540,6 +547,23 @@ impl Site {
         progress::step_started(self.db(), self.world.agent(), execution, 0, None)
             .await
             .expect("a started step");
+        progress::step_finished(
+            self.db(),
+            &self.state.store,
+            self.world.agent(),
+            execution,
+            StepEnd {
+                index: 0,
+                at: None,
+                outcome: Conclusion::Failure,
+                conclusion: Conclusion::Failure,
+                outputs: BTreeMap::new(),
+                annotations: vec![annotation()],
+                summary: Some(SUMMARY.to_owned()),
+            },
+        )
+        .await
+        .expect("a finished step");
         let (step, _) = self
             .world
             .project(run)
@@ -647,12 +671,34 @@ impl Site {
     }
 }
 
+fn annotation() -> Annotation {
+    Annotation {
+        kind: AnnotationKind::Error,
+        message: "the deployment failed".to_owned(),
+        title: None,
+        file: Some("deploy.sh".to_owned()),
+        line: Some(3),
+        end_line: Some(3),
+        column: None,
+        end_column: None,
+    }
+}
+
 pub(super) fn request(method: Method, path: &str) -> axum::http::request::Builder {
     let peer: SocketAddr = "192.0.2.10:41234".parse().expect("a peer");
     Request::builder()
         .method(method)
         .uri(path)
         .extension(ConnectInfo(peer))
+}
+
+async fn text(body: Body) -> Value {
+    let bytes = body::to_bytes(body, usize::MAX).await.expect("a body");
+    if bytes.is_empty() {
+        Value::Null
+    } else {
+        Value::String(String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 async fn read(body: Body) -> Value {
@@ -1710,4 +1756,92 @@ async fn neither_a_developer_nor_an_administrator_of_an_organisation_creates_a_p
         site.get("/api/v1/label-aliases", &owner).await.body["items"],
         json!([])
     );
+}
+
+#[tokio::test]
+async fn a_user_without_project_view_on_the_project_reads_no_annotations_summaries_or_logs() {
+    let site = Site::new().await;
+    let fixture = site.fixture().await;
+    let organisation = fixture.project.organisation_id;
+    let hidden = site.second_project("hidden").await;
+    let (elsewhere, outside) = site.user("olga").await;
+    site.bind(
+        "viewer",
+        Subject::User(elsewhere),
+        organisation,
+        Some(hidden.id),
+    )
+    .await;
+    let (_, unbound) = site.user("ursula").await;
+    let (canceller, cancelling) = site.user("carl").await;
+    let cancel_only = bosun_db::roles::create(
+        site.db(),
+        organisation,
+        "canceller",
+        &BTreeSet::from([Permission::RunCancel]),
+    )
+    .await
+    .expect("a custom role");
+    bosun_db::roles::bind(
+        site.db(),
+        NewBinding {
+            role_id: cancel_only.id,
+            subject: Subject::User(canceller),
+            organisation_id: organisation,
+            project_id: Some(fixture.project.id),
+        },
+    )
+    .await
+    .expect("a binding");
+    let (viewer, inside) = site.user("vera").await;
+    site.bind(
+        "viewer",
+        Subject::User(viewer),
+        organisation,
+        Some(fixture.project.id),
+    )
+    .await;
+
+    let execution = format!("/api/v1/executions/{}", fixture.execution);
+    let step = format!("{execution}/steps/{}", fixture.step);
+    let shown = site.get(&execution, &inside).await;
+    assert_eq!(shown.status, StatusCode::OK, "{shown:?}");
+    assert_eq!(shown.body["steps"][0]["annotations"], json!([annotation()]));
+    assert_eq!(shown.body["steps"][0]["summary_size"], json!(SUMMARY.len()));
+    let summary = site.get(&format!("{step}/summary"), &inside).await;
+    assert_eq!(summary.status, StatusCode::OK, "{summary:?}");
+    assert_eq!(summary.body, json!(SUMMARY));
+    for path in [format!("{step}/log"), format!("{step}/log?search=deploy")] {
+        assert_eq!(
+            site.get(&path, &inside).await.status,
+            StatusCode::OK,
+            "{path}"
+        );
+    }
+
+    let missing_step = format!(
+        "there is no step `{}` in execution `{}`",
+        fixture.step, fixture.execution
+    );
+    for credentials in [&outside, &unbound] {
+        absent(
+            &site.get(&execution, credentials).await,
+            &format!("there is no execution `{}`", fixture.execution),
+        );
+        for path in [
+            format!("{step}/summary"),
+            format!("{step}/log"),
+            format!("{step}/log?search=deploy"),
+        ] {
+            absent(&site.get(&path, credentials).await, &missing_step);
+        }
+    }
+    for path in [
+        execution.clone(),
+        format!("{step}/summary"),
+        format!("{step}/log"),
+        format!("{step}/log?search=deploy"),
+    ] {
+        forbidden(&site.get(&path, &cancelling).await, &path);
+    }
 }

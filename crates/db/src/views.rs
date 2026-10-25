@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bosun_types::actor::Actor;
-use bosun_types::api::{Execution, Job, Notice, QueuedJob, Run, Step};
+use bosun_types::api::{Annotation, Execution, Job, Notice, QueuedJob, Run, Step};
 use bosun_types::id::{ExecutionId, JobId, ProjectId, RunId, WorkflowId};
 use bosun_types::status::{JobStatus, RunConclusion, RunStatus};
 use sea_orm::prelude::Uuid;
@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use crate::entity::{attempt, execution, job, run, run_event, step};
 use crate::projects::Reach;
+use crate::results;
 use crate::row::statement;
 use crate::{Error, row};
 
@@ -246,13 +247,19 @@ pub async fn execution<C: ConnectionTrait>(
     else {
         return Ok(None);
     };
-    let steps = step::Entity::find()
+    let stored = step::Entity::find()
         .filter(step::Column::ExecutionId.eq(found.id))
         .order_by_asc(step::Column::Index)
         .all(db)
-        .await?
+        .await?;
+    let ids: Vec<Uuid> = stored.iter().map(|step| step.id).collect();
+    let mut reported = results::of_steps(db, &ids).await?;
+    let steps = stored
         .into_iter()
-        .map(|step| decode_step(step, id))
+        .map(|step| {
+            let (annotations, summary_size) = reported.remove(&step.id).unwrap_or_default();
+            decode_step(step, id, annotations, summary_size)
+        })
         .collect::<Result<Vec<Step>, Error>>()?;
     Ok(Some(Execution {
         id,
@@ -442,7 +449,12 @@ fn decode_job(job: job::Model, run: RunId, execution: Option<ExecutionId>) -> Re
     })
 }
 
-fn decode_step(step: step::Model, execution: ExecutionId) -> Result<Step, Error> {
+fn decode_step(
+    step: step::Model,
+    execution: ExecutionId,
+    annotations: Vec<Annotation>,
+    summary_size: Option<u64>,
+) -> Result<Step, Error> {
     Ok(Step {
         id: row::id("step", step.id)?,
         execution_id: execution,
@@ -463,6 +475,8 @@ fn decode_step(step: step::Model, execution: ExecutionId) -> Result<Step, Error>
             .transpose()?,
         started_at: step.started_at,
         completed_at: step.completed_at,
+        annotations,
+        summary_size,
     })
 }
 

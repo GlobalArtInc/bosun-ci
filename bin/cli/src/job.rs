@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use bosun_types::api::{Execution, Job};
+use bosun_types::api::{Execution, Job, LogSearch};
 use bosun_types::command::{Command as Operation, CommandRequest, Target};
 use bosun_types::event::RunEvent;
 use bosun_types::id::JobId;
@@ -34,6 +34,13 @@ pub(crate) enum Command {
             help = "Wait for the job, and print its lines as they arrive until it ends"
         )]
         follow: bool,
+        #[arg(
+            long,
+            value_name = "TEXT",
+            conflicts_with = "follow",
+            help = "Only the lines that hold this text in any case, each after its number"
+        )]
+        grep: Option<String>,
     },
     #[command(
         about = "Cancel one job, or every member of a job group; the jobs that need it see it \
@@ -48,8 +55,18 @@ pub(crate) enum Command {
 pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode, Failure> {
     let client = context.client()?;
     match command {
-        Command::Logs { job, step, follow } => {
-            logs(&client, id(&job)?, step, follow).await?;
+        Command::Logs {
+            job,
+            step,
+            follow,
+            grep,
+        } => {
+            let shown = match grep {
+                Some(text) => Shown::Matching(text),
+                None if follow => Shown::Following,
+                None => Shown::Stored,
+            };
+            logs(&client, id(&job)?, step, shown).await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Cancel { job } => {
@@ -85,7 +102,19 @@ fn id(text: &str) -> Result<JobId, Failure> {
         .map_err(|_| Failure::new(format!("`{text}` is not the id of a job")))
 }
 
-async fn logs(client: &Client, id: JobId, only: Option<usize>, live: bool) -> Result<(), Failure> {
+enum Shown {
+    Stored,
+    Following,
+    Matching(String),
+}
+
+async fn logs(
+    client: &Client,
+    id: JobId,
+    only: Option<usize>,
+    shown: Shown,
+) -> Result<(), Failure> {
+    let live = matches!(shown, Shown::Following);
     let Some(execution) = execution(client, id, live).await? else {
         eprintln!("the job ended without reaching an agent, so it has no log");
         return Ok(());
@@ -115,23 +144,28 @@ async fn logs(client: &Client, id: JobId, only: Option<usize>, live: bool) -> Re
         if headed {
             println!("==> step {number}: {}", step.name);
         }
-        if live {
-            follow::step(client, execution.id, step.id, |line| {
-                println!("{}", line.line)
-            })
-            .await?;
-        } else {
-            let text = client
-                .text(&format!(
-                    "/api/v1/executions/{}/steps/{}/log",
-                    execution.id, step.id
-                ))
+        let path = format!("/api/v1/executions/{}/steps/{}/log", execution.id, step.id);
+        match &shown {
+            Shown::Following => {
+                follow::step(client, execution.id, step.id, |line| {
+                    println!("{}", line.line)
+                })
                 .await?;
-            let mut stdout = io::stdout().lock();
-            stdout
-                .write_all(text.as_bytes())
-                .and_then(|()| stdout.flush())
-                .map_err(|error| Failure::new(format!("the log cannot be printed: {error}")))?;
+            }
+            Shown::Stored => {
+                let text = client.text(&path).await?;
+                let mut stdout = io::stdout().lock();
+                stdout
+                    .write_all(text.as_bytes())
+                    .and_then(|()| stdout.flush())
+                    .map_err(|error| Failure::new(format!("the log cannot be printed: {error}")))?;
+            }
+            Shown::Matching(text) => {
+                let found: LogSearch = client.get(&path, &[("search", text.as_str())]).await?;
+                for line in found.matches {
+                    println!("{}: {}", line.number, line.line);
+                }
+            }
         }
     }
     Ok(())

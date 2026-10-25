@@ -94,6 +94,9 @@ step         id, execution_id, parent_step_id, index, name, status, outcome, con
              conclusion_source, outputs jsonb, started_at, completed_at
 log_chunk    execution_id, seq, step_id, data bytea, dropped
 log_object   step_id, execution_id, key, size, lines, frames bigint[], created_at
+annotation   step_id, ordinal, kind, message, title, file, line, end_line, start_column,
+             end_column
+step_summary step_id, key, size, created_at
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
              actor jsonb, data jsonb, at, xact
 stream_event seq bigserial, xact, subject, project_id, run_id, kind, data jsonb, at
@@ -120,6 +123,15 @@ are the outputs its agent reported in `JobFinished` for the names the job declar
 a job group's are those of its members combined when it completes
 ([04-runs.md](04-runs.md#matrices)). A step's `outputs` are the outputs its agent reported in
 `StepFinished`, `{}` until then.
+
+What a step reports besides its log arrived with step 35 of [../plan.md](../plan.md). An
+`annotation` is one of a step's annotations, keyed by the step and its `ordinal`, its place among
+them counted from 0 in the order of the report; `kind` is `notice`, `warning` or `error`, and the
+column `start_column` holds the annotation's `column`, a word Postgres reserves. A `step_summary`
+records the object that holds a step's summary, `summaries/<execution>/<step>.md`, with its size;
+the summary itself is in the object store ([The object store](#the-object-store)). Both are
+written in the transaction that finishes the step, and a step has a summary row only when its
+summary was stored, so a row never names an object that was not written.
 
 A member of a job group is a row of its own with the template's key: `group_id` is the job of its
 group, which carries no foreign key since it is a reference inside one run, and `matrix` its
@@ -171,7 +183,8 @@ next_attempt_at, last_error, failing_since, dead_at` ([The outbox](#the-outbox))
 index on `(next_attempt_at, id) where dead_at is null` for the claim and one on
 `(collapse_key, id)` for collapsing; `forge_check_run` maps a job to the id of its check run on the
 forge, `job_id, id, created_at`, owned by the job. Both arrived with step 28 of
-[../plan.md](../plan.md).
+[../plan.md](../plan.md); `forge_check_run.annotations`, the number of the job's annotations the
+check run has received, arrived with step 35.
 
 A workflow's `source_kind` is `server` or `repository`. A repository workflow is named by the path
 of its file and is unique by project and path, which the partial unique index on
@@ -212,11 +225,12 @@ sources and of idempotent requests are SHA-256 in `bytea`.
 A row that another row owns references its owner with `ON DELETE CASCADE`: a project its
 organisation, a workflow its project, a revision its workflow, a run its project and its workflow,
 an attempt its run, a job its attempt, an execution its job, a step its execution, a journal event
-its run, a stream event its project and its run, a log chunk its execution, a log object its step,
-a control message its execution, a personal token its user, an entry of a token's restriction its
-token and the organisation and project it names, a registration token its pool, an entry of an
-access list its pool and the organisation and project it names, a label alias its organisation,
-and a secret or a variable its organisation and project. Deleting a run under `run_retention`
+its run, a stream event its project and its run, a log chunk its execution, a log object, an
+annotation and a step summary their step, a control message its execution, a personal token its
+user, an entry of a token's restriction its token and the organisation and project it names, a
+registration token its pool, an entry of an access list its pool and the organisation and project
+it names, a label alias its organisation, and a secret or a variable its organisation and
+project. Deleting a run under `run_retention`
 therefore removes everything it owns in one statement. The other references inside one run (the
 attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a
 log object) carry no foreign key, because the owner already bounds them and a cascade would have
@@ -436,9 +450,8 @@ forge neither holds a database connection nor delays the event stream's horizon:
    only then.
 3. **The result** is written only while the row still holds the lease the claim gave it, which is
    how a worker that overran its lease leaves the row to the claim that took it over:
-   - delivered: the row is deleted, with the dead rows of its key that it supersedes, and the id of
-     a check run it created is recorded in `forge_check_run`; the worker logs
-     `delivered an outbox row` with `row`, `kind`, `key`, the number of rows it `dropped` and
+   - delivered: the row is deleted, with the dead rows of its key that it supersedes; the worker
+     logs `delivered an outbox row` with `row`, `kind`, `key`, the number of rows it `dropped` and
      `duration_ms`;
    - a failure that may pass (the database, the forge unreachable, a `5xx`, a rate limit, the
      timeout): `failing_since` keeps the time of the first failure and the row waits
@@ -447,6 +460,16 @@ forge neither holds a database connection nor delays the event stream's horizon:
      after `failing_since` marks the row dead instead;
    - a failure that cannot pass (a `4xx` that is no rate limit, a payload this version cannot read,
      a repository that no installation of the App sees any more) marks the row dead at once.
+
+A delivery records what the forge holds as soon as each request succeeds, outside the two
+transactions, rather than with the result: the id of a check run it created, and after each batch
+of annotations the number the check run has received, in `forge_check_run`
+([06-runtime-services.md](06-runtime-services.md#reporting-to-the-forge)). A delivery that fails
+halfway and is tried again then updates the check run it created and sends only the annotations
+the check run lacks, since the forge appends the annotations of every request and would show a
+batch sent twice twice. Step 35 of [../plan.md](../plan.md) moved the record of the check run
+there: step 28 wrote it with the result, which a delivery of several requests that fails after the
+first never reaches, so its retry would have created a second check run.
 
 A dead row keeps its `dead_at` and `last_error`, is never claimed again, and no longer blocks its
 key: a newer row of the key is delivered and deletes it. Until the administration page of M3
@@ -610,7 +633,13 @@ writes. A chunk that arrives after its execution's log was compacted is acknowle
 stored.
 
 The server serves a compacted log by range, decompressing only the frames that hold the lines asked
-for, and searches it by streaming decompression for the API and MCP.
+for, and searches it by streaming decompression for the API and MCP: one ranged read from the frame
+that holds the first line to search to the end of the object, decompressed frame after frame as it
+arrives, so a search holds one frame's worth of lines in memory and never the object. A live log is
+searched through the same reader as a range, chunk page after chunk page, and a log compacted while
+it is searched goes on in its object at the line the search reached, so a search gives the same
+lines under the same numbers whichever state it meets ([11-api.md](11-api.md#logs); step 35 of
+[../plan.md](../plan.md)).
 
 ## Retention
 

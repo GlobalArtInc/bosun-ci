@@ -52,6 +52,7 @@ mod sign_in;
 mod site;
 mod slug;
 mod store;
+mod summaries;
 mod teams;
 #[cfg(test)]
 mod tests;
@@ -197,6 +198,7 @@ pub async fn serve(
         tasks.spawn(outbox::work(
             outbox::Outbox {
                 db: db.clone(),
+                store: Arc::clone(&store),
                 forge: Arc::clone(forge),
                 site: config.site.clone(),
                 clock: clock.clone(),
@@ -207,8 +209,13 @@ pub async fn serve(
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
     tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
     tasks.spawn(sessions::sweep(db.clone(), clock.clone()));
-    let connector =
-        agents::Connector::new(db.clone(), Arc::clone(&replica), config.agents, dispatcher);
+    let connector = agents::Connector::new(
+        db.clone(),
+        Arc::clone(&store),
+        Arc::clone(&replica),
+        config.agents,
+        dispatcher,
+    );
     let listen = config.listen;
     let listener = TcpListener::bind(listen)
         .await
@@ -300,6 +307,7 @@ fn api() -> openapi::Api {
         .merge(commands::routes())
         .merge(runs::routes())
         .merge(logs::routes())
+        .merge(summaries::routes())
         .merge(agents::routes())
         .merge(pools::routes())
         .merge(aliases::routes())

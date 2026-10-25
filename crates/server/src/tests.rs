@@ -14,6 +14,7 @@ mod openapi;
 mod planning;
 mod queue;
 mod reports;
+mod results;
 mod runs;
 mod secrets;
 mod settings;
@@ -130,6 +131,7 @@ struct World {
     workflow: Workflow,
     agent: Reporter,
     actions: Arc<Actions>,
+    store: Arc<Backend>,
     _store: tempfile::TempDir,
 }
 
@@ -188,9 +190,10 @@ impl World {
         let directory = Directory::open(store.path())
             .await
             .expect("a directory store");
+        let backend = Arc::new(Backend::Directory(directory));
         let actions = Arc::new(Actions::new(
             db.clone(),
-            Arc::new(Backend::Directory(directory)),
+            Arc::clone(&backend),
             None,
             runtimes(),
         ));
@@ -202,6 +205,7 @@ impl World {
                 name: agent.name,
             },
             actions,
+            store: backend,
             _store: store,
         }
     }
@@ -216,6 +220,10 @@ impl World {
 
     fn agent(&self) -> &Reporter {
         &self.agent
+    }
+
+    fn store(&self) -> &Arc<Backend> {
+        &self.store
     }
 
     async fn dispatch(&self, workflow: &ir::Workflow) -> RunId {

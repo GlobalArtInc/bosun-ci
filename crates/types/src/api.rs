@@ -572,6 +572,28 @@ pub struct Step {
     pub conclusion_source: Option<ConclusionSource>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+    pub annotations: Vec<Annotation>,
+    pub summary_size: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Annotation {
+    pub kind: AnnotationKind,
+    pub message: String,
+    pub title: Option<String>,
+    pub file: Option<String>,
+    pub line: Option<u32>,
+    pub end_line: Option<u32>,
+    pub column: Option<u32>,
+    pub end_column: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AnnotationKind {
+    Notice,
+    Warning,
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -583,6 +605,11 @@ pub struct LogLine {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LogEnd {
     pub lines: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LogSearch {
+    pub matches: Vec<LogLine>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

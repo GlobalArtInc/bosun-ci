@@ -136,6 +136,7 @@ fails when the generated document differs from the committed one ([below](#the-o
 | `/runs/{run}/derive` | POST | "run again with changes" |
 | `/jobs/{job}`, `/executions/{execution}` | GET | a job; one execution with its steps |
 | `/executions/{execution}/steps/{step}/log` | GET | a step's log: range, search, or `?follow=true` as an event stream |
+| `/executions/{execution}/steps/{step}/summary` | GET | a step's summary, the Markdown its step wrote |
 | `/executions/{execution}/terminal` | GET (WebSocket) | the debug terminal |
 | `/runs/{run}/artifacts`, `/artifacts/{artifact}` | GET, DELETE | artifacts and their download |
 | `/approvals` | GET | the caller's approval inbox |
@@ -296,6 +297,7 @@ with the answers each built-in role gets:
 | `GET /jobs/{job}` | `project.view` | `project` |
 | `GET /executions/{execution}` | `project.view` | `project` |
 | `GET /executions/{execution}/steps/{step}/log` | `project.view` | `project` |
+| `GET /executions/{execution}/steps/{step}/summary` | `project.view` | `project` |
 | `GET /events` | `project.view`, and `agent.manage` on the installation for the events of no project | `items` |
 | `GET /queue` | `project.view` | `items` |
 | `GET /agents` | `agent.manage` | `installation` |
@@ -524,7 +526,11 @@ projects returns, or the requests that create one.
   and a group is the job that members name ([04-runs.md](04-runs.md#parts-of-a-run)), listed before
   them.
 - `GET /jobs/{job}` answers with one job in the same shape, and `GET /executions/{execution}` with
-  one execution and its `steps`, ordered by `index`, empty until the agent starts the job.
+  one execution and its `steps`, ordered by `index`, empty until the agent starts the job. Step 35
+  of M1 ([../plan.md](../plan.md)) added what a step reports besides its log
+  ([Step results](#step-results)): a step's `annotations`, in the order its agent reported them,
+  `[]` until it finishes, and its `summary_size`, the size in bytes of its summary, `null` while it
+  has none.
 - `{run}`, `{job}` and `{execution}` are ids. Any other segment, and an id of nothing, are
   `404 not_found` with the message ``there is no run `<run>` `` (or `job`, `execution`); an attempt
   the run does not have is ``there is no attempt `<n>` of run `<run>` ``.
@@ -702,11 +708,12 @@ Step 24 of M1 ([../plan.md](../plan.md)) settled these endpoints; how a secret i
   ([07-storage.md](07-storage.md#logs)). `{step}` is the id of a step of that execution; any other
   segment, a step of another execution and an execution that does not exist are `404 not_found`
   with the message ``there is no step `<step>` in execution `<execution>` ``.
-- Without `follow`, the answer is `text/plain; charset=utf-8` with the lines as the agent sent them,
-  each its RFC 3339 time, a space, the text and a newline. `offset` skips that many lines (default
-  0) and `limit` caps the number of lines (at least 1; without it the answer runs to the end). The
-  log of a running step holds the lines stored so far; a completed step whose output passed the
-  limit ends with its notice. A failure after the first line ends the body early.
+- Without `follow` and `search`, the answer is `text/plain; charset=utf-8` with the lines as the
+  agent sent them, each its RFC 3339 time, a space, the text and a newline. `offset` skips that
+  many lines (default 0) and `limit` caps the number of lines (at least 1; without it the answer
+  runs to the end). The log of a running step holds the lines stored so far; a completed step
+  whose output passed the limit ends with its notice. A failure after the first line ends the
+  body early.
 - With `?follow=true` the answer is a server-sent event stream with one event per line, whose id
   is the line's number, counted from 1, and whose data is `{"number": 12, "line": "<time> <text>"}`,
   with bytes that are not UTF-8 replaced by U+FFFD. `Last-Event-ID` resumes after that line in place
@@ -715,8 +722,39 @@ Step 24 of M1 ([../plan.md](../plan.md)) settled these endpoints; how a secret i
   server sends a comment every 15 seconds while the step is quiet, and ends the stream without
   `end` when it shuts down, so that the client reconnects to another replica. `limit` does not
   apply to a followed log.
+- With `?search=<text>` the answer is `application/json`, `{"matches": [{"number", "line"}, …]}`:
+  the lines whose text, after their time and the space behind it, holds the text in any case
+  (both lowercased), each with its number and in the shape of a followed line, so a client opens
+  the log at a match with `offset`. `offset` skips that many lines before the search begins and
+  `limit` caps the number of matches. The search reads the lines stored so far, the notice of a
+  completed step among them, from the chunks while the log is live and, once it is compacted, by
+  streaming one ranged read of its object, from the frame that holds the first line to search,
+  through the decompressor ([07-storage.md](07-storage.md#logs)), so the same search gives the
+  same lines under the same numbers before and after compaction. The answer streams the matches
+  as they are found, and a failure ends its body early. Step 35 of M1 ([../plan.md](../plan.md))
+  settled the search; an empty `search`, and `search` with `follow`, are `422 invalid_input`.
 - Any other query parameter, a value that is not a number of lines or a boolean, and a
   `Last-Event-ID` that is not a line number are `422 invalid_input`.
+
+### Step results
+
+Step 35 of M1 ([../plan.md](../plan.md)) settled how the API serves what a step reports besides
+its log, the annotations and the step summary its agent sends in `StepFinished`
+([06-runtime-services.md](06-runtime-services.md#step-summaries-and-annotations)).
+
+- An annotation is `{"kind", "message", "title", "file", "line", "end_line", "column",
+  "end_column"}`, `kind` being `notice`, `warning` or `error` and every field after `message`
+  `null` when the command or the problem matcher gave none. `GET /executions/{execution}` carries
+  them on each step, so the annotations of a job are those of the steps of its latest execution;
+  the server keeps every annotation an agent reports, beyond the limits the agent applies.
+- `GET /executions/{execution}/steps/{step}/summary` answers `200` with
+  `text/markdown; charset=utf-8` and the summary byte for byte as the agent sent it, its
+  `Content-Length` the step's `summary_size`. A step, an execution or a segment that does not
+  exist is `404 not_found` with the message of the log, ``there is no step `<step>` in execution
+  `<execution>` ``, and a step without a summary is `404 not_found` with ``step `<step>` of
+  execution `<execution>` has no summary``.
+- Reading annotations, summaries and logs needs `project.view` on the run's project, as reading
+  the execution does.
 
 ### The queue
 
@@ -938,7 +976,7 @@ bosun run list [--project <p>] [--workflow <w>] [--branch <b>] [--event <e>] [--
                [--actor <login>] [--limit <n>]
 bosun run show <run> | watch <run> | journal <run>
 bosun run cancel [--force] | pause | resume | admit | rerun [--failed] [--debug] <run>
-bosun job logs <job> [--step <n>] [--follow] [--grep <pattern>]
+bosun job logs <job> [--step <n>] [--follow | --grep <text>]
 bosun job cancel | pause | resume | skip | rerun [--no-dependents] <job>
 bosun job mark-success <job> [--output k=v]... --reason <text>
 bosun job prioritise <job> <low|normal|high> | pin <job> <agent>
@@ -989,6 +1027,10 @@ What M0 settles of these commands:
 
 What M1 settles of these commands:
 
+- `bosun job logs <job> --grep <text>` prints, for each step under its heading or for the step
+  `--step` names alone, the lines that `?search=<text>` finds, each as `<number>: <time> <text>`,
+  so the numbers are those of the step's log. It takes no `--follow`, since a search reads the
+  lines stored so far.
 - `bosun project settings <org/project>` prints the settings of the project, one line per setting
   with its value, a value that is not text as JSON; `--json` prints the document. Each `--set
   key=value` changes one setting: the command reads the document and its `ETag`, sends the changes

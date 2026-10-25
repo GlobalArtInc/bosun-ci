@@ -70,6 +70,26 @@ pub struct RecordedCheckRun {
     pub details_url: Option<String>,
     pub status: String,
     pub conclusion: Option<String>,
+    pub output: Option<RecordedOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedOutput {
+    pub title: String,
+    pub summary: String,
+    pub annotations: Vec<RecordedAnnotation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedAnnotation {
+    pub path: String,
+    pub start_line: u64,
+    pub end_line: u64,
+    pub start_column: Option<u64>,
+    pub end_column: Option<u64>,
+    pub annotation_level: String,
+    pub message: String,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

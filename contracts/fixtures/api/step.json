@@ -8,5 +8,28 @@
   "conclusion": "skipped",
   "conclusion_source": "operator",
   "started_at": "2026-10-24T18:34:51Z",
-  "completed_at": "2026-10-24T18:35:07.512Z"
+  "completed_at": "2026-10-24T18:35:07.512Z",
+  "annotations": [
+    {
+      "kind": "error",
+      "message": "expected `;`, found `}`",
+      "title": "rustc",
+      "file": "crates/types/src/api.rs",
+      "line": 41,
+      "end_line": 41,
+      "column": 9,
+      "end_column": 10
+    },
+    {
+      "kind": "notice",
+      "message": "the step summary is longer than 1 MiB, so only its first 1 MiB is kept",
+      "title": null,
+      "file": null,
+      "line": null,
+      "end_line": null,
+      "column": null,
+      "end_column": null
+    }
+  ],
+  "summary_size": 2048
 }

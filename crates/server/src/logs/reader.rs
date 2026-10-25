@@ -2,7 +2,7 @@ use std::io;
 use std::sync::Arc;
 
 use bosun_blob::{Key, Store as _};
-use bosun_db::logs::{Log, StoredChunk, StoredObject};
+use bosun_db::logs::{Log, StoredChunk, StoredObject, Window};
 use bosun_types::id::{ExecutionId, StepId};
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
@@ -25,6 +25,13 @@ pub(crate) enum Read {
     Lines(Vec<Line>),
     Waiting,
     End(u64),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Scanned {
+    Lines(Vec<Line>),
+    Object(StoredObject),
+    End,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -71,14 +78,34 @@ impl Reader {
     }
 
     pub(crate) async fn read(&mut self) -> Result<Read, Failure> {
-        let window = bosun_db::logs::window(&self.db, self.execution, self.step, self.seq, PAGE)
-            .await?
-            .ok_or(Failure::Missing)?;
+        let window = self.window().await?;
         match window.log {
             Log::Compacted(None) => Ok(Read::End(0)),
             Log::Compacted(Some(stored)) => self.read_object(&stored).await,
             Log::Live(chunks) => Ok(self.read_chunks(chunks, window.completed_at)),
         }
+    }
+
+    pub(crate) async fn scan(&mut self) -> Result<Scanned, Failure> {
+        let window = self.window().await?;
+        match window.log {
+            Log::Compacted(None) => Ok(Scanned::End),
+            Log::Compacted(Some(stored)) => Ok(Scanned::Object(stored)),
+            Log::Live(chunks) => Ok(match self.read_chunks(chunks, window.completed_at) {
+                Read::Lines(lines) => Scanned::Lines(lines),
+                Read::Waiting | Read::End(_) => Scanned::End,
+            }),
+        }
+    }
+
+    pub(crate) fn position(&self) -> u64 {
+        self.position
+    }
+
+    async fn window(&self) -> Result<Window, Failure> {
+        bosun_db::logs::window(&self.db, self.execution, self.step, self.seq, PAGE)
+            .await?
+            .ok_or(Failure::Missing)
     }
 
     async fn read_object(&mut self, stored: &StoredObject) -> Result<Read, Failure> {

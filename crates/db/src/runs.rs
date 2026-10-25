@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 
 use bosun_types::actor::Actor;
-use bosun_types::api::{Run, Workflow};
+use bosun_types::api::{Annotation, Run, Workflow};
 use bosun_types::diagnostic::Diagnostic;
 use bosun_types::event::{
     AttemptCreated, Event, JobCreated, RunCreated, RunEvent, RunStatusChanged,
@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 
 use crate::entity::{attempt, job, run, workflow};
 use crate::journal::{self, NewEvent};
+use crate::results::Summary;
 use crate::row::statement;
 use crate::{Error, row};
 
@@ -99,6 +100,8 @@ pub struct StepEnd {
     pub conclusion: Conclusion,
     pub at: Option<DateTimeUtc>,
     pub outputs: BTreeMap<String, String>,
+    pub annotations: Vec<Annotation>,
+    pub summary: Option<Summary>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

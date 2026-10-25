@@ -1,12 +1,12 @@
 use std::collections::BTreeSet;
 
 use bosun_db::entity::{
-    action_ref, agent, api_token, api_token_scope, attempt, control_message, execution,
+    action_ref, agent, annotation, api_token, api_token_scope, attempt, control_message, execution,
     forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
     log_chunk, log_object, oidc_state, organisation, outbox, pool, pool_access, project,
     registration_token, role, role_binding, run, run_event, schema_version, secret, session,
-    sign_in_failure, step, stream_event, team, team_member, tool_object, user, user_identity,
-    variable, webhook_delivery, workflow, workflow_revision,
+    sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object, user,
+    user_identity, variable, webhook_delivery, workflow, workflow_revision,
 };
 use bosun_testkit::TestDatabase;
 use sea_orm::EntityName;
@@ -26,6 +26,7 @@ async fn every_table_has_an_entity() {
     let entities: BTreeSet<String> = [
         action_ref::Entity.table_name(),
         agent::Entity.table_name(),
+        annotation::Entity.table_name(),
         api_token::Entity.table_name(),
         api_token_scope::Entity.table_name(),
         attempt::Entity.table_name(),
@@ -55,6 +56,7 @@ async fn every_table_has_an_entity() {
         session::Entity.table_name(),
         sign_in_failure::Entity.table_name(),
         step::Entity.table_name(),
+        step_summary::Entity.table_name(),
         stream_event::Entity.table_name(),
         team::Entity.table_name(),
         team_member::Entity.table_name(),

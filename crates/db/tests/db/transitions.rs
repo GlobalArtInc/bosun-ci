@@ -184,6 +184,8 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
             conclusion: Conclusion::Failure,
             at: None,
             outputs: BTreeMap::from([("digest".to_owned(), "sha256:0f1e".to_owned())]),
+            annotations: Vec::new(),
+            summary: None,
         },
         &Actor::System,
     )

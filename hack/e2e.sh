@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
-scenarios="$scenarios secrets lint interface"
+scenarios="$scenarios log-search secrets lint interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -1096,6 +1096,61 @@ EOF
   grep -qE '^status +completed cancelled$' "$shown" || fail "bosun run show printed: $(cat "$shown")"
   grep -qE "^hold +hold +completed cancelled +$job\$" "$shown" ||
     fail "bosun run show does not show the cancelled job: $(cat "$shown")"
+  passed
+}
+
+numbered() {
+  sed -E 's/^([0-9]+): [^ ]+ /\1: /' "$1"
+}
+
+scenario_log_search() {
+  begin log-search \
+    "bosun job logs --grep prints the matching lines with their numbers, the same before and after compaction"
+  local job execution before after compacted deadline
+  push search <<'YAML'
+name: search
+on: workflow_dispatch
+jobs:
+  print:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - name: Print
+        run: |
+          for i in $(seq 1 1200); do echo "row $i"; done
+          echo "the NEEDLE is here"
+      - name: Again
+        run: echo "another needle"
+YAML
+  watch a search
+  watch_ended 60 search
+  [ "$reaped" -eq 0 ] || fail "bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
+  job="$(job_id print)"
+  [ -n "$job" ] || fail "the watch named no job: $(cat "$watched")"
+  before="$work/out/grep-before.txt"
+  after="$work/out/grep-after.txt"
+  cli --profile a job logs "$job" --grep needle >"$before" 2>&1 ||
+    fail "bosun job logs --grep failed: $(cat "$before")"
+  [ "$(numbered "$before")" = "$(printf '%s\n' '==> step 1: Print' '1201: the NEEDLE is here' \
+    '==> step 2: Again' '1: another needle')" ] ||
+    fail "bosun job logs --grep printed: $(cat "$before")"
+  cli --profile b job logs "$job" --step 1 --grep "ROW 115" >"$work/out/grep-step.txt" 2>&1 ||
+    fail "bosun job logs --step 1 --grep failed: $(cat "$work/out/grep-step.txt")"
+  [ "$(numbered "$work/out/grep-step.txt")" = "$(printf '%s\n' '115: row 115' \
+    '1150: row 1150' '1151: row 1151' '1152: row 1152' '1153: row 1153' '1154: row 1154' \
+    '1155: row 1155' '1156: row 1156' '1157: row 1157' '1158: row 1158' '1159: row 1159')" ] ||
+    fail "bosun job logs --step 1 --grep printed: $(cat "$work/out/grep-step.txt")"
+  execution="$(api GET "/api/v1/jobs/$job" | jq -r .execution_id)" || fail "the job $job could not be read"
+  deadline=$((SECONDS + 60))
+  until compacted="$(psql "$database_url" -XAtc \
+    "SELECT log_compacted_at IS NOT NULL FROM bosun.execution WHERE id = '$execution'")" &&
+    [ "$compacted" = t ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the log of $execution was not compacted within 60s"
+    sleep 0.5
+  done
+  cli --profile b job logs "$job" --grep needle >"$after" 2>&1 ||
+    fail "bosun job logs --grep failed after the compaction: $(cat "$after")"
+  cmp -s "$before" "$after" ||
+    fail "the search changed with the compaction: before $(cat "$before"), after $(cat "$after")"
   passed
 }
 

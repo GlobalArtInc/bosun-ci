@@ -167,17 +167,19 @@ all lowercased; they replace the labels given at registration.
 a transaction of its own under the run's lock ([07-storage.md](07-storage.md)), and plans the run
 after it ([04-runs.md](04-runs.md)). `Accept` starts the execution and its job and creates the
 job's steps; `StepStarted` and `StepFinished` move a step, with the times the agent gives, and
-`StepFinished` stores on the step the outputs it reports;
+`StepFinished` stores on the step the outputs it reports, and its annotations and summary
+([06-runtime-services.md](06-runtime-services.md#step-summaries-and-annotations));
 `JobFinished` completes the execution with its conclusion, the steps it left open and the job, and
 stores on the job the outputs it reports for the names the job declares; the server logs and drops
 any other name, so a dependent's `needs` hold only declared outputs. A
 report about an execution of another agent, or one that does not fit the execution's state, such as
 a `StepStarted` for a step that already started or an `Accept` for an assignment a cancel already
 completed, is ignored and logged at warning level; a report whose execution id or conclusion is
-malformed ends the stream like any other breach of the protocol. `Idle`, `Reject` and the lease of
-an assignment belong to the queue ([07-storage.md](07-storage.md#the-queue)): an `Idle` makes the
-replica that holds the stream claim a job for the agent, and again whenever a job is queued, until
-it sends the agent an `Assignment`; a `Reject` of an execution still `assigned` returns its job to
+malformed, or that carries an annotation of no kind, ends the stream like any other breach of the
+protocol. `Idle`, `Reject` and the lease of an assignment belong to the queue
+([07-storage.md](07-storage.md#the-queue)): an `Idle` makes the replica that holds the stream
+claim a job for the agent, and again whenever a job is queued, until it sends the agent an
+`Assignment`; a `Reject` of an execution still `assigned` returns its job to
 the queue with the reason `rejected_by_agent`, and the agent is not offered that job again on the
 same stream; an `Accept` after the lease returned the job is ignored like any report that does not
 fit. A replica sends an assignment only to an agent that said it is idle and has no execution that

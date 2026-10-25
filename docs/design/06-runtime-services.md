@@ -481,6 +481,23 @@ Annotations from `::notice`, `::warning` and `::error` and from problem matchers
 step, shown on the run page and in the job log at the line that produced them, which the agent
 writes after `##[notice]`, `##[warning]` or `##[error]`, and forwarded to the forge.
 
+Step 35 of [../plan.md](../plan.md) settled how the server keeps them:
+
+- The replica that holds the agent's stream applies a `StepFinished` as it applies the other
+  reports. A non-empty summary goes first to the object store, as `summaries/<execution>/<step>.md`,
+  and only for a step of that execution that the agent holds, that is not completed and that has
+  no summary yet, so a report the agent sends again stores nothing a second time. The transaction
+  that finishes the step then records the object in `step_summary` and the annotations in
+  `annotation` ([07-storage.md](07-storage.md#tables)); a report the transaction ignores, because
+  the step was completed meanwhile, removes the object it wrote. A summary the store refuses is
+  logged at warning level and leaves the step without one, since the agent sends a report once and
+  does not send it again on a new stream.
+- An annotation of no kind is a breach of the protocol and ends the stream, as a conclusion of
+  none does. The server keeps every annotation an agent reports, beyond the 10 of each kind per
+  step and 50 per job that the agent keeps, so what the API shows is what the agent sent.
+- The API serves them on the steps of an execution and the summary of a step byte for byte
+  ([11-api.md](11-api.md#step-results)).
+
 ## Reporting to the forge
 
 Every job of a run of a forge-bound project is reported as one check run named as the target names
@@ -503,8 +520,9 @@ experiment does not decorate a pull request. All reports go through the outbox
 ([07-storage.md](07-storage.md)), are retried with backoff when the forge fails, and collapse into
 the latest state when several updates of one job are pending.
 
-Step 28 of M1 ([../plan.md](../plan.md)) settled the reports of M1; summaries and annotations join
-them with step 35, and the summary line of an operator's conclusion and the approvals with M3.
+Step 28 of M1 ([../plan.md](../plan.md)) settled the reports of M1; summaries and annotations
+joined them with step 35, and the summary line of an operator's conclusion and the approvals join
+them with M3.
 
 - A run is reported when it has a commit and its project is bound to a repository that an
   installation of the App sees; a run of a server-side workflow planned without a commit is not.
@@ -533,6 +551,30 @@ them with step 35, and the summary line of an operator's conclusion and the appr
   a commit status has no state for it. The description says the same in a word or two (`Queued`,
   `In progress`, `Succeeded`, `Failed`, `Cancelled`, `Skipped`, `Timed out`), and the target address
   is the details address.
+- The report of a completed job carries the check run's `output`, built when it is delivered from
+  the steps of the job's latest execution, when they wrote a summary or an annotation; the
+  reports before it carry none. Its `title` is the check run's name. Its `summary` is the step
+  summaries in the order of the steps, each followed by a line break unless it ends with one, or
+  `The steps of this job wrote no summary.` when only annotations were written. The forge holds at
+  most 65,535 characters there; the server counts bytes, which are never fewer, and cuts a longer
+  text at a character so that, with the notice `The summaries of this job are longer than a check
+  run holds, so they end here; the job's page on Bosun shows them whole.` after a rule, it holds
+  at most that many. It reads no more of the summaries than the cut keeps, and leaves out one
+  that is no longer in the store.
+- The annotations go in batches of 50, the forge's limit per request: the first with the status
+  and the conclusion, each further one in another update of the same check run with the same
+  title and summary, since the forge appends the annotations of every request. After each request
+  the delivery records in `forge_check_run` how many the check run holds, so a delivery that
+  failed halfway and is tried again sends only the rest
+  ([07-storage.md](07-storage.md#the-outbox)).
+- An annotation goes to the forge in the form its check runs require: `path`, `start_line`,
+  `end_line`, `start_column`, `end_column`, `annotation_level`, `message` and `title`. One without
+  a file names `.github`, the path the target gives such annotations; a missing or zero line is
+  line 1 and a missing end line is the start line; columns go only on an annotation of one line,
+  from at least 1; the kinds `notice`, `warning` and `error` are the levels `notice`, `warning`
+  and `failure`; and the message is cut at 65,535 bytes and the title at 255 characters, the
+  forge's limits, at a character. The client of the forge applies these rules, and the fake forge
+  refuses a request that breaks them, as the forge does.
 - A run that ends as `startup_failure` has no jobs, so it is reported once, as settled: a check run
   named after its workflow as `<workflow>` above, completed with the conclusion `failure`, whose
   details address is the run page, `<public_url>/runs/<run>`, where its notices say why it could

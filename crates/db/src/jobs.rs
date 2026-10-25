@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::mem;
 use std::time::Duration;
 
 use bosun_types::actor::Actor;
@@ -20,7 +21,7 @@ use crate::entity::job as entity;
 use crate::pools::Placement;
 use crate::row::statement;
 use crate::runs::{Evaluated, JobState, Locked, NewMember, StepEnd, Strategy, refuse};
-use crate::{Error, queue, row};
+use crate::{Error, queue, results, row};
 
 const JOBS: &str = "job";
 
@@ -575,7 +576,7 @@ impl Locked<'_> {
         &self,
         execution: ExecutionId,
         index: u32,
-        end: StepEnd,
+        mut end: StepEnd,
         actor: &Actor,
     ) -> Result<(), Error> {
         let job = self.running(execution).await?;
@@ -583,8 +584,11 @@ impl Locked<'_> {
         if !matches!(from, StepStatus::Pending | StepStatus::InProgress) {
             return Err(refuse("step", step, from, StepStatus::Completed));
         }
+        let annotations = mem::take(&mut end.annotations);
+        let summary = end.summary.take();
         self.close_step((job, execution, step), from, end, actor)
-            .await
+            .await?;
+        results::record(self.transaction(), step, &annotations, summary.as_ref()).await
     }
 
     pub async fn finish_execution(
@@ -630,6 +634,8 @@ impl Locked<'_> {
                     conclusion: ended,
                     at: None,
                     outputs: BTreeMap::new(),
+                    annotations: Vec::new(),
+                    summary: None,
                 },
                 actor,
             )
@@ -724,6 +730,7 @@ impl Locked<'_> {
             conclusion,
             at,
             outputs,
+            ..
         } = end;
         self.transaction()
             .execute(statement(

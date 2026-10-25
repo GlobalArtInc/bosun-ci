@@ -1,0 +1,12 @@
+{
+  "matches": [
+    {
+      "number": 12,
+      "line": "2026-10-24T18:34:52.104000000Z \u001b[31merror\u001b[0m: the build failed"
+    },
+    {
+      "number": 1043,
+      "line": "2026-10-24T18:35:06.871000000Z ##[error]Process completed with exit code 2."
+    }
+  ]
+}

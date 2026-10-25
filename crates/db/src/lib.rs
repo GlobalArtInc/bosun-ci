@@ -19,6 +19,7 @@ mod periodic;
 pub mod pools;
 pub mod projects;
 pub mod queue;
+pub mod results;
 pub mod roles;
 mod row;
 pub mod runs;

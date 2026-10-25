@@ -1,5 +1,6 @@
 pub mod action_ref;
 pub mod agent;
+pub mod annotation;
 pub mod api_token;
 pub mod api_token_scope;
 pub mod attempt;
@@ -29,6 +30,7 @@ pub mod secret;
 pub mod session;
 pub mod sign_in_failure;
 pub mod step;
+pub mod step_summary;
 pub mod stream_event;
 pub mod team;
 pub mod team_member;

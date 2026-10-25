@@ -6,10 +6,11 @@ use bosun_proto::agent::v1::agent_message::Message as Inbound;
 use bosun_proto::agent::v1::agent_server::Agent;
 use bosun_proto::agent::v1::server_message::Message as Outgoing;
 use bosun_proto::agent::v1::{
-    ASSIGNMENT_REVISION, AgentMessage, Capability as Offered, Conclusion as Reported, Hello, Log,
-    LogAck, ServerMessage, Settings, Welcome,
+    ASSIGNMENT_REVISION, AgentMessage, Annotation as Reported, AnnotationKind as ReportedKind,
+    Capability as Offered, Conclusion as Concluded, Hello, Log, LogAck, ServerMessage, Settings,
+    Welcome,
 };
-use bosun_types::api::{self, Capability, TrustLevel};
+use bosun_types::api::{self, Annotation, AnnotationKind, Capability, TrustLevel};
 use bosun_types::id::ExecutionId;
 use bosun_types::status::Conclusion;
 use chrono::{DateTime, Utc};
@@ -30,6 +31,7 @@ use crate::auth;
 use crate::config::Agents;
 use crate::logs;
 use crate::queue::Dispatcher;
+use crate::store::Backend;
 use crate::token::{AGENT, Token};
 
 const AUTOMATIC: &str = "self-hosted";
@@ -51,6 +53,7 @@ impl From<String> for Ending {
 #[derive(Clone)]
 pub(crate) struct Connector {
     db: DatabaseConnection,
+    store: Arc<Backend>,
     replica: Arc<Replica>,
     settings: Agents,
     dispatcher: Arc<Dispatcher>,
@@ -59,12 +62,14 @@ pub(crate) struct Connector {
 impl Connector {
     pub(crate) fn new(
         db: DatabaseConnection,
+        store: Arc<Backend>,
         replica: Arc<Replica>,
         settings: Agents,
         dispatcher: Arc<Dispatcher>,
     ) -> Connector {
         Connector {
             db,
+            store,
             replica,
             settings,
             dispatcher,
@@ -260,6 +265,7 @@ impl Agent for Connector {
         replica::deliver_pending(&self.db, &self.replica, agent.id).await;
         let session = Session {
             db: self.db.clone(),
+            store: Arc::clone(&self.store),
             replica: Arc::clone(&self.replica),
             dispatcher: Arc::clone(&self.dispatcher),
             settings: self.settings,
@@ -278,6 +284,7 @@ impl Agent for Connector {
 
 struct Session {
     db: DatabaseConnection,
+    store: Arc<Backend>,
     replica: Arc<Replica>,
     dispatcher: Arc<Dispatcher>,
     settings: Agents,
@@ -416,10 +423,17 @@ impl Session {
                     at: finished.completed_at.and_then(time),
                     outcome: conclusion(finished.outcome(), "the outcome of a step")?,
                     conclusion: conclusion(finished.conclusion(), "the conclusion of a step")?,
+                    annotations: finished
+                        .annotations
+                        .into_iter()
+                        .map(annotation)
+                        .collect::<Result<_, _>>()?,
                     outputs: finished.outputs.into_iter().collect(),
+                    summary: Some(finished.summary).filter(|summary| !summary.is_empty()),
                 };
                 let recorded =
-                    progress::step_finished(&self.db, &self.reporter, execution, end).await;
+                    progress::step_finished(&self.db, &self.store, &self.reporter, execution, end)
+                        .await;
                 self.report("StepFinished", execution, recorded);
             }
             Some(Inbound::JobFinished(finished)) => {
@@ -569,15 +583,36 @@ fn execution_id(text: &str) -> Result<ExecutionId, String> {
         .map_err(|_| format!("`{text}` is not the id of an execution"))
 }
 
-fn conclusion(reported: Reported, what: &str) -> Result<Conclusion, String> {
+fn conclusion(reported: Concluded, what: &str) -> Result<Conclusion, String> {
     match reported {
-        Reported::Success => Ok(Conclusion::Success),
-        Reported::Failure => Ok(Conclusion::Failure),
-        Reported::Cancelled => Ok(Conclusion::Cancelled),
-        Reported::Skipped => Ok(Conclusion::Skipped),
-        Reported::TimedOut => Ok(Conclusion::TimedOut),
-        Reported::Unspecified => Err(format!("{what} is not specified")),
+        Concluded::Success => Ok(Conclusion::Success),
+        Concluded::Failure => Ok(Conclusion::Failure),
+        Concluded::Cancelled => Ok(Conclusion::Cancelled),
+        Concluded::Skipped => Ok(Conclusion::Skipped),
+        Concluded::TimedOut => Ok(Conclusion::TimedOut),
+        Concluded::Unspecified => Err(format!("{what} is not specified")),
     }
+}
+
+fn annotation(reported: Reported) -> Result<Annotation, String> {
+    let kind = match reported.kind() {
+        ReportedKind::Notice => AnnotationKind::Notice,
+        ReportedKind::Warning => AnnotationKind::Warning,
+        ReportedKind::Error => AnnotationKind::Error,
+        ReportedKind::Unspecified => {
+            return Err("the kind of an annotation is not specified".to_owned());
+        }
+    };
+    Ok(Annotation {
+        kind,
+        message: reported.message,
+        title: reported.title,
+        file: reported.file,
+        line: reported.line,
+        end_line: reported.end_line,
+        column: reported.column,
+        end_column: reported.end_column,
+    })
 }
 
 fn time(at: prost_types::Timestamp) -> Option<DateTime<Utc>> {
