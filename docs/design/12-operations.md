@@ -364,7 +364,8 @@ when the next release will refuse them.
 
 ## Taking over the team's CI
 
-1. Until Bosun runs jobs, its own CI runs on GitHub Actions on the self-hosted runners.
+1. Until Bosun runs jobs, its own CI runs on GitHub Actions on GitHub's hosted runners, which
+   cost a public repository nothing.
 2. From M1, an agent instance on the runner host runs Bosun's simple workflows next to the GitHub
    runners.
 3. From M2, the CI of Keel runs on Bosun from `.bosun/workflows/`, a copy of its GitHub workflows,

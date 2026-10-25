@@ -15,7 +15,7 @@ concurrency:
 jobs:
   image:
     name: globalartltd/bosun for linux/amd64 and linux/arm64
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:

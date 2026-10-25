@@ -14,15 +14,15 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 1
-  CARGO_BUILD_JOBS: 6
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
   RUST_BACKTRACE: 1
   COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
 
 jobs:
   check:
     name: fmt, clippy, test, dependency rules
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     services:
@@ -56,16 +56,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Put cargo on the path
-        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
-      - name: Link the runner's build directory
+      - name: Free disk space for the build
         run: |
-          dir="/opt/actions-runner/cache/bosun/$RUNNER_NAME/target"
-          mkdir -p "$dir"
-          rm -rf target
-          ln -sfn "$dir" target
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - name: Install the Rust toolchain
         run: |
@@ -74,6 +69,9 @@ jobs:
             --target wasm32-unknown-unknown,x86_64-unknown-linux-musl
           rustc --version
           cargo --version
+
+      - name: Cache the cargo registry and the build directory
+        uses: Swatinem/rust-cache@v2
 
       - name: Install Node
         uses: actions/setup-node@v4
@@ -167,7 +165,7 @@ jobs:
 
   image:
     name: image, agent install and the two-job workflow
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:

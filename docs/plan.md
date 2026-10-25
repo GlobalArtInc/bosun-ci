@@ -20,7 +20,7 @@ ordering rules follow from [design/13-decisions.md](design/13-decisions.md):
 
 Scope:
 
-- The workspace, CI on the self-hosted runners, the dependency rules of
+- The workspace, CI on GitHub Actions, the dependency rules of
   [design/01-overview.md](design/01-overview.md).
 - `bosun-types`, and `bosun-workflow` for a subset without expressions: `name`,
   `on: workflow_dispatch` without inputs, literal `env`, jobs with `name`, `runs-on`, `needs`, `env`
@@ -2383,7 +2383,7 @@ The built interface is embedded in `bosun-server`. Hashed assets are served as i
 `/hooks`, `/_runtime`, `/twirp` and gRPC keep their own answers.
 
 The step settles two things and records them in design/09-frontend.md: how `cargo build` behaves
-when `web/` has not been built, and how CI runs Playwright on the self-hosted runner. CI gains
+when `web/` has not been built, and how CI runs Playwright. CI gains
 `pnpm lint`, `pnpm test` and `pnpm build`. The image builds the interface. `hack/e2e.sh` gains a run
 of the Playwright scenarios under `web/e2e/`, starting with the sign-in scenario.
 
@@ -5323,8 +5323,9 @@ and discards are recorded in the audit trail of step 4.
   the WebAssembly build of the pure crates, `hack/check-deps.sh`, from M0 step 14 `hack/e2e.sh`,
   and from M0 step 15 `hack/test-image.sh` on a host with docker. Once `web/` exists,
   `pnpm lint && pnpm test && pnpm build` join the list.
-- CI runs on the self-hosted runners only; hosted runners are used only by the public
-  compatibility repository, whose minutes are free.
+- CI runs on GitHub's hosted runners: the repository is public, so their minutes are free, as
+  they are for the public compatibility repository. The organisation's self-hosted runners do not
+  serve public repositories.
 - English everywhere in the repository: code, documentation, tests, CI, commit messages.
 - Commit titles follow Conventional Commits (`feat(server): claim jobs with skip locked`); commit
   messages end with their last line of content, without attribution trailers.

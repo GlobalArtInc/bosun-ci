@@ -203,7 +203,7 @@ which emulate the colour scheme the interface follows. It gives the scenarios tw
 The accessibility scenario runs axe with the rules of WCAG 2.1 A and AA on the sign-in page in each
 theme, and walks its tab order, requiring a visible focus indicator at every stop.
 
-On Linux with docker, which is how the self-hosted runner runs it, the scenarios run inside
+On Linux with docker, which is how CI runs it, the scenarios run inside
 `mcr.microsoft.com/playwright:v<version>-noble`, the image of the exact `@playwright/test` version
 of the lockfile, with the host's network, the runner's own user and `web/` mounted at its own path.
 The image carries the browser and every library it needs, so nothing is installed on the runner and
