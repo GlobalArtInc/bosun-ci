@@ -34,7 +34,7 @@ impl Api {
         .await
     }
 
-    async fn serve(launch: Launch, token: String) -> Api {
+    pub async fn serve(launch: Launch, token: String) -> Api {
         let mut server = launch.spawn();
         let address = server.listening().await;
         Api {

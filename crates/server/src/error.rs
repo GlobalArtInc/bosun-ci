@@ -40,6 +40,24 @@ pub enum Error {
         #[source]
         source: io::Error,
     },
+    #[error(
+        "the configuration names no KEK and {} does not exist, so there is no current KEK to          encrypt the data keys under",
+        path.display()
+    )]
+    NoKek { path: PathBuf },
+    #[error("a secret could not be encrypted")]
+    Seal,
+    #[error("the data keys of the secrets could not be re-encrypted: {0}")]
+    Rewrap(#[source] bosun_db::Error),
+    #[error(
+        "re-encrypted the data keys of {rewrapped} secrets, but not of {}: {}",
+        failures.len(),
+        failures.join("; ")
+    )]
+    Unrewrapped {
+        rewrapped: u64,
+        failures: Vec<String>,
+    },
     #[error("could not read the {what} of the GitHub App from {}: {source}", path.display())]
     ReadGitHubFile {
         what: &'static str,

@@ -43,6 +43,8 @@ keys!(
     ProjectManage,
     OrganisationManage,
     AgentManage,
+    SecretManage,
+    VariableManage,
 );
 
 pub(crate) trait Rule {
@@ -56,6 +58,8 @@ pub(crate) struct OnInstallation<K>(PhantomData<fn() -> K>);
 pub(crate) struct OnOrganisation<K>(PhantomData<fn() -> K>);
 
 pub(crate) struct OnProject<K>(PhantomData<fn() -> K>);
+
+pub(crate) struct OnScope<K>(PhantomData<fn() -> K>);
 
 pub(crate) struct Listed<K>(PhantomData<fn() -> K>);
 
@@ -84,6 +88,12 @@ impl<K: Key> Rule for OnOrganisation<K> {
 impl<K: Key> Rule for OnProject<K> {
     fn declaration() -> Value {
         json!({ "on": "project", "key": K::KEY })
+    }
+}
+
+impl<K: Key> Rule for OnScope<K> {
+    fn declaration() -> Value {
+        json!({ "on": "scope", "key": K::KEY })
     }
 }
 
@@ -262,6 +272,29 @@ impl<K: Key> Caller<OnProject<K>> {
         let project = self.project_of(db, holder, &missing).await?;
         self.project(&project, missing)?;
         Ok(project)
+    }
+}
+
+impl<K: Key> Caller<OnScope<K>> {
+    pub(crate) fn organisation(
+        &self,
+        organisation: &Organisation,
+        missing: impl FnOnce() -> ApiError,
+    ) -> Result<(), ApiError> {
+        self.check(
+            self.permissions().on_organisation(organisation.id),
+            K::KEY,
+            || format!("organisation `{}`", organisation.slug),
+            missing,
+        )
+    }
+
+    pub(crate) fn project(
+        &self,
+        project: &Project,
+        missing: impl FnOnce() -> ApiError,
+    ) -> Result<(), ApiError> {
+        self.on_project(K::KEY, project, missing)
     }
 }
 

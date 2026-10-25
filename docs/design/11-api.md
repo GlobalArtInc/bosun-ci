@@ -34,8 +34,9 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   key and body returns the first response. The four whose answer holds a secret that is shown
   once, `POST /registration-tokens`, `POST /agents/register`, `POST /auth/login` and
   `POST /tokens`, take no key, since keeping their answer would show it again, and neither do
-  `POST /label-aliases` and `POST /teams/{team}/members`, which set an alias or a membership rather
-  than add one, so that repeating them changes nothing. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
+  `POST /label-aliases`, `POST /teams/{team}/members`, `POST /secrets` and `POST /variables`, which
+  set an alias, a membership, a secret or a variable rather than add one, so that repeating them
+  changes nothing. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
   it. The request it stands for is its method, its path with the query and the bytes of its body;
   the same key with another request within 24 hours is `409 conflict`. The response is kept in the
   transaction of the write, and only when the write created something, so a request that failed can
@@ -142,7 +143,8 @@ fails when the generated document differs from the committed one ([below](#the-o
 | `/events` | GET | the event stream ([below](#the-event-stream)) |
 | `/pools`, `/agents`, `/registration-tokens` | GET, POST, PATCH, DELETE | pools, agents (drain, labels), registration tokens |
 | `/agents/register` | POST | agent registration with a `brt_` token |
-| `/environments`, `/secrets`, `/variables` | GET, POST, PUT, DELETE | scoped by `?organisation=` or `?project=`; secrets are write-only |
+| `/environments` | GET, POST, PUT, DELETE | scoped by `?organisation=` or `?project=` |
+| `/secrets`, `/secrets/{name}`, `/variables`, `/variables/{name}` | GET, POST, DELETE | secrets and variables of an organisation or a project, scoped by `?organisation=` or `?project=`; secrets are write-only ([below](#secrets-and-variables)) |
 | `/plugins`, `/plugin-instances` | GET, POST, PATCH, DELETE | plugins and instances |
 | `/users`, `/teams`, `/teams/{team}/members`, `/roles`, `/role-bindings`, `/tokens` | GET, POST, PATCH, DELETE | identity and access ([below](#identity-and-access)) |
 | `/webhook-subscriptions` | GET, POST, PATCH, DELETE | outgoing webhooks |
@@ -214,7 +216,8 @@ Step 9 of M1 ([../plan.md](../plan.md)) settled how the API applies the permissi
   organisation; `POST /runs/{run}/commands` checks that the run is visible before it looks at the
   body, and the permission of the command after. The lists of teams, roles and role bindings read
   their query first for the same reason, and so do `POST /teams`, `POST /roles` and
-  `POST /role-bindings` their body.
+  `POST /role-bindings` their body, and the operations of secrets and variables their query, before
+  their body.
 - **Lists** declared on `items` answer `200` to every caller and hold only the items on whose
   project the caller holds the permission the list declares, `project.view` for every such list
   served so far. A list checked on the installation or on an organisation is refused there like any
@@ -233,6 +236,7 @@ where it is checked:
 | `{"on": "project", "key": K}` | `K` on the project the path names, or the project of the workflow, run, job or execution it names |
 | `{"on": "items", "key": K}` | a list of the items on whose project the caller holds `K` |
 | `{"on": "items", "key": K, "installation": I}` | a stream of the items on whose project the caller holds `K`, and of the items that belong to no project when the caller holds `I` on the installation ([The event stream](#the-event-stream)) |
+| `{"on": "scope", "key": K}` | `K` on the organisation or the project that the query names with `organisation` or `project`, exactly one of which the request gives |
 | `{"on": "project", "by_command": {…}}` | the permission of the command in the body, on the run's project; the map gives it for each command the endpoint takes, as the command table of [04-runs.md](04-runs.md#operator-commands) does |
 
 The endpoints and what they need, which a test compares with `contracts/openapi.json`, and
@@ -300,6 +304,12 @@ with the answers each built-in role gets:
 | `GET /tokens` | — | `authenticated` |
 | `POST /tokens` | — | `authenticated` |
 | `DELETE /tokens/{token}` | — | `authenticated` |
+| `GET /secrets` | `project.view` | `scope` |
+| `POST /secrets` | `secret.manage` | `scope` |
+| `DELETE /secrets/{name}` | `secret.manage` | `scope` |
+| `GET /variables` | `project.view` | `scope` |
+| `POST /variables` | `variable.manage` | `scope` |
+| `DELETE /variables/{name}` | `variable.manage` | `scope` |
 
 A step that adds an endpoint adds its row here.
 
@@ -607,6 +617,43 @@ Step 19 of M1 ([../plan.md](../plan.md)) settled draining and deleting agents; w
 - All three are checked on the installation, since agents belong to it
   ([08-access.md](08-access.md#roles-and-bindings)).
 
+### Secrets and variables
+
+Step 24 of M1 ([../plan.md](../plan.md)) settled these endpoints; how a secret is kept is in
+[07-storage.md](07-storage.md#secrets-at-rest), who reads and writes them in
+[08-access.md](08-access.md#secrets-and-variables), and how jobs receive them in
+[05-execution.md](05-execution.md#the-job-assignment).
+
+- **The scope.** Every request names one organisation with `?organisation=`, its id or its slug, or
+  one project with `?project=`, its id or `<organisation>/<project>`. Both or neither are
+  `invalid_input` naming both. The permission is checked there (`{"on": "scope"}`): an organisation
+  or a project that does not exist, or where the caller holds nothing, is `invalid_input` naming the
+  parameter, as the organisation of a list is ([Permissions](#permissions)), and a caller who holds
+  something there but not the key gets `403`. A request reaches the scope's own secrets or
+  variables: the list of a project does not show those of its organisation, which its jobs receive
+  too.
+- **Names and values.** A name follows the target's rules: letters, digits and `_`, not starting
+  with a digit, and not starting with `GITHUB_` in any case. Names compare without regard to case
+  and are stored in upper case, so `deploy_key` names `DEPLOY_KEY` in a request, in a path and in
+  an expression. Bosun adds a limit of 255 characters. A value is 1 byte to 48 KiB, the target's
+  limit. The cases of `contracts/fixtures/names/` pin the rules of names, and the server's tests
+  send each one to both endpoints.
+- **Secrets.** A secret is `{"id", "name", "organisation_id", "project_id", "created_at",
+  "updated_at"}`, with `project_id` `null` for a secret of the organisation; no answer holds its
+  value. `GET /secrets` lists the scope's secrets oldest first. `POST /secrets` takes `name` and
+  `value` and sets the scope's secret of that name, answering `201` with the secret when the scope
+  had none of that name and `200` when it replaced the value; a name or a value that breaks its
+  rule is `invalid_input` naming `name` or `value`, with the message `the secret is not valid`.
+  `DELETE /secrets/{name}` deletes the scope's secret and answers `204`; a name the scope has no
+  secret of is `404 not_found` with ``there is no secret `<NAME>` in project `<organisation>/<project>` ``
+  (or ``in organisation `<organisation>` ``).
+- **Variables.** A variable is a secret's shape with its `value`, `{"id", "name", "value",
+  "organisation_id", "project_id", "created_at", "updated_at"}`. `GET /variables`,
+  `POST /variables` and `DELETE /variables/{name}` work as the three of secrets, with `the variable
+  is not valid` and ``there is no variable `<NAME>` …``, and every answer holds the values.
+- Reading needs `project.view` on the scope; writing needs `secret.manage` or `variable.manage`
+  there.
+
 ### Logs
 
 - `GET /executions/{execution}/steps/{step}/log` serves the log of one step
@@ -858,8 +905,10 @@ bosun agent list | drain <agent> [--lift] | delete <agent>
 bosun pool list | token create <pool> [--expires <d>] [--reusable]
 bosun pool create <name> [--untrusted] [--all-projects] [--organisation <o>]... [--project <p>]...
 bosun alias set <label> [--pool <p>] [--capability <c>] [--image <i>] [--organisation <o>]
-bosun secret set <name> [--project <p> | --organisation <o> | --environment <e>] < value
-bosun var set <name> <value> [scope]
+bosun secret set <name> (--project <p> | --organisation <o> | --environment <e>) < value
+bosun secret list | delete <name> (--project <p> | --organisation <o>)
+bosun var set <name> <value> (--project <p> | --organisation <o>)
+bosun var list | delete <name> (--project <p> | --organisation <o>)
 bosun plugin install <oci-ref> | list | instance create <plugin> --name <n> --config <file>
 bosun token create --name <n> --scope <perm>... --expires <d> [--organisation <o>]... [--project <p>]...
 ```
@@ -967,6 +1016,16 @@ What M1 settles of these commands:
   the cancellation is accepted, or with `--json` the `command.accepted` event. The job ends
   `cancelled`, a job group with every member, and the jobs that need it see `cancelled` in
   `needs.<job>.result` and follow their `if` ([04-runs.md](04-runs.md#operator-commands)).
+- `bosun secret set <name>` sets the secret of the project or the organisation its option names,
+  exactly one of which it needs, and reads the value from standard input: on a terminal one line
+  without echo, and otherwise everything up to the end of the input, without the line ends that end
+  it, so `echo value | bosun secret set NAME --project <p>` sets `value` and a value with inner
+  lines keeps them. It prints `set the secret <NAME> of project <p>` or `replaced the secret <NAME>
+  of project <p>`, and `--json` prints the secret. `--environment` arrives with environments in M3.
+  `bosun var set <name> <value>` takes the value as its argument and prints the same lines for a
+  variable. `bosun secret list` prints one line per secret with its name and the time it was last
+  set, `bosun var list` one per variable with its name, its value and that time, both under a
+  heading; `bosun secret delete` and `bosun var delete` delete one and print what they deleted.
 - `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
   and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
   `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the

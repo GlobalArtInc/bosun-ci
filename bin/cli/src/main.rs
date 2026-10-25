@@ -9,7 +9,9 @@ mod output;
 mod pool;
 mod project;
 mod run;
+mod secret;
 mod token;
+mod var;
 mod workflow;
 
 use std::process::ExitCode;
@@ -74,6 +76,16 @@ enum Command {
     Alias(alias::Command),
     #[command(subcommand, about = "Create personal tokens")]
     Token(token::Command),
+    #[command(
+        subcommand,
+        about = "Set, list and delete the secrets of projects and organisations"
+    )]
+    Secret(secret::Command),
+    #[command(
+        subcommand,
+        about = "Set, list and delete the variables of projects and organisations"
+    )]
+    Var(var::Command),
 }
 
 pub(crate) struct Context {
@@ -109,6 +121,8 @@ async fn main() -> ExitCode {
         Command::Pool(command) => pool::run(&context, command).await,
         Command::Alias(command) => alias::run(&context, command).await,
         Command::Token(command) => token::run(&context, command).await,
+        Command::Secret(command) => secret::run(&context, command).await,
+        Command::Var(command) => var::run(&context, command).await,
     };
     match outcome {
         Ok(code) => code,

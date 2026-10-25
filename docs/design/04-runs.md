@@ -200,8 +200,10 @@ the job as `failure` with the reason `evaluation_failed`, whatever its `continue
 error notice at the expression's span that names the job. Its dependents then follow their `if`.
 The keys are evaluated in the order of the list, and the first error ends the evaluation. The
 workflow's `env` is evaluated later, when an agent claims the job
-([05-execution.md](05-execution.md#the-job-assignment)); an error there completes the assigned
-execution and the job the same way, before the agent is sent anything.
+([05-execution.md](05-execution.md#the-job-assignment)), and so are the job's `env` and
+`defaults.run` when they read secrets ([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies));
+an error there, or a secret that does not decrypt, completes the assigned execution and the job the
+same way, before the agent is sent anything.
 
 A job group completes when all its members are complete. Its conclusion is `failure` when a member
 failed or timed out without `continue-on-error`, `cancelled` when a member was cancelled, and
@@ -373,7 +375,7 @@ that is not self-explanatory:
 | Reason | Meaning |
 |--------|---------|
 | `if_false` | the `if` evaluated to false, including the implicit `success()` after a failed dependency |
-| `evaluation_failed` | an expression the server evaluated for the job failed, or gave a value its key cannot use, such as a matrix that cannot be expanded; the run's notices hold the error |
+| `evaluation_failed` | an expression the server evaluated for the job failed, or gave a value its key cannot use, such as a matrix that cannot be expanded, or a secret the job reads could not be decrypted at its assignment; the run's notices hold the error |
 | `command` | an operator command caused it; the preceding `command.accepted` says which |
 | `fail_fast` | another member of the job group failed under `fail-fast` ([Matrices](#matrices)) |
 | `lease_expired` | the agent did not confirm the start within the lease |
@@ -406,6 +408,7 @@ The codes of runtime notices:
 | `invalid_type` | error | the value of an expression has a type its key cannot use, such as a string for `timeout-minutes` |
 | `invalid_value` | error | the value has the right type but the key cannot use it, such as `timeout-minutes: 1.5`, an empty label, a shell that does not exist or an empty vector of a matrix |
 | `limit_exceeded` | error | a matrix expands to more jobs than the installation's limit ([Matrices](#matrices)) |
+| `secret_unreadable` | error | a secret the job reads does not decrypt when the job is assigned: the configuration lacks the KEK of its data key, or its ciphertext or data key is not the one written for its scope and name ([07-storage.md](07-storage.md#secrets-at-rest)) |
 
 The journal is the source for:
 

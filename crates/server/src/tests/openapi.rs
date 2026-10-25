@@ -248,9 +248,27 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Response("200"),
     ),
     (
+        "secret.json",
+        "post",
+        "/api/v1/secrets",
+        Part::Response("201"),
+    ),
+    (
         "set-label-alias-request.json",
         "post",
         "/api/v1/label-aliases",
+        Part::Request,
+    ),
+    (
+        "set-secret-request.json",
+        "post",
+        "/api/v1/secrets",
+        Part::Request,
+    ),
+    (
+        "set-variable-request.json",
+        "post",
+        "/api/v1/variables",
         Part::Request,
     ),
     (
@@ -303,6 +321,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Request,
     ),
     ("user.json", "post", "/api/v1/users", Part::Response("201")),
+    (
+        "variable.json",
+        "post",
+        "/api/v1/variables",
+        Part::Response("201"),
+    ),
     (
         "workflow.json",
         "get",

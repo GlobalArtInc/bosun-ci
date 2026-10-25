@@ -39,6 +39,8 @@ enum Command {
     Check,
     #[command(subcommand, about = "Administer the installation")]
     Admin(Admin),
+    #[command(subcommand, about = "Keep the secrets at rest")]
+    Secrets(Secrets),
     #[command(about = "Print the OpenAPI document of the REST API")]
     Openapi,
 }
@@ -54,11 +56,22 @@ enum Admin {
     },
 }
 
+#[derive(Subcommand)]
+enum Secrets {
+    #[command(
+        about = "Bring the schema up to date and re-encrypt the data key of every secret under \
+                 the current KEK, reading the others with keys.previous_kek_files"
+    )]
+    Rewrap,
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let arguments = Arguments::parse();
     logs(match arguments.command {
-        Command::Admin(_) | Command::Check | Command::Openapi => BoxMakeWriter::new(io::stderr),
+        Command::Admin(_) | Command::Secrets(_) | Command::Check | Command::Openapi => {
+            BoxMakeWriter::new(io::stderr)
+        }
         Command::Serve | Command::Migrate => BoxMakeWriter::new(io::stdout),
     });
     match run(arguments).await {
@@ -82,6 +95,13 @@ async fn run(arguments: Arguments) -> Result<(), Box<dyn Error>> {
         Command::Admin(Admin::Create { login }) => {
             let token = bosun_server::create_owner(&load(config)?, &login).await?;
             println!("{token}");
+        }
+        Command::Secrets(Secrets::Rewrap) => {
+            let rewrapped = bosun_server::rewrap(&load(config)?).await?;
+            println!(
+                "re-encrypted the data keys of {} secrets under the KEK {}",
+                rewrapped.secrets, rewrapped.kek_id
+            );
         }
         Command::Openapi => io::stdout()
             .lock()

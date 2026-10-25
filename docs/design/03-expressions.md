@@ -233,7 +233,21 @@ The planner evaluates the server's keys with these contexts:
   project settings change it.
 - `inputs`, the run's inputs, which are empty until dispatch inputs arrive (step 30 of
   [../plan.md](../plan.md)).
-- `vars` and `secrets`, empty objects until secrets and variables arrive (step 24).
+- `vars`, the variables of the run's organisation and project, read when the planner takes the run
+  on, a project's variable shadowing its organisation's of the same name
+  ([08-access.md](08-access.md#secrets-and-variables)). The names are in upper case, and a property
+  of `vars` is found without regard to case, as every property is.
+- `secrets`, which the keys of the server see only in the job's `env` and in the workflow's `env`.
+  The server decrypts secrets only when a job is assigned, and stores nothing rendered from one,
+  as step 24 of [../plan.md](../plan.md) settled. When the job becomes ready, the planner evaluates
+  its `env` and `defaults.run` with an empty `secrets`. If none of these expressions read `secrets`,
+  their values are stored for the assignment as before; if one did, whether its evaluation
+  succeeded or failed, their values are stored empty and marked `deferred`
+  ([07-storage.md](07-storage.md)), and the assignment evaluates them again with the same
+  contexts and the job's secrets. The workflow's `env` is always evaluated at the assignment. So an
+  expression that reads a secret fails, when it fails, at the assignment, as an expression of the
+  workflow's `env` does ([04-runs.md](04-runs.md#planning)), and `defaults.run` sees in `env` the
+  job's values rendered from secrets, as in the target.
 - `needs`, one property per job the job needs directly, each `{ result, outputs }`: `result` is
   `success`, `failure`, `cancelled` or `skipped`, where a job that failed or timed out under
   `continue-on-error` is `success` and one that timed out otherwise is `failure`, and `outputs` are

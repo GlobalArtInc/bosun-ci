@@ -1,9 +1,9 @@
 use bosun_db::entity::{
     agent, api_token, api_token_scope, attempt, control_message, execution, forge_installation,
     forge_repository, idempotency_key, job, label_alias, log_chunk, log_object, organisation,
-    pool_access, project, registration_token, role, role_binding, run, run_event, session,
-    sign_in_failure, step, stream_event, team, team_member, user, webhook_delivery, workflow,
-    workflow_revision,
+    pool_access, project, registration_token, role, role_binding, run, run_event, secret, session,
+    sign_in_failure, step, stream_event, team, team_member, user, variable, webhook_delivery,
+    workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -38,6 +38,8 @@ pub const ACCESS: u8 = 0x16;
 pub const ALIAS: u8 = 0x17;
 pub const DELIVERY: u8 = 0x18;
 pub const SCOPE: u8 = 0x19;
+pub const SECRET: u8 = 0x1a;
+pub const VARIABLE: u8 = 0x1b;
 
 pub const INSTALLATION: i64 = 52_814_339;
 pub const REPOSITORY: i64 = 871_264_503;
@@ -89,6 +91,8 @@ pub struct Rows {
     pub forge_installation: forge_installation::Model,
     pub forge_repository: forge_repository::Model,
     pub webhook_delivery: webhook_delivery::Model,
+    pub secret: secret::Model,
+    pub variable: variable::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -536,6 +540,32 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a label alias");
 
+    let secret = secret::ActiveModel {
+        id: ActiveValue::Set(id(SECRET)),
+        organisation_id: ActiveValue::Set(id(ORGANISATION)),
+        project_id: ActiveValue::Set(Some(id(PROJECT))),
+        name: ActiveValue::Set(format!("TOKEN_{}", label.to_uppercase())),
+        ciphertext: ActiveValue::Set(vec![0x5c; 44]),
+        data_key: ActiveValue::Set(vec![0xa7; 60]),
+        kek_id: ActiveValue::Set("0f1e2d3c4b5a6978".to_owned()),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a secret");
+
+    let variable = variable::ActiveModel {
+        id: ActiveValue::Set(id(VARIABLE)),
+        organisation_id: ActiveValue::Set(id(ORGANISATION)),
+        project_id: ActiveValue::Set(None),
+        name: ActiveValue::Set(format!("REGION_{}", label.to_uppercase())),
+        value: ActiveValue::Set("eu-central-1".to_owned()),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a variable");
+
     Rows {
         organisation,
         project,
@@ -568,6 +598,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         forge_installation,
         forge_repository,
         webhook_delivery,
+        secret,
+        variable,
     }
 }
 
@@ -642,5 +674,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         forge_installation: one::<_, forge_installation::Entity>(db, INSTALLATION).await,
         forge_repository: one::<_, forge_repository::Entity>(db, REPOSITORY).await,
         webhook_delivery: one::<_, webhook_delivery::Entity>(db, id(DELIVERY)).await,
+        secret: one::<_, secret::Entity>(db, id(SECRET)).await,
+        variable: one::<_, variable::Entity>(db, id(VARIABLE)).await,
     }
 }

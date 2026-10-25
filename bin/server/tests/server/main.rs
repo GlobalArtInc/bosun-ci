@@ -19,6 +19,7 @@ mod projects;
 mod proxy;
 mod queue;
 mod runs;
+mod secrets;
 mod shutdown;
 mod sign_in;
 mod start;
@@ -63,6 +64,10 @@ impl Launch {
 
     pub fn migrate(database: &str) -> Launch {
         Launch::new(&["migrate"], database)
+    }
+
+    pub fn rewrap(database: &str) -> Launch {
+        Launch::new(&["secrets", "rewrap"], database)
     }
 
     pub fn create_owner(database: &str, login: &str) -> Launch {

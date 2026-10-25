@@ -18,12 +18,14 @@ pub mod queue;
 pub mod roles;
 mod row;
 pub mod runs;
+pub mod secrets;
 pub mod sessions;
 pub mod sign_in;
 pub mod stream;
 pub mod teams;
 pub mod tokens;
 pub mod users;
+pub mod variables;
 pub mod views;
 pub mod workflows;
 

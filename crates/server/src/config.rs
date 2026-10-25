@@ -112,6 +112,7 @@ pub(crate) struct Database {
 pub(crate) struct Keys {
     pub(crate) kek: Option<String>,
     pub(crate) kek_file: Option<PathBuf>,
+    pub(crate) previous_kek_files: Vec<PathBuf>,
 }
 
 #[derive(Default, Deserialize)]
@@ -148,6 +149,7 @@ struct DatabaseFile {
 struct KeysFile {
     kek: Option<String>,
     kek_file: Option<PathBuf>,
+    previous_kek_files: Option<Vec<PathBuf>>,
 }
 
 #[derive(Default, Deserialize)]
@@ -262,6 +264,7 @@ impl Config {
         let keys = Keys {
             kek: variable("keys", "kek")?.or(file.keys.kek),
             kek_file: path("keys", "kek_file", file.keys.kek_file)?,
+            previous_kek_files: previous_kek_files(file.keys.previous_kek_files)?,
         };
         let bootstrap_admin = variable("bootstrap", "admin")?.or(file.bootstrap.admin);
         if let Some(login) = bootstrap_admin
@@ -395,6 +398,26 @@ fn trusted_proxies(file: Option<Vec<String>>) -> Result<Vec<IpNet>, Error> {
             })
         })
         .collect()
+}
+
+fn previous_kek_files(file: Option<Vec<PathBuf>>) -> Result<Vec<PathBuf>, Error> {
+    let paths: Vec<PathBuf> = match variable("keys", "previous_kek_files")? {
+        Some(text) => text
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(PathBuf::from)
+            .collect(),
+        None => file.unwrap_or_default(),
+    };
+    if paths.iter().any(|path| path.as_os_str().is_empty()) {
+        return Err(invalid(
+            "keys",
+            "previous_kek_files",
+            "holds an empty path".to_owned(),
+        ));
+    }
+    Ok(paths)
 }
 
 fn github(file: GitHubFile) -> Result<Option<GitHub>, Error> {

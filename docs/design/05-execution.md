@@ -309,7 +309,15 @@ An assignment carries everything an agent needs and nothing more:
 
 `secrets` holds only the secrets the job's expressions reference, plus `GITHUB_TOKEN`. When a job
 reads secrets by a computed name, it receives every secret in its scope, and the validator has
-already warned about that.
+already warned about that. The references are those the IR records for the job template
+([02-workflows.md](02-workflows.md)), which include those of the workflow's `env`. The server reads
+and decrypts them in the transaction that builds the assignment, from the organisation and the
+project of the run, a project's secret shadowing its organisation's of the same name, and nowhere
+else ([07-storage.md](07-storage.md#secrets-at-rest)). `vars` holds every variable of the
+organisation and the project, as the server's own expressions see them
+([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)). `GITHUB_TOKEN` arrives
+with the forge token (step 34 of [../plan.md](../plan.md)), and keeping secrets from untrusted runs
+with step 29.
 
 **Encoding.** The identity travels in fields of `Assignment`. Everything else travels in three JSON
 documents beside it, which the agent reads with every field it does not know refused:
@@ -329,7 +337,8 @@ documents beside it, which the agent reads with every field it does not know ref
   evaluated when the job is assigned with the contexts that key sees
   ([03-expressions.md](03-expressions.md#where-each-expression-is-evaluated)), with the job's `env`,
   which the planner evaluated when the job became ready, merged over it, so a name in both takes the
-  job's value.
+  job's value. When the job's `env` or `defaults.run` read secrets, the assignment evaluates them,
+  rather than the planner ([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)).
 
 JSON rather than protobuf messages carries these for two reasons. The IR is already serialised as
 JSON for the run's snapshot, so the server hands over the template it stores, and the agent reads it
@@ -338,8 +347,9 @@ protobuf drops an unknown field without a word, which would let an agent run a j
 never saw. The documents replaced the structured steps and the text `env` of M0, whose field
 numbers are reserved.
 
-An expression of the workflow's `env` that fails to evaluate fails the job at its assignment, as an
-error of the planner does ([04-runs.md](04-runs.md#planning)): after an error notice at the
+An expression of the workflow's `env` that fails to evaluate, an expression that reads a secret and
+fails, and a secret that does not decrypt fail the job at its assignment, as an error of the planner
+does ([04-runs.md](04-runs.md#planning)): after an error notice at the
 expression's span, the execution and the job complete as `failure` with the reason
 `evaluation_failed` in the same transaction, the agent is sent nothing, and the replica claims the
 next job for it at once.

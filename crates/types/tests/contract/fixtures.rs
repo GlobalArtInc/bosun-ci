@@ -9,9 +9,10 @@ use bosun_types::api::{
     LabelAlias, LogEnd, LogLine, Me, Organisation, Page, PasswordChangeRequest, PersonalToken,
     PersonalTokenCreated, Pool, Project, ProjectSettings, QueuedJob, RegisterAgentRequest,
     RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest,
-    RepositoryDispatchRequest, Revision, Role, RoleBinding, Run, SetLabelAliasRequest,
-    SignInMethods, SignInRequest, Step, Team, UpdateAgentRequest, UpdateOrganisationRequest,
-    UpdateProjectRequest, UpdateSourceRequest, UpdateWorkflowRequest, User, Workflow,
+    RepositoryDispatchRequest, Revision, Role, RoleBinding, Run, Secret, SetLabelAliasRequest,
+    SetSecretRequest, SetVariableRequest, SignInMethods, SignInRequest, Step, Team,
+    UpdateAgentRequest, UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest,
+    UpdateWorkflowRequest, User, Variable, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -38,6 +39,7 @@ const RUN_BY_OTHER_SUITES: &[&str] = &[
     "github",
     "hash-files",
     "matrix",
+    "names",
     "pushes",
     "runs",
     "triggers",
@@ -195,9 +197,18 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/role.json", round_trip::<Role>),
         ("api/run.json", round_trip::<Run>),
         ("api/run-startup-failure.json", round_trip::<Run>),
+        ("api/secret.json", round_trip::<Secret>),
         (
             "api/set-label-alias-request.json",
             round_trip::<SetLabelAliasRequest>,
+        ),
+        (
+            "api/set-secret-request.json",
+            round_trip::<SetSecretRequest>,
+        ),
+        (
+            "api/set-variable-request.json",
+            round_trip::<SetVariableRequest>,
         ),
         ("api/sign-in-methods.json", round_trip::<SignInMethods>),
         ("api/sign-in-request.json", round_trip::<SignInRequest>),
@@ -224,6 +235,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<UpdateWorkflowRequest>,
         ),
         ("api/user.json", round_trip::<User>),
+        ("api/variable.json", round_trip::<Variable>),
         ("api/workflow.json", round_trip::<Workflow>),
         ("diagnostics/alias-bomb.json", round_trip::<Diagnostic>),
         ("diagnostics/all-secrets.json", round_trip::<Diagnostic>),

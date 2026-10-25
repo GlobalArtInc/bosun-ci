@@ -78,6 +78,10 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   and its `strategy` context, or the `error` that fails the group: its `code`, `message` and
   `path`. A strategy without a matrix expects the job itself with `matrix` `null`. The server's
   tests dispatch each case and compare the stored jobs.
+- `fixtures/names/`: `cases.json`, from step 24 of M1, the names of secrets and variables, each case
+  with a `description`, the `name` given, and the name it is `stored` as, or `null` when the name
+  breaks the target's rules. The server's tests send every case to `POST /api/v1/secrets` and
+  `POST /api/v1/variables`.
 - `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from step 6 of M1.
   Every key of the tables of arrivals and of extensions in `docs/design/02-workflows.md` carries
   its milestone as `x-bosun-from`, and every extension `x-bosun-extension: true`.
@@ -102,6 +106,9 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   `user.json`, `team.json`, `role.json` and `role-binding.json` but for ids and times; the answer to
   a restricted token's creation has the fields of `personal-token-created.json`, and a listed token
   those of `personal-token.json`.
+- `fixtures/api/` of secrets and variables: from step 24 of M1, the server's tests send
+  `set-secret-request.json` and `set-variable-request.json`, and compare the answers with
+  `secret.json` and `variable.json` but for ids and times.
 - `openapi.json`: the description of the REST API generated from the handlers, from step 1 of M1.
   `hack/openapi.sh` writes it, a test fails when it differs from the generated document, and it is
   never edited or merged by hand

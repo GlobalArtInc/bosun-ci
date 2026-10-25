@@ -24,6 +24,7 @@ http-body.workspace = true
 ipnet.workspace = true
 prost-types.workspace = true
 reqwest = { workspace = true, features = ["json"] }
+ring.workspace = true
 ruzstd.workspace = true
 schemars.workspace = true
 sea-orm.workspace = true

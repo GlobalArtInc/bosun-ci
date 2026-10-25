@@ -1,0 +1,72 @@
+[
+  {
+    "description": "letters, digits and underscores are a name, stored in upper case",
+    "name": "Deploy_Key_2",
+    "stored": "DEPLOY_KEY_2"
+  },
+  {
+    "description": "a name in upper case is stored as it is",
+    "name": "NPM_TOKEN",
+    "stored": "NPM_TOKEN"
+  },
+  {
+    "description": "a single letter is a name",
+    "name": "a",
+    "stored": "A"
+  },
+  {
+    "description": "a name may start with an underscore",
+    "name": "_internal",
+    "stored": "_INTERNAL"
+  },
+  {
+    "description": "GITHUB_ inside a name is no prefix",
+    "name": "MY_GITHUB_TOKEN",
+    "stored": "MY_GITHUB_TOKEN"
+  },
+  {
+    "description": "GITHUB without the underscore is no prefix",
+    "name": "GITHUBTOKEN",
+    "stored": "GITHUBTOKEN"
+  },
+  {
+    "description": "a name may not start with GITHUB_",
+    "name": "GITHUB_TOKEN",
+    "stored": null
+  },
+  {
+    "description": "the prefix GITHUB_ is refused in any case",
+    "name": "github_pat",
+    "stored": null
+  },
+  {
+    "description": "a name may not start with a digit",
+    "name": "1PASSWORD",
+    "stored": null
+  },
+  {
+    "description": "a hyphen is not part of a name",
+    "name": "DEPLOY-KEY",
+    "stored": null
+  },
+  {
+    "description": "a space is not part of a name",
+    "name": "DEPLOY KEY",
+    "stored": null
+  },
+  {
+    "description": "a dot is not part of a name",
+    "name": "deploy.key",
+    "stored": null
+  },
+  {
+    "description": "a letter outside ASCII is not part of a name",
+    "name": "CLÉ",
+    "stored": null
+  },
+  {
+    "description": "an empty name is refused",
+    "name": "",
+    "stored": null
+  }
+]

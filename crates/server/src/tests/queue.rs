@@ -26,14 +26,14 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, TransactionTrait};
 use tokio::time::timeout;
 
-use super::{World, finished, replay, site, template, workflow};
+use super::{World, finished, keys, replay, site, template, workflow};
 use crate::agents::progress::{self, Progress, Reporter};
 use crate::queue;
 use crate::site::Site;
 
-const LEASE: Duration = Duration::from_secs(30);
+pub(super) const LEASE: Duration = Duration::from_secs(30);
 
-const LABELS: [&str; 4] = ["self-hosted", "linux", "x64", "shell"];
+pub(super) const LABELS: [&str; 4] = ["self-hosted", "linux", "x64", "shell"];
 
 pub(super) fn runs_on(mut job: JobTemplate, group: Option<&str>, labels: &[&str]) -> JobTemplate {
     job.runs_on = Evaluable::Literal(RunsOn {
@@ -109,7 +109,7 @@ async fn connected_in(
     }
 }
 
-async fn claim<C: TransactionTrait>(
+pub(super) async fn claim<C: TransactionTrait>(
     db: &C,
     agent: AgentId,
     replica: Uuid,
@@ -136,7 +136,7 @@ async fn claim<C: TransactionTrait>(
     }
 }
 
-async fn values(db: &DatabaseConnection, sql: &str) -> Vec<String> {
+pub(super) async fn values(db: &DatabaseConnection, sql: &str) -> Vec<String> {
     db.query_all(Statement::from_string(db.get_database_backend(), sql))
         .await
         .unwrap_or_else(|error| panic!("{sql}: {error}"))
@@ -237,7 +237,7 @@ async fn a_claimed_job_with_a_step_that_uses_an_action_is_not_offered_to_the_age
         .await
         .expect("a claim");
     assert_eq!(
-        queue::assignment(db, claimed, &site())
+        queue::assignment(db, claimed, &site(), &keys())
             .await
             .map(|_| ())
             .map_err(|error| error.to_string()),
@@ -294,6 +294,7 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
                 env: [("B".to_owned(), "job".to_owned())].into(),
                 shell: None,
                 working_directory: None,
+                deferred: false,
             },
             false
         )
@@ -361,8 +362,11 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
     assert_eq!(next.run_id, second);
 }
 
-async fn assigned(db: &DatabaseConnection, claimed: ClaimedJob) -> (Assignment, Documents) {
-    let Some(Message::Assignment(assignment)) = queue::assignment(db, claimed, &site())
+pub(super) async fn assigned(
+    db: &DatabaseConnection,
+    claimed: ClaimedJob,
+) -> (Assignment, Documents) {
+    let Some(Message::Assignment(assignment)) = queue::assignment(db, claimed, &site(), &keys())
         .await
         .expect("an assignment")
         .expect("an offer")
@@ -375,7 +379,7 @@ async fn assigned(db: &DatabaseConnection, claimed: ClaimedJob) -> (Assignment, 
     (assignment, documents)
 }
 
-fn parse(source: &str) -> ir::Workflow {
+pub(super) fn parse(source: &str) -> ir::Workflow {
     bosun_workflow::parse("ci", source)
         .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
         .workflow
@@ -475,7 +479,7 @@ jobs:
     assert_eq!(claimed.run_id, run);
     let execution = claimed.execution_id;
     assert!(
-        queue::assignment(db, claimed, &site())
+        queue::assignment(db, claimed, &site(), &keys())
             .await
             .expect("a failed assignment")
             .is_none(),

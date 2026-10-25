@@ -60,7 +60,7 @@ fn token() -> Result<String, Failure> {
     Ok(token)
 }
 
-fn hidden(stdin: &Stdin) -> io::Result<String> {
+pub(crate) fn hidden(stdin: &Stdin) -> io::Result<String> {
     let saved = tcgetattr(stdin.as_fd())?;
     let mut quiet = saved.clone();
     quiet.local_modes.remove(LocalModes::ECHO);

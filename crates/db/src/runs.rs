@@ -89,6 +89,8 @@ pub struct Evaluated {
     pub env: BTreeMap<String, String>,
     pub shell: Option<Shell>,
     pub working_directory: Option<String>,
+    #[serde(default)]
+    pub deferred: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

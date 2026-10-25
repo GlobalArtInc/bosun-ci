@@ -112,4 +112,6 @@ ids!(
     RoleId,
     RoleBindingId,
     LabelAliasId,
+    SecretId,
+    VariableId,
 );

@@ -16,7 +16,7 @@ use tokio::io::AsyncRead;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
-use super::{World, finished, template, workflow};
+use super::{World, finished, keys, template, workflow};
 use crate::agents::progress::{self, StepEnd};
 use crate::agents::{self, Replica};
 use crate::config::{Agents, Queue};
@@ -400,6 +400,7 @@ async fn a_stored_chunk_wakes_the_followers_of_its_execution_through_bosun_log()
             max_queue_time: HOUR,
         },
         Site::default(),
+        Arc::new(keys()),
     );
     let followers = Arc::new(Followers::default());
     let mut following = followers.subscribe(logged.execution);

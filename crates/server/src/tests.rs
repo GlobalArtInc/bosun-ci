@@ -11,6 +11,7 @@ mod openapi;
 mod planning;
 mod queue;
 mod runs;
+mod secrets;
 mod settings;
 mod sign_in;
 
@@ -51,6 +52,7 @@ use serde_json::{Value, json};
 use crate::agents::progress::{self, JobEnd, Progress, Reporter};
 use crate::clock::Clock;
 use crate::commands::{self, Applied};
+use crate::keys::{Kek, Keyring};
 use crate::site::Site;
 use crate::store::Backend;
 use crate::{AppState, planner, shutdown};
@@ -76,7 +78,14 @@ async fn state(
         sign_in: Arc::new(settings),
         forge: None,
         parses: Arc::new(crate::forge_events::Parses::default()),
+        keys: Arc::new(keys()),
     }
+}
+
+const KEK: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+
+fn keys() -> Keyring {
+    Keyring::new(Kek::parse(KEK, "the tests").expect("a KEK"), Vec::new())
 }
 
 struct World {

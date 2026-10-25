@@ -13,6 +13,7 @@ mod queue;
 mod roles;
 mod rows;
 mod runs;
+mod secrets;
 mod sessions;
 mod stream;
 mod tenancy;

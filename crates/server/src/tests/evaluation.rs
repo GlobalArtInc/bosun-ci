@@ -444,6 +444,7 @@ jobs:
             ]),
             shell: Some(Shell::Bash),
             working_directory: Some("globalart/keel/".to_owned()),
+            deferred: false,
         }
     );
 }
@@ -620,6 +621,7 @@ async fn every_runtime_notice_code_is_in_the_table_of_the_design() {
         assert_eq!(codes, [code], "{source}");
         produced.extend(codes);
     }
+    produced.extend(super::secrets::unreadable_secret_notices().await);
     assert_eq!(produced, runtime_codes());
 }
 

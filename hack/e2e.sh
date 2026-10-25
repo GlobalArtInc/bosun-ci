@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
-scenarios="$scenarios interface"
+scenarios="$scenarios secrets interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -875,6 +875,76 @@ EOF
   [ "$(cli --profile b --json agent list | jq '[.[] | select(.name == "e2e-delta")] | length')" -eq 0 ] ||
     fail "bosun agent list still lists the deleted agent"
   stop_process agent-delta "$(pid_of agent-delta)" 30
+}
+
+scenario_secrets() {
+  begin secrets \
+    "a secret set with bosun secret set and printed raw, as JSON and as base64 is masked in the stored log"
+  local value='s3cr3t "quoted" \ back' job log="$work/out/secrets-log.txt" listed="$work/out/secrets-list.txt"
+  printf '%s\n' "$value" | cli --profile a secret set e2e_token --project e2e/m0 \
+    >"$work/out/secret-set.txt" 2>&1 || fail "bosun secret set failed: $(cat "$work/out/secret-set.txt")"
+  expect_line "$work/out/secret-set.txt" "set the secret E2E_TOKEN of project e2e/m0" \
+    "bosun secret set did not say what it set"
+  cli --profile b var set greeting hello --organisation e2e >"$work/out/var-set.txt" 2>&1 ||
+    fail "bosun var set failed: $(cat "$work/out/var-set.txt")"
+  expect_line "$work/out/var-set.txt" "set the variable GREETING of organisation e2e" \
+    "bosun var set did not say what it set"
+  cli --profile a secret list --project e2e/m0 >"$listed" 2>&1 ||
+    fail "bosun secret list failed: $(cat "$listed")"
+  grep -qE '^E2E_TOKEN +[0-9]{4}-' "$listed" ||
+    fail "bosun secret list does not show the secret: $(cat "$listed")"
+  if grep -qF 's3cr3t' "$listed"; then
+    fail "bosun secret list shows the value of the secret: $(cat "$listed")"
+  fi
+  push secrets <<'EOF'
+name: secrets
+on: workflow_dispatch
+jobs:
+  print:
+    runs-on: [self-hosted, alpha]
+    if: vars.GREETING == 'hello'
+    env:
+      TOKEN: ${{ secrets.E2E_TOKEN }}
+    steps:
+      - run: |
+          printf 'raw %s\n' "$TOKEN"
+          python3 -c 'import json, os; print("json " + json.dumps(os.environ["TOKEN"]))'
+          printf 'base64 %s\n' "$(printf '%s' "$TOKEN" | base64)"
+          echo "greeting ${{ vars.GREETING }}"
+EOF
+  watch a secrets
+  watch_ended 60 secrets
+  [ "$reaped" -eq 0 ] || fail "bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
+  job="$(job_id print)"
+  [ -n "$job" ] || fail "the watch named no job: $(cat "$watched")"
+  cli --profile b job logs "$job" --step 1 >"$work/out/secrets-raw-log.txt" 2>&1 ||
+    fail "bosun job logs failed: $(cat "$work/out/secrets-raw-log.txt")"
+  cut -d' ' -f2- "$work/out/secrets-raw-log.txt" >"$log"
+  [ "$(cat "$log")" = "$(printf '%s\n' 'raw ***' 'json "***"' 'base64 ***' 'greeting hello')" ] ||
+    fail "the stored log does not show *** in place of the three forms of the secret: $(cat "$log")"
+  python3 - "$value" "$log" "$watched" "$work"/logs/server-*.log >"$work/out/secrets-forms.txt" 2>&1 <<'PY' ||
+import base64
+import json
+import sys
+
+value, *paths = sys.argv[1:]
+forms = {
+    "raw": value,
+    "JSON": json.dumps(value)[1:-1],
+    "base64": base64.b64encode(value.encode()).decode(),
+}
+leaked = [
+    "%s holds the %s form" % (path, name)
+    for path in paths
+    for name, form in forms.items()
+    if form in open(path, encoding="utf-8", errors="replace").read()
+]
+if leaked:
+    sys.exit("\n".join(leaked))
+print("no form of the secret is in the log of the step, the watch or the servers")
+PY
+    fail "a form of the secret leaked: $(cat "$work/out/secrets-forms.txt")"
+  cat "$work/out/secrets-forms.txt"
   passed
 }
 

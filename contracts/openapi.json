@@ -2588,6 +2588,45 @@
         ],
         "type": "object"
       },
+      "Secret": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "organisation_id",
+          "project_id",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "SetLabelAliasRequest": {
         "properties": {
           "capability": {
@@ -2628,6 +2667,36 @@
           "pool",
           "capability",
           "image"
+        ],
+        "type": "object"
+      },
+      "SetSecretRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SetVariableRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
         ],
         "type": "object"
       },
@@ -3108,6 +3177,49 @@
           "email",
           "owner",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "Variable": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "value",
+          "organisation_id",
+          "project_id",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -5314,6 +5426,186 @@
         }
       }
     },
+    "/api/v1/secrets": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "description": "the organisation's id or slug, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "organisation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Secret"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.view",
+          "on": "scope"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "description": "the organisation's id or slug, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "organisation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Secret"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Secret"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "secret.manage",
+          "on": "scope"
+        }
+      }
+    },
+    "/api/v1/secrets/{name}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the name of the secret or the variable, matched without regard to case",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the organisation's id or slug, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "organisation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "secret.manage",
+          "on": "scope"
+        }
+      }
+    },
     "/api/v1/teams": {
       "get": {
         "parameters": [
@@ -5853,6 +6145,186 @@
         "x-bosun-permission": {
           "key": "organisation.manage",
           "on": "installation"
+        }
+      }
+    },
+    "/api/v1/variables": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "description": "the organisation's id or slug, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "organisation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Variable"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.view",
+          "on": "scope"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "description": "the organisation's id or slug, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "organisation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVariableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Variable"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Variable"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "variable.manage",
+          "on": "scope"
+        }
+      }
+    },
+    "/api/v1/variables/{name}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the name of the secret or the variable, matched without regard to case",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the organisation's id or slug, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "organisation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`, whose own secrets or variables the request names; the request gives exactly one of `organisation` and `project`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "variable.manage",
+          "on": "scope"
         }
       }
     },

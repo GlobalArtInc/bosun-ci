@@ -105,7 +105,12 @@ user `bosun`, with `/etc/bosun/server.toml` and the data directory `/var/lib/bos
 
 `bosun-server migrate` brings the schema up to date and exits. `bosun-server admin create <login>`
 brings the schema up to date the same way, creates an owner and prints its first personal token
-([08-access.md](08-access.md)); neither command needs the KEK. `bosun-server serve` loads the KEK,
+([08-access.md](08-access.md)); neither command needs the KEK. `bosun-server secrets rewrap` reads the KEKs
+as `serve` does, without ever generating one, brings the schema up to date, re-encrypts the data
+key of every secret that is not under the current KEK, prints
+`re-encrypted the data keys of <n> secrets under the KEK <id>`, and exits with 1 and an error that
+names each secret it could not re-encrypt ([07-storage.md](07-storage.md#secrets-at-rest)). It logs
+to standard error. `bosun-server serve` loads the KEK,
 or generates it into the data directory when the configuration names none,
 connects to the database, brings the schema up to date ([07-storage.md](07-storage.md)), creates the
 owner of `bootstrap.admin`, or without it the owner `admin` with its token in `admin.token`, when
@@ -252,6 +257,11 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   directly in `keys.kek`, which is meant for `BOSUN_KEYS_KEK`. At most one of them is set; with
   neither, the server uses `keys/kek` in the data directory and generates it on the first start.
   Surrounding whitespace, such as the newline at the end of a file, does not count.
+- `keys.previous_kek_files` lists the files of earlier KEKs, in the same form, whose data keys the
+  server still opens while `bosun-server secrets rewrap` has not re-encrypted them under the current
+  KEK ([07-storage.md](07-storage.md#secrets-at-rest)); it is empty by default. Its variable is a
+  list separated by commas. A file that cannot be read or does not hold a KEK stops the server as
+  the current KEK's does.
 - `server.data_dir` defaults to `/var/lib/bosun`; the image sets `/bosun-data`. A path setting
   that is empty is refused.
 - `agents.binary_dir` is the directory of the agent binaries the server hands out,
@@ -374,7 +384,8 @@ database's limit.
 - The object store bucket, with versioning or replication.
 - **The KEK.** Without it every secret is lost. It is kept outside the cluster that runs Bosun; on a
   single host with a generated key, that means a copy of `keys/kek` from the data directory, which
-  the server's log asks for on the start that generated it.
+  the server's log asks for on the start that generated it. After a rotation, the backups of the
+  database taken before `bosun-server secrets rewrap` need the earlier KEK.
 
 A restore needs the three together. Logs and artifacts missing from a restored bucket show as
 "expired" on the run page rather than failing it.

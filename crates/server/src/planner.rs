@@ -1,5 +1,6 @@
 mod matrix;
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bosun_db::Error;
@@ -20,6 +21,8 @@ use bosun_workflow::github::{self, Account, Facts, WorkflowFile};
 use sea_orm::DatabaseTransaction;
 use serde_json::{Map, json};
 
+use crate::keys::Keyring;
+use crate::secrets;
 use crate::site::{ForgeSite, Site};
 use matrix::Expansion;
 
@@ -37,6 +40,8 @@ const START: Span = Span {
     end_line: 1,
     end_column: 1,
 };
+
+const SECRET_UNREADABLE: &str = "secret_unreadable";
 
 const SINGLE: Strategy = Strategy {
     fail_fast: true,
@@ -352,14 +357,18 @@ fn uses_an_action(job: &ir::JobTemplate) -> Option<(&'static str, u32, Span, Vec
 pub(crate) struct Assigned {
     pub(crate) contexts: assignment::Contexts,
     pub(crate) env: BTreeMap<String, String>,
+    pub(crate) shell: Option<Shell>,
+    pub(crate) working_directory: Option<String>,
 }
 
 pub(crate) async fn assign(
     run: &mut Locked<'_>,
     site: &Site,
+    keys: &Keyring,
     execution: ExecutionId,
     job_id: JobId,
     workflow_env: &BTreeMap<String, Template>,
+    stored: &Evaluated,
 ) -> Result<Option<Assigned>, Error> {
     let world = World::load(run, site).await?;
     let jobs = run.jobs().await?;
@@ -370,6 +379,43 @@ pub(crate) async fn assign(
             table: "run",
             message: format!("the current attempt of the run has no job `{job_id}`"),
         })?;
+    let template = world.template(&job.key)?;
+    let read = secrets::read(
+        run.transaction(),
+        keys,
+        world.facts.organisation_id,
+        world.facts.project_id,
+        &template.secrets,
+    )
+    .await?;
+    let secrets = match read {
+        Ok(secrets) => secrets,
+        Err(unopened) => {
+            let owner = if unopened.of_project {
+                format!(
+                    "project `{}/{}`",
+                    world.facts.organisation, world.facts.project
+                )
+            } else {
+                format!("organisation `{}`", world.facts.organisation)
+            };
+            let fault = Fault {
+                code: SECRET_UNREADABLE,
+                message: format!(
+                    "job `{}` reads the secret `{}` of {owner}, which cannot be decrypted: {}",
+                    job.key, unopened.name, unopened.reason
+                ),
+                span: template.span,
+                path: at(&job.key, &[]),
+            };
+            return refuse(run, site, world, job.id, execution, fault).await;
+        }
+    };
+    let secrets_context: Map<String, serde_json::Value> = secrets
+        .into_iter()
+        .map(|(name, value)| (name, serde_json::Value::String(value)))
+        .collect();
+    let secrets = value(serde_json::Value::Object(secrets_context.clone()))?;
     let github = world.github_context(job.key.as_str());
     let contexts = Contexts {
         github: value(serde_json::Value::Object(github.clone()))?,
@@ -379,6 +425,9 @@ pub(crate) async fn assign(
         env: Value::Null,
         strategy: Value::Null,
         matrix: Value::Null,
+        vars: world.vars.clone(),
+        secrets: secrets.clone(),
+        secrets_read: Cell::new(false),
         statuses: None,
     };
     let mut env = BTreeMap::new();
@@ -390,35 +439,73 @@ pub(crate) async fn assign(
             Err(error) => {
                 let what = format!("`env.{variable}` of the workflow");
                 let fault = Fault::expression(error, &what, vec![key("env"), key(variable)]);
-                run.notice(Some(job.id), &world.diagnostic(fault)).await?;
-                run.finish_execution(
-                    execution,
-                    Conclusion::Failure,
-                    Some(StatusReason::EvaluationFailed),
-                    &Actor::System,
-                )
-                .await?;
-                planned(run, site, Some(world)).await?;
-                return Ok(None);
+                return refuse(run, site, world, job.id, execution, fault).await;
             }
         }
     }
+    let strategy = serde_json::to_value(job.strategy.unwrap_or(SINGLE))?;
+    let matrix = match &job.matrix {
+        Some(matrix) => serde_json::to_value(matrix)?,
+        None => serde_json::Value::Null,
+    };
+    let needs = needs_context(&jobs, job);
+    let job_values = if stored.deferred {
+        let mut contexts = Contexts {
+            needs: value(serde_json::Value::Object(needs.clone()))?,
+            strategy: value(strategy.clone())?,
+            matrix: match &job.matrix {
+                Some(matrix) => matrix::context(matrix)?,
+                None => Value::Null,
+            },
+            ..contexts
+        };
+        match environment(template, &world.ir.defaults, &mut contexts) {
+            Ok(values) => values,
+            Err(fault) => return refuse(run, site, world, job.id, execution, fault).await,
+        }
+    } else {
+        Environment {
+            env: stored.env.clone(),
+            shell: stored.shell.clone(),
+            working_directory: stored.working_directory.clone(),
+        }
+    };
+    env.extend(job_values.env);
     Ok(Some(Assigned {
         contexts: assignment::Contexts {
             github,
-            needs: needs_context(&jobs, job),
-            strategy: serde_json::to_value(job.strategy.unwrap_or(SINGLE))?,
-            matrix: match &job.matrix {
-                Some(matrix) => serde_json::to_value(matrix)?,
-                None => serde_json::Value::Null,
-            },
+            needs,
+            strategy,
+            matrix,
             inputs: serde_json::from_value(world.facts.inputs.clone())?,
-            vars: Map::new(),
-            secrets: Map::new(),
+            vars: world.vars_context.clone(),
+            secrets: secrets_context,
             bosun: world.bosun_context.clone(),
         },
         env,
+        shell: job_values.shell,
+        working_directory: job_values.working_directory,
     }))
+}
+
+async fn refuse(
+    run: &mut Locked<'_>,
+    site: &Site,
+    world: World,
+    job: JobId,
+    execution: ExecutionId,
+    fault: Fault,
+) -> Result<Option<Assigned>, Error> {
+    run.notice(Some(job), &world.diagnostic(fault)).await?;
+    run.finish_execution(
+        execution,
+        Conclusion::Failure,
+        Some(StatusReason::EvaluationFailed),
+        &Actor::System,
+    )
+    .await?;
+    planned(run, site, Some(world)).await?;
+    Ok(None)
 }
 
 struct World {
@@ -429,6 +516,8 @@ struct World {
     inputs: Value,
     bosun: Value,
     bosun_context: Map<String, serde_json::Value>,
+    vars: Value,
+    vars_context: Map<String, serde_json::Value>,
 }
 
 impl World {
@@ -454,10 +543,21 @@ impl World {
         .into_iter()
         .map(|(property, value)| (property.to_owned(), value))
         .collect();
+        let vars_context: Map<String, serde_json::Value> = bosun_db::variables::in_scope(
+            run.transaction(),
+            facts.organisation_id,
+            facts.project_id,
+        )
+        .await?
+        .into_iter()
+        .map(|(name, value)| (name, serde_json::Value::String(value)))
+        .collect();
         Ok(World {
             inputs: value(facts.inputs.clone())?,
             bosun: value(serde_json::Value::Object(bosun_context.clone()))?,
             bosun_context,
+            vars: value(serde_json::Value::Object(vars_context.clone()))?,
+            vars_context,
             attempt: state.attempt,
             forge: facts
                 .repository
@@ -574,6 +674,9 @@ struct Contexts {
     env: Value,
     strategy: Value,
     matrix: Value,
+    vars: Value,
+    secrets: Value,
+    secrets_read: Cell<bool>,
     statuses: Option<Statuses>,
 }
 
@@ -594,7 +697,11 @@ impl Scope for Contexts {
             Context::Env => self.env.clone(),
             Context::Strategy => self.strategy.clone(),
             Context::Matrix => self.matrix.clone(),
-            Context::Vars | Context::Secrets => Value::Object(Vec::new().into()),
+            Context::Vars => self.vars.clone(),
+            Context::Secrets => {
+                self.secrets_read.set(true);
+                self.secrets.clone()
+            }
             Context::Job | Context::Jobs | Context::Steps | Context::Runner => Value::Null,
         }
     }
@@ -618,6 +725,9 @@ async fn name(run: &Locked<'_>, world: &World, template: &Template) -> Result<()
         env: Value::Null,
         strategy: Value::Null,
         matrix: Value::Null,
+        vars: world.vars.clone(),
+        secrets: Value::Object(Vec::new().into()),
+        secrets_read: Cell::new(false),
         statuses: None,
     };
     match bosun_expr::render(template, &contexts) {
@@ -668,6 +778,9 @@ async fn decide(
             Some(matrix) => matrix::context(matrix)?,
             None => Value::Null,
         },
+        vars: world.vars.clone(),
+        secrets: Value::Object(Vec::new().into()),
+        secrets_read: Cell::new(false),
         statuses: None,
     };
     let mut single = None;
@@ -994,6 +1107,41 @@ fn prepare(
             }
         }
     };
+    contexts.secrets_read.set(false);
+    let environment = environment(job, workflow, contexts);
+    let deferred = contexts.secrets_read.get();
+    let environment = if deferred {
+        Environment::default()
+    } else {
+        environment?
+    };
+    Ok(Prepared {
+        name,
+        labels,
+        group,
+        continue_on_error,
+        evaluated: Evaluated {
+            timeout_minutes,
+            env: environment.env,
+            shell: environment.shell,
+            working_directory: environment.working_directory,
+            deferred,
+        },
+    })
+}
+
+#[derive(Default)]
+struct Environment {
+    env: BTreeMap<String, String>,
+    shell: Option<Shell>,
+    working_directory: Option<String>,
+}
+
+fn environment(
+    job: &JobTemplate,
+    workflow: &ir::Defaults,
+    contexts: &mut Contexts,
+) -> Result<Environment, Fault> {
     let mut env = BTreeMap::new();
     for (variable, value) in &job.env {
         let place = Place::of(job, &format!("env.{variable}"), &["env", variable], value);
@@ -1039,17 +1187,10 @@ fn prepare(
             .as_ref()
             .and_then(Template::as_literal),
     };
-    Ok(Prepared {
-        name,
-        labels,
-        group,
-        continue_on_error,
-        evaluated: Evaluated {
-            timeout_minutes,
-            env,
-            shell,
-            working_directory,
-        },
+    Ok(Environment {
+        env,
+        shell,
+        working_directory,
     })
 }
 

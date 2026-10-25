@@ -277,6 +277,27 @@ are computed; the endpoints are in [11-api.md](11-api.md#identity-and-access).
   that rotating the token of a profile keeps the tokens made with it; after a theft their owner
   revokes those too, from the list of their tokens.
 
+### Secrets and variables
+
+Step 24 of M1 ([../plan.md](../plan.md)) settled who reads and writes them; the endpoints are in
+[11-api.md](11-api.md#secrets-and-variables) and their storage in
+[07-storage.md](07-storage.md#secrets-at-rest).
+
+- **Scope.** A secret or a variable belongs to an organisation, and reaches every project of it, or
+  to one project. A project's secret or variable shadows the organisation's of the same name, which
+  the project's jobs then do not receive. Environment secrets arrive with environments in M3.
+- **Writing** a secret needs `secret.manage`, and a variable `variable.manage`, on its organisation
+  or its project, so a maintainer writes them and a developer does not. A binding on a project gives
+  nothing on its organisation, so writing an organisation's secrets needs a binding on the
+  organisation.
+- **Viewers see the names of secrets.** Listing the secrets of an organisation or a project needs
+  only `project.view` there, and shows names and times, never values, which no answer holds. The
+  names are not secret: the workflows that every viewer reads name them in `secrets.NAME`, and a
+  developer who cannot write a secret still needs to know which ones a project has. The values
+  reach only the jobs that read them.
+- **Variables are not secret.** Anyone with `project.view` reads their values, as the logs that
+  print them show them anyway, and they reach untrusted runs ([below](#code-from-outside-the-team)).
+
 ## Code from outside the team
 
 Every pool has a **trust level**.

@@ -357,6 +357,10 @@ fn path_parameter(name: &str) -> (&'static str, Value) {
         "binding" => ("the role binding's id", id),
         "token" => ("the personal token's id", id),
         "agent" => ("the agent's id", id),
+        "name" => (
+            "the name of the secret or the variable, matched without regard to case",
+            json!({ "type": "string" }),
+        ),
         _ => {
             panic!("the path parameter `{name}` has no description in crates/server/src/openapi.rs")
         }

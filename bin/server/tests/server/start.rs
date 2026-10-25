@@ -117,6 +117,13 @@ async fn a_server_refuses_to_start_without_a_well_formed_kek_and_says_why() {
                 .env("BOSUN_KEYS_KEK_FILE", "/nonexistent/bosun/kek"),
             "could not read the KEK from /nonexistent/bosun/kek".to_owned(),
         ),
+        (
+            Launch::serve("postgres://bosun@127.0.0.1:1/bosun").env(
+                "BOSUN_KEYS_PREVIOUS_KEK_FILES",
+                "/nonexistent/bosun/old-kek",
+            ),
+            "could not read the KEK from /nonexistent/bosun/old-kek".to_owned(),
+        ),
     ] {
         let (status, lines) = launch.spawn().exit().await;
         assert!(!status.success(), "{lines:#?}");

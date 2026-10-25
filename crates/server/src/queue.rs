@@ -18,6 +18,7 @@ use tracing::{info, warn};
 
 use crate::agents::{Offer, Replica, Turn, Turned};
 use crate::config::Queue;
+use crate::keys::Keyring;
 use crate::planner::{self, Assigned};
 use crate::site::Site;
 
@@ -34,6 +35,7 @@ pub(crate) struct Dispatcher {
     replica: Arc<Replica>,
     settings: Queue,
     site: Site,
+    keys: Arc<Keyring>,
 }
 
 impl Dispatcher {
@@ -42,12 +44,14 @@ impl Dispatcher {
         replica: Arc<Replica>,
         settings: Queue,
         site: Site,
+        keys: Arc<Keyring>,
     ) -> Arc<Dispatcher> {
         Arc::new(Dispatcher {
             db,
             replica,
             settings,
             site,
+            keys,
         })
     }
 
@@ -94,7 +98,7 @@ impl Dispatcher {
                         "assigned a job to an agent"
                     );
                     let job_id = claimed.job_id;
-                    match assignment(&self.db, *claimed, &self.site).await {
+                    match assignment(&self.db, *claimed, &self.site, &self.keys).await {
                         Ok(Some(offer)) => Turned::Offered(Box::new(offer)),
                         Ok(None) => {
                             contended = 0;
@@ -251,6 +255,7 @@ pub(crate) async fn assignment(
     db: &DatabaseConnection,
     claimed: ClaimedJob,
     site: &Site,
+    keys: &Keyring,
 ) -> Result<Option<Offer>, Error> {
     let execution = claimed.execution_id;
     let transaction = db.begin().await?;
@@ -261,7 +266,16 @@ pub(crate) async fn assignment(
     if state.status != ExecutionStatus::Assigned {
         return Ok(None);
     }
-    let assigned = planner::assign(&mut run, site, execution, claimed.job_id, &claimed.env).await?;
+    let assigned = planner::assign(
+        &mut run,
+        site,
+        keys,
+        execution,
+        claimed.job_id,
+        &claimed.env,
+        &claimed.evaluated,
+    )
+    .await?;
     transaction.commit().await?;
     match assigned {
         Some(assigned) => offer(claimed, assigned).map(Some),
@@ -269,8 +283,9 @@ pub(crate) async fn assignment(
             warn!(
                 job_id = %claimed.job_id,
                 %execution,
-                "a job failed at its assignment because the env of its workflow could not be \
-                 evaluated"
+                "a job failed at its assignment because an expression the server evaluates then \
+                 failed or a secret it reads could not be decrypted; the notices of its run say \
+                 which"
             );
             Ok(None)
         }
@@ -291,15 +306,13 @@ fn offer(claimed: ClaimedJob, assigned: Assigned) -> Result<Offer, Error> {
             ),
         });
     }
-    let mut env = assigned.env;
-    env.extend(claimed.evaluated.env);
     let documents = Documents {
         job: claimed.job,
         contexts: assigned.contexts,
         evaluated: Evaluated {
-            env,
-            shell: claimed.evaluated.shell,
-            working_directory: claimed.evaluated.working_directory,
+            env: assigned.env,
+            shell: assigned.shell,
+            working_directory: assigned.working_directory,
             timeout_minutes: claimed.evaluated.timeout_minutes,
             continue_on_error: claimed.continue_on_error,
         },

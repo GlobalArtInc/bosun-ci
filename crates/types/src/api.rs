@@ -10,8 +10,8 @@ use crate::actor::Actor;
 use crate::diagnostic::Diagnostic;
 use crate::id::{
     AgentId, AttemptId, ExecutionId, JobId, LabelAliasId, OrganisationId, PoolId, ProjectId,
-    RegistrationTokenId, RevisionId, RoleBindingId, RoleId, RunId, StepId, TeamId, TokenId, UserId,
-    WorkflowId,
+    RegistrationTokenId, RevisionId, RoleBindingId, RoleId, RunId, SecretId, StepId, TeamId,
+    TokenId, UserId, VariableId, WorkflowId,
 };
 use crate::key::JobKey;
 use crate::permission::Permission;
@@ -642,6 +642,39 @@ pub struct SetLabelAliasRequest {
     pub pool: Option<String>,
     pub capability: Option<Capability>,
     pub image: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Secret {
+    pub id: SecretId,
+    pub name: String,
+    pub organisation_id: OrganisationId,
+    pub project_id: Option<ProjectId>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SetSecretRequest {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Variable {
+    pub id: VariableId,
+    pub name: String,
+    pub value: String,
+    pub organisation_id: OrganisationId,
+    pub project_id: Option<ProjectId>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SetVariableRequest {
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

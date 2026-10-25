@@ -10,6 +10,7 @@ use axum::http::{HeaderMap, Method, Request, StatusCode};
 use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_db::entity::{organisation, project, role};
 use bosun_db::roles::{NewBinding, Subject};
+use bosun_db::secrets::Scope;
 use bosun_db::tokens::NewToken;
 use bosun_db::workflows::NewWorkflow;
 use bosun_types::api::{Permissions, Project, Workflow};
@@ -29,6 +30,7 @@ use super::{World, template, workflow};
 use crate::agents::progress;
 use crate::clock::Clock;
 use crate::commands::{self, COMMANDS};
+use crate::secrets;
 use crate::site::Site as Public;
 use crate::token::{PERSONAL, REGISTRATION, Token};
 use crate::{AppState, api, sign_in};
@@ -102,6 +104,7 @@ enum Needs {
     Organisation(Permission),
     Project(Permission),
     Items(Permission, Option<Permission>),
+    Scope(Permission),
     Command,
 }
 
@@ -122,6 +125,7 @@ impl Needs {
                     .get("installation")
                     .map(|installation| key(installation.as_str().expect("a key"))),
             ),
+            "scope" => Needs::Scope(held()),
             other => panic!("`{other}` is not a scope of x-bosun-permission"),
         }
     }
@@ -155,6 +159,7 @@ impl Needs {
                 }
                 _ => Needs::Items(held(), None),
             },
+            "scope" => Needs::Scope(held()),
             other => panic!("`{other}` is not a scope of the endpoint table"),
         }
     }
@@ -805,9 +810,10 @@ async fn every_built_in_role_is_allowed_or_refused_as_the_two_tables_say() {
                 let allowed = match &endpoint.needs {
                     Needs::Anyone | Needs::Authenticated => true,
                     Needs::Installation(_) => name == OWNER,
-                    Needs::Organisation(key) | Needs::Project(key) | Needs::Items(key, _) => {
-                        held.contains(key)
-                    }
+                    Needs::Organisation(key)
+                    | Needs::Project(key)
+                    | Needs::Items(key, _)
+                    | Needs::Scope(key) => held.contains(key),
                     Needs::Command => {
                         let command = call.command.as_deref().expect("a command");
                         held.contains(&commands[command])
@@ -927,6 +933,54 @@ async fn calls(
             .await
             .expect("a binding");
             return vec![call(format!("/api/v1/role-bindings/{}", binding.id), None)];
+        }
+        (
+            method,
+            path @ ("/api/v1/secrets"
+            | "/api/v1/variables"
+            | "/api/v1/secrets/{name}"
+            | "/api/v1/variables/{name}"),
+        ) => {
+            let mut calls = Vec::new();
+            for (query, project) in [
+                ("organisation=globalart".to_owned(), None),
+                (
+                    format!("project=globalart/{}", fixture.project.slug),
+                    Some(fixture.project.id),
+                ),
+            ] {
+                let scope = Scope {
+                    organisation_id: organisation,
+                    project_id: project,
+                };
+                let name = format!("{}_{}", name.to_uppercase(), project.is_some());
+                let body = match method {
+                    "POST" => Some(json!({ "name": name, "value": "a value" })),
+                    _ => None,
+                };
+                let path = match path.strip_suffix("/{name}") {
+                    Some(collection) => {
+                        if collection.ends_with("secrets") {
+                            let sealed = site
+                                .state
+                                .keys
+                                .seal(&secrets::binding(&scope, &name), b"a value")
+                                .expect("a sealed value");
+                            bosun_db::secrets::set(site.db(), scope, &name, &sealed)
+                                .await
+                                .expect("a secret");
+                        } else {
+                            bosun_db::variables::set(site.db(), scope, &name, "a value")
+                                .await
+                                .expect("a variable");
+                        }
+                        format!("{collection}/{name}?{query}")
+                    }
+                    None => format!("{path}?{query}"),
+                };
+                calls.push(call(path, body));
+            }
+            return calls;
         }
         ("DELETE", "/api/v1/tokens/{token}") => {
             let user = bosun_db::users::find_by_login(site.db(), login)

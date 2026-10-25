@@ -23,6 +23,7 @@ mod interface;
 mod keys;
 mod logs;
 mod me;
+mod names;
 mod openapi;
 mod organisations;
 mod owner;
@@ -35,6 +36,8 @@ mod reply;
 mod request;
 mod roles;
 mod runs;
+mod scope;
+mod secrets;
 mod sessions;
 mod settings;
 mod shutdown;
@@ -49,6 +52,7 @@ mod token;
 mod tokens;
 mod trace;
 mod users;
+mod variables;
 mod workflows;
 
 use std::future::Future;
@@ -86,6 +90,12 @@ struct AppState {
     sign_in: Arc<sign_in::Settings>,
     forge: Option<Arc<forge::Forge>>,
     parses: Arc<forge_events::Parses>,
+    keys: Arc<keys::Keyring>,
+}
+
+pub struct Rewrapped {
+    pub secrets: u64,
+    pub kek_id: String,
 }
 
 pub async fn serve(
@@ -100,7 +110,11 @@ pub async fn serve(
              build it; the API, the CLI and the agents work without it"
         );
     }
-    keys::load(&config.keys, &config.data_dir)?;
+    let keys = Arc::new(keys::load(
+        &config.keys,
+        &config.data_dir,
+        keys::Generation::Allowed,
+    )?);
     let forge = config
         .github
         .as_ref()
@@ -129,6 +143,7 @@ pub async fn serve(
         Arc::clone(&replica),
         config.queue,
         config.site.clone(),
+        Arc::clone(&keys),
     );
     let followers = Arc::new(logs::Followers::default());
     let deliveries = Arc::new(Notify::new());
@@ -185,6 +200,7 @@ pub async fn serve(
         sign_in,
         forge,
         parses,
+        keys,
     };
     axum::serve(
         listener,
@@ -213,6 +229,17 @@ pub async fn create_owner(config: &Config, login: &str) -> Result<String, Error>
     let db = connect(config).await?;
     bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
     owner::create(&db, login).await
+}
+
+pub async fn rewrap(config: &Config) -> Result<Rewrapped, Error> {
+    let keys = keys::load(&config.keys, &config.data_dir, keys::Generation::Refused)?;
+    let db = connect(config).await?;
+    bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
+    let secrets = secrets::rewrap(&db, &keys).await?;
+    Ok(Rewrapped {
+        secrets,
+        kek_id: keys.current().to_owned(),
+    })
 }
 
 pub fn openapi() -> String {
@@ -245,6 +272,8 @@ fn api() -> openapi::Api {
         .merge(tokens::routes())
         .merge(events::routes())
         .merge(queue::routes())
+        .merge(secrets::routes())
+        .merge(variables::routes())
 }
 
 fn app(

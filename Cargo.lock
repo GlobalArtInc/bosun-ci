@@ -500,6 +500,7 @@ dependencies = [
  "proptest",
  "prost-types",
  "reqwest",
+ "ring",
  "ruzstd",
  "schemars",
  "sea-orm",

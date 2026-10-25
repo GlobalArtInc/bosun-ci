@@ -150,6 +150,15 @@ and grows by one with each change, which is an `UPDATE` conditioned on the versi
 made from. They arrived with step 25 of [../plan.md](../plan.md); a later setting arrives as a
 column with its default, so a project that existed before takes the default.
 
+Secrets and variables are rows of `secret` and `variable`, each owned by an organisation and, for
+one of a project, by that project as well: `organisation_id` and a nullable `project_id`, the pair
+referencing the project as the access lists do, so that deleting the organisation or the project
+deletes them. `name` is stored in upper case and unique within its organisation and project, a
+`NULL` project counting as one. A variable holds its `value` as text. A secret holds no value in
+clear: `ciphertext`, `data_key` and `kek_id` are its value sealed as
+[Secrets at rest](#secrets-at-rest) describes. Both tables have `created_at` and `updated_at`, the
+time the value was last set. They arrived with step 24 of [../plan.md](../plan.md).
+
 The forge's installations and repositories, `forge_installation` and `forge_repository`, are keyed
 by the forge's own ids, as `bigint`, since they mirror rows of the forge rather than rows Bosun
 creates; a project's `repository_id` names its repository, a plain foreign key with a unique index,
@@ -187,11 +196,12 @@ an attempt its run, a job its attempt, an execution its job, a step its executio
 its run, a stream event its project and its run, a log chunk its execution, a log object its step,
 a control message its execution, a personal token its user, an entry of a token's restriction its
 token and the organisation and project it names, a registration token its pool, an entry of an
-access list its pool and the organisation and project it names, and a label alias its
-organisation. Deleting a run under `run_retention` therefore removes everything it owns in one
-statement. The other references inside one run (the attempt, job, execution and step of a journal
-event, the step of a log chunk, the execution of a log object) carry no foreign key, because the
-owner already bounds them and a cascade would have to check each of them.
+access list its pool and the organisation and project it names, a label alias its organisation,
+and a secret or a variable its organisation and project. Deleting a run under `run_retention`
+therefore removes everything it owns in one statement. The other references inside one run (the
+attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a
+log object) carry no foreign key, because the owner already bounds them and a cascade would have
+to check each of them.
 References to rows that are not owners (the current revision of a workflow, the revision of a
 run, the pool of an agent, the agent of an execution, the pool of a label alias) are plain foreign keys, which refuse to delete what is still referenced. Every
 foreign key column leads an index, which a test asserts.
@@ -556,14 +566,43 @@ Besides these, retention deletes the `agent.status` events of the event stream t
 Every secret value is encrypted with AES-256-GCM under its own random data key; the data key is
 encrypted with the key-encryption key (KEK) and stored next to the value. The associated data binds
 the ciphertext to the secret's scope and name, so a ciphertext copied onto another secret fails to
-decrypt. The KEK is 32 bytes from the server's configuration, written as 64 hexadecimal digits in
+decrypt. Step 24 of [../plan.md](../plan.md) settled the details:
+
+- **The data key** is 32 random bytes drawn for each value written, so replacing a secret's value
+  replaces its data key too. The server holds it only while it seals or opens that value.
+- **The layout.** `ciphertext` is a 12-byte random nonce followed by the AES-256-GCM encryption of
+  the value's UTF-8 bytes under the data key with its 16-byte tag; `data_key` is a nonce followed by
+  the encryption of the data key under the KEK with its tag. The library is `ring`, which the forge
+  client already uses for the App's key.
+- **The binding.** The associated data of both encryptions is a label (`bosun secret value` or
+  `bosun secret data key`, each ended by a zero byte) followed by the 16 bytes of the organisation's
+  id, the 16 bytes of the project's id or 16 zero bytes for a secret of the organisation, and the
+  name in upper case. Copying a row's `ciphertext`, `data_key` and `kek_id` onto another secret, of
+  another name or scope, makes both decryptions fail, and so does any change to them.
+- **The KEK's id** is the first 16 hexadecimal digits of the SHA-256 of `bosun kek id`, a zero byte
+  and the 32 bytes of the KEK. It names a KEK without revealing it, needs no setting of its own, and
+  is the same wherever the same KEK is configured; `kek_id` records it for each data key.
+- **Reading.** A secret's value is decrypted only for the assignment of a job that reads it
+  ([05-execution.md](05-execution.md#the-job-assignment)); the server never answers with a value
+  and never logs one. A data key under a KEK the configuration does not hold, or a ciphertext that
+  does not decrypt, fails the job at its assignment with the notice `secret_unreadable`
+  ([04-runs.md](04-runs.md#run-notices)). The KEK is 32 bytes from the server's configuration, written as 64 hexadecimal digits in
 a file (`keys.kek_file`) or in the environment variable `BOSUN_KEYS_KEK`, never stored in the
 database. When the configuration names none, the server uses `keys/kek` in its data directory and,
 on the first start, generates it there from the operating system's random source, with mode
 `0600`, and logs at warning level that it did and that the file must be backed up; this is what lets
-a single host start with nothing but a database address ([12-operations.md](12-operations.md)). The configuration can hold the current KEK and earlier
-ones, each with an id; `bosun-server secrets rewrap` re-encrypts every data key under the current
-one.
+a single host start with nothing but a database address ([12-operations.md](12-operations.md)). The configuration holds the current KEK and earlier
+ones, `keys.previous_kek_files`, each known by its id; a data key is opened with the KEK its
+`kek_id` names, and every new one is sealed under the current KEK. `bosun-server secrets rewrap`
+brings the schema up to date and re-encrypts, in pages of 100, every data key whose `kek_id` is not
+the current KEK's, leaving the values themselves as they are. Each update is conditioned on the
+data key it read, so a value that a server sets meanwhile is not overwritten; such a secret, and one
+whose KEK the configuration does not hold, is named in the error with which the command ends, after
+it re-encrypted all the others, and running it again finishes the work. It never generates a KEK:
+without a configured one it uses `keys/kek` of the data directory, and refuses when that does not
+exist. Rotating the KEK is therefore three moves: configure the new KEK as `keys.kek_file` and the
+old one in `keys.previous_kek_files` on every replica, run `bosun-server secrets rewrap` once, and
+remove the old KEK from the configuration.
 
 Further key material:
 
