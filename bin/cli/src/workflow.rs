@@ -13,6 +13,7 @@ use crate::client::{Client, Failure};
 use crate::{Context, output, run};
 
 mod inventory;
+mod lint;
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
@@ -55,6 +56,18 @@ pub(crate) enum Command {
             help = "The name of the workflow [default: the file name without its extension]"
         )]
         name: Option<String>,
+    },
+    #[command(
+        about = "Print the diagnostics of workflow files without asking a server, and exit with 1 \
+                 when any file has an error"
+    )]
+    Lint {
+        #[arg(
+            value_name = "FILE",
+            help = "The workflow files [default: the .yml and .yaml files under .bosun/workflows/ \
+                    and .github/workflows/]"
+        )]
+        files: Vec<PathBuf>,
     },
     #[command(about = "Start a run of a workflow")]
     Dispatch {
@@ -174,6 +187,7 @@ pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode,
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Lint { files } => lint::lint(context, files),
         Command::Inventory { directory, output } => inventory::write(context, &directory, &output),
     }
 }

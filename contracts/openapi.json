@@ -1227,6 +1227,39 @@
         ],
         "type": "object"
       },
+      "LintRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "path"
+        ],
+        "type": "object"
+      },
+      "LintResponse": {
+        "properties": {
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/Diagnostic"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "diagnostics"
+        ],
+        "type": "object"
+      },
       "LogEnd": {
         "properties": {
           "lines": {
@@ -4130,6 +4163,47 @@
         "x-bosun-permission": {
           "key": "agent.manage",
           "on": "installation"
+        }
+      }
+    },
+    "/api/v1/lint": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LintRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LintResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "on": "authenticated"
         }
       }
     },

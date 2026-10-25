@@ -23,6 +23,7 @@ mod idempotency;
 mod install;
 mod interface;
 mod keys;
+mod lint;
 mod logs;
 mod me;
 mod names;
@@ -295,6 +296,7 @@ fn api() -> openapi::Api {
         .merge(organisations::routes())
         .merge(projects::routes())
         .merge(workflows::routes())
+        .merge(lint::routes())
         .merge(commands::routes())
         .merge(runs::routes())
         .merge(logs::routes())

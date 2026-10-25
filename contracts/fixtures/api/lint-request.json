@@ -1,0 +1,4 @@
+{
+  "source": "on: workflow_dispatch\n\njobs:\n  build:\n    steps:\n      - run: make\n    runs_on: shell\n",
+  "path": ".bosun/workflows/ci.yml"
+}

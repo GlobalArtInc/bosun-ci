@@ -249,7 +249,7 @@ where it is checked:
 | `x-bosun-permission` | Means |
 |----------------------|-------|
 | `{"on": "anyone"}` | the operation takes no credentials |
-| `{"on": "authenticated"}` | any valid credentials; the operation acts on the caller alone |
+| `{"on": "authenticated"}` | any valid credentials; the operation acts on the caller alone, or on nothing that is stored |
 | `{"on": "installation", "key": K}` | `K` on the installation, which only owners hold |
 | `{"on": "organisation", "key": K}` | `K` on the organisation the path, the query or the body names, or on the organisation of the team, role or role binding the path names |
 | `{"on": "project", "key": K}` | `K` on the project the path names, or the project of the workflow, run, job or execution it names |
@@ -288,6 +288,7 @@ with the answers each built-in role gets:
 | `PUT /workflows/{workflow}/source` | `workflow.edit` | `project` |
 | `GET /workflows/{workflow}/revisions` | `project.view` | `project` |
 | `POST /workflows/{workflow}/dispatch` | `run.dispatch` | `project` |
+| `POST /lint` | — | `authenticated` |
 | `GET /runs` | `project.view` | `items` |
 | `GET /runs/{run}` | `project.view` | `project` |
 | `GET /runs/{run}/attempts/{attempt}/jobs` | `project.view` | `project` |
@@ -419,6 +420,26 @@ A step that adds an endpoint adds its row here.
   and takes an `Idempotency-Key`. A bound project on a server without a GitHub App, or whose
   repository no installation sees, is `409 invalid_state`; a forge that limits the rate of its
   requests is `429 rate_limited`.
+
+### Lint
+
+Step 12 of M1 ([../plan.md](../plan.md)) settled the endpoint that shows the diagnostics of a
+workflow outside the run page:
+
+- `POST /lint` takes `{"source", "path"}` and answers `200` with `{"diagnostics": [...]}`, every
+  diagnostic `bosun_workflow::lint` gives for the source at that path, errors and warnings, in the
+  order of the file ([02-workflows.md](02-workflows.md#parsing)). It answers `200` whether or not
+  they hold an error, since a source with errors is what the endpoint is asked about; the
+  endpoints that store a source refuse it instead. `contracts/fixtures/api/lint-request.json` and
+  `lint-response.json` pin a source with an unknown key.
+- `path` is where the file lives in its repository, relative such as `.github/workflows/ci.yml` or
+  absolute, and decides the warnings of its location: extension keys and the `bosun` context warn
+  in a file directly under `.github/workflows/` and nowhere else. Each diagnostic carries the path
+  as its `file`. A `path` that is `null` or left out lints the source as a server-side workflow,
+  which has no location: it gets no warning of a location, and its diagnostics carry an empty
+  `file`.
+- It needs any valid credentials and no permission, because it reads nothing that is stored and
+  changes nothing. A body that is not an object of these two fields is `422 invalid_input`.
 
 ### Project settings
 
@@ -1050,6 +1071,19 @@ What M1 settles of these commands:
   variable. `bosun secret list` prints one line per secret with its name and the time it was last
   set, `bosun var list` one per variable with its name, its value and that time, both under a
   heading; `bosun secret delete` and `bosun var delete` delete one and print what they deleted.
+- `bosun workflow lint [<file>...]` reads no profile and talks to no server. It lints each file
+  with `bosun_workflow::lint` at the path it is given, so the file gets the diagnostics that
+  `POST /lint` answers for its source at that path, the warnings of its location included. Without
+  files it lints every file ending in `.yml` or `.yaml` directly under `.bosun/workflows/` and then
+  under `.github/workflows/` of the current directory, each directory in the order of the names,
+  which are the files the server reads ([02-workflows.md](02-workflows.md#repository-workflows));
+  when neither directory holds one, the command fails. It prints each diagnostic on a line of
+  standard output as `file:line:column: severity: message [code]`, the form in which every command
+  prints diagnostics, and on standard error how many files it linted, with the number of errors and
+  of warnings. With `--json` it prints `{"diagnostics": [...]}`, the shape `POST /lint` answers,
+  with the diagnostics of every file in the order of the files. It exits with status 1 when any
+  file has an error, and with 0 when the files have warnings or nothing; a file that cannot be read
+  fails the command, which also exits with 1.
 - `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
   and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
   `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the

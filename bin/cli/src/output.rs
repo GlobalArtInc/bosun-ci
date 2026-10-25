@@ -54,6 +54,14 @@ pub(crate) fn fields(rows: &[(&str, String)]) {
     }
 }
 
+pub(crate) fn counted(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
 pub(crate) fn text(line: &str) -> &str {
     line.split_once(' ').map_or(line, |(_, text)| text)
 }

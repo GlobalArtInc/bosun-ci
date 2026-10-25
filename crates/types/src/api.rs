@@ -456,6 +456,18 @@ pub struct UpdateSourceRequest {
     pub source: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LintRequest {
+    pub source: String,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LintResponse {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DispatchRequest {
     pub r#ref: Option<String>,

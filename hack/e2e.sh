@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
-scenarios="$scenarios secrets interface"
+scenarios="$scenarios secrets lint interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -760,6 +760,36 @@ EOF
     "the refusal of the expiry did not say why"
   grep -q '^  expires_at: lies more than a year ahead' "$refused" ||
     fail "the refusal does not name expires_at: $(cat "$refused")"
+  passed
+}
+
+scenario_lint() {
+  begin lint \
+    "bosun workflow lint and POST /api/v1/lint give the same diagnostics for every workflow fixture"
+  local tree="$work/lint" file path place status expected
+  local linted="$work/out/lint-cli.json" said="$work/out/lint-cli.txt" answered="$work/out/lint-api.json"
+  for place in .bosun/workflows .github/workflows; do
+    mkdir -p "$tree/$place"
+    cp "$root"/contracts/fixtures/workflows/*.yml "$tree/$place/"
+  done
+  for file in "$root"/contracts/fixtures/workflows/*.yml; do
+    for place in .bosun/workflows .github/workflows; do
+      path="$place/$(basename "$file")"
+      status=0
+      (cd "$tree" && cli --json workflow lint "$path") >"$linted" 2>"$said" || status=$?
+      jq -n --rawfile source "$file" --arg path "$path" '{source: $source, path: $path}' |
+        api POST /api/v1/lint --data-binary @- >"$answered" ||
+        fail "POST /api/v1/lint of $path failed: $(cat "$answered")"
+      [ "$(jq -S -c . "$linted")" = "$(jq -S -c . "$answered")" ] ||
+        fail "bosun workflow lint printed $(cat "$linted") $(cat "$said") for $path, and the API answered $(cat "$answered")"
+      expected=0
+      if jq -e 'any(.diagnostics[]; .severity == "error")' "$answered" >/dev/null; then
+        expected=1
+      fi
+      [ "$status" -eq "$expected" ] ||
+        fail "bosun workflow lint exited with $status for $path, whose diagnostics are $(cat "$answered")"
+    done
+  done
   passed
 }
 

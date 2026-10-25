@@ -6,6 +6,7 @@ mod events;
 mod forge_events;
 mod identity;
 mod journal;
+mod lint;
 mod logs;
 mod matrix;
 mod oidc;

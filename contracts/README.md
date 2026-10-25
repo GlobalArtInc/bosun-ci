@@ -113,6 +113,10 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/api/` of secrets and variables: from step 24 of M1, the server's tests send
   `set-secret-request.json` and `set-variable-request.json`, and compare the answers with
   `secret.json` and `variable.json` but for ids and times.
+- `fixtures/api/lint-request.json` and `fixtures/api/lint-response.json`: from step 12 of M1, the
+  server's tests send the request, whose source is `fixtures/workflows/unknown-key.yml` at the path
+  of `fixtures/diagnostics/unknown-key.json`, to `POST /api/v1/lint` and compare the answer with the
+  response, which holds that diagnostic.
 - `openapi.json`: the description of the REST API generated from the handlers, from step 1 of M1.
   `hack/openapi.sh` writes it, a test fails when it differs from the generated document, and it is
   never edited or merged by hand

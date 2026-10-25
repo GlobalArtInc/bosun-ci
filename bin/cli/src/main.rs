@@ -55,7 +55,7 @@ enum Command {
     Project(project::Command),
     #[command(
         subcommand,
-        about = "List, enable, disable, push, dispatch and inventory workflows"
+        about = "List, enable, disable, push, lint, dispatch and inventory workflows"
     )]
     Workflow(workflow::Command),
     #[command(subcommand, about = "List, show, watch and cancel runs")]

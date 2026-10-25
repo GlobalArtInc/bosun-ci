@@ -130,6 +130,13 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "/api/v1/label-aliases",
         Part::Response("201"),
     ),
+    ("lint-request.json", "post", "/api/v1/lint", Part::Request),
+    (
+        "lint-response.json",
+        "post",
+        "/api/v1/lint",
+        Part::Response("200"),
+    ),
     (
         "log-end.json",
         "get",

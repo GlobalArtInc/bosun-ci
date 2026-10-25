@@ -77,14 +77,6 @@ fn relative(directory: &Path, path: &Path) -> String {
         .join("/")
 }
 
-fn counted(count: usize, noun: &str) -> String {
-    if count == 1 {
-        format!("1 {noun}")
-    } else {
-        format!("{count} {noun}s")
-    }
-}
-
 fn save<T: Serialize>(path: &Path, rows: &T) -> Result<(), Failure> {
     let text = serde_json::to_string_pretty(rows)
         .map_err(|error| Failure::new(format!("the inventory cannot be written: {error}")))?;
@@ -127,7 +119,7 @@ pub(crate) fn write(
     if !faults.is_empty() {
         let mut failure = Failure::new(format!(
             "{} under {} cannot be read as YAML",
-            counted(faults.len(), "workflow file"),
+            output::counted(faults.len(), "workflow file"),
             directory.display()
         ));
         failure.details = faults;
@@ -177,11 +169,11 @@ pub(crate) fn write(
     } else {
         println!(
             "inventoried {} under {}: {} of {}, {}, {} unknown to the parser",
-            counted(summary.files, "workflow file"),
+            output::counted(summary.files, "workflow file"),
             directory.display(),
-            counted(summary.uses, "use"),
-            counted(summary.references, "reference"),
-            counted(summary.keys, "key path"),
+            output::counted(summary.uses, "use"),
+            output::counted(summary.references, "reference"),
+            output::counted(summary.keys, "key path"),
             summary.unknown
         );
         println!(
