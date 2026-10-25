@@ -46,7 +46,7 @@ enum Command {
         )]
         server: Option<String>,
     },
-    #[command(subcommand, about = "Push and dispatch workflows")]
+    #[command(subcommand, about = "Push, dispatch and inventory workflows")]
     Workflow(workflow::Command),
     #[command(subcommand, about = "Act on runs")]
     Run(run::Command),

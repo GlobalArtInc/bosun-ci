@@ -1,0 +1,302 @@
+[
+  {
+    "key": "concurrency",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "concurrency.cancel-in-progress",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "concurrency.group",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "env",
+    "count": 1,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs",
+    "count": 3,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.container",
+    "count": 1,
+    "from": "M2",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.environment",
+    "count": 1,
+    "from": "M3",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.needs",
+    "count": 1,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.permissions",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.permissions.id-token",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.retry",
+    "count": 1,
+    "from": "M3",
+    "extension": true
+  },
+  {
+    "key": "jobs.<job_id>.runs-on",
+    "count": 3,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.runs_on",
+    "count": 1,
+    "from": null,
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.secrets",
+    "count": 1,
+    "from": "M2",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.services",
+    "count": 1,
+    "from": "M2",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps",
+    "count": 4,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.continue-on-error",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.env",
+    "count": 1,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.name",
+    "count": 1,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.run",
+    "count": 5,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.shell",
+    "count": 1,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.timeout-minutes",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.uses",
+    "count": 7,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.with",
+    "count": 3,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.steps.working-directory",
+    "count": 1,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.strategy",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.strategy.fail-fast",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.strategy.matrix",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.strategy.matrix.exclude",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.strategy.matrix.include",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.timeout-minutes",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.uses",
+    "count": 1,
+    "from": "M2",
+    "extension": false
+  },
+  {
+    "key": "jobs.<job_id>.with",
+    "count": 1,
+    "from": "M2",
+    "extension": false
+  },
+  {
+    "key": "name",
+    "count": 2,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "on",
+    "count": 3,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "on.pull_request",
+    "count": 2,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.pull_request.types",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.push",
+    "count": 2,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.push.branches",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.push.paths-ignore",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.schedule",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.schedule.cron",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.workflow_dispatch",
+    "count": 1,
+    "from": "M0",
+    "extension": false
+  },
+  {
+    "key": "on.workflow_dispatch.inputs",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.workflow_dispatch.inputs.<input_id>.description",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.workflow_dispatch.inputs.<input_id>.required",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "on.workflow_dispatch.inputs.<input_id>.type",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "permissions",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "permissions.contents",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  },
+  {
+    "key": "permissions.pull-requests",
+    "count": 1,
+    "from": "M1",
+    "extension": false
+  }
+]

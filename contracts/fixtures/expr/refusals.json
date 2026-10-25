@@ -1,6 +1,7 @@
 [
   {
     "expression": "foo.bar",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "unknown_context",
@@ -10,6 +11,7 @@
   },
   {
     "expression": "false && foo.bar",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "unknown_context",
@@ -19,6 +21,7 @@
   },
   {
     "expression": "true || nope()",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "unknown_function",
@@ -28,6 +31,7 @@
   },
   {
     "expression": "false && contains('a')",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "wrong_argument_count",
@@ -37,6 +41,7 @@
   },
   {
     "expression": "false && case(true, 1)",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "wrong_argument_count",
@@ -46,6 +51,7 @@
   },
   {
     "expression": "plugin('x')",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "not_implemented",
@@ -55,6 +61,7 @@
   },
   {
     "expression": "success()",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "unavailable_function",
@@ -64,6 +71,7 @@
   },
   {
     "expression": "1 == 2 || always() && failure()",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "unavailable_function",

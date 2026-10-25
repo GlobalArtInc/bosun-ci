@@ -6,13 +6,18 @@ use bosun_types::ir::{SecretReferences, Span, Template, Trigger, Workflow};
 
 use crate::Code;
 use crate::place::Text;
-use crate::surface::{Known, Milestone, Shape, WORKFLOW};
+use crate::surface::{Arrives, Known, Milestone, Shape, WORKFLOW};
 use crate::yaml::{Node, Value};
 
 pub(crate) struct Mark {
     pub(crate) span: Span,
     pub(crate) path: Vec<PathSegment>,
     pub(crate) what: String,
+}
+
+pub(crate) struct Seen {
+    pub(crate) path: Vec<PathSegment>,
+    pub(crate) arrives: Arrives,
 }
 
 pub(crate) struct Lowering<'f> {
@@ -26,6 +31,7 @@ pub(crate) struct Lowering<'f> {
     pub(crate) extensions: Vec<Mark>,
     pub(crate) bosun: Vec<Mark>,
     pub(crate) checkouts: Vec<Mark>,
+    pub(crate) seen: Vec<Seen>,
 }
 
 pub(crate) struct Entry<'n> {
@@ -155,6 +161,7 @@ impl<'f> Lowering<'f> {
             extensions: Vec::new(),
             bosun: Vec::new(),
             checkouts: Vec::new(),
+            seen: Vec::new(),
         }
     }
 
@@ -181,6 +188,10 @@ impl<'f> Lowering<'f> {
 
     pub(crate) fn referenced(&mut self) -> SecretReferences {
         std::mem::replace(&mut self.secrets, SecretReferences::Named(BTreeSet::new()))
+    }
+
+    pub(crate) fn see(&mut self, path: Vec<PathSegment>, arrives: Arrives) {
+        self.seen.push(Seen { path, arrives });
     }
 
     pub(crate) fn push(&mut self, diagnostic: Diagnostic) {
@@ -368,6 +379,7 @@ impl<'f> Lowering<'f> {
             complete: found.complete,
         };
         for entry in found.entries {
+            self.see(entry.path.clone(), shape.arrives(entry.name));
             if shape.extension(entry.name) {
                 self.extensions.push(Mark {
                     span: entry.key.span,

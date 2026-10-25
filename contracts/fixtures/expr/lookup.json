@@ -1,8 +1,8 @@
 [
   {
-    "expression": "github.event.name",
+    "expression": "matrix.event.name",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo",
           "number": 7
@@ -12,9 +12,9 @@
     "result": "Octo"
   },
   {
-    "expression": "GITHUB.Event.NAME",
+    "expression": "MATRIX.Event.NAME",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo",
           "number": 7
@@ -24,9 +24,9 @@
     "result": "Octo"
   },
   {
-    "expression": "github['event']['name']",
+    "expression": "matrix['event']['name']",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo",
           "number": 7
@@ -36,9 +36,9 @@
     "result": "Octo"
   },
   {
-    "expression": "github.event.missing",
+    "expression": "matrix.event.missing",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo",
           "number": 7
@@ -48,9 +48,9 @@
     "result": null
   },
   {
-    "expression": "github.missing.deeper",
+    "expression": "matrix.missing.deeper",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo",
           "number": 7
@@ -60,18 +60,18 @@
     "result": null
   },
   {
-    "expression": "github.ref.length",
+    "expression": "env.ref.length",
     "contexts": {
-      "github": {
+      "env": {
         "ref": "refs/heads/main"
       }
     },
     "result": null
   },
   {
-    "expression": "github.list[0]",
+    "expression": "matrix.list[0]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -82,9 +82,9 @@
     "result": "a"
   },
   {
-    "expression": "github.list[1.9]",
+    "expression": "matrix.list[1.9]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -95,9 +95,9 @@
     "result": "b"
   },
   {
-    "expression": "github.list['2']",
+    "expression": "matrix.list['2']",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -108,9 +108,9 @@
     "result": "c"
   },
   {
-    "expression": "github.list[' 1 ']",
+    "expression": "matrix.list[' 1 ']",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -121,9 +121,9 @@
     "result": "b"
   },
   {
-    "expression": "github.list['0x1']",
+    "expression": "matrix.list['0x1']",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -134,9 +134,9 @@
     "result": "b"
   },
   {
-    "expression": "github.list[-1]",
+    "expression": "matrix.list[-1]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -147,9 +147,9 @@
     "result": null
   },
   {
-    "expression": "github.list[3]",
+    "expression": "matrix.list[3]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -160,9 +160,9 @@
     "result": null
   },
   {
-    "expression": "github.list[true]",
+    "expression": "matrix.list[true]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -173,9 +173,9 @@
     "result": "b"
   },
   {
-    "expression": "github.list[null]",
+    "expression": "matrix.list[null]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -186,9 +186,9 @@
     "result": "a"
   },
   {
-    "expression": "github.list['a']",
+    "expression": "matrix.list['a']",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -199,9 +199,9 @@
     "result": null
   },
   {
-    "expression": "github.list[NaN]",
+    "expression": "matrix.list[NaN]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -212,9 +212,9 @@
     "result": null
   },
   {
-    "expression": "github.list[Infinity]",
+    "expression": "matrix.list[Infinity]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -225,9 +225,9 @@
     "result": null
   },
   {
-    "expression": "github.list.name",
+    "expression": "matrix.list.name",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -238,9 +238,9 @@
     "result": null
   },
   {
-    "expression": "github.list[github.list]",
+    "expression": "matrix.list[matrix.list]",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -251,9 +251,9 @@
     "result": null
   },
   {
-    "expression": "github.object.key",
+    "expression": "matrix.object.key",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -265,9 +265,9 @@
     "result": "value"
   },
   {
-    "expression": "github.object['KEY']",
+    "expression": "matrix.object['KEY']",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -279,9 +279,9 @@
     "result": "value"
   },
   {
-    "expression": "github.object[1]",
+    "expression": "matrix.object[1]",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -293,9 +293,9 @@
     "result": "one"
   },
   {
-    "expression": "github.object[1.0]",
+    "expression": "matrix.object[1.0]",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -307,9 +307,9 @@
     "result": "one"
   },
   {
-    "expression": "github.object[true]",
+    "expression": "matrix.object[true]",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -321,9 +321,9 @@
     "result": "yes"
   },
   {
-    "expression": "github.object[null]",
+    "expression": "matrix.object[null]",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -335,9 +335,9 @@
     "result": "empty"
   },
   {
-    "expression": "github.object[0]",
+    "expression": "matrix.object[0]",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -349,9 +349,9 @@
     "result": null
   },
   {
-    "expression": "github.object[github.object]",
+    "expression": "matrix.object[matrix.object]",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -363,27 +363,27 @@
     "result": null
   },
   {
-    "expression": "github.missing[fromJSON('x')]",
+    "expression": "env.missing[fromJSON('x')]",
     "contexts": {
-      "github": {
+      "env": {
         "ref": "refs/heads/main"
       }
     },
     "result": null
   },
   {
-    "expression": "github.ref[fromJSON('x')]",
+    "expression": "env.ref[fromJSON('x')]",
     "contexts": {
-      "github": {
+      "env": {
         "ref": "refs/heads/main"
       }
     },
     "result": null
   },
   {
-    "expression": "github.items.*.name",
+    "expression": "matrix.items.*.name",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -407,9 +407,9 @@
     ]
   },
   {
-    "expression": "github.items[*].name",
+    "expression": "matrix.items[*].name",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -433,9 +433,9 @@
     ]
   },
   {
-    "expression": "github.items.*.id",
+    "expression": "matrix.items.*.id",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -459,9 +459,9 @@
     ]
   },
   {
-    "expression": "github.items.*",
+    "expression": "matrix.items.*",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -496,9 +496,9 @@
     ]
   },
   {
-    "expression": "github.object.*",
+    "expression": "matrix.object.*",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value",
           "1": "one",
@@ -515,9 +515,9 @@
     ]
   },
   {
-    "expression": "github.list.*",
+    "expression": "matrix.list.*",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b",
@@ -532,27 +532,27 @@
     ]
   },
   {
-    "expression": "github.ref.*",
+    "expression": "env.ref.*",
     "contexts": {
-      "github": {
+      "env": {
         "ref": "refs/heads/main"
       }
     },
     "result": []
   },
   {
-    "expression": "github.missing.*",
+    "expression": "env.missing.*",
     "contexts": {
-      "github": {
+      "env": {
         "ref": "refs/heads/main"
       }
     },
     "result": []
   },
   {
-    "expression": "github.event.*.*",
+    "expression": "matrix.event.*.*",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo",
           "number": 7
@@ -562,9 +562,9 @@
     "result": []
   },
   {
-    "expression": "github.nested.*.*",
+    "expression": "matrix.nested.*.*",
     "contexts": {
-      "github": {
+      "matrix": {
         "nested": [
           [
             1,
@@ -587,9 +587,9 @@
     ]
   },
   {
-    "expression": "github.nested.*[0]",
+    "expression": "matrix.nested.*[0]",
     "contexts": {
-      "github": {
+      "matrix": {
         "nested": [
           [
             1,
@@ -610,9 +610,9 @@
     ]
   },
   {
-    "expression": "github.items.*.name[0]",
+    "expression": "matrix.items.*.name[0]",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -633,9 +633,9 @@
     "result": []
   },
   {
-    "expression": "github.items.*.name.*",
+    "expression": "matrix.items.*.name.*",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -656,9 +656,9 @@
     "result": []
   },
   {
-    "expression": "github.items.*.missing",
+    "expression": "matrix.items.*.missing",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -679,9 +679,9 @@
     "result": []
   },
   {
-    "expression": "(github.items.*).name",
+    "expression": "(matrix.items.*).name",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -705,9 +705,9 @@
     ]
   },
   {
-    "expression": "(false || github.items.*).name",
+    "expression": "(false || matrix.items.*).name",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -731,9 +731,9 @@
     ]
   },
   {
-    "expression": "case(true, github.items.*, null).name",
+    "expression": "case(true, matrix.items.*, null).name",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -757,9 +757,9 @@
     ]
   },
   {
-    "expression": "fromJSON(toJSON(github.items.*)).name",
+    "expression": "fromJSON(toJSON(matrix.items.*)).name",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",
@@ -780,9 +780,9 @@
     "result": null
   },
   {
-    "expression": "github.items.* == github.items.*",
+    "expression": "matrix.items.* == matrix.items.*",
     "contexts": {
-      "github": {
+      "matrix": {
         "items": [
           {
             "name": "a",

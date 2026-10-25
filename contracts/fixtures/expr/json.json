@@ -1,8 +1,8 @@
 [
   {
-    "expression": "toJSON(github.event)",
+    "expression": "toJSON(matrix.event)",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "zeta": 1,
           "alpha": "x",
@@ -97,9 +97,9 @@
     "result": "\"\\u0001\\b\\f\\n\\r\\t\\u001f\u007f\\u0085\\u2028\\u2029/\""
   },
   {
-    "expression": "toJSON(github.event.zeta)",
+    "expression": "toJSON(matrix.event.zeta)",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "zeta": 1
         }
@@ -242,9 +242,9 @@
     }
   },
   {
-    "expression": "fromJSON(github.list)",
+    "expression": "fromJSON(matrix.list)",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": []
       }
     },

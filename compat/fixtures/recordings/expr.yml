@@ -1,0 +1,121 @@
+name: Expression recordings
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  cases-1:
+    name: Expression cases 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "who": ["world"]
+    steps:
+      - name: texts.json[0]
+        id: case-1
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[Hello ${{ matrix.who }}!]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'texts.json[0]' 4cf4a20fc3fa "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'texts.json[0]' 4cf4a20fc3fa '${{ steps.case-1.outcome }}'
+
+  cases-2:
+    name: Expression cases 2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [[1]]
+    steps:
+      - name: texts.json[1]
+        id: case-2
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ matrix.list }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'texts.json[1]' fc0f0055958d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'texts.json[1]' fc0f0055958d '${{ steps.case-2.outcome }}'
+
+  cases-3:
+    name: Expression cases 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: texts.json[2]
+        id: case-3
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[a\n${{ format('{0}', 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'texts.json[2]' 1c2cf3bade86 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: values.json[0]
+        id: case-4
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains('abc', 'B')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'values.json[0]' 595e39e9568d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: values.json[2]
+        id: case-5
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('x')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'values.json[2]' bcd3ef9a9fb8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'texts.json[2]' 1c2cf3bade86 '${{ steps.case-3.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'values.json[0]' 595e39e9568d '${{ steps.case-4.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'values.json[2]' bcd3ef9a9fb8 '${{ steps.case-5.outcome }}'
+
+  cases-4:
+    name: Expression cases 4
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [["a", "b"]]
+    steps:
+      - name: values.json[1]
+        id: case-6
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[1]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'values.json[1]' cabcc317e3a3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'values.json[1]' cabcc317e3a3 '${{ steps.case-6.outcome }}'
+
+  cases-5:
+    name: Expression cases 5
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      "NAME": "Octo"
+    steps:
+      - name: values.json[3]
+        id: case-7
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(env.NAME == 'octo') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'values.json[3]' c5dbb9d64d0f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'values.json[3]' c5dbb9d64d0f '${{ steps.case-7.outcome }}'

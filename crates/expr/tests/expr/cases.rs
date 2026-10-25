@@ -109,8 +109,23 @@ fn text<'c>(label: &str, case: &'c Case, field: &str) -> &'c str {
         .unwrap_or_else(|| panic!("{label}: `{field}` is a string"))
 }
 
+pub const HOSTED: &str = "hosted";
+
 fn run(label: &str, case: &Case, ordered: &bosun_expr::Value) {
-    let fields: BTreeSet<&str> = case.keys().map(String::as_str).collect();
+    let mut fields: BTreeSet<&str> = case.keys().map(String::as_str).collect();
+    if let Some(hosted) = case.get(HOSTED) {
+        assert_eq!(
+            hosted,
+            &Value::Bool(false),
+            "{label}: `{HOSTED}` is false when it is present"
+        );
+        assert!(
+            fields.contains("contexts"),
+            "{label}: only an evaluation or a rendering case says that a hosted runner cannot \
+             reproduce it"
+        );
+        fields.remove(HOSTED);
+    }
     let shape = |names: &[&str]| fields == names.iter().copied().collect();
     if shape(&["expression", "tree"]) || shape(&["expression", "error"]) {
         let source = text(label, case, "expression");
@@ -148,8 +163,8 @@ fn run(label: &str, case: &Case, ordered: &bosun_expr::Value) {
         panic!(
             "{label}: a case has `expression` with `tree` or `error`, `template` with `segments` or \
              `error`, `if` with `condition` or `error`, `expression` with `key` and `errors`, or \
-             `expression` or `template` with `contexts` and `result` or `error`; this one has \
-             {fields:?}"
+             `expression` or `template` with `contexts` and `result` or `error`, the last two \
+             perhaps with `hosted`; this one has {fields:?}"
         );
     }
 }

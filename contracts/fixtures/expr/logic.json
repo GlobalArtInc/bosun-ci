@@ -40,9 +40,9 @@
     "result": ""
   },
   {
-    "expression": "github.object || 'none'",
+    "expression": "matrix.object || 'none'",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "a": 1
         }
@@ -53,9 +53,9 @@
     }
   },
   {
-    "expression": "null || github.list",
+    "expression": "null || matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -73,9 +73,9 @@
     "result": null
   },
   {
-    "expression": "1 && 'a' && github.object",
+    "expression": "1 && 'a' && matrix.object",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "a": 1
         }
@@ -87,6 +87,7 @@
   },
   {
     "expression": "1 && 0 && github.missing",
+    "hosted": false,
     "contexts": {
       "github": {}
     },
@@ -108,9 +109,9 @@
     "result": false
   },
   {
-    "expression": "(github.list || 1) == github.list",
+    "expression": "(matrix.list || 1) == matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -120,9 +121,9 @@
     "result": true
   },
   {
-    "expression": "(github.object && github.list) == github.list",
+    "expression": "(matrix.object && matrix.list) == matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "a": 1
         },

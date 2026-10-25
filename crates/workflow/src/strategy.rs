@@ -5,7 +5,7 @@ use bosun_types::ir::{Evaluable, Matrix, MatrixField, MatrixValue, Number, Strat
 use crate::Code;
 use crate::expression::OPEN;
 use crate::lower::{Entry, Lowering, index, optional};
-use crate::surface::STRATEGY;
+use crate::surface::{Arrives, STRATEGY};
 use crate::yaml::{Node, Value};
 
 const KEY: Key = Key::JobStrategy;
@@ -89,6 +89,7 @@ impl Lowering<'_> {
         for field in &found.entries {
             match field.name {
                 "include" | "exclude" => {
+                    self.see(field.path.clone(), Arrives::Inherited);
                     let combinations = self.combinations(field, &what);
                     match (field.name, combinations) {
                         (_, None) => complete = false,

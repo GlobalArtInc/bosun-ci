@@ -1,0 +1,2795 @@
+name: Expression recordings
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  cases-1:
+    name: Expression cases 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: coercion.json[0]
+        id: case-1
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!false) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[0]' 80576706c414 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[1]
+        id: case-2
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[1]' e9957694e639 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[2]
+        id: case-3
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!-0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[2]' 89303e853db7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[3]
+        id: case-4
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!'') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[3]' c353eacc561e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[4]
+        id: case-5
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[4]' 348fb814a6ff "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[5]
+        id: case-6
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[5]' ef59c8bdbe7f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[6]
+        id: case-7
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!true) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[6]' 9e671f4dec1f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[7]
+        id: case-8
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[7]' 937af0562520 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[8]
+        id: case-9
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!-1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[8]' e93c5c6b4681 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[9]
+        id: case-10
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!'0') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[9]' c6e76a83250a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[10]
+        id: case-11
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!'false') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[10]' d819dcf925e6 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[11]
+        id: case-12
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!' ') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[11]' 3ded0e204300 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[12]
+        id: case-13
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!Infinity) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[12]' c58d3b920af4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[15]
+        id: case-14
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('0x10' == 16) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[15]' 46ff0e943c35 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[16]
+        id: case-15
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null == 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[16]' a3ebff26ccb0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[17]
+        id: case-16
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('ABC' == 'abc') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[17]' 8a4e30d1d11c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[18]
+        id: case-17
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null == null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[18]' 5d1012cd89d7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[19]
+        id: case-18
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null == '') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[19]' e3023779f58f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[20]
+        id: case-19
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null == false) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[20]' 9449d40ead0c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[21]
+        id: case-20
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true == 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[21]' e772e8d22112 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[22]
+        id: case-21
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true == '1') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[22]' 21e3226e44f1 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[23]
+        id: case-22
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true == 'true') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[23]' ea2a10232e12 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[24]
+        id: case-23
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(false == '') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[24]' 293afeeb1c13 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[25]
+        id: case-24
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('' == 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[25]' 8415902445ea "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[26]
+        id: case-25
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(' 16 ' == 16) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[26]' 7b52fb6cafe4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[27]
+        id: case-26
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('0o20' == 16) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[27]' f80c6e92ffa3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[28]
+        id: case-27
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('1e1' == 10) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[28]' ba8c81d57efa "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[29]
+        id: case-28
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('.5' == 0.5) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[29]' a86b9bcac42b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[30]
+        id: case-29
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('+5' == 5) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[30]' 5db590489644 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[31]
+        id: case-30
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('0xFFFFFFFF' == -1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[31]' fa3f168357be "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[32]
+        id: case-31
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('0x100000000' == 4294967296) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[32]' 994546c16848 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[33]
+        id: case-32
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('0X10' == 16) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[33]' 86a6008ddb3d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[34]
+        id: case-33
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('Infinity' == Infinity) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[34]' fff2ed47d066 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[35]
+        id: case-34
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('infinity' == Infinity) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[35]' 4e5ba9e0e3dd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[36]
+        id: case-35
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('-Infinity' == -Infinity) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[36]' 64b9660a4abf "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[37]
+        id: case-36
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('abc' == 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[37]' d33c60be1767 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[38]
+        id: case-37
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('NaN' == NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[38]' c642ab9f015e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[39]
+        id: case-38
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(-0 == 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[39]' 6b33a057bbdd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[40]
+        id: case-39
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(1 == 1.0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[40]' 25b1f47fbe6d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[41]
+        id: case-40
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('é' == 'É') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[41]' 453ff122f3b7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[42]
+        id: case-41
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('straße' == 'STRASSE') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[42]' c3bbdfcd0865 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[43]
+        id: case-42
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('1' == '1.0') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[43]' 3b5591f2bf25 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[46]
+        id: case-43
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('[]') == fromJSON('[]')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[46]' 8983ad5c9c83 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[52]
+        id: case-44
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(NaN == NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[52]' 7b4a883f0530 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[53]
+        id: case-45
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(NaN != NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[53]' 166d0b1319e8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[54]
+        id: case-46
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(Infinity == Infinity) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[54]' ab3d5e5c1623 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[55]
+        id: case-47
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(NaN < 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[55]' 38f913936ae7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[56]
+        id: case-48
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(NaN > 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[56]' 2a36f9c79f26 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[57]
+        id: case-49
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(NaN <= NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[57]' 8032ee2f5f40 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[58]
+        id: case-50
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(NaN >= NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[58]' 6e73f9c34b06 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[59]
+        id: case-51
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(1 < NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[59]' 4a764c61e38a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[60]
+        id: case-52
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(1 >= NaN) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[60]' 9bf83394b7a1 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[61]
+        id: case-53
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('abc' < 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[61]' 237f91088946 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[62]
+        id: case-54
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('abc' >= 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[62]' e1d2ddefac26 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[63]
+        id: case-55
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(Infinity > 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[63]' 0d605be797c4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[64]
+        id: case-56
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(-Infinity < 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[64]' 4e4f4ed7feed "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[65]
+        id: case-57
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(1 < 2) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[65]' e26b5df4ba63 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[66]
+        id: case-58
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('1' < 2) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[66]' 23885b14ed5f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[67]
+        id: case-59
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('10' > 9) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[67]' 5208747ed8d4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[68]
+        id: case-60
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('10' > '9') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[68]' 4e1cb33dfb34 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[69]
+        id: case-61
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('a' < 'B') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[69]' 02bc602900f5 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[70]
+        id: case-62
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('B' > 'a') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[70]' 995d0cf70e67 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[71]
+        id: case-63
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('a' < '_') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[71]' a986caf60a26 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[72]
+        id: case-64
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('abc' < 'abd') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[72]' 4026eeb58805 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[73]
+        id: case-65
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('ab' < 'abc') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[73]' 33cb3b2d4c5d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[74]
+        id: case-66
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('ABC' <= 'abc') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[74]' 7930a17f89f5 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[75]
+        id: case-67
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('ABC' < 'abc') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[75]' db0fc330fc02 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[76]
+        id: case-68
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(false < true) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[76]' f7167f4dda10 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[77]
+        id: case-69
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true > false) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[77]' d325e9185093 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[78]
+        id: case-70
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true >= true) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[78]' 808318346be0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[79]
+        id: case-71
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true > true) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[79]' 41527c4fed4e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[80]
+        id: case-72
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true > 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[80]' bd7946679043 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[81]
+        id: case-73
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null < 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[81]' f20d071bbd71 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[82]
+        id: case-74
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null > -1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[82]' dbb65adc8bc8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[83]
+        id: case-75
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null >= null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[83]' cefdbc8512d7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[84]
+        id: case-76
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null > null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[84]' 03ad66dc449b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[85]
+        id: case-77
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null <= null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[85]' 167101b64af8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[86]
+        id: case-78
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null < null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[86]' 5b0f994c9f9b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[87]
+        id: case-79
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null < 'a') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[87]' 90ad73f2b539 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[0]
+        id: case-80
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[0]' 90f0a0e8c94e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[1]
+        id: case-81
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{{0}}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[1]' 77c9642138ce "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[2]
+        id: case-82
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{{{0}}}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[2]' 1273678af9bf "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[3]
+        id: case-83
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('}}{{')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[3]' 0b891ae9f602 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[4]
+        id: case-84
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0} {1} {0}', 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[4]' f0562c7190a0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[7]
+        id: case-85
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0}', NaN)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[7]' feb4ff46b491 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[8]
+        id: case-86
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0}', -Infinity)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[8]' 28df4971606a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[9]
+        id: case-87
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{00}', 'a')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[9]' e8c574862887 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[10]
+        id: case-88
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0:}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[10]' 599bf7f3b897 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[11]
+        id: case-89
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('abc')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[11]' 8facaea039cf "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[12]
+        id: case-90
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{1}', 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[12]' 9a46990a1a7c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[13]
+        id: case-91
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('x', fromJSON('{'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[13]' 8cb707faebd4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[14]
+        id: case-92
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format(1e21)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[14]' ec5b537a7e76 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[15]
+        id: case-93
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(FORMAT('{0}', 'a')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[15]' 265bbe538f5a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[16]
+        id: case-94
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{1}', 'a')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[16]' 6cb12e022705 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[17]
+        id: case-95
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0}')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[17]' 0dea5a408615 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[18]
+        id: case-96
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{2}', 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[18]' ec0c955b01fc "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[19]
+        id: case-97
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[19]' d593040eddd8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[20]
+        id: case-98
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('0}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[20]' 44df8160620c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[21]
+        id: case-99
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{a}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[21]' 2dfaa34f180f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[22]
+        id: case-100
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[22]' defaffdc9509 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[0]' 80576706c414 '${{ steps.case-1.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[1]' e9957694e639 '${{ steps.case-2.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[2]' 89303e853db7 '${{ steps.case-3.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[3]' c353eacc561e '${{ steps.case-4.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[4]' 348fb814a6ff '${{ steps.case-5.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[5]' ef59c8bdbe7f '${{ steps.case-6.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[6]' 9e671f4dec1f '${{ steps.case-7.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[7]' 937af0562520 '${{ steps.case-8.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[8]' e93c5c6b4681 '${{ steps.case-9.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[9]' c6e76a83250a '${{ steps.case-10.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[10]' d819dcf925e6 '${{ steps.case-11.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[11]' 3ded0e204300 '${{ steps.case-12.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[12]' c58d3b920af4 '${{ steps.case-13.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[15]' 46ff0e943c35 '${{ steps.case-14.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[16]' a3ebff26ccb0 '${{ steps.case-15.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[17]' 8a4e30d1d11c '${{ steps.case-16.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[18]' 5d1012cd89d7 '${{ steps.case-17.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[19]' e3023779f58f '${{ steps.case-18.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[20]' 9449d40ead0c '${{ steps.case-19.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[21]' e772e8d22112 '${{ steps.case-20.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[22]' 21e3226e44f1 '${{ steps.case-21.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[23]' ea2a10232e12 '${{ steps.case-22.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[24]' 293afeeb1c13 '${{ steps.case-23.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[25]' 8415902445ea '${{ steps.case-24.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[26]' 7b52fb6cafe4 '${{ steps.case-25.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[27]' f80c6e92ffa3 '${{ steps.case-26.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[28]' ba8c81d57efa '${{ steps.case-27.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[29]' a86b9bcac42b '${{ steps.case-28.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[30]' 5db590489644 '${{ steps.case-29.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[31]' fa3f168357be '${{ steps.case-30.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[32]' 994546c16848 '${{ steps.case-31.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[33]' 86a6008ddb3d '${{ steps.case-32.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[34]' fff2ed47d066 '${{ steps.case-33.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[35]' 4e5ba9e0e3dd '${{ steps.case-34.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[36]' 64b9660a4abf '${{ steps.case-35.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[37]' d33c60be1767 '${{ steps.case-36.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[38]' c642ab9f015e '${{ steps.case-37.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[39]' 6b33a057bbdd '${{ steps.case-38.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[40]' 25b1f47fbe6d '${{ steps.case-39.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[41]' 453ff122f3b7 '${{ steps.case-40.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[42]' c3bbdfcd0865 '${{ steps.case-41.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[43]' 3b5591f2bf25 '${{ steps.case-42.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[46]' 8983ad5c9c83 '${{ steps.case-43.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[52]' 7b4a883f0530 '${{ steps.case-44.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[53]' 166d0b1319e8 '${{ steps.case-45.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[54]' ab3d5e5c1623 '${{ steps.case-46.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[55]' 38f913936ae7 '${{ steps.case-47.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[56]' 2a36f9c79f26 '${{ steps.case-48.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[57]' 8032ee2f5f40 '${{ steps.case-49.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[58]' 6e73f9c34b06 '${{ steps.case-50.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[59]' 4a764c61e38a '${{ steps.case-51.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[60]' 9bf83394b7a1 '${{ steps.case-52.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[61]' 237f91088946 '${{ steps.case-53.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[62]' e1d2ddefac26 '${{ steps.case-54.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[63]' 0d605be797c4 '${{ steps.case-55.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[64]' 4e4f4ed7feed '${{ steps.case-56.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[65]' e26b5df4ba63 '${{ steps.case-57.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[66]' 23885b14ed5f '${{ steps.case-58.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[67]' 5208747ed8d4 '${{ steps.case-59.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[68]' 4e1cb33dfb34 '${{ steps.case-60.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[69]' 02bc602900f5 '${{ steps.case-61.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[70]' 995d0cf70e67 '${{ steps.case-62.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[71]' a986caf60a26 '${{ steps.case-63.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[72]' 4026eeb58805 '${{ steps.case-64.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[73]' 33cb3b2d4c5d '${{ steps.case-65.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[74]' 7930a17f89f5 '${{ steps.case-66.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[75]' db0fc330fc02 '${{ steps.case-67.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[76]' f7167f4dda10 '${{ steps.case-68.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[77]' d325e9185093 '${{ steps.case-69.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[78]' 808318346be0 '${{ steps.case-70.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[79]' 41527c4fed4e '${{ steps.case-71.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[80]' bd7946679043 '${{ steps.case-72.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[81]' f20d071bbd71 '${{ steps.case-73.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[82]' dbb65adc8bc8 '${{ steps.case-74.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[83]' cefdbc8512d7 '${{ steps.case-75.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[84]' 03ad66dc449b '${{ steps.case-76.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[85]' 167101b64af8 '${{ steps.case-77.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[86]' 5b0f994c9f9b '${{ steps.case-78.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[87]' 90ad73f2b539 '${{ steps.case-79.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[0]' 90f0a0e8c94e '${{ steps.case-80.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[1]' 77c9642138ce '${{ steps.case-81.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[2]' 1273678af9bf '${{ steps.case-82.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[3]' 0b891ae9f602 '${{ steps.case-83.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[4]' f0562c7190a0 '${{ steps.case-84.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[7]' feb4ff46b491 '${{ steps.case-85.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[8]' 28df4971606a '${{ steps.case-86.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[9]' e8c574862887 '${{ steps.case-87.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[10]' 599bf7f3b897 '${{ steps.case-88.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[11]' 8facaea039cf '${{ steps.case-89.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[12]' 9a46990a1a7c '${{ steps.case-90.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[13]' 8cb707faebd4 '${{ steps.case-91.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[14]' ec5b537a7e76 '${{ steps.case-92.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[15]' 265bbe538f5a '${{ steps.case-93.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[16]' 6cb12e022705 '${{ steps.case-94.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[17]' 0dea5a408615 '${{ steps.case-95.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[18]' ec0c955b01fc '${{ steps.case-96.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[19]' d593040eddd8 '${{ steps.case-97.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[20]' 44df8160620c '${{ steps.case-98.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[21]' 2dfaa34f180f '${{ steps.case-99.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[22]' defaffdc9509 '${{ steps.case-100.outcome }}'
+
+  cases-2:
+    name: Expression cases 2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: format.json[23]
+        id: case-101
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{ 0}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[23]' 602f22a10ee4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[24]
+        id: case-102
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{256}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[24]' a1fd9fc2c8e9 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[25]
+        id: case-103
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0}}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[25]' 4221d4ce3bed "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[26]
+        id: case-104
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0:x}', 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[26]' 110ea129b0d1 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: format.json[27]
+        id: case-105
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0}', fromJSON('x'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[27]' 2799507e81b2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[0]
+        id: case-106
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains('Hello World', 'WORLD')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[0]' 782922eabf74 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[1]
+        id: case-107
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains('abc', '')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[1]' 956afe8193c1 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[2]
+        id: case-108
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains('abc', 'abcd')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[2]' 4a61c238989e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[3]
+        id: case-109
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(123, 2)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[3]' 8a2bd99d6a5f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[4]
+        id: case-110
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(1.50, '.5')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[4]' 62109da4bc80 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[5]
+        id: case-111
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(null, '')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[5]' 254d0616b4a9 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[6]
+        id: case-112
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains('abc', null)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[6]' 1b447046dc80 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[7]
+        id: case-113
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(true, 'RU')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[7]' 76ea72fc5b07 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[10]
+        id: case-114
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(fromJSON('[1, 2]'), '2')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[10]' e3480382f303 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[11]
+        id: case-115
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(fromJSON('[null]'), '')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[11]' 198bd6a880a4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[12]
+        id: case-116
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(fromJSON('[]'), fromJSON('x'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[12]' 9676398a74ed "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[17]
+        id: case-117
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(startsWith('Hello', 'he')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[17]' 5efbb609c2c8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[18]
+        id: case-118
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(startsWith('Hello', 'lo')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[18]' 8615c9a0d0a4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[19]
+        id: case-119
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(endsWith('Hello', 'LO')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[19]' 883dbcbb3ddc "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[20]
+        id: case-120
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(startsWith(10, 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[20]' 25c4721a0d2b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[21]
+        id: case-121
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(endsWith(3.10, 1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[21]' 3b545aa2b9dd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[22]
+        id: case-122
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(startsWith('abc', '')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[22]' 624fd88ac566 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[23]
+        id: case-123
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(startsWith(null, '')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[23]' 3905d633a3d3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[27]
+        id: case-124
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(fromJSON('[1, \"a\", null, true, 3.10]'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[27]' 3b2378c13296 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[32]
+        id: case-125
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join('abc', '-')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[32]' 1b4f33b9f4de "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[33]
+        id: case-126
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(fromJSON('[]'), '-')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[33]' 50fc80424c7c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[35]
+        id: case-127
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(null)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[35]' baaa4fa310c2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[36]
+        id: case-128
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(1e21)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[36]' 9bcefb8b9921 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[37]
+        id: case-129
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(fromJSON('[[1], {}]'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[37]' 414f701148fd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[38]
+        id: case-130
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(fromJSON('[\"x\"]'), fromJSON('y'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[38]' e47e7279dc47 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[40]
+        id: case-131
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(true, 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[40]' e41fffdaf4ca "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[41]
+        id: case-132
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(false, 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[41]' d2e277bded6e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[42]
+        id: case-133
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(false, 'a', true, 'c', 'd')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[42]' d1c81fda8600 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[43]
+        id: case-134
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(false, 'a', false, 'c', 'd')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[43]' 3b6687f4cb3b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[44]
+        id: case-135
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(CASE(TRUE, 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[44]' 0681d4f27002 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[46]
+        id: case-136
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(true, 'a', fromJSON('x'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[46]' c80c8350361a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[47]
+        id: case-137
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(false, fromJSON('x'), 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[47]' 7f54747a3dfb "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[48]
+        id: case-138
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(1, 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[48]' c8ea2bfc98ec "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[49]
+        id: case-139
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case('true', 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[49]' eff39dabd60d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[50]
+        id: case-140
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(false, 'a', null, 'b', 'c')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[50]' 06f67c91138d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[1]
+        id: case-141
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(fromJSON('{\"a\":[1,{\"b\":null}],\"c\":{},\"d\":[]}'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[1]' 184019afa988 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[2]
+        id: case-142
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(3.10)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[2]' d2fe85986bf1 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[3]
+        id: case-143
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(1e21)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[3]' 04e305884ae2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[4]
+        id: case-144
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(0.1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[4]' 72c695794392 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[5]
+        id: case-145
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(fromJSON('[3.10, 1e21, 0.1, -0.5]'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[5]' a48e523db3b2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[6]
+        id: case-146
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(NaN)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[6]' 4fb8734843d2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[7]
+        id: case-147
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(-Infinity)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[7]' cca17a1f115f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[8]
+        id: case-148
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(null)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[8]' 5df8936fa346 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[9]
+        id: case-149
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(true)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[9]' 76245573c9e2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[10]
+        id: case-150
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON('a\"b\\c')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[10]' 45d891fe8729 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[11]
+        id: case-151
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON('é')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[11]' 4e6c0fedba08 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[12]
+        id: case-152
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON('')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[12]' 352e56e86601 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[13]
+        id: case-153
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(fromJSON('[]'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[13]' 006d778a351f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[14]
+        id: case-154
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(fromJSON('{}'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[14]' 7a844098a36b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[15]
+        id: case-155
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(fromJSON('\"\\u0001\\b\\f\\n\\r\\t\\u001f\\u007f\\u0085\\u2028\\u2029/\"'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[15]' 3ac94690f967 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[17]
+        id: case-156
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('{\"a\": 1}')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[17]' dd1b7e40c0e9 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[18]
+        id: case-157
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('[1, \"x\", null, true]')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[18]' 162a137fff22 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[19]
+        id: case-158
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON(' 1 ')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[19]' 64825d0127c4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[20]
+        id: case-159
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('\"x\"')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[20]' 46596cbf021e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[21]
+        id: case-160
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON(1)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[21]' 1595ed204c54 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[22]
+        id: case-161
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON(true)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[22]' e94bf91e6ef2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[23]
+        id: case-162
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('{\"a\":1,\"A\":2}')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[23]' 8ac74542d54c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[24]
+        id: case-163
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('{\"a\":1,\"b\":2,\"a\":3}')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[24]' 2c017e4ae87b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[25]
+        id: case-164
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('{\"Name\":1}').name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[25]' 3d0a069ea712 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[26]
+        id: case-165
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('[0.1, 1e21, -0.5]')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[26]' 9fcc3e45fa85 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[27]
+        id: case-166
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('123456789012345678901234567890')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[27]' c47e2eed5f09 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[28]
+        id: case-167
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('{')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[28]' e83f573fe314 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[29]
+        id: case-168
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[29]' 4426949d47b3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[30]
+        id: case-169
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('abc')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[30]' ac56c33773ec "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[31]
+        id: case-170
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('1 2')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[31]' 3989d22d8894 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[32]
+        id: case-171
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('''x''')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[32]' 331a789f4d42 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[33]
+        id: case-172
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON('{\"a\":}')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[33]' 795691252af6 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[34]
+        id: case-173
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON(null)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[34]' c877fedc95de "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[0]
+        id: case-174
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('x' || 'y') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[0]' 1ee7fc7d2d0c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[1]
+        id: case-175
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('x' || 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[1]' 1526cd1a2ecc "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[2]
+        id: case-176
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('' || 'y') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[2]' 239df2d69e31 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[3]
+        id: case-177
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('' || 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[3]' 556bcb1c6959 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[4]
+        id: case-178
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('x' && 'y') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[4]' 518ae519d024 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[5]
+        id: case-179
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('x' && 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[5]' 18c4a2aa8581 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[6]
+        id: case-180
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('' && 'y') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[6]' c232e8021a83 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[7]
+        id: case-181
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON('' && 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[7]' c3b76a20c0a7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[10]
+        id: case-182
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(0 || '' || null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[10]' 70042055660d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[13]
+        id: case-183
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!(0 || '')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[13]' 2171b19ca11e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[14]
+        id: case-184
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(true || fromJSON('x')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[14]' be629a26d58a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[15]
+        id: case-185
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(false && fromJSON('x')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[15]' 56711fb18226 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[0]
+        id: case-186
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 3.10 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[0]' 8c781682e445 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[1]
+        id: case-187
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 1e21 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[1]' 3d0e0d6bcdbb "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[2]
+        id: case-188
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0.1 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[2]' 1d04b33f6a34 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[3]
+        id: case-189
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 1e14 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[3]' 9cf5e0d3a8f9 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[4]
+        id: case-190
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 1e15 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[4]' b9f520d3740a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[5]
+        id: case-191
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 123456789012345678 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[5]' 5dd887719af2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[6]
+        id: case-192
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 1234567890123456 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[6]' a759520d2d21 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[7]
+        id: case-193
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 12345678901234.5 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[7]' 4ec003ee33b4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[8]
+        id: case-194
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 999999999999999.9 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[8]' 9e38149d0f26 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[9]
+        id: case-195
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0.30000000000000004 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[9]' ca262c541a67 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[10]
+        id: case-196
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0.0001 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[10]' b8cfe92bd785 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[11]
+        id: case-197
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0.00001 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[11]' 5d789e7d7324 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[12]
+        id: case-198
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 1.5e-7 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[12]' aba582a4c69a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[13]
+        id: case-199
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 1e100 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[13]' 4423908f2638 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[14]
+        id: case-200
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ -1.25 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[14]' 33ba168d7862 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[23]' 602f22a10ee4 '${{ steps.case-101.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[24]' a1fd9fc2c8e9 '${{ steps.case-102.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[25]' 4221d4ce3bed '${{ steps.case-103.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[26]' 110ea129b0d1 '${{ steps.case-104.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[27]' 2799507e81b2 '${{ steps.case-105.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[0]' 782922eabf74 '${{ steps.case-106.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[1]' 956afe8193c1 '${{ steps.case-107.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[2]' 4a61c238989e '${{ steps.case-108.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[3]' 8a2bd99d6a5f '${{ steps.case-109.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[4]' 62109da4bc80 '${{ steps.case-110.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[5]' 254d0616b4a9 '${{ steps.case-111.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[6]' 1b447046dc80 '${{ steps.case-112.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[7]' 76ea72fc5b07 '${{ steps.case-113.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[10]' e3480382f303 '${{ steps.case-114.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[11]' 198bd6a880a4 '${{ steps.case-115.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[12]' 9676398a74ed '${{ steps.case-116.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[17]' 5efbb609c2c8 '${{ steps.case-117.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[18]' 8615c9a0d0a4 '${{ steps.case-118.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[19]' 883dbcbb3ddc '${{ steps.case-119.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[20]' 25c4721a0d2b '${{ steps.case-120.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[21]' 3b545aa2b9dd '${{ steps.case-121.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[22]' 624fd88ac566 '${{ steps.case-122.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[23]' 3905d633a3d3 '${{ steps.case-123.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[27]' 3b2378c13296 '${{ steps.case-124.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[32]' 1b4f33b9f4de '${{ steps.case-125.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[33]' 50fc80424c7c '${{ steps.case-126.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[35]' baaa4fa310c2 '${{ steps.case-127.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[36]' 9bcefb8b9921 '${{ steps.case-128.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[37]' 414f701148fd '${{ steps.case-129.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[38]' e47e7279dc47 '${{ steps.case-130.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[40]' e41fffdaf4ca '${{ steps.case-131.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[41]' d2e277bded6e '${{ steps.case-132.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[42]' d1c81fda8600 '${{ steps.case-133.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[43]' 3b6687f4cb3b '${{ steps.case-134.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[44]' 0681d4f27002 '${{ steps.case-135.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[46]' c80c8350361a '${{ steps.case-136.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[47]' 7f54747a3dfb '${{ steps.case-137.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[48]' c8ea2bfc98ec '${{ steps.case-138.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[49]' eff39dabd60d '${{ steps.case-139.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[50]' 06f67c91138d '${{ steps.case-140.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[1]' 184019afa988 '${{ steps.case-141.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[2]' d2fe85986bf1 '${{ steps.case-142.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[3]' 04e305884ae2 '${{ steps.case-143.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[4]' 72c695794392 '${{ steps.case-144.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[5]' a48e523db3b2 '${{ steps.case-145.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[6]' 4fb8734843d2 '${{ steps.case-146.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[7]' cca17a1f115f '${{ steps.case-147.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[8]' 5df8936fa346 '${{ steps.case-148.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[9]' 76245573c9e2 '${{ steps.case-149.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[10]' 45d891fe8729 '${{ steps.case-150.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[11]' 4e6c0fedba08 '${{ steps.case-151.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[12]' 352e56e86601 '${{ steps.case-152.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[13]' 006d778a351f '${{ steps.case-153.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[14]' 7a844098a36b '${{ steps.case-154.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[15]' 3ac94690f967 '${{ steps.case-155.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[17]' dd1b7e40c0e9 '${{ steps.case-156.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[18]' 162a137fff22 '${{ steps.case-157.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[19]' 64825d0127c4 '${{ steps.case-158.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[20]' 46596cbf021e '${{ steps.case-159.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[21]' 1595ed204c54 '${{ steps.case-160.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[22]' e94bf91e6ef2 '${{ steps.case-161.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[23]' 8ac74542d54c '${{ steps.case-162.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[24]' 2c017e4ae87b '${{ steps.case-163.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[25]' 3d0a069ea712 '${{ steps.case-164.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[26]' 9fcc3e45fa85 '${{ steps.case-165.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[27]' c47e2eed5f09 '${{ steps.case-166.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[28]' e83f573fe314 '${{ steps.case-167.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[29]' 4426949d47b3 '${{ steps.case-168.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[30]' ac56c33773ec '${{ steps.case-169.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[31]' 3989d22d8894 '${{ steps.case-170.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[32]' 331a789f4d42 '${{ steps.case-171.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[33]' 795691252af6 '${{ steps.case-172.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[34]' c877fedc95de '${{ steps.case-173.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[0]' 1ee7fc7d2d0c '${{ steps.case-174.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[1]' 1526cd1a2ecc '${{ steps.case-175.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[2]' 239df2d69e31 '${{ steps.case-176.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[3]' 556bcb1c6959 '${{ steps.case-177.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[4]' 518ae519d024 '${{ steps.case-178.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[5]' 18c4a2aa8581 '${{ steps.case-179.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[6]' c232e8021a83 '${{ steps.case-180.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[7]' c3b76a20c0a7 '${{ steps.case-181.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[10]' 70042055660d '${{ steps.case-182.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[13]' 2171b19ca11e '${{ steps.case-183.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[14]' be629a26d58a '${{ steps.case-184.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[15]' 56711fb18226 '${{ steps.case-185.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[0]' 8c781682e445 '${{ steps.case-186.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[1]' 3d0e0d6bcdbb '${{ steps.case-187.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[2]' 1d04b33f6a34 '${{ steps.case-188.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[3]' 9cf5e0d3a8f9 '${{ steps.case-189.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[4]' b9f520d3740a '${{ steps.case-190.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[5]' 5dd887719af2 '${{ steps.case-191.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[6]' a759520d2d21 '${{ steps.case-192.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[7]' 4ec003ee33b4 '${{ steps.case-193.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[8]' 9e38149d0f26 '${{ steps.case-194.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[9]' ca262c541a67 '${{ steps.case-195.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[10]' b8cfe92bd785 '${{ steps.case-196.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[11]' 5d789e7d7324 '${{ steps.case-197.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[12]' aba582a4c69a '${{ steps.case-198.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[13]' 4423908f2638 '${{ steps.case-199.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[14]' 33ba168d7862 '${{ steps.case-200.outcome }}'
+
+  cases-3:
+    name: Expression cases 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: rendering.json[15]
+        id: case-201
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ -0 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[15]' 4b4ca098a740 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[16]
+        id: case-202
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[16]' dedb4c08ad8e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[17]
+        id: case-203
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 100 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[17]' 7a97db30b4e5 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[18]
+        id: case-204
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0x10 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[18]' 2d28c904661c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[19]
+        id: case-205
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0xFFFFFFFF }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[19]' 0e9ebb6702aa "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[20]
+        id: case-206
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 0o17 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[20]' 7806436b1a34 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[21]
+        id: case-207
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ .5 }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[21]' 6a61cd76cd3b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[22]
+        id: case-208
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 1. }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[22]' 280db8ffd025 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[23]
+        id: case-209
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ NaN }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[23]' 38af450449ca "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[24]
+        id: case-210
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ Infinity }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[24]' ad58d2024c19 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[25]
+        id: case-211
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ -Infinity }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[25]' 73376ed8bf14 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[26]
+        id: case-212
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ null }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[26]' a690ebc495b4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[27]
+        id: case-213
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ true }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[27]' 0bde556c513c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[28]
+        id: case-214
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ false }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[28]' cdb95bf38f76 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[31]
+        id: case-215
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ 'a' }}b${{ 'c' }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[31]' e468e989afd4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[32]
+        id: case-216
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[plain]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[32]' 0d757c501d1c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[33]
+        id: case-217
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[33]' c24ed24464cd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[36]
+        id: case-218
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ '${{' }} and ${{ '}}' }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[36]' 09b790d1ef8b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[38]
+        id: case-219
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[a ${{ fromJSON('x') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[38]' 86b7f6fee769 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[15]' 4b4ca098a740 '${{ steps.case-201.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[16]' dedb4c08ad8e '${{ steps.case-202.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[17]' 7a97db30b4e5 '${{ steps.case-203.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[18]' 2d28c904661c '${{ steps.case-204.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[19]' 0e9ebb6702aa '${{ steps.case-205.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[20]' 7806436b1a34 '${{ steps.case-206.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[21]' 6a61cd76cd3b '${{ steps.case-207.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[22]' 280db8ffd025 '${{ steps.case-208.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[23]' 38af450449ca '${{ steps.case-209.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[24]' ad58d2024c19 '${{ steps.case-210.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[25]' 73376ed8bf14 '${{ steps.case-211.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[26]' a690ebc495b4 '${{ steps.case-212.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[27]' 0bde556c513c '${{ steps.case-213.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[28]' cdb95bf38f76 '${{ steps.case-214.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[31]' e468e989afd4 '${{ steps.case-215.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[32]' 0d757c501d1c '${{ steps.case-216.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[33]' c24ed24464cd '${{ steps.case-217.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[36]' 09b790d1ef8b '${{ steps.case-218.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[38]' 86b7f6fee769 '${{ steps.case-219.outcome }}'
+
+  cases-4:
+    name: Expression cases 4
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [[]]
+        "object": [{}]
+    steps:
+      - name: coercion.json[13]
+        id: case-220
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[13]' 3c73f6fb59c1 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[14]
+        id: case-221
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(!matrix.object) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[14]' 55321c315097 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[13]' 3c73f6fb59c1 '${{ steps.case-220.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[14]' 55321c315097 '${{ steps.case-221.outcome }}'
+
+  cases-5:
+    name: Expression cases 5
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [[1, 2]]
+        "object": [{"a": 1}]
+    steps:
+      - name: coercion.json[44]
+        id: case-222
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list == matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[44]' 0966b58ef57b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[45]
+        id: case-223
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list != matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[45]' f00d30a83993 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[47]
+        id: case-224
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object == matrix.object) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[47]' fd0fd74d777f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[48]
+        id: case-225
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list == 'Array') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[48]' 44bcd618e5a2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[49]
+        id: case-226
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object == 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[49]' ffb7a0e12ebe "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[50]
+        id: case-227
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list != null) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[50]' f62ec18e5b46 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[51]
+        id: case-228
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list == matrix.object) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[51]' 5bea287526e3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[88]
+        id: case-229
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list >= matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[88]' e4ab6fb2ddae "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[89]
+        id: case-230
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list > matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[89]' 7c562d36e4a7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[90]
+        id: case-231
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list < 1) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[90]' c520f4d52fd8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: coercion.json[91]
+        id: case-232
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list >= 0) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'coercion.json[91]' 4efbc406c749 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[44]' 0966b58ef57b '${{ steps.case-222.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[45]' f00d30a83993 '${{ steps.case-223.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[47]' fd0fd74d777f '${{ steps.case-224.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[48]' 44bcd618e5a2 '${{ steps.case-225.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[49]' ffb7a0e12ebe '${{ steps.case-226.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[50]' f62ec18e5b46 '${{ steps.case-227.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[51]' 5bea287526e3 '${{ steps.case-228.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[88]' e4ab6fb2ddae '${{ steps.case-229.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[89]' 7c562d36e4a7 '${{ steps.case-230.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[90]' c520f4d52fd8 '${{ steps.case-231.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'coercion.json[91]' 4efbc406c749 '${{ steps.case-232.outcome }}'
+
+  cases-6:
+    name: Expression cases 6
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "event": [{"name": "Octo"}]
+    steps:
+      - name: format.json[5]
+        id: case-233
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('Hello {0}!', matrix.event.name)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[5]' 445e99b11003 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[34]
+        id: case-234
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[x ${{ matrix.missing }} y]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[34]' d091b94f26f2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[35]
+        id: case-235
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[Hello ${{ matrix.event.name }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[35]' 844920826fd9 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[5]' 445e99b11003 '${{ steps.case-233.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[34]' d091b94f26f2 '${{ steps.case-234.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[35]' 844920826fd9 '${{ steps.case-235.outcome }}'
+
+  cases-7:
+    name: Expression cases 7
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [[]]
+    steps:
+      - name: format.json[6]
+        id: case-236
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(format('{0}|{1}|{2}|{3}', null, true, 3.10, matrix.list)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'format.json[6]' e9739259bd32 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: json.json[35]
+        id: case-237
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON(matrix.list)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[35]' 1feef42d4a7f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'format.json[6]' e9739259bd32 '${{ steps.case-236.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[35]' 1feef42d4a7f '${{ steps.case-237.outcome }}'
+
+  cases-8:
+    name: Expression cases 8
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [["a", "B"]]
+    steps:
+      - name: functions.json[8]
+        id: case-238
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(matrix.list, 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[8]' e96ce1aee211 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[9]
+        id: case-239
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(matrix.list, 'c')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[9]' f7e4a9d7b688 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[14]
+        id: case-240
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains('abc', matrix.list)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[14]' 05fcd9b48338 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[15]
+        id: case-241
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(matrix.list, matrix.list)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[15]' 1de9f3d8314e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[24]
+        id: case-242
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(startsWith(matrix.list, 'a')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[24]' ce273a712a1e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[25]
+        id: case-243
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(endsWith('abc', matrix.list)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[25]' 14c622bc8989 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[28]
+        id: case-244
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(matrix.list, ' + ')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[28]' 14f97c699aee "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[29]
+        id: case-245
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(matrix.list, '')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[29]' 455b32e3476f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[30]
+        id: case-246
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(matrix.list, null)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[30]' e3382b1270e2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[51]
+        id: case-247
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(matrix.list, 'a', 'b')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[51]' e2a2594cf9bb "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[8]' e96ce1aee211 '${{ steps.case-238.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[9]' f7e4a9d7b688 '${{ steps.case-239.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[14]' 05fcd9b48338 '${{ steps.case-240.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[15]' 1de9f3d8314e '${{ steps.case-241.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[24]' ce273a712a1e '${{ steps.case-242.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[25]' 14c622bc8989 '${{ steps.case-243.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[28]' 14f97c699aee '${{ steps.case-244.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[29]' 455b32e3476f '${{ steps.case-245.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[30]' e3382b1270e2 '${{ steps.case-246.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[51]' e2a2594cf9bb '${{ steps.case-247.outcome }}'
+
+  cases-9:
+    name: Expression cases 9
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "object": [{"key": "value"}]
+    steps:
+      - name: functions.json[13]
+        id: case-248
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(matrix.object, 'key')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[13]' 598089b42ba0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[26]
+        id: case-249
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(startsWith(matrix.object, fromJSON('x'))) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[26]' 38cffb8f63c2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[34]
+        id: case-250
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(matrix.object)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[34]' 970f63d11a81 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[45]
+        id: case-251
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(1 == 1, matrix.object, null)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[45]' 9920c4fcd597 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[13]' 598089b42ba0 '${{ steps.case-248.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[26]' 38cffb8f63c2 '${{ steps.case-249.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[34]' 970f63d11a81 '${{ steps.case-250.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[45]' 9920c4fcd597 '${{ steps.case-251.outcome }}'
+
+  cases-10:
+    name: Expression cases 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "labels": [[{"name": "bug"}, {"name": "docs"}]]
+    steps:
+      - name: functions.json[16]
+        id: case-252
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(contains(matrix.labels.*.name, 'BUG')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[16]' 18043715f1fd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: functions.json[39]
+        id: case-253
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(matrix.labels.*.name, ', ')) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[39]' 5802e3604af0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[16]' 18043715f1fd '${{ steps.case-252.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[39]' 5802e3604af0 '${{ steps.case-253.outcome }}'
+
+  cases-11:
+    name: Expression cases 11
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [["a", "B"]]
+        "object": [{"key": "value"}]
+    steps:
+      - name: functions.json[31]
+        id: case-254
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(join(matrix.list, matrix.object)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'functions.json[31]' b9a62fc75188 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'functions.json[31]' b9a62fc75188 '${{ steps.case-254.outcome }}'
+
+  cases-12:
+    name: Expression cases 12
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "event": [{"zeta": 1, "alpha": "x", "nested": {"list": [1, {"b": null}], "empty": {}, "none": []}}]
+    steps:
+      - name: json.json[0]
+        id: case-255
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(matrix.event)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[0]' af7f06a07152 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[0]' af7f06a07152 '${{ steps.case-255.outcome }}'
+
+  cases-13:
+    name: Expression cases 13
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "event": [{"zeta": 1}]
+    steps:
+      - name: json.json[16]
+        id: case-256
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(toJSON(matrix.event.zeta)) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'json.json[16]' 8a30c1a627d7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'json.json[16]' 8a30c1a627d7 '${{ steps.case-256.outcome }}'
+
+  cases-14:
+    name: Expression cases 14
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "object": [{"a": 1}]
+    steps:
+      - name: logic.json[8]
+        id: case-257
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object || 'none') }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[8]' 85e377c14e39 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[11]
+        id: case-258
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(1 && 'a' && matrix.object) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[11]' ced693398b54 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[8]' 85e377c14e39 '${{ steps.case-257.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[11]' ced693398b54 '${{ steps.case-258.outcome }}'
+
+  cases-15:
+    name: Expression cases 15
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [[1, 2]]
+    steps:
+      - name: logic.json[9]
+        id: case-259
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(null || matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[9]' 8c1abb99ccc8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: logic.json[16]
+        id: case-260
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON((matrix.list || 1) == matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[16]' cc3a4d478bb9 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[9]' 8c1abb99ccc8 '${{ steps.case-259.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[16]' cc3a4d478bb9 '${{ steps.case-260.outcome }}'
+
+  cases-16:
+    name: Expression cases 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "object": [{"a": 1}]
+        "list": [[1, 2]]
+    steps:
+      - name: logic.json[17]
+        id: case-261
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON((matrix.object && matrix.list) == matrix.list) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'logic.json[17]' 9e7b89eaf0ac "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'logic.json[17]' 9e7b89eaf0ac '${{ steps.case-261.outcome }}'
+
+  cases-17:
+    name: Expression cases 17
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "event": [{"name": "Octo", "number": 7}]
+    steps:
+      - name: lookup.json[0]
+        id: case-262
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.event.name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[0]' 0c858e43168e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[1]
+        id: case-263
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(MATRIX.Event.NAME) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[1]' b96f96ba03a2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[2]
+        id: case-264
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix['event']['name']) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[2]' edfeda32778e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[3]
+        id: case-265
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.event.missing) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[3]' 915672915d30 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[4]
+        id: case-266
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.missing.deeper) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[4]' a59b551e5821 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[38]
+        id: case-267
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.event.*.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[38]' b7b451e52e7c "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[0]' 0c858e43168e '${{ steps.case-262.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[1]' b96f96ba03a2 '${{ steps.case-263.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[2]' edfeda32778e '${{ steps.case-264.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[3]' 915672915d30 '${{ steps.case-265.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[4]' a59b551e5821 '${{ steps.case-266.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[38]' b7b451e52e7c '${{ steps.case-267.outcome }}'
+
+  cases-18:
+    name: Expression cases 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      "ref": "refs/heads/main"
+    steps:
+      - name: lookup.json[5]
+        id: case-268
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(env.ref.length) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[5]' c7d97df81774 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[28]
+        id: case-269
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(env.missing[fromJSON('x')]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[28]' 8e319f9740c7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[29]
+        id: case-270
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(env.ref[fromJSON('x')]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[29]' 0f2eb488e599 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[36]
+        id: case-271
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(env.ref.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[36]' 958a76092048 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[37]
+        id: case-272
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(env.missing.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[37]' 01f0fbc74b80 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[5]' c7d97df81774 '${{ steps.case-268.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[28]' 8e319f9740c7 '${{ steps.case-269.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[29]' 0f2eb488e599 '${{ steps.case-270.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[36]' 958a76092048 '${{ steps.case-271.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[37]' 01f0fbc74b80 '${{ steps.case-272.outcome }}'
+
+  cases-19:
+    name: Expression cases 19
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [["a", "b", "c"]]
+    steps:
+      - name: lookup.json[6]
+        id: case-273
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[0]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[6]' 04cf6ac9836b "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[7]
+        id: case-274
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[1.9]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[7]' 6a60533d90a8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[8]
+        id: case-275
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list['2']) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[8]' 65386e69e379 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[9]
+        id: case-276
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[' 1 ']) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[9]' cbe1f11474d0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[10]
+        id: case-277
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list['0x1']) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[10]' 61355a77cad2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[11]
+        id: case-278
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[-1]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[11]' 09905b91bba9 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[12]
+        id: case-279
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[3]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[12]' 4f8fe241efb4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[13]
+        id: case-280
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[true]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[13]' 1ab5fff2201d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[14]
+        id: case-281
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[null]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[14]' f3bfd57c6032 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[15]
+        id: case-282
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list['a']) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[15]' 0186a9a80ac4 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[16]
+        id: case-283
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[NaN]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[16]' d94cd729c2d7 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[17]
+        id: case-284
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[Infinity]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[17]' c230228a6179 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[18]
+        id: case-285
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list.name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[18]' 667ff57d778e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[19]
+        id: case-286
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list[matrix.list]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[19]' d9b396340097 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[35]
+        id: case-287
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.list.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[35]' 14d68f09f7ed "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[6]' 04cf6ac9836b '${{ steps.case-273.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[7]' 6a60533d90a8 '${{ steps.case-274.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[8]' 65386e69e379 '${{ steps.case-275.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[9]' cbe1f11474d0 '${{ steps.case-276.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[10]' 61355a77cad2 '${{ steps.case-277.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[11]' 09905b91bba9 '${{ steps.case-278.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[12]' 4f8fe241efb4 '${{ steps.case-279.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[13]' 1ab5fff2201d '${{ steps.case-280.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[14]' f3bfd57c6032 '${{ steps.case-281.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[15]' 0186a9a80ac4 '${{ steps.case-282.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[16]' d94cd729c2d7 '${{ steps.case-283.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[17]' c230228a6179 '${{ steps.case-284.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[18]' 667ff57d778e '${{ steps.case-285.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[19]' d9b396340097 '${{ steps.case-286.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[35]' 14d68f09f7ed '${{ steps.case-287.outcome }}'
+
+  cases-20:
+    name: Expression cases 20
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "object": [{"key": "value", "1": "one", "true": "yes", "": "empty"}]
+    steps:
+      - name: lookup.json[20]
+        id: case-288
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object.key) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[20]' 922bccfba0db "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[21]
+        id: case-289
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object['KEY']) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[21]' d0711f4bca35 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[22]
+        id: case-290
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object[1]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[22]' 239db3b00032 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[23]
+        id: case-291
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object[1.0]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[23]' 324e45ab9a74 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[24]
+        id: case-292
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object[true]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[24]' 74d002c5bb79 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[25]
+        id: case-293
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object[null]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[25]' 98d3b32e9ebd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[26]
+        id: case-294
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object[0]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[26]' 02368e27a6c2 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[27]
+        id: case-295
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object[matrix.object]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[27]' d28777d93130 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[34]
+        id: case-296
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.object.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[34]' 6b54c9225120 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[20]' 922bccfba0db '${{ steps.case-288.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[21]' d0711f4bca35 '${{ steps.case-289.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[22]' 239db3b00032 '${{ steps.case-290.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[23]' 324e45ab9a74 '${{ steps.case-291.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[24]' 74d002c5bb79 '${{ steps.case-292.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[25]' 98d3b32e9ebd '${{ steps.case-293.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[26]' 02368e27a6c2 '${{ steps.case-294.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[27]' d28777d93130 '${{ steps.case-295.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[34]' 6b54c9225120 '${{ steps.case-296.outcome }}'
+
+  cases-21:
+    name: Expression cases 21
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "items": [[{"name": "a", "id": 1}, {"id": 2}, {"name": "c"}, "text", 5, null]]
+    steps:
+      - name: lookup.json[30]
+        id: case-297
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items.*.name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[30]' 22ff5036f5a3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[31]
+        id: case-298
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items[*].name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[31]' f89705bd7afe "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[32]
+        id: case-299
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items.*.id) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[32]' 469d952738fa "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[33]
+        id: case-300
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[33]' 488a332f9ef0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[41]
+        id: case-301
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items.*.name[0]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[41]' ab83e6d88834 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[42]
+        id: case-302
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items.*.name.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[42]' f0a9755d089a "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[43]
+        id: case-303
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items.*.missing) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[43]' 80920406911d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[44]
+        id: case-304
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON((matrix.items.*).name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[44]' 1830227318d0 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[45]
+        id: case-305
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON((false || matrix.items.*).name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[45]' a2d437364fa5 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[46]
+        id: case-306
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(case(true, matrix.items.*, null).name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[46]' 2b0c0dbe88fb "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[47]
+        id: case-307
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(fromJSON(toJSON(matrix.items.*)).name) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[47]' 1e5752b4ef1e "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[48]
+        id: case-308
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.items.* == matrix.items.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[48]' 87a108a9df31 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[30]' 22ff5036f5a3 '${{ steps.case-297.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[31]' f89705bd7afe '${{ steps.case-298.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[32]' 469d952738fa '${{ steps.case-299.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[33]' 488a332f9ef0 '${{ steps.case-300.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[41]' ab83e6d88834 '${{ steps.case-301.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[42]' f0a9755d089a '${{ steps.case-302.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[43]' 80920406911d '${{ steps.case-303.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[44]' 1830227318d0 '${{ steps.case-304.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[45]' a2d437364fa5 '${{ steps.case-305.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[46]' 2b0c0dbe88fb '${{ steps.case-306.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[47]' 1e5752b4ef1e '${{ steps.case-307.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[48]' 87a108a9df31 '${{ steps.case-308.outcome }}'
+
+  cases-22:
+    name: Expression cases 22
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "nested": [[[1, 2], [3], {"x": 4}]]
+    steps:
+      - name: lookup.json[39]
+        id: case-309
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.nested.*.*) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[39]' c462b068f9fd "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: lookup.json[40]
+        id: case-310
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ toJSON(matrix.nested.*[0]) }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'lookup.json[40]' 2a93bbd15cf5 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[39]' c462b068f9fd '${{ steps.case-309.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'lookup.json[40]' 2a93bbd15cf5 '${{ steps.case-310.outcome }}'
+
+  cases-23:
+    name: Expression cases 23
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "list": [["a", "b"]]
+    steps:
+      - name: rendering.json[29]
+        id: case-311
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ matrix.list }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[29]' 12fa280e1e0d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: rendering.json[37]
+        id: case-312
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ matrix.list[0] }}-${{ matrix.list[1] }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[37]' ad0eb4f12c50 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[29]' 12fa280e1e0d '${{ steps.case-311.outcome }}'
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[37]' ad0eb4f12c50 '${{ steps.case-312.outcome }}'
+
+  cases-24:
+    name: Expression cases 24
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        "object": [{}]
+    steps:
+      - name: rendering.json[30]
+        id: case-313
+        continue-on-error: true
+        env:
+          BOSUN_CASE: "[${{ matrix.object }}]"
+        run: |
+          printf 'bosun-%s %s %s %s\n' result 'rendering.json[30]' 3359f2b35560 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+      - name: Outcomes
+        if: always()
+        run: |
+          printf 'bosun-%s %s %s %s\n' outcome 'rendering.json[30]' 3359f2b35560 '${{ steps.case-313.outcome }}'

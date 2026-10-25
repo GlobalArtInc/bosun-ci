@@ -40,9 +40,9 @@
     "result": true
   },
   {
-    "expression": "contains(github.list, 'b')",
+    "expression": "contains(matrix.list, 'b')",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -52,9 +52,9 @@
     "result": true
   },
   {
-    "expression": "contains(github.list, 'c')",
+    "expression": "contains(matrix.list, 'c')",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -79,9 +79,9 @@
     "result": false
   },
   {
-    "expression": "contains(github.object, 'key')",
+    "expression": "contains(matrix.object, 'key')",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value"
         }
@@ -90,9 +90,9 @@
     "result": false
   },
   {
-    "expression": "contains('abc', github.list)",
+    "expression": "contains('abc', matrix.list)",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -102,9 +102,9 @@
     "result": false
   },
   {
-    "expression": "contains(github.list, github.list)",
+    "expression": "contains(matrix.list, matrix.list)",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -114,9 +114,9 @@
     "result": false
   },
   {
-    "expression": "contains(github.labels.*.name, 'BUG')",
+    "expression": "contains(matrix.labels.*.name, 'BUG')",
     "contexts": {
-      "github": {
+      "matrix": {
         "labels": [
           {
             "name": "bug"
@@ -165,9 +165,9 @@
     "result": true
   },
   {
-    "expression": "startsWith(github.list, 'a')",
+    "expression": "startsWith(matrix.list, 'a')",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -177,9 +177,9 @@
     "result": false
   },
   {
-    "expression": "endsWith('abc', github.list)",
+    "expression": "endsWith('abc', matrix.list)",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -189,9 +189,9 @@
     "result": false
   },
   {
-    "expression": "startsWith(github.object, fromJSON('x'))",
+    "expression": "startsWith(matrix.object, fromJSON('x'))",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value"
         }
@@ -205,9 +205,9 @@
     "result": "1,a,,true,3.1"
   },
   {
-    "expression": "join(github.list, ' + ')",
+    "expression": "join(matrix.list, ' + ')",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -217,9 +217,9 @@
     "result": "a + B"
   },
   {
-    "expression": "join(github.list, '')",
+    "expression": "join(matrix.list, '')",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -229,9 +229,9 @@
     "result": "aB"
   },
   {
-    "expression": "join(github.list, null)",
+    "expression": "join(matrix.list, null)",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -241,9 +241,9 @@
     "result": "aB"
   },
   {
-    "expression": "join(github.list, github.object)",
+    "expression": "join(matrix.list, matrix.object)",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"
@@ -266,9 +266,9 @@
     "result": ""
   },
   {
-    "expression": "join(github.object)",
+    "expression": "join(matrix.object)",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value"
         }
@@ -297,9 +297,9 @@
     "result": "x"
   },
   {
-    "expression": "join(github.labels.*.name, ', ')",
+    "expression": "join(matrix.labels.*.name, ', ')",
     "contexts": {
-      "github": {
+      "matrix": {
         "labels": [
           {
             "name": "bug"
@@ -338,9 +338,9 @@
     "result": "a"
   },
   {
-    "expression": "case(1 == 1, github.object, null)",
+    "expression": "case(1 == 1, matrix.object, null)",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {
           "key": "value"
         }
@@ -388,9 +388,9 @@
     }
   },
   {
-    "expression": "case(github.list, 'a', 'b')",
+    "expression": "case(matrix.list, 'a', 'b')",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "B"

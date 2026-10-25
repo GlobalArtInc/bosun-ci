@@ -4,7 +4,7 @@ use bosun_types::ir::{Access, Permissions, Scope};
 
 use crate::Code;
 use crate::lower::{Entry, Lowering};
-use crate::surface::suggest;
+use crate::surface::{Arrives, suggest};
 use crate::yaml::Value;
 
 const ANY: &[Access] = &[Access::Read, Access::Write, Access::None];
@@ -75,6 +75,7 @@ impl Lowering<'_> {
                 .into_iter()
                 .find(|scope| scope.name() == field.name)
             else {
+                self.see(field.path.clone(), Arrives::Unknown);
                 complete = false;
                 let suggestion = suggest(field.name, Scope::ALL.map(Scope::name));
                 self.unknown(
@@ -87,6 +88,7 @@ impl Lowering<'_> {
                 );
                 continue;
             };
+            self.see(field.path.clone(), Arrives::Inherited);
             let accepted = levels(scope);
             let level = match &field.value.value {
                 Value::String(text) => accepted

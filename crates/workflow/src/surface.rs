@@ -72,7 +72,23 @@ pub(crate) enum Known {
     Unknown(Option<&'static str>),
 }
 
+pub(crate) enum Arrives {
+    Listed { from: Milestone, extension: bool },
+    Inherited,
+    Unknown,
+}
+
 impl Shape {
+    pub(crate) fn arrives(&self, name: &str) -> Arrives {
+        match self.keys.iter().find(|arrival| arrival.name == name) {
+            Some(arrival) => Arrives::Listed {
+                from: arrival.from,
+                extension: arrival.extension,
+            },
+            None => Arrives::Unknown,
+        }
+    }
+
     pub(crate) fn find(&self, name: &str) -> Known {
         match self.keys.iter().find(|arrival| arrival.name == name) {
             Some(arrival)

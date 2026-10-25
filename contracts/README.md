@@ -21,7 +21,10 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   `working-directory`, `env` and the order of the output.
 - `fixtures/expr/`: expression cases and the availability table of contexts and functions per key,
   from step 2 of M1, and the evaluation and rendering cases with their contexts and results, from
-  step 3 of M1, in the format of `docs/design/03-expressions.md`.
+  step 3 of M1, in the format of `docs/design/03-expressions.md`. From step 45 of M1, a case
+  supplies arbitrary values as `matrix` or `env`, which a hosted runner can be given, and a case
+  that a hosted runner cannot reproduce says so with `"hosted": false`; the others are recorded on
+  hosted runners into `compat/recordings/`.
 - `fixtures/github/`: the `github` context and the variables of a step, from step 7 of M1. Each case
   holds the event's name, the `payload`, the facts of the run, the runner, the step and Bosun
   (`facts`, `runner`, `step`, `bosun`), the expected `context` without `event`, which is the payload

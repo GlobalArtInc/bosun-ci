@@ -25,9 +25,9 @@
     "result": "a b a"
   },
   {
-    "expression": "format('Hello {0}!', github.event.name)",
+    "expression": "format('Hello {0}!', matrix.event.name)",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo"
         }
@@ -36,9 +36,9 @@
     "result": "Hello Octo!"
   },
   {
-    "expression": "format('{0}|{1}|{2}|{3}', null, true, 3.10, github.list)",
+    "expression": "format('{0}|{1}|{2}|{3}', null, true, 3.10, matrix.list)",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": []
       }
     },

@@ -2,8 +2,10 @@ mod availability;
 mod cases;
 mod documents;
 mod evaluation;
+mod hosted;
 mod limits;
 mod properties;
+mod recordings;
 
 use std::fs;
 use std::path::{Path, PathBuf};

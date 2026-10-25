@@ -1,0 +1,30 @@
+[
+  {
+    "template": "Hello ${{ matrix.who }}!",
+    "contexts": {
+      "matrix": {
+        "who": "world"
+      }
+    },
+    "result": "Hello world!"
+  },
+  {
+    "template": "${{ matrix.list }}",
+    "contexts": {
+      "matrix": {
+        "list": [1]
+      }
+    },
+    "result": "Array"
+  },
+  {
+    "template": "a\n${{ format('{0}', 1) }}",
+    "contexts": {},
+    "result": "a\n1"
+  },
+  {
+    "expression": "github.sha",
+    "key": "run-name",
+    "errors": []
+  }
+]

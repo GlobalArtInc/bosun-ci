@@ -1,0 +1,12 @@
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs_on: ubuntu-latest
+    retry:
+      attempts: 2
+    steps:
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
+      - run: make test
+        shell: bash
+        working-directory: lib

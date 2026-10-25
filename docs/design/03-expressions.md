@@ -318,7 +318,9 @@ The cases live in `contracts/fixtures/expr/` as JSON files, each a list of cases
 - a check case has `expression`, a `key` of the availability table and the `errors` of the static
   checks;
 - an evaluation case has `expression`, `contexts`, and `result` or `error`;
-- a rendering case has `template`, `contexts`, and the rendered text as `result`, or its `error`.
+- a rendering case has `template`, `contexts`, and the rendered text as `result`, or its `error`;
+- an evaluation or a rendering case that a hosted runner cannot reproduce also has
+  `"hosted": false` ([Recordings on hosted runners](#recordings-on-hosted-runners)).
 
 `contexts` maps the name of each context the case supplies to its value, and every context it
 supplies is one the expression names. Evaluation and rendering cases run without the status
@@ -326,6 +328,48 @@ functions and `hashFiles`, which belong to the server and the agent. JSON has no
 infinities, so a case whose result would be one shows it through its string form, as in
 `format('{0}', NaN)`.
 
-`availability.json` beside them is the availability table. The same cases are run through GitHub
-Actions in a public repository, whose hosted minutes cost nothing, and a difference between the
-recorded result and Bosun's is a failing test.
+`availability.json` beside them is the availability table.
+
+### Recordings on hosted runners
+
+The evaluation and rendering cases also run on GitHub's hosted runners, in a public repository whose
+hosted minutes cost nothing, and a difference between a recorded result and Bosun's is a failing
+test. `hack/compat-recordings.py generate` turns the cases into the workflow
+`compat/recordings/expr.yml` for that repository, its `import` turns the log of a run of it into
+`compat/recordings/expr.json`, and a test of `bosun-expr` compares every recording with Bosun
+([compat/README.md](../../compat/README.md)).
+
+A workflow gives a job no contexts but those it sets itself: the job's `env` and its matrix. A case
+is recorded when all of the following hold, and every other evaluation or rendering case carries
+`"hosted": false`; a test of `bosun-expr` checks that a case carries it exactly when one of them
+fails:
+
+- it supplies no context but `env` and `matrix`. The others, `github` first, are the runner's own,
+  so a case that needs an arbitrary value supplies it as `matrix`, whose values may be any JSON,
+  or a string as `env`;
+- `env` maps names that are not empty to strings without U+0000, since the job's environment holds
+  them;
+- `matrix` has at least one property, and none is empty, `include` or `exclude`, since each property
+  becomes a vector with one value;
+- no object in a supplied value has two properties whose names are equal ignoring case, which an
+  object of the target cannot hold, and no supplied string holds `${{`, which the target would
+  evaluate;
+- wrapped as the workflow evaluates it, every expression passes the static checks at
+  `jobs.<job_id>.steps.env` and names no `bosun`. The target refuses a workflow with such an error
+  before any job runs, so a case whose outcome is an error of the static checks is not recorded;
+- a rendering case renders no U+0000.
+
+The workflow has one job for each distinct `contexts`, which sets them as its `env` and as a matrix
+with one combination, and a step for each case, at most 100 to a job. The step's `env` evaluates
+`[${{ toJSON(<expression>) }}]` for an evaluation case and `[<template>]` for a rendering case, so
+text always surrounds the template and every value becomes text exactly as a template renders it,
+and the step prints that value in base64 on a line `bosun-result <case> <digest> <value>`. A step
+whose `env` fails to evaluate fails and prints nothing, and the last step of the job, which runs in
+any case, prints `bosun-outcome <case> <digest> <outcome>` for each. A case is named by its file and
+its position, as `lookup.json[30]`, and its digest is the first 12 hexadecimal digits of the SHA-256
+of its kind, its text and its contexts, so the importer refuses the log of a run of other cases than
+the commit holds. A recording keeps the case's name, its `expression` or `template`, its `contexts`
+and either `output`, what the runner printed between the brackets, or `failed: true`. The test
+evaluates `toJSON(<expression>)` or renders the template with the recorded contexts, and fails,
+naming the case, when Bosun prints other text, fails where the runner did not, or succeeds where the
+runner failed. A recording stands on its own, so it stays valid when the cases change later.

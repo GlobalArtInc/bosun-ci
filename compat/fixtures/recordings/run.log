@@ -1,0 +1,93 @@
+Expression cases 1	Set up job	2026-10-25T09:00:01.1234567Z Current runner version: '2.329.0'
+Expression cases 1	Set up job	2026-10-25T09:00:02.1234567Z Runner Image: ubuntu-24.04
+Expression cases 1	texts.json[0]	2026-10-25T09:00:03.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' result 'texts.json[0]' 4cf4a20fc3fa "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 1	texts.json[0]	2026-10-25T09:00:04.1234567Z printf 'bosun-%s %s %s %s\n' result 'texts.json[0]' 4cf4a20fc3fa "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 1	texts.json[0]	2026-10-25T09:00:05.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 1	texts.json[0]	2026-10-25T09:00:06.1234567Z env:
+Expression cases 1	texts.json[0]	2026-10-25T09:00:07.1234567Z   BOSUN_CASE: [Hello world!]
+Expression cases 1	texts.json[0]	2026-10-25T09:00:08.1234567Z ##[endgroup]
+Expression cases 1	texts.json[0]	2026-10-25T09:00:09.1234567Z bosun-result texts.json[0] 4cf4a20fc3fa W0hlbGxvIHdvcmxkIV0=
+Expression cases 1	Outcomes	2026-10-25T09:00:10.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' outcome 'texts.json[0]' 4cf4a20fc3fa 'success'
+Expression cases 1	Outcomes	2026-10-25T09:00:11.1234567Z printf 'bosun-%s %s %s %s\n' outcome 'texts.json[0]' 4cf4a20fc3fa 'success'
+Expression cases 1	Outcomes	2026-10-25T09:00:12.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 1	Outcomes	2026-10-25T09:00:13.1234567Z ##[endgroup]
+Expression cases 1	Outcomes	2026-10-25T09:00:14.1234567Z bosun-outcome texts.json[0] 4cf4a20fc3fa success
+Expression cases 1	Complete job	2026-10-25T09:00:15.1234567Z Cleaning up orphan processes
+Expression cases 2	Set up job	2026-10-25T09:00:16.1234567Z Current runner version: '2.329.0'
+Expression cases 2	Set up job	2026-10-25T09:00:17.1234567Z Runner Image: ubuntu-24.04
+Expression cases 2	texts.json[1]	2026-10-25T09:00:18.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' result 'texts.json[1]' fc0f0055958d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 2	texts.json[1]	2026-10-25T09:00:19.1234567Z printf 'bosun-%s %s %s %s\n' result 'texts.json[1]' fc0f0055958d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 2	texts.json[1]	2026-10-25T09:00:20.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 2	texts.json[1]	2026-10-25T09:00:21.1234567Z env:
+Expression cases 2	texts.json[1]	2026-10-25T09:00:22.1234567Z   BOSUN_CASE: [Array]
+Expression cases 2	texts.json[1]	2026-10-25T09:00:23.1234567Z ##[endgroup]
+Expression cases 2	texts.json[1]	2026-10-25T09:00:24.1234567Z bosun-result texts.json[1] fc0f0055958d W0FycmF5XQ==
+Expression cases 2	Outcomes	2026-10-25T09:00:25.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' outcome 'texts.json[1]' fc0f0055958d 'success'
+Expression cases 2	Outcomes	2026-10-25T09:00:26.1234567Z printf 'bosun-%s %s %s %s\n' outcome 'texts.json[1]' fc0f0055958d 'success'
+Expression cases 2	Outcomes	2026-10-25T09:00:27.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 2	Outcomes	2026-10-25T09:00:28.1234567Z ##[endgroup]
+Expression cases 2	Outcomes	2026-10-25T09:00:29.1234567Z bosun-outcome texts.json[1] fc0f0055958d success
+Expression cases 2	Complete job	2026-10-25T09:00:30.1234567Z Cleaning up orphan processes
+Expression cases 3	Set up job	2026-10-25T09:00:31.1234567Z Current runner version: '2.329.0'
+Expression cases 3	Set up job	2026-10-25T09:00:32.1234567Z Runner Image: ubuntu-24.04
+Expression cases 3	texts.json[2]	2026-10-25T09:00:33.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' result 'texts.json[2]' 1c2cf3bade86 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 3	texts.json[2]	2026-10-25T09:00:34.1234567Z printf 'bosun-%s %s %s %s\n' result 'texts.json[2]' 1c2cf3bade86 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 3	texts.json[2]	2026-10-25T09:00:35.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 3	texts.json[2]	2026-10-25T09:00:36.1234567Z env:
+Expression cases 3	texts.json[2]	2026-10-25T09:00:37.1234567Z   BOSUN_CASE: [a]
+Expression cases 3	texts.json[2]	2026-10-25T09:00:38.1234567Z 1]
+Expression cases 3	texts.json[2]	2026-10-25T09:00:39.1234567Z ##[endgroup]
+Expression cases 3	texts.json[2]	2026-10-25T09:00:40.1234567Z bosun-result texts.json[2] 1c2cf3bade86 W2EKMV0=
+Expression cases 3	values.json[0]	2026-10-25T09:00:41.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' result 'values.json[0]' 595e39e9568d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 3	values.json[0]	2026-10-25T09:00:42.1234567Z printf 'bosun-%s %s %s %s\n' result 'values.json[0]' 595e39e9568d "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 3	values.json[0]	2026-10-25T09:00:43.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 3	values.json[0]	2026-10-25T09:00:44.1234567Z env:
+Expression cases 3	values.json[0]	2026-10-25T09:00:45.1234567Z   BOSUN_CASE: [true]
+Expression cases 3	values.json[0]	2026-10-25T09:00:46.1234567Z ##[endgroup]
+Expression cases 3	values.json[0]	2026-10-25T09:00:47.1234567Z bosun-result values.json[0] 595e39e9568d W3RydWVd
+Expression cases 3	values.json[2]	2026-10-25T09:00:48.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' result 'values.json[2]' bcd3ef9a9fb8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 3	values.json[2]	2026-10-25T09:00:49.1234567Z printf 'bosun-%s %s %s %s\n' result 'values.json[2]' bcd3ef9a9fb8 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 3	values.json[2]	2026-10-25T09:00:50.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 3	values.json[2]	2026-10-25T09:00:51.1234567Z env:
+Expression cases 3	values.json[2]	2026-10-25T09:00:52.1234567Z ##[endgroup]
+Expression cases 3	values.json[2]	2026-10-25T09:00:53.1234567Z ##[error]The template is not valid. .github/workflows/expr.yml (Line: 67, Col: 23): Error parsing fromJson,.github/workflows/expr.yml (Line: 67, Col: 23): Error reading JToken from JsonReader. Path '', line 0, position 0.
+Expression cases 3	Outcomes	2026-10-25T09:00:54.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' outcome 'texts.json[2]' 1c2cf3bade86 'success'
+Expression cases 3	Outcomes	2026-10-25T09:00:55.1234567Z printf 'bosun-%s %s %s %s\n' outcome 'texts.json[2]' 1c2cf3bade86 'success'
+Expression cases 3	Outcomes	2026-10-25T09:00:56.1234567Z printf 'bosun-%s %s %s %s\n' outcome 'values.json[0]' 595e39e9568d 'success'
+Expression cases 3	Outcomes	2026-10-25T09:00:57.1234567Z printf 'bosun-%s %s %s %s\n' outcome 'values.json[2]' bcd3ef9a9fb8 'failure'
+Expression cases 3	Outcomes	2026-10-25T09:00:58.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 3	Outcomes	2026-10-25T09:00:59.1234567Z ##[endgroup]
+Expression cases 3	Outcomes	2026-10-25T09:01:00.1234567Z bosun-outcome texts.json[2] 1c2cf3bade86 success
+Expression cases 3	Outcomes	2026-10-25T09:01:01.1234567Z bosun-outcome values.json[0] 595e39e9568d success
+Expression cases 3	Outcomes	2026-10-25T09:01:02.1234567Z bosun-outcome values.json[2] bcd3ef9a9fb8 failure
+Expression cases 3	Complete job	2026-10-25T09:01:03.1234567Z Cleaning up orphan processes
+Expression cases 4	Set up job	2026-10-25T09:01:04.1234567Z Current runner version: '2.329.0'
+Expression cases 4	Set up job	2026-10-25T09:01:05.1234567Z Runner Image: ubuntu-24.04
+Expression cases 4	values.json[1]	2026-10-25T09:01:06.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' result 'values.json[1]' cabcc317e3a3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 4	values.json[1]	2026-10-25T09:01:07.1234567Z printf 'bosun-%s %s %s %s\n' result 'values.json[1]' cabcc317e3a3 "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 4	values.json[1]	2026-10-25T09:01:08.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 4	values.json[1]	2026-10-25T09:01:09.1234567Z env:
+Expression cases 4	values.json[1]	2026-10-25T09:01:10.1234567Z   BOSUN_CASE: ["b"]
+Expression cases 4	values.json[1]	2026-10-25T09:01:11.1234567Z ##[endgroup]
+Expression cases 4	values.json[1]	2026-10-25T09:01:12.1234567Z bosun-result values.json[1] cabcc317e3a3 WyJiIl0=
+Expression cases 4	Outcomes	2026-10-25T09:01:13.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' outcome 'values.json[1]' cabcc317e3a3 'success'
+Expression cases 4	Outcomes	2026-10-25T09:01:14.1234567Z printf 'bosun-%s %s %s %s\n' outcome 'values.json[1]' cabcc317e3a3 'success'
+Expression cases 4	Outcomes	2026-10-25T09:01:15.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 4	Outcomes	2026-10-25T09:01:16.1234567Z ##[endgroup]
+Expression cases 4	Outcomes	2026-10-25T09:01:17.1234567Z bosun-outcome values.json[1] cabcc317e3a3 success
+Expression cases 4	Complete job	2026-10-25T09:01:18.1234567Z Cleaning up orphan processes
+Expression cases 5	Set up job	2026-10-25T09:01:19.1234567Z Current runner version: '2.329.0'
+Expression cases 5	Set up job	2026-10-25T09:01:20.1234567Z Runner Image: ubuntu-24.04
+Expression cases 5	values.json[3]	2026-10-25T09:01:21.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' result 'values.json[3]' c5dbb9d64d0f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 5	values.json[3]	2026-10-25T09:01:22.1234567Z printf 'bosun-%s %s %s %s\n' result 'values.json[3]' c5dbb9d64d0f "$(printf '%s' "$BOSUN_CASE" | base64 -w0)"
+Expression cases 5	values.json[3]	2026-10-25T09:01:23.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 5	values.json[3]	2026-10-25T09:01:24.1234567Z env:
+Expression cases 5	values.json[3]	2026-10-25T09:01:25.1234567Z   BOSUN_CASE: [true]
+Expression cases 5	values.json[3]	2026-10-25T09:01:26.1234567Z ##[endgroup]
+Expression cases 5	values.json[3]	2026-10-25T09:01:27.1234567Z bosun-result values.json[3] c5dbb9d64d0f W3RydWVd
+Expression cases 5	Outcomes	2026-10-25T09:01:28.1234567Z ##[group]Run printf 'bosun-%s %s %s %s\n' outcome 'values.json[3]' c5dbb9d64d0f 'success'
+Expression cases 5	Outcomes	2026-10-25T09:01:29.1234567Z printf 'bosun-%s %s %s %s\n' outcome 'values.json[3]' c5dbb9d64d0f 'success'
+Expression cases 5	Outcomes	2026-10-25T09:01:30.1234567Z shell: /usr/bin/bash -e {0}
+Expression cases 5	Outcomes	2026-10-25T09:01:31.1234567Z ##[endgroup]
+Expression cases 5	Outcomes	2026-10-25T09:01:32.1234567Z bosun-outcome values.json[3] c5dbb9d64d0f success
+Expression cases 5	Complete job	2026-10-25T09:01:33.1234567Z Cleaning up orphan processes

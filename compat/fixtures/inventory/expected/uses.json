@@ -1,0 +1,60 @@
+[
+  {
+    "uses": "actions/checkout",
+    "count": 4,
+    "versions": [
+      {
+        "version": "v4",
+        "count": 2
+      },
+      {
+        "version": "8e5e7e5ab8b370d6c329ec480221332ada57f0ab",
+        "count": 1
+      },
+      {
+        "version": "v3",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "uses": "./.github/actions/setup",
+    "count": 1,
+    "versions": [
+      {
+        "version": null,
+        "count": 1
+      }
+    ]
+  },
+  {
+    "uses": "acme/shared/.github/workflows/build.yml",
+    "count": 1,
+    "versions": [
+      {
+        "version": "main",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "uses": "actions/setup-node",
+    "count": 1,
+    "versions": [
+      {
+        "version": "v4",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "uses": "docker://alpine",
+    "count": 1,
+    "versions": [
+      {
+        "version": "3.20",
+        "count": 1
+      }
+    ]
+  }
+]

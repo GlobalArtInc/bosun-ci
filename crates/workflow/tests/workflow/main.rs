@@ -1,9 +1,11 @@
 mod actions;
 mod behaviour;
+mod corpus;
 mod documents;
 mod expressions;
 mod fixtures;
 mod github;
+mod inventory;
 mod jobs;
 mod lint;
 mod on;

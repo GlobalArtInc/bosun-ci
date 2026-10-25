@@ -7,7 +7,7 @@ use bosun_types::ir::{
 };
 
 use crate::Code;
-use crate::lower::{Entry, Fields, Item, Lowering, Mark, index, optional, scalar_text};
+use crate::lower::{Entry, Fields, Item, Lowering, Mark, child, index, optional, scalar_text};
 use crate::pattern;
 use crate::schedule;
 use crate::surface::{
@@ -61,6 +61,7 @@ impl Lowering<'_> {
         } else {
             let mut seen = BTreeSet::new();
             for item in self.strings(entry.value, &entry.path, "`on`")? {
+                self.see(child(&entry.path, &item.text), EVENTS.arrives(&item.text));
                 if EVENTS.extension(&item.text) {
                     self.extensions.push(Mark {
                         span: item.node.span,

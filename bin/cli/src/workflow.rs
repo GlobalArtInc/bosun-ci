@@ -11,6 +11,8 @@ use clap::Subcommand;
 use crate::client::{Client, Failure};
 use crate::{Context, output, run};
 
+mod inventory;
+
 #[derive(Subcommand)]
 pub(crate) enum Command {
     #[command(
@@ -41,17 +43,32 @@ pub(crate) enum Command {
         )]
         watch: bool,
     },
+    #[command(
+        about = "Count every `uses:` and every key of the workflow files under a directory, and \
+                 write the counts as the inventory of the compatibility corpus"
+    )]
+    Inventory {
+        #[arg(help = "The directory, searched for *.yml and *.yaml files at any depth")]
+        directory: PathBuf,
+        #[arg(
+            long,
+            value_name = "DIRECTORY",
+            default_value = "compat/inventory",
+            help = "The directory that receives uses.json and keys.json"
+        )]
+        output: PathBuf,
+    },
 }
 
 pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode, Failure> {
-    let client = context.client()?;
     match command {
         Command::Push {
             project,
             file,
             name,
-        } => push(context, &client, &project, &file, name).await,
+        } => push(context, &context.client()?, &project, &file, name).await,
         Command::Dispatch { workflow, watch } => {
+            let client = context.client()?;
             let workflow = find(&client, &workflow).await?;
             let run: Run = client
                 .post(
@@ -72,6 +89,7 @@ pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode,
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Inventory { directory, output } => inventory::write(context, &directory, &output),
     }
 }
 

@@ -134,5 +134,11 @@ jobs:
       - name: Dependency rules refuse forbidden edges
         run: hack/test-check-deps.sh
 
+      - name: Recording workflow of the expression cases is up to date
+        run: hack/compat-recordings.py generate --check
+
+      - name: Recording tools generate, import and refuse
+        run: hack/test-compat-recordings.sh
+
       - name: End-to-end scenarios
         run: hack/e2e.sh

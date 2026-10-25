@@ -145,9 +145,9 @@
     "result": "false"
   },
   {
-    "template": "${{ github.list }}",
+    "template": "${{ matrix.list }}",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b"
@@ -157,9 +157,9 @@
     "result": "Array"
   },
   {
-    "template": "${{ github.object }}",
+    "template": "${{ matrix.object }}",
     "contexts": {
-      "github": {
+      "matrix": {
         "object": {}
       }
     },
@@ -181,9 +181,9 @@
     "result": ""
   },
   {
-    "template": "x ${{ github.missing }} y",
+    "template": "x ${{ matrix.missing }} y",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo"
         }
@@ -192,9 +192,9 @@
     "result": "x  y"
   },
   {
-    "template": "Hello ${{ github.event.name }}",
+    "template": "Hello ${{ matrix.event.name }}",
     "contexts": {
-      "github": {
+      "matrix": {
         "event": {
           "name": "Octo"
         }
@@ -208,9 +208,9 @@
     "result": "${{ and }}"
   },
   {
-    "template": "${{ github.list[0] }}-${{ github.list[1] }}",
+    "template": "${{ matrix.list[0] }}-${{ matrix.list[1] }}",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           "a",
           "b"
@@ -230,6 +230,7 @@
   },
   {
     "template": "${{ 1 }}${{ foo }}",
+    "hosted": false,
     "contexts": {},
     "error": {
       "code": "unknown_context",

@@ -1,0 +1,44 @@
+[
+  {
+    "expression": "contains('abc', 'B')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "matrix.list[1]",
+    "contexts": {
+      "matrix": {
+        "list": ["a", "b"]
+      }
+    },
+    "result": "b"
+  },
+  {
+    "expression": "fromJSON('x')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: expected value at line 1 column 1",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 14}
+    }
+  },
+  {
+    "expression": "env.NAME == 'octo'",
+    "contexts": {
+      "env": {
+        "NAME": "Octo"
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "foo.bar",
+    "hosted": false,
+    "contexts": {},
+    "error": {
+      "code": "unknown_context",
+      "message": "unknown context `foo`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+    }
+  }
+]

@@ -91,6 +91,18 @@ or the whole of it, `extension` and `untrusted_checkout` ([Validation](#validati
 `POST /api/v1/lint` and `bosun workflow lint` call it. `parse` and `triggers` do not give these
 warnings, since the planner calls them for server-side workflows too, which have no path.
 
+`bosun_workflow::inventory` serves the compatibility corpus ([13-decisions.md](13-decisions.md)) and
+`bosun workflow inventory`. It reads a file as `parse` does and returns every `uses:` of a job or a
+step, split into what it names and its version, and every key the lowering meets, with the milestone
+of its From column ([Where each key arrives](#where-each-key-arrives)), none for a key that is
+`unknown_key`, and whether it is an extension. A key is named by its place as the availability table
+names keys, `jobs.<job_id>.steps.run` or `on.workflow_dispatch.inputs.<input_id>.type`, and an event
+of the list form of `on` counts as the key `on.<event>`. A permission scope and the `include` and
+`exclude` of a matrix arrive with the key that holds them. Names a workflow chooses, such as the
+variables of `env`, the inputs of `with` and the vectors of a matrix, are no keys, and the keys under
+a key of a later milestone are not listed until the parser reads them in that milestone. A file
+whose YAML does not load has no inventory, only its fault.
+
 Default limits, configurable per installation: 1 MiB of source per file, 256 job templates per
 workflow, 256 jobs per matrix, 10 levels of nested reusable workflows, 50 distinct reusable
 workflows per run, 10 levels of nested composite actions.

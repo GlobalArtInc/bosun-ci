@@ -1,0 +1,65 @@
+[
+  {
+    "case": "texts.json[0]",
+    "template": "Hello ${{ matrix.who }}!",
+    "contexts": {
+      "matrix": {
+        "who": "world"
+      }
+    },
+    "output": "Hello world!"
+  },
+  {
+    "case": "texts.json[1]",
+    "template": "${{ matrix.list }}",
+    "contexts": {
+      "matrix": {
+        "list": [
+          1
+        ]
+      }
+    },
+    "output": "Array"
+  },
+  {
+    "case": "texts.json[2]",
+    "template": "a\n${{ format('{0}', 1) }}",
+    "contexts": {},
+    "output": "a\n1"
+  },
+  {
+    "case": "values.json[0]",
+    "expression": "contains('abc', 'B')",
+    "contexts": {},
+    "output": "true"
+  },
+  {
+    "case": "values.json[1]",
+    "expression": "matrix.list[1]",
+    "contexts": {
+      "matrix": {
+        "list": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    "output": "\"b\""
+  },
+  {
+    "case": "values.json[2]",
+    "expression": "fromJSON('x')",
+    "contexts": {},
+    "failed": true
+  },
+  {
+    "case": "values.json[3]",
+    "expression": "env.NAME == 'octo'",
+    "contexts": {
+      "env": {
+        "NAME": "Octo"
+      }
+    },
+    "output": "true"
+  }
+]

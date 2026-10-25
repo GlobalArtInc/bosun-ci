@@ -310,6 +310,7 @@ bosun project list | show <org/project> | settings <org/project> [--set key=valu
 bosun workflow list <project> | show <workflow> | enable | disable
 bosun workflow push <project> <file> [--name <name>]
 bosun workflow lint [<file>...]
+bosun workflow inventory <dir> [--output <dir>]
 bosun workflow dispatch <workflow> [--ref <ref>] [--input k=v]... [--watch]
 bosun exec [<workflow>] [--job <key>] [--event <name>] [--input k=v]... [--secrets <file>]
 bosun run list [--project <p>] [--status <s>] | show <run> | watch <run> | journal <run>
@@ -356,6 +357,15 @@ What M0 settles of these commands:
 - `--watch` and `--follow` outlive a restart of the replica they talk to: a request that gets no
   answer, or `502`, `503` or `504`, is tried again for up to 60 seconds, and a followed log resumes
   after its last line with `Last-Event-ID`. Other commands fail at once.
+
+What M1 settles of these commands:
+
+- `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
+  and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
+  `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the
+  formats of [compat/README.md](../../compat/README.md). It prints how many files, uses and key
+  paths it counted. A file that is not YAML fails the command, naming the file and the fault, and
+  nothing is written.
 
 ## MCP
 

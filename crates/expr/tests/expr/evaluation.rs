@@ -10,13 +10,13 @@ use crate::error;
 
 type Case = Map<String, serde_json::Value>;
 
-struct Recorder {
+pub struct Recorder {
     contexts: Value,
     asked: RefCell<Vec<&'static str>>,
 }
 
 impl Recorder {
-    fn new(contexts: Value) -> Recorder {
+    pub fn new(contexts: Value) -> Recorder {
         Recorder {
             contexts,
             asked: RefCell::new(Vec::new()),
@@ -35,7 +35,7 @@ impl Scope for Recorder {
     }
 }
 
-fn field(object: &Value, name: &str) -> Option<Value> {
+pub fn field(object: &Value, name: &str) -> Option<Value> {
     match object {
         Value::Object(pairs) => pairs
             .iter()
@@ -90,7 +90,7 @@ fn names(expr: &Expr, found: &mut BTreeSet<String>) {
     }
 }
 
-fn template_names(template: &Template) -> BTreeSet<String> {
+pub fn template_names(template: &Template) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     for segment in template.segments() {
         if let Segment::Expression(expr) = segment {
@@ -100,7 +100,7 @@ fn template_names(template: &Template) -> BTreeSet<String> {
     found
 }
 
-fn expression_names(expr: &Expr) -> BTreeSet<String> {
+pub fn expression_names(expr: &Expr) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     names(expr, &mut found);
     found

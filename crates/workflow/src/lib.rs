@@ -4,6 +4,7 @@ mod defaults;
 mod expression;
 pub mod github;
 mod graph;
+mod inventory;
 mod job;
 mod lint;
 mod lower;
@@ -25,6 +26,7 @@ use bosun_types::ir::{ActionMetadata, Trigger, Workflow};
 
 use crate::lower::Lowering;
 
+pub use crate::inventory::{Inventory, KeyUse, Uses, inventory};
 pub use crate::matching::{Event, matches};
 pub use crate::surface::{MILESTONE, Milestone, PENDING};
 

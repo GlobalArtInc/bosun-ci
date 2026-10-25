@@ -349,6 +349,7 @@ name = "bosun-cli"
 version = "0.1.0"
 dependencies = [
  "bosun-types",
+ "bosun-workflow",
  "chrono",
  "clap",
  "reqwest",
@@ -540,6 +541,7 @@ dependencies = [
  "saphyr-parser",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

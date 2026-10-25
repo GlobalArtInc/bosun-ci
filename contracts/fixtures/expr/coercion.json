@@ -65,9 +65,9 @@
     "result": false
   },
   {
-    "expression": "!github.list",
+    "expression": "!matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [],
         "object": {}
       }
@@ -75,9 +75,9 @@
     "result": false
   },
   {
-    "expression": "!github.object",
+    "expression": "!matrix.object",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [],
         "object": {}
       }
@@ -230,9 +230,9 @@
     "result": false
   },
   {
-    "expression": "github.list == github.list",
+    "expression": "matrix.list == matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -245,9 +245,9 @@
     "result": true
   },
   {
-    "expression": "github.list != github.list",
+    "expression": "matrix.list != matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -265,9 +265,9 @@
     "result": false
   },
   {
-    "expression": "github.object == github.object",
+    "expression": "matrix.object == matrix.object",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -280,9 +280,9 @@
     "result": true
   },
   {
-    "expression": "github.list == 'Array'",
+    "expression": "matrix.list == 'Array'",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -295,9 +295,9 @@
     "result": false
   },
   {
-    "expression": "github.object == 0",
+    "expression": "matrix.object == 0",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -310,9 +310,9 @@
     "result": false
   },
   {
-    "expression": "github.list != null",
+    "expression": "matrix.list != null",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -325,9 +325,9 @@
     "result": true
   },
   {
-    "expression": "github.list == github.object",
+    "expression": "matrix.list == matrix.object",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -520,9 +520,9 @@
     "result": false
   },
   {
-    "expression": "github.list >= github.list",
+    "expression": "matrix.list >= matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -535,9 +535,9 @@
     "result": true
   },
   {
-    "expression": "github.list > github.list",
+    "expression": "matrix.list > matrix.list",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -550,9 +550,9 @@
     "result": false
   },
   {
-    "expression": "github.list < 1",
+    "expression": "matrix.list < 1",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
@@ -565,9 +565,9 @@
     "result": false
   },
   {
-    "expression": "github.list >= 0",
+    "expression": "matrix.list >= 0",
     "contexts": {
-      "github": {
+      "matrix": {
         "list": [
           1,
           2
