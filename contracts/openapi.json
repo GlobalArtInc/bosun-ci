@@ -1,5 +1,13 @@
 {
   "components": {
+    "headers": {
+      "ETag": {
+        "description": "the version of the document, which a change of it sends back in `If-Match`",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
     "parameters": {
       "Cursor": {
         "description": "the `next` of the previous page",
@@ -17,6 +25,15 @@
           "maxLength": 255,
           "minLength": 1,
           "pattern": "^[!-~]+$",
+          "type": "string"
+        }
+      },
+      "IfMatch": {
+        "description": "the `ETag` of the version of the document that the change was made from",
+        "in": "header",
+        "name": "If-Match",
+        "required": true,
+        "schema": {
           "type": "string"
         }
       },
@@ -620,6 +637,21 @@
         ],
         "type": "object"
       },
+      "ForgeAccess": {
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
+      "ForkPolicy": {
+        "enum": [
+          "disabled",
+          "approval",
+          "automatic"
+        ],
+        "type": "string"
+      },
       "Job": {
         "properties": {
           "attempt_id": {
@@ -1135,6 +1167,77 @@
         ],
         "type": "object"
       },
+      "ProjectSettings": {
+        "properties": {
+          "fork_policy": {
+            "$ref": "#/components/schemas/ForkPolicy"
+          },
+          "github_workflows": {
+            "type": "boolean"
+          },
+          "report": {
+            "$ref": "#/components/schemas/Reporting"
+          },
+          "token_permissions": {
+            "additionalProperties": false,
+            "properties": {
+              "actions": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "attestations": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "checks": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "contents": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "deployments": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "discussions": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "issues": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "metadata": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "models": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "packages": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "pages": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "pull_requests": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "repository_projects": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "security_events": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              },
+              "statuses": {
+                "$ref": "#/components/schemas/ForgeAccess"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "github_workflows",
+          "fork_policy",
+          "token_permissions",
+          "report"
+        ],
+        "type": "object"
+      },
       "RegisterAgentRequest": {
         "properties": {
           "labels": {
@@ -1225,6 +1328,13 @@
           "expires_at"
         ],
         "type": "object"
+      },
+      "Reporting": {
+        "enum": [
+          "checks",
+          "statuses"
+        ],
+        "type": "string"
       },
       "Revision": {
         "properties": {
@@ -2718,6 +2828,169 @@
         },
         "x-bosun-permission": {
           "key": "project.view",
+          "on": "project"
+        }
+      }
+    },
+    "/api/v1/projects/{project}/settings": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSettings"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.view",
+          "on": "project"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "the fields to change, each with its new value",
+                "minProperties": 1,
+                "properties": {
+                  "fork_policy": {
+                    "$ref": "#/components/schemas/ForkPolicy"
+                  },
+                  "github_workflows": {
+                    "type": "boolean"
+                  },
+                  "report": {
+                    "$ref": "#/components/schemas/Reporting"
+                  },
+                  "token_permissions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "actions": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "attestations": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "checks": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "contents": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "deployments": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "discussions": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "issues": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "metadata": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "models": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "packages": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "pages": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "pull_requests": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "repository_projects": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "security_events": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      },
+                      "statuses": {
+                        "$ref": "#/components/schemas/ForgeAccess"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSettings"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "project.manage",
           "on": "project"
         }
       }

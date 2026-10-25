@@ -7,6 +7,7 @@ mod matrix;
 mod openapi;
 mod planning;
 mod queue;
+mod settings;
 mod sign_in;
 
 use std::collections::{BTreeMap, BTreeSet};

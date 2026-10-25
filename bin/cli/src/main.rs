@@ -6,6 +6,7 @@ mod job;
 mod login;
 mod output;
 mod pool;
+mod project;
 mod run;
 mod workflow;
 
@@ -46,6 +47,8 @@ enum Command {
         )]
         server: Option<String>,
     },
+    #[command(subcommand, about = "Read and change projects")]
+    Project(project::Command),
     #[command(subcommand, about = "Push, dispatch and inventory workflows")]
     Workflow(workflow::Command),
     #[command(subcommand, about = "Act on runs")]
@@ -83,6 +86,7 @@ async fn main() -> ExitCode {
     };
     let outcome = match arguments.command {
         Command::Login { server } => login::login(&context, server).await,
+        Command::Project(command) => project::run(&context, command).await,
         Command::Workflow(command) => workflow::run(&context, command).await,
         Command::Run(command) => run::run(&context, command).await,
         Command::Job(command) => job::run(&context, command).await,

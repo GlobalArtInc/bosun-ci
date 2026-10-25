@@ -5,7 +5,7 @@ use std::path::Path;
 use bosun_types::api::{
     Agent, CreateOrganisationRequest, CreateProjectRequest, CreateWorkflowRequest, DispatchRequest,
     Execution, Job, LogEnd, LogLine, Me, Organisation, Page, PasswordChangeRequest, Project,
-    RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
+    ProjectSettings, RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
     RegistrationTokenRequest, Revision, Run, SignInMethods, SignInRequest, Step,
     UpdateSourceRequest, Workflow,
 };
@@ -121,6 +121,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<PasswordChangeRequest>,
         ),
         ("api/project.json", round_trip::<Project>),
+        ("api/project-settings.json", round_trip::<ProjectSettings>),
         (
             "api/register-agent-request.json",
             round_trip::<RegisterAgentRequest>,

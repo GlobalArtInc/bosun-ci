@@ -182,6 +182,58 @@ pub struct CreateProjectRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProjectSettings {
+    pub github_workflows: bool,
+    pub fork_policy: ForkPolicy,
+    pub token_permissions: BTreeMap<ForgePermission, ForgeAccess>,
+    pub report: Reporting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ForkPolicy {
+    Disabled,
+    Approval,
+    Automatic,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgePermission {
+    Actions,
+    Attestations,
+    Checks,
+    Contents,
+    Deployments,
+    Discussions,
+    Issues,
+    Metadata,
+    Models,
+    Packages,
+    Pages,
+    PullRequests,
+    RepositoryProjects,
+    SecurityEvents,
+    Statuses,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgeAccess {
+    Read,
+    Write,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Reporting {
+    Checks,
+    Statuses,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkflowSource {
     Server,

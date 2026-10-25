@@ -20,7 +20,8 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   `/projects/<id>/workflows` name the same list. A single segment after `/projects/` is always an
   id, and `/projects/<x>/workflows` is the list of project `<x>` when `<x>` is an id and the project
   `workflows` of organisation `<x>` otherwise, which is unambiguous because an organisation's slug
-  never reads as an id ([08-access.md](08-access.md)).
+  never reads as an id ([08-access.md](08-access.md)); `/projects/<x>/settings` is read the same
+  way.
 - A request body that is not JSON of the shape the endpoint takes is `422 invalid_input`, with the
   parser's message saying where it stopped.
 - Lists use cursor pagination: `?limit=` (default 50, at most 500) and `?cursor=` from the previous
@@ -37,7 +38,22 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   be repeated with its key, and requests that race with one key create one resource and all get its
   response.
 - Updates of documents that people edit concurrently (drafts, settings, environments) require
-  `If-Match` with the version from `ETag`, and fail with `412` when it moved.
+  `If-Match` with the version from `ETag`, and fail with `412` when it moved. Step 25 of M1
+  ([../plan.md](../plan.md)) settled the rules with the first such document, the project settings:
+  - The `ETag` of a document is its version, a number that starts at 1 and grows with each change,
+    written as a strong entity tag, `"3"`. `GET` and every update answer with it.
+  - An update matches `If-Match` against the current version with the strong comparison of
+    RFC 9110: one entity tag of its list must be the current `ETag`, and a weak tag (`W/"3"`)
+    matches nothing. `If-Match: *` names no version and is refused like a stale tag, since a change
+    must say which version it was made from.
+  - A missing or stale `If-Match` is `412 precondition_failed`; the message of a stale one names
+    the tag it got and the current one. The precondition is evaluated after the permission and before the
+    body, as RFC 9110 orders it, so a stale change learns that it is stale before anything about
+    its body, and nothing is stored.
+  - The check and the write are one conditional update of the row, so of two changes made from one
+    version exactly one is stored and the other is `412`.
+  - An update whose values are the current ones stores nothing and answers with the current
+    version, so it does not make the copies of other editors stale.
 - Errors share one shape, with a stable `code`, the fields at fault for invalid input, and the
   diagnostics ([02-workflows.md](02-workflows.md)) when the input was a workflow. Both lists are
   always present, empty when they do not apply:
@@ -91,7 +107,8 @@ fails when the generated document differs from the committed one ([below](#the-o
 | `/auth/forge/link`, `/auth/forge/callback` | GET | linking the user's forge account |
 | `/organisations`, `/organisations/{org}` | GET, POST, PATCH | organisations and their settings, among them the action policy |
 | `/label-aliases` | GET, POST, PATCH, DELETE | label aliases, per installation or organisation |
-| `/projects`, `/projects/{project}` | GET, POST, PATCH, DELETE | projects and their settings |
+| `/projects`, `/projects/{project}` | GET, POST, PATCH, DELETE | projects |
+| `/projects/{project}/settings` | GET, PATCH | the project's settings, one document with a version |
 | `/projects/{project}/workflows` | GET, POST | workflows; POST creates a server-side one |
 | `/workflows/{workflow}` | GET, PATCH | workflow details, enable and disable |
 | `/workflows/{workflow}/source` | PUT | new source of a server-side workflow, stored as a revision when it validates |
@@ -218,6 +235,8 @@ with the answers each built-in role gets:
 | `GET /projects/{project}` | `project.view` | `project` |
 | `GET /projects/{project}/workflows` | `project.view` | `project` |
 | `POST /projects/{project}/workflows` | `workflow.edit` | `project` |
+| `GET /projects/{project}/settings` | `project.view` | `project` |
+| `PATCH /projects/{project}/settings` | `project.manage` | `project` |
 | `GET /workflows/{workflow}` | `project.view` | `project` |
 | `PUT /workflows/{workflow}/source` | `workflow.edit` | `project` |
 | `GET /workflows/{workflow}/revisions` | `project.view` | `project` |
@@ -264,6 +283,40 @@ A step that adds an endpoint adds its row here.
   from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md) and a step that uses an
   action until step 33, because the assignment carries no such step before. The message names the
   key and the step that brings it.
+
+### Project settings
+
+Step 25 of M1 ([../plan.md](../plan.md)) settled that a project's settings are a sub-resource of the
+project, `/projects/{project}/settings`, rather than fields of the project. The reasons: they are
+the part of a project that people edit concurrently, so they carry a version of their own (`ETag`,
+[Conventions](#conventions)), which `PATCH /projects/{project}` (the repository binding of step 26)
+neither needs nor makes stale; and they grow with every milestone (retention, the dispatch weight
+and the running cap, `workspace`) without changing the shape of `Project`, which every list of
+projects returns, or the requests that create one.
+
+- `GET /projects/{project}/settings` answers `200` with the document and its `ETag`.
+  `contracts/fixtures/api/project-settings.json` is the document of a new project, its defaults:
+
+  | Setting | Values | Default |
+  |---------|--------|---------|
+  | `github_workflows` | `true` or `false`: whether the files under `.github/workflows/` are read too ([02-workflows.md](02-workflows.md)) | `false` |
+  | `fork_policy` | `disabled`, `approval` or `automatic` ([08-access.md](08-access.md#code-from-outside-the-team)) | `disabled` |
+  | `token_permissions` | the permissions of the forge token for workflows that declare no `permissions`, a map of App permissions (`actions`, `attestations`, `checks`, `contents`, `deployments`, `discussions`, `issues`, `metadata`, `models`, `packages`, `pages`, `pull_requests`, `repository_projects`, `security_events`, `statuses`) to `read` or `write` ([06-runtime-services.md](06-runtime-services.md#the-forge-token)) | `{"contents": "read", "metadata": "read"}` |
+  | `report` | `checks` or `statuses`: how runs are reported to the forge ([06-runtime-services.md](06-runtime-services.md)) | `checks` |
+
+  The names of `token_permissions` are the forge's names of App permissions, with `_`, not the
+  scopes of a workflow's `permissions`, with `-`, because `metadata` is not a scope.
+- `PATCH /projects/{project}/settings` takes `If-Match` and a JSON object that names the settings
+  to change, each with its whole new value: a `token_permissions` replaces the map rather than
+  merging into it, and `null` is not a value of any setting. A full document is a valid change.
+  It answers `200` with the new document and its new `ETag`. An object that names a setting the
+  document does not have, or a value outside the setting's values, is `422 invalid_input` with
+  `the settings are not valid` and one entry of `fields` for each setting at fault, named as in the
+  document; an empty object is `invalid_input` as well, since it changes nothing. A refused change
+  stores nothing of what it names.
+- Each later step that adds a setting adds it to the document with a default, which a project that
+  existed before takes. Applying the settings belongs to the steps that use them: `github_workflows`
+  to step 27, `report` to step 28, `fork_policy` to step 29 and `token_permissions` to step 34.
 
 ### Commands
 
@@ -354,7 +407,9 @@ How the document follows the handlers:
   return type the responses. `Body<T>` is a JSON body of `T`; `Idempotent<T>` is that body and the
   `Idempotency-Key` header; `Listing<F>` is `limit`, `cursor` and the filters of `F`; the query of
   a log and the agent list have their own extractors. `Json<T>` answers `200` with `T`,
-  `Created<T>` `201`, `Saved<T>` `201` or `200`, and `ApiError` the error envelope. A handler that
+  `Created<T>` `201`, `Saved<T>` `201` or `200`, `Tagged<T>` `200` with `ETag`, and `ApiError` the
+  error envelope. `Changes<T>` is a body that changes a document of `T`: its schema has the
+  properties of `T`, inline, none of them required, no others and at least one. A handler that
   reads a raw query, header map or body, or returns an untyped response, has no operation, and so
   cannot be registered.
 - A handler behind credentials takes the caller as `Caller<R>`, whose rule `R` names what it needs:
@@ -393,9 +448,8 @@ The shared parts are described once:
   exactly when it takes a cursor;
 - `limit`, `cursor` and `Idempotency-Key` are the parameters `Limit`, `Cursor` and
   `IdempotencyKey`;
-- `ETag` and `If-Match` join them as the header `ETag` and the parameter `IfMatch` with the first
-  endpoint that uses them (step 25 of M1), contributed by a response type and an extractor like
-  the others.
+- `ETag` is the header `ETag`, which the response type `Tagged<T>` contributes to its `200`, and
+  `If-Match` the required parameter `IfMatch`, which the extractor `IfMatch` contributes.
 
 The schemas describe the shapes as the server writes them (schemars' serialize contract): every
 field is present, with `null` when it has no value, as the conventions require of responses.
@@ -502,6 +556,13 @@ What M0 settles of these commands:
 
 What M1 settles of these commands:
 
+- `bosun project settings <org/project>` prints the settings of the project, one line per setting
+  with its value, a value that is not text as JSON; `--json` prints the document. Each `--set
+  key=value` changes one setting: the command reads the document and its `ETag`, sends the changes
+  with `If-Match`, and prints the document the server answers. A value that reads as JSON is sent
+  as that JSON (`--set github_workflows=true`, `--set 'token_permissions={"contents": "write"}'`),
+  and any other value as a string (`--set fork_policy=approval`). A key given twice fails before
+  any request; a change that raced with another fails with the server's `412`.
 - `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
   and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
   `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the

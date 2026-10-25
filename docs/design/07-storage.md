@@ -134,6 +134,14 @@ claim (step 11 of [../plan.md](../plan.md)), as did the partial index on `execut
 'completed' and log_compacted_at is null` that the compaction of logs reads arrived with the logs
 (step 13).
 
+A project's settings ([11-api.md](11-api.md#project-settings)) are columns of `project`, one per
+setting, with the defaults of the settings as the columns' defaults: `github_workflows`,
+`fork_policy` and `report` as a boolean and two names, `token_permissions` as a `jsonb` object of
+permission names to levels. `settings_version` is the version their `ETag` carries; it starts at 1
+and grows by one with each change, which is an `UPDATE` conditioned on the version the change was
+made from. They arrived with step 25 of [../plan.md](../plan.md); a later setting arrives as a
+column with its default, so a project that existed before takes the default.
+
 An agent records its current replica in `agent.replica_id`, which no row references: replicas are
 processes, not rows. `control_message` holds the control messages sent to agents
 ([05-execution.md](05-execution.md)): `id, execution_id, kind, created_at, acknowledged_at,

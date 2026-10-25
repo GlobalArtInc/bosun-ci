@@ -1,7 +1,7 @@
-use bosun_types::api::Project;
+use bosun_types::api::{Project, ProjectSettings};
 use bosun_types::id::{ExecutionId, JobId, OrganisationId, ProjectId, RunId, WorkflowId};
 use sea_orm::prelude::Uuid;
-use sea_orm::sea_query::Query;
+use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, Condition, ConnectionTrait, EntityTrait,
     QueryFilter, QueryOrder, QuerySelect,
@@ -40,6 +40,11 @@ impl Reach {
     }
 }
 
+pub struct Settings {
+    pub version: u64,
+    pub settings: ProjectSettings,
+}
+
 pub enum Holder {
     Workflow(WorkflowId),
     Run(RunId),
@@ -58,7 +63,7 @@ pub async fn create<C: ConnectionTrait>(
         organisation_id: ActiveValue::Set(organisation_id.into()),
         slug: ActiveValue::Set(slug.to_owned()),
         name: ActiveValue::Set(name.to_owned()),
-        created_at: ActiveValue::NotSet,
+        ..Default::default()
     }
     .insert(db)
     .await
@@ -113,6 +118,57 @@ pub async fn list<C: ConnectionTrait>(
     query.all(db).await?.into_iter().map(decode).collect()
 }
 
+pub async fn settings<C: ConnectionTrait>(
+    db: &C,
+    id: ProjectId,
+) -> Result<Option<Settings>, Error> {
+    project::Entity::find_by_id(Uuid::from(id))
+        .one(db)
+        .await?
+        .map(decode_settings)
+        .transpose()
+}
+
+pub async fn change_settings<C: ConnectionTrait>(
+    db: &C,
+    id: ProjectId,
+    version: u64,
+    settings: &ProjectSettings,
+) -> Result<Option<Settings>, Error> {
+    let Ok(version) = i64::try_from(version) else {
+        return Ok(None);
+    };
+    project::Entity::update_many()
+        .col_expr(
+            project::Column::GithubWorkflows,
+            settings.github_workflows.into(),
+        )
+        .col_expr(
+            project::Column::ForkPolicy,
+            row::text(TABLE, settings.fork_policy)?.into(),
+        )
+        .col_expr(
+            project::Column::TokenPermissions,
+            serde_json::to_value(&settings.token_permissions)?.into(),
+        )
+        .col_expr(
+            project::Column::Report,
+            row::text(TABLE, settings.report)?.into(),
+        )
+        .col_expr(
+            project::Column::SettingsVersion,
+            Expr::col(project::Column::SettingsVersion).add(1),
+        )
+        .filter(project::Column::Id.eq(Uuid::from(id)))
+        .filter(project::Column::SettingsVersion.eq(version))
+        .exec_with_returning(db)
+        .await?
+        .into_iter()
+        .next()
+        .map(decode_settings)
+        .transpose()
+}
+
 pub async fn holding<C: ConnectionTrait>(db: &C, holder: Holder) -> Result<Option<Project>, Error> {
     let (sql, id) = match holder {
         Holder::Workflow(id) => (
@@ -150,5 +206,17 @@ fn decode(project: project::Model) -> Result<Project, Error> {
         slug: project.slug,
         name: project.name,
         created_at: project.created_at,
+    })
+}
+
+fn decode_settings(project: project::Model) -> Result<Settings, Error> {
+    Ok(Settings {
+        version: row::unsigned(TABLE, project.settings_version)?,
+        settings: ProjectSettings {
+            github_workflows: project.github_workflows,
+            fork_policy: row::name(TABLE, project.fork_policy)?,
+            token_permissions: row::json(TABLE, project.token_permissions)?,
+            report: row::name(TABLE, project.report)?,
+        },
     })
 }

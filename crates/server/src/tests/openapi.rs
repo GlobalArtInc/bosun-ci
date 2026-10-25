@@ -120,6 +120,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Response("200"),
     ),
     (
+        "project-settings.json",
+        "get",
+        "/api/v1/projects/{project}/settings",
+        Part::Response("200"),
+    ),
+    (
         "register-agent-request.json",
         "post",
         "/api/v1/agents/register",

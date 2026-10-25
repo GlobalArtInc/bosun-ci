@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment step-outputs journal-replay interface"
+scenarios="$scenarios step-environment step-outputs journal-replay project-settings interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -636,6 +636,31 @@ scenario_journal_replay() {
     fail "the property test failed: $(tail -n 40 "$work/out/journal.txt")"
   grep -qF "test $test ... ok" "$work/out/journal.txt" ||
     fail "the property test did not run: $(tail -n 20 "$work/out/journal.txt")"
+  passed
+}
+
+scenario_project_settings() {
+  begin project-settings "bosun project settings prints the settings and changes them with --set"
+  local shown="$work/out/settings.json" changed="$work/out/settings-changed.txt"
+  local refused="$work/out/settings-refused.txt"
+  api POST /api/v1/projects --data '{"organisation": "e2e", "slug": "m1-settings", "name": "Settings"}' \
+    >/dev/null || fail "the project of the scenario could not be created"
+  cli --profile a --json project settings e2e/m1-settings >"$shown" 2>&1 ||
+    fail "bosun project settings failed: $(cat "$shown")"
+  [ "$(jq -S -c . "$shown")" = "$(jq -S -c . "$root/contracts/fixtures/api/project-settings.json")" ] ||
+    fail "the settings of a new project are not the defaults: $(cat "$shown")"
+  cli --profile b project settings e2e/m1-settings --set fork_policy=approval >"$changed" 2>&1 ||
+    fail "bosun project settings --set fork_policy=approval failed: $(cat "$changed")"
+  expect_line "$changed" "SETTING            VALUE" "the printed settings have no heading"
+  expect_line "$changed" "fork_policy        approval" "the printed settings do not hold the change"
+  expect_line "$changed" "report             checks" "the printed settings lost a setting"
+  [ "$(api GET /api/v1/projects/e2e/m1-settings/settings | jq -r .fork_policy)" = approval ] ||
+    fail "the change did not reach the server"
+  if cli --profile a project settings e2e/m1-settings --set fork_policy=sometimes >"$refused" 2>&1; then
+    fail "bosun project settings accepted fork_policy=sometimes: $(cat "$refused")"
+  fi
+  expect_line "$refused" "error: the settings are not valid" "the refusal did not say why"
+  grep -q '^  fork_policy: ' "$refused" || fail "the refusal does not name fork_policy: $(cat "$refused")"
   passed
 }
 

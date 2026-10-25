@@ -15,15 +15,20 @@ use crate::envelope::{self, ApiError};
 use crate::openapi::{Api, Input, Spec};
 use crate::reply::Created;
 use crate::request::{Faults, Idempotent, Listing, Segment, database};
-use crate::{AppState, idempotency, organisations, slug, workflows};
+use crate::{AppState, idempotency, organisations, settings, slug, workflows};
 
 const WORKFLOWS: &str = "workflows";
+
+const SETTINGS: &str = "settings";
 
 pub(crate) fn routes() -> Api {
     Api::new()
         .get("/api/v1/projects", list)
         .post("/api/v1/projects", create)
-        .route("/api/v1/projects/{*path}", get(read).post(write))
+        .route(
+            "/api/v1/projects/{*path}",
+            get(read).post(write).patch(change),
+        )
         .describe(Method::GET, "/api/v1/projects/{project}", show)
         .describe(
             Method::GET,
@@ -35,6 +40,16 @@ pub(crate) fn routes() -> Api {
             "/api/v1/projects/{project}/workflows",
             workflows::create,
         )
+        .describe(
+            Method::GET,
+            "/api/v1/projects/{project}/settings",
+            settings::show,
+        )
+        .describe(
+            Method::PATCH,
+            "/api/v1/projects/{project}/settings",
+            settings::change,
+        )
 }
 
 enum Reference {
@@ -45,23 +60,29 @@ enum Reference {
 enum Below {
     Nothing,
     Workflows,
+    Settings,
 }
 
 fn parse(path: &str) -> Option<(Reference, Below)> {
     let segments: Vec<&str> = path.strip_prefix('/').unwrap_or(path).split('/').collect();
     let owned = |text: &str| text.to_owned();
+    let below = |segment: &str| match segment {
+        WORKFLOWS => Some(Below::Workflows),
+        SETTINGS => Some(Below::Settings),
+        _ => None,
+    };
     match segments.as_slice() {
         [id] => Some((Reference::Id(owned(id)), Below::Nothing)),
-        [id, WORKFLOWS] if id.parse::<ProjectId>().is_ok() => {
-            Some((Reference::Id(owned(id)), Below::Workflows))
+        [id, segment] if id.parse::<ProjectId>().is_ok() && below(segment).is_some() => {
+            Some((Reference::Id(owned(id)), below(segment)?))
         }
         [organisation, project] => Some((
             Reference::Slugs(owned(organisation), owned(project)),
             Below::Nothing,
         )),
-        [organisation, project, WORKFLOWS] => Some((
+        [organisation, project, segment] => Some((
             Reference::Slugs(owned(organisation), owned(project)),
-            Below::Workflows,
+            below(segment)?,
         )),
         _ => None,
     }
@@ -177,6 +198,7 @@ async fn read(
     match parse(&path) {
         Some((_, Below::Nothing)) => show.call(request, state).await,
         Some((_, Below::Workflows)) => workflows::list.call(request, state).await,
+        Some((_, Below::Settings)) => settings::show.call(request, state).await,
         None => envelope::absent(&method, &uri).into_response(),
     }
 }
@@ -190,6 +212,19 @@ async fn write(
 ) -> Response {
     match parse(&path) {
         Some((_, Below::Workflows)) => workflows::create.call(request, state).await,
+        _ => envelope::absent(&method, &uri).into_response(),
+    }
+}
+
+async fn change(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    Segment(path): Segment,
+    request: Request,
+) -> Response {
+    match parse(&path) {
+        Some((_, Below::Settings)) => settings::change.call(request, state).await,
         _ => envelope::absent(&method, &uri).into_response(),
     }
 }

@@ -28,6 +28,7 @@ mod reply;
 mod request;
 mod runs;
 mod sessions;
+mod settings;
 mod shutdown;
 mod sign_in;
 mod site;

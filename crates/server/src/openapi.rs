@@ -27,6 +27,10 @@ pub(crate) const CURSOR: &str = "#/components/parameters/Cursor";
 
 pub(crate) const IDEMPOTENCY_KEY: &str = "#/components/parameters/IdempotencyKey";
 
+pub(crate) const IF_MATCH: &str = "#/components/parameters/IfMatch";
+
+pub(crate) const ETAG: &str = "#/components/headers/ETag";
+
 const PERMISSION: &str = "x-bosun-permission";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -215,6 +219,12 @@ impl Api {
                         "content": { "application/json": { "schema": envelope } }
                     }
                 },
+                "headers": {
+                    "ETag": {
+                        "description": "the version of the document, which a change of it sends back in `If-Match`",
+                        "schema": { "type": "string" }
+                    }
+                },
                 "parameters": {
                     "Limit": {
                         "name": "limit",
@@ -233,6 +243,13 @@ impl Api {
                         "in": "header",
                         "description": "a key of the caller's choosing, so that a repeated request with the same key and body returns the first response",
                         "schema": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[!-~]+$" }
+                    },
+                    "IfMatch": {
+                        "name": "If-Match",
+                        "in": "header",
+                        "required": true,
+                        "description": "the `ETag` of the version of the document that the change was made from",
+                        "schema": { "type": "string" }
                     }
                 },
                 "securitySchemes": {
@@ -360,6 +377,24 @@ impl Spec<'_> {
         }));
     }
 
+    pub(crate) fn changes<T: JsonSchema>(&mut self) {
+        let mut schema = T::json_schema(self.generator).to_value();
+        if let Value::Object(object) = &mut schema {
+            object.remove("required");
+            object.remove("title");
+            object.insert(
+                "description".to_owned(),
+                json!("the fields to change, each with its new value"),
+            );
+            object.insert("additionalProperties".to_owned(), json!(false));
+            object.insert("minProperties".to_owned(), json!(1));
+        }
+        self.body = Some(json!({
+            "required": true,
+            "content": { "application/json": { "schema": schema } }
+        }));
+    }
+
     pub(crate) fn json<T: JsonSchema>(&mut self, status: StatusCode) {
         let schema = self.schema::<T>();
         self.content(status, json!({ "application/json": { "schema": schema } }));
@@ -383,15 +418,24 @@ impl Spec<'_> {
     }
 
     pub(crate) fn header(&mut self, status: StatusCode, name: &str, description: &str) {
+        self.insert_header(
+            status,
+            name,
+            json!({ "description": description, "schema": { "type": "string" } }),
+        );
+    }
+
+    pub(crate) fn shared_header(&mut self, status: StatusCode, name: &str, component: &str) {
+        self.insert_header(status, name, json!({ "$ref": component }));
+    }
+
+    fn insert_header(&mut self, status: StatusCode, name: &str, header: Value) {
         if let Some(Value::Object(response)) = self.responses.get_mut(status.as_str())
             && let Value::Object(headers) = response
                 .entry("headers")
                 .or_insert_with(|| Value::Object(Map::new()))
         {
-            headers.insert(
-                name.to_owned(),
-                json!({ "description": description, "schema": { "type": "string" } }),
-            );
+            headers.insert(name.to_owned(), header);
         }
     }
 

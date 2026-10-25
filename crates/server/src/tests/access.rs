@@ -6,7 +6,7 @@ use std::path::Path;
 use axum::Router;
 use axum::body::{self, Body};
 use axum::extract::ConnectInfo;
-use axum::http::{Method, Request, StatusCode};
+use axum::http::{HeaderMap, Method, Request, StatusCode};
 use bosun_db::agents::NewRegistrationToken;
 use bosun_db::entity::{organisation, project, role};
 use bosun_db::roles::{NewBinding, Subject};
@@ -54,7 +54,7 @@ const ROLES: &str = "| Role | Permissions |";
 
 const COMMAND_TABLE: &str = "| Command | Valid when |";
 
-fn document(path: &str) -> String {
+pub(super) fn document(path: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(path);
@@ -222,12 +222,13 @@ fn committed() -> Value {
 }
 
 #[derive(Debug)]
-struct Answer {
-    status: StatusCode,
-    body: Value,
+pub(super) struct Answer {
+    pub(super) status: StatusCode,
+    pub(super) headers: HeaderMap,
+    pub(super) body: Value,
 }
 
-enum Credentials {
+pub(super) enum Credentials {
     Bearer(String),
     Session { cookie: String, csrf: String },
 }
@@ -241,7 +242,7 @@ struct Fixture {
     step: StepId,
 }
 
-struct Site {
+pub(super) struct Site {
     world: World,
     state: AppState,
     router: Router,
@@ -249,7 +250,7 @@ struct Site {
 }
 
 impl Site {
-    async fn new() -> Site {
+    pub(super) async fn new() -> Site {
         let world = World::new().await;
         let directory = tempfile::tempdir().expect("a directory");
         let state = super::state(
@@ -272,7 +273,7 @@ impl Site {
         self.world.db()
     }
 
-    async fn project(&self) -> Project {
+    pub(super) async fn project(&self) -> Project {
         bosun_db::projects::find(self.db(), self.world.workflow.project_id)
             .await
             .expect("a project")
@@ -300,7 +301,7 @@ impl Site {
         .expect("a workflow")
     }
 
-    async fn user(&self, login: &str) -> (UserId, Credentials) {
+    pub(super) async fn user(&self, login: &str) -> (UserId, Credentials) {
         let user = bosun_db::users::create(self.db(), login)
             .await
             .expect("a user");
@@ -335,7 +336,7 @@ impl Site {
         .id
     }
 
-    async fn bind(
+    pub(super) async fn bind(
         &self,
         role: &str,
         subject: Subject,
@@ -401,14 +402,28 @@ impl Site {
         }
     }
 
-    async fn send(
+    pub(super) async fn send(
         &self,
         method: Method,
         path: &str,
         credentials: &Credentials,
         body: Option<Value>,
     ) -> Answer {
+        self.send_with(method, path, credentials, &[], body).await
+    }
+
+    pub(super) async fn send_with(
+        &self,
+        method: Method,
+        path: &str,
+        credentials: &Credentials,
+        headers: &[(&str, String)],
+        body: Option<Value>,
+    ) -> Answer {
         let mut builder = request(method.clone(), path);
+        for (name, value) in headers {
+            builder = builder.header(*name, value);
+        }
         match credentials {
             Credentials::Bearer(token) => {
                 builder = builder.header("authorization", format!("Bearer {token}"));
@@ -434,13 +449,15 @@ impl Site {
             .await
             .expect("an answer");
         let status = response.status();
+        let headers = response.headers().clone();
         Answer {
             status,
+            headers,
             body: read(response.into_body()).await,
         }
     }
 
-    async fn get(&self, path: &str, credentials: &Credentials) -> Answer {
+    pub(super) async fn get(&self, path: &str, credentials: &Credentials) -> Answer {
         self.send(Method::GET, path, credentials, None).await
     }
 
@@ -529,7 +546,7 @@ async fn read(body: Body) -> Value {
     }
 }
 
-fn forbidden(answer: &Answer, context: &str) {
+pub(super) fn forbidden(answer: &Answer, context: &str) {
     assert_eq!(
         answer.status,
         StatusCode::FORBIDDEN,
@@ -691,7 +708,13 @@ async fn every_built_in_role_is_allowed_or_refused_as_the_two_tables_say() {
                     }
                 };
                 let answer = site
-                    .send(call.method.clone(), &call.path, &session, call.body)
+                    .send_with(
+                        call.method.clone(),
+                        &call.path,
+                        &session,
+                        &call.headers,
+                        call.body,
+                    )
                     .await;
                 let context = format!(
                     "{name}: {} {} {}",
@@ -712,6 +735,7 @@ async fn every_built_in_role_is_allowed_or_refused_as_the_two_tables_say() {
 struct Call {
     method: Method,
     path: String,
+    headers: Vec<(&'static str, String)>,
     body: Option<Value>,
     command: Option<String>,
 }
@@ -727,6 +751,7 @@ async fn calls(
     let call = |path: String, body: Option<Value>| Call {
         method: method.clone(),
         path,
+        headers: Vec::new(),
         body,
         command: None,
     };
@@ -745,6 +770,7 @@ async fn calls(
                 calls.push(Call {
                     method: method.clone(),
                     path: format!("/api/v1/runs/{run}/commands"),
+                    headers: Vec::new(),
                     body: Some(json!({ "type": name, "target": target, "reason": null })),
                     command: Some(name.to_owned()),
                 });
@@ -781,6 +807,16 @@ async fn calls(
             Some(json!({ "name": format!("workflow-{name}"), "source": SOURCE }))
         }
         ("PUT", "/api/v1/workflows/{workflow}/source") => Some(json!({ "source": SOURCE })),
+        ("PATCH", "/api/v1/projects/{project}/settings") => {
+            let stored = bosun_db::projects::settings(site.db(), fixture.project.id)
+                .await
+                .expect("a read")
+                .expect("the settings of the project");
+            return vec![Call {
+                headers: vec![("if-match", format!("\"{}\"", stored.version))],
+                ..call(path, Some(json!({ "fork_policy": "approval" })))
+            }];
+        }
         ("POST", "/api/v1/workflows/{workflow}/dispatch") => {
             Some(json!({ "ref": null, "inputs": {} }))
         }
@@ -1078,7 +1114,7 @@ async fn a_viewer_of_one_project_sees_only_it_and_another_project_answers_as_mis
     );
 }
 
-async fn owner_credentials(site: &Site) -> Credentials {
+pub(super) async fn owner_credentials(site: &Site) -> Credentials {
     let login = format!("owner-{}", Uuid::now_v7().simple());
     let user = site.owner(&login).await;
     site.signed(user, &login).await

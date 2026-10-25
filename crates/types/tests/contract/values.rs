@@ -2,7 +2,10 @@ use std::fmt::Debug;
 use std::str::FromStr;
 
 use bosun_types::actor::Actor;
-use bosun_types::api::{Capability, TrustLevel, WorkflowSource};
+use bosun_types::api::{
+    Capability, ForgeAccess, ForgePermission, ForkPolicy, ProjectSettings, Reporting, TrustLevel,
+    WorkflowSource,
+};
 use bosun_types::command::{Command, CommandRequest};
 use bosun_types::diagnostic::Severity;
 use bosun_types::error::ErrorCode;
@@ -45,6 +48,13 @@ fn closed_enums_refuse_unknown_values() {
     refuses::<Shell>(json!("zsh"));
     refuses::<TrustLevel>(json!("semi"));
     refuses::<Capability>(json!("kubernetes"));
+    refuses::<ForkPolicy>(json!("sometimes"));
+    refuses::<Reporting>(json!("comments"));
+    refuses::<ForgePermission>(json!("pull-requests"));
+    refuses::<ForgeAccess>(json!("none"));
+    let mut settings = fixture("api/project-settings.json");
+    settings["token_permissions"]["administration"] = json!("write");
+    refuses::<ProjectSettings>(settings);
     refuses::<WorkflowSource>(json!({ "kind": "repository" }));
     refuses::<Trigger>(json!({ "workflow_call": {} }));
     refuses::<Actor>(json!({ "kind": "plugin", "instance": "telegram" }));

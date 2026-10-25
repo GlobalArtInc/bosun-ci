@@ -4,7 +4,7 @@ use std::time::Duration;
 use bosun_types::api::Page;
 use bosun_types::diagnostic::{Diagnostic, Severity};
 use bosun_types::error::ErrorEnvelope;
-use reqwest::header::{ACCEPT, CONTENT_TYPE};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, ETAG, IF_MATCH};
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -85,6 +85,21 @@ impl Client {
         decode(path, send(path, request).await?).await
     }
 
+    pub(crate) async fn tagged<T: DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> Result<(T, String), Failure> {
+        let request = self.request(Method::GET, path).timeout(REQUEST_TIMEOUT);
+        let response = send(path, request).await?;
+        let tag = response
+            .headers()
+            .get(ETAG)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+            .ok_or_else(|| Failure::new(format!("{path} answered without an ETag")))?;
+        Ok((decode(path, response).await?, tag))
+    }
+
     pub(crate) async fn all<T: DeserializeOwned>(&self, path: &str) -> Result<Vec<T>, Failure> {
         let mut items = Vec::new();
         let mut cursor: Option<String> = None;
@@ -121,6 +136,20 @@ impl Client {
     ) -> Result<T, Failure> {
         let request = self
             .request(Method::PUT, path)
+            .json(body)
+            .timeout(REQUEST_TIMEOUT);
+        decode(path, send(path, request).await?).await
+    }
+
+    pub(crate) async fn patch<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        tag: &str,
+        body: &B,
+    ) -> Result<T, Failure> {
+        let request = self
+            .request(Method::PATCH, path)
+            .header(IF_MATCH, tag)
             .json(body)
             .timeout(REQUEST_TIMEOUT);
         decode(path, send(path, request).await?).await

@@ -5,12 +5,15 @@ use std::marker::PhantomData;
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{FromRequest, FromRequestParts, Path, Query, Request};
+use axum::http::HeaderValue;
+use axum::http::header::IF_MATCH;
 use axum::http::request::Parts;
 use bosun_types::api::Page;
 use bosun_types::error::{ErrorBody, ErrorCode, FieldError};
 use schemars::JsonSchema;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 use tracing::error;
 use uuid::Uuid;
 
@@ -66,6 +69,114 @@ impl<T: JsonSchema> Input for Idempotent<T> {
     fn input(spec: &mut Spec<'_>) {
         spec.reference(openapi::IDEMPOTENCY_KEY);
         spec.body::<T>();
+    }
+}
+
+pub(crate) struct Changes<T> {
+    fields: Map<String, Value>,
+    shape: PhantomData<fn() -> T>,
+}
+
+impl<S: Send + Sync, T> FromRequest<S> for Changes<T> {
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Changes<T>, ApiError> {
+        let bytes = bytes(request, state).await?;
+        Ok(Changes {
+            fields: decode(&bytes)?,
+            shape: PhantomData,
+        })
+    }
+}
+
+impl<T: JsonSchema> Input for Changes<T> {
+    fn input(spec: &mut Spec<'_>) {
+        spec.changes::<T>();
+    }
+}
+
+impl<T: Serialize + DeserializeOwned> Changes<T> {
+    pub(crate) fn apply(self, current: &T, noun: &str, refusal: &str) -> Result<T, ApiError> {
+        let document = match serde_json::to_value(current).map_err(failed)? {
+            Value::Object(document) => document,
+            _ => return Err(failed("a document to change is not a JSON object")),
+        };
+        if self.fields.is_empty() {
+            return Err(invalid(format!(
+                "the request changes nothing; it names each {noun} to change with its new value"
+            )));
+        }
+        let mut changed = document.clone();
+        let mut faults = Faults::default();
+        for (name, value) in self.fields {
+            if !document.contains_key(&name) {
+                let known: Vec<String> = document.keys().map(|key| format!("`{key}`")).collect();
+                faults.add(
+                    name.as_str(),
+                    format!(
+                        "there is no {noun} `{name}`; the {noun}s are {}",
+                        known.join(", ")
+                    ),
+                );
+                continue;
+            }
+            let mut alone = document.clone();
+            alone.insert(name.clone(), value.clone());
+            match serde_json::from_value::<T>(Value::Object(alone)) {
+                Ok(_) => {
+                    changed.insert(name, value);
+                }
+                Err(error) => faults.add(
+                    name.as_str(),
+                    format!("`{name}` cannot be {value}: {error}"),
+                ),
+            }
+        }
+        faults.finish(refusal)?;
+        serde_json::from_value(Value::Object(changed)).map_err(failed)
+    }
+}
+
+pub(crate) struct IfMatch(Option<HeaderValue>);
+
+impl<S: Send + Sync> FromRequestParts<S> for IfMatch {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<IfMatch, ApiError> {
+        Ok(IfMatch(parts.headers.get(IF_MATCH).cloned()))
+    }
+}
+
+impl Input for IfMatch {
+    fn input(spec: &mut Spec<'_>) {
+        spec.reference(openapi::IF_MATCH);
+    }
+}
+
+impl IfMatch {
+    pub(crate) fn check(&self, current: &str, what: &str) -> Result<(), ApiError> {
+        let refused = |message: String| ApiError::new(ErrorCode::PreconditionFailed, message);
+        let Some(value) = &self.0 else {
+            return Err(refused(format!(
+                "`If-Match` is missing; a change of {what} sends the `ETag` of the version it was \
+                 made from"
+            )));
+        };
+        let text = String::from_utf8_lossy(value.as_bytes());
+        let text = text.trim();
+        if text.split(',').map(str::trim).any(|tag| tag == current) {
+            return Ok(());
+        }
+        if text == "*" {
+            return Err(refused(format!(
+                "`If-Match` is `*`, which names no version; a change of {what} sends the `ETag` of \
+                 the version it was made from"
+            )));
+        }
+        Err(refused(format!(
+            "`If-Match` is `{text}`, and the current version of {what} is `{current}`: read the \
+             current version and repeat the change"
+        )))
     }
 }
 

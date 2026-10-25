@@ -1,0 +1,9 @@
+{
+  "github_workflows": false,
+  "fork_policy": "disabled",
+  "token_permissions": {
+    "contents": "read",
+    "metadata": "read"
+  },
+  "report": "checks"
+}

@@ -263,8 +263,8 @@ their own variables, which point at Bosun. A project without a repository gets
 For each execution the server mints an installation token of the App, restricted to the run's
 repository and to the permissions derived from the workflow's and the job's `permissions`:
 
-- without `permissions`, the project's default set applies (default: `contents: read`,
-  `metadata: read`);
+- without `permissions`, the project's setting `token_permissions` applies (default: `contents:
+  read`, `metadata: read`, [11-api.md](11-api.md#project-settings));
 - `permissions: read-all` and `write-all`, and the per-scope form, map to the App permissions of
   the same names, intersected with what the App holds; a scope the App does not hold is named in a
   warning on the run page instead of being dropped silently;
@@ -378,8 +378,9 @@ with its conclusion and a summary line naming the operator and the command. A ga
 environment waiting for approval is reported as `in_progress` with "waiting for approval" in its
 title, and its details address opens the approval.
 
-When the project switches checks off, the same information goes out as commit statuses with the
-context `bosun/<workflow>/<job>`.
+When the project switches checks off, its setting `report` being `statuses`
+([11-api.md](11-api.md#project-settings)), the same information goes out as commit statuses with
+the context `bosun/<workflow>/<job>`.
 
 Runs started from a draft are not reported unless the person who started them asks for it, so an
 experiment does not decorate a pull request. All reports go through the outbox

@@ -238,8 +238,9 @@ The claim query ([07-storage.md](07-storage.md)) enforces both directions, whate
 a job of an untrusted run never reaches a trusted pool, and a job of a trusted run, which carries
 secrets, never reaches an untrusted pool.
 
-A run is untrusted when it was triggered by a pull request from a fork. The project's fork policy
-decides what happens to such a pull request:
+A run is untrusted when it was triggered by a pull request from a fork. The project's fork policy,
+its setting `fork_policy` ([11-api.md](11-api.md#project-settings)), decides what happens to such a
+pull request:
 
 | Policy | Effect |
 |--------|--------|
