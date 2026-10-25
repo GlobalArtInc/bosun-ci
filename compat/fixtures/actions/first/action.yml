@@ -1,0 +1,25 @@
+name: First
+description: >-
+  Runs a pre, a main and a post step, and uses the toolkit to read its inputs, set an output, save
+  state, export a variable, add a directory to the path and mask a secret.
+inputs:
+  value:
+    description: Set as the output `echo` and exported as `FIRST_VALUE`.
+    required: true
+  directory:
+    description: Added to the path.
+    required: true
+  secret:
+    description: Masked, then printed.
+    required: true
+  job:
+    description: The job of the step, from the default.
+    default: ${{ github.job }}
+outputs:
+  echo:
+    description: The input `value`.
+runs:
+  using: node24
+  pre: dist/pre.js
+  main: dist/main.js
+  post: dist/post.js

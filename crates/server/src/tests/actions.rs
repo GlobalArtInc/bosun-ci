@@ -18,9 +18,10 @@ use bosun_forge::GitHubApp;
 use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::assignment::Documents;
 use bosun_testkit::TestBucket;
-use bosun_testkit::forge::{APP_ID, APP_KEY, FakeForge};
+use bosun_testkit::forge::{APP_ID, APP_KEY, FakeForge, fixture_actions};
 use bosun_types::api::{Capability, Notice};
 use bosun_types::diagnostic::{PathSegment, Severity};
+use bosun_types::event::Event;
 use bosun_types::id::{ExecutionId, RunId};
 use bosun_types::ir::{ActionReference, Runs};
 use bosun_types::status::{Conclusion, JobStatus, StatusReason};
@@ -660,6 +661,85 @@ async fn an_action_declared_node16_is_assigned_node_24_and_the_run_notices_say_s
     let (_, documents) = harness.assigned(&runner).await;
     assert_eq!(documents.actions[0].node, NODE);
     assert_eq!(noticed(harness.notices(run).await), [expected]);
+}
+
+#[tokio::test]
+async fn the_pre_and_post_steps_of_actions_are_steps_of_their_own_around_the_main_steps() {
+    let harness = Harness::new().await;
+    let installation = harness.forge.install("bosun-fixtures", READ);
+    harness
+        .forge
+        .create_repository(installation, "bosun-fixtures/actions");
+    harness.forge.publish("bosun-fixtures/actions");
+    let commit = harness
+        .forge
+        .commit("bosun-fixtures/actions", "main", fixture_actions());
+    harness.tag("bosun-fixtures/actions", "v1", &commit);
+    let run = harness
+        .dispatch(
+            "      - uses: bosun-fixtures/actions/first@v1\n      - name: Second\n        \
+             uses: bosun-fixtures/actions/second@v1\n      - run: echo done\n      - uses: \
+             bosun-fixtures/actions/failure@v1\n",
+        )
+        .await;
+    let runner = harness.agent("runner1-1").await;
+    let expected = [
+        "Pre Run bosun-fixtures/actions/first@v1",
+        "Pre Second",
+        "Run bosun-fixtures/actions/first@v1",
+        "Second",
+        "Run echo done",
+        "Run bosun-fixtures/actions/failure@v1",
+        "Post Run bosun-fixtures/actions/failure@v1",
+        "Post Second",
+        "Post Run bosun-fixtures/actions/first@v1",
+    ];
+    let (rejected, documents) = harness.assigned(&runner).await;
+    assert_eq!(documents.actions.len(), 3);
+    progress::rejected(harness.db(), &runner.reporter, rejected)
+        .await
+        .expect("a rejection");
+    let (execution, _) = harness.assigned(&runner).await;
+    assert_eq!(
+        progress::accepted(harness.db(), &runner.reporter, execution, &site())
+            .await
+            .expect("an acceptance"),
+        Progress::Applied
+    );
+    let projection = harness.world.project(run).await;
+    let steps: Vec<(u32, &str)> = projection
+        .steps_of(execution)
+        .into_iter()
+        .map(|step| (step.index, step.name.as_str()))
+        .collect();
+    assert_eq!(steps, (0..).zip(expected).collect::<Vec<_>>());
+    let created: Vec<serde_json::Value> = harness
+        .world
+        .journal(run)
+        .await
+        .into_iter()
+        .filter(|event| event.execution_id == Some(execution))
+        .filter_map(|event| match event.event {
+            Event::StepCreated(created) => Some(serde_json::json!([created.index, created.name])),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        created,
+        (0..)
+            .zip(expected)
+            .map(|(index, name)| serde_json::json!([index, name]))
+            .collect::<Vec<_>>()
+    );
+    for index in [0, 8] {
+        assert_eq!(
+            progress::step_started(harness.db(), &runner.reporter, execution, index, None)
+                .await
+                .expect("a started step"),
+            Progress::Applied,
+            "step {index}"
+        );
+    }
 }
 
 #[tokio::test]

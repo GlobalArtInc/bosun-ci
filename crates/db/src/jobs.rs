@@ -8,7 +8,7 @@ use bosun_types::event::{
     StepStatusChanged,
 };
 use bosun_types::id::{AgentId, ExecutionId, JobId, StepId};
-use bosun_types::ir::{self, Action, JobKind, Segment, Template};
+use bosun_types::ir::{self, Action, JobKind, Phase, Segment, Stage, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, StatusReason, StepStatus,
@@ -460,6 +460,7 @@ impl Locked<'_> {
             return Err(refuse("job", job, job_from, JobStatus::InProgress));
         }
         let steps = self.steps_of(&key).await?;
+        let stages = self.stages_of(execution, &steps).await?;
         self.transaction()
             .execute(statement(
                 "UPDATE execution SET status = $2, started_at = now() WHERE id = $1",
@@ -501,13 +502,24 @@ impl Locked<'_> {
         )
         .await?;
         let pending = row::text(STEPS, StepStatus::Pending)?;
-        for (index, step) in steps.iter().enumerate() {
-            let index = u32::try_from(index).map_err(|error| Error::Row {
-                table: STEPS,
-                message: error.to_string(),
-            })?;
+        for (index, stage) in (0..).zip(&stages) {
             let id: StepId = row::id(STEPS, Uuid::now_v7())?;
-            let name = step_name(step);
+            let step = usize::try_from(stage.step)
+                .ok()
+                .and_then(|step| steps.get(step))
+                .ok_or_else(|| Error::Row {
+                    table: EXECUTIONS,
+                    message: format!(
+                        "the stages of execution {execution} name step {}, which its job does \
+                         not have",
+                        stage.step
+                    ),
+                })?;
+            let name = match stage.phase {
+                Phase::Pre => format!("Pre {}", step_name(step)),
+                Phase::Main => step_name(step),
+                Phase::Post => format!("Post {}", step_name(step)),
+            };
             self.transaction()
                 .execute(statement(
                     "INSERT INTO step (id, execution_id, index, name, status) \
@@ -840,6 +852,42 @@ impl Locked<'_> {
             row::id(STEPS, found.try_get::<Uuid>("", "id")?)?,
             row::name(STEPS, found.try_get("", "status")?)?,
         ))
+    }
+
+    pub async fn record_stages(
+        &self,
+        execution: ExecutionId,
+        stages: &[Stage],
+    ) -> Result<(), Error> {
+        self.transaction()
+            .execute(statement(
+                "UPDATE execution SET stages = $2 WHERE id = $1",
+                [
+                    Uuid::from(execution).into(),
+                    serde_json::to_value(stages)?.into(),
+                ],
+            ))
+            .await?;
+        Ok(())
+    }
+
+    async fn stages_of(
+        &self,
+        execution: ExecutionId,
+        steps: &[ir::Step],
+    ) -> Result<Vec<Stage>, Error> {
+        let found = self
+            .transaction()
+            .query_one(statement(
+                "SELECT stages FROM execution WHERE id = $1",
+                [Uuid::from(execution).into()],
+            ))
+            .await?
+            .ok_or_else(|| Error::Vanished(format!("execution {execution}")))?;
+        match found.try_get::<Option<serde_json::Value>>("", "stages")? {
+            Some(stages) => row::json(EXECUTIONS, stages),
+            None => Ok(ir::stages(steps, |_| None)),
+        }
     }
 
     async fn steps_of(&self, key: &JobKey) -> Result<Vec<ir::Step>, Error> {

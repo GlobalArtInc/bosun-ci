@@ -23,9 +23,15 @@ who may give which command is in [08-access.md](08-access.md).
   when job-level `retry` re-queued it.
 - A **step** belongs to an execution. Steps of composite actions are nested under the step that
   used the action; pre and post steps of actions are steps of their own. The steps of an execution
-  are created `pending` when its agent starts the job, one per step of the job template, each named
-  by its `name`, or else by `Run ` and the first line of its script, or by `Run ` and the `uses` of
-  a step that uses an action, such as `Run actions/checkout@v4`, as in the target. Until the agent
+  are created `pending` when its agent starts the job, one per stage of the job
+  ([05-execution.md](05-execution.md#node-actions)): the pre steps of its actions, one step per step
+  of the job template, then the post steps of its actions. A step of the template is named by its
+  `name`, or else by `Run ` and the first line of its script, or by `Run ` and the `uses` of a step
+  that uses an action, such as `Run actions/checkout@v4`, as in the target; its pre and post steps
+  by `Pre ` and `Post ` before that name, such as `Post Run actions/checkout@v4`. The stages are
+  those of the assignment: the replica that sends it stores them on the execution when an action
+  adds a pre or a post step ([07-storage.md](07-storage.md#tables)), and an execution without
+  stored stages has one step per step of the template. Until the agent
   renders names (step 21 of [../plan.md](../plan.md)), these names are taken before anything is
   evaluated: an expression in the `name` or in that line is left out, and a `name` that holds
   nothing else counts as none, so `name: Build ${{ matrix.os }}` names the step `Build` and

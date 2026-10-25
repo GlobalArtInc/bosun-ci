@@ -21,6 +21,7 @@ const PROPERTY: [(&str, &str); 5] = [
 pub(crate) struct Effects {
     pub(crate) annotations: Kept,
     pub(crate) outputs: Vec<(String, String)>,
+    pub(crate) state: Vec<(String, String)>,
     pub(crate) env: Vec<(String, String)>,
     pub(crate) paths: Vec<String>,
     pub(crate) failed: bool,
@@ -307,7 +308,8 @@ impl Processor {
             }
             Name::SaveState => {
                 self.deprecated("save-state", "GITHUB_STATE");
-                required(&properties, "save-state")?;
+                let name = required(&properties, "save-state")?;
+                self.reports.effects().state.push((name, data));
             }
             Name::SetEnv => {
                 self.unsecure("set-env", "GITHUB_ENV")?;

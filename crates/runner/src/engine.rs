@@ -6,8 +6,12 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, SystemTime};
 
+use bosun_expr::Scope;
 use bosun_proto::assignment::{Contexts, Evaluated};
-use bosun_types::ir::{Action, JobKind, JobTemplate, Shell, Step, Template};
+use bosun_types::ir::{
+    self, Action, ActionMetadata, ActionReference, Condition, JobKind, JobTemplate, NodeRuns,
+    Phase, Runs, Shell, Step, Template,
+};
 use bosun_types::status::Conclusion;
 use bosun_workflow::github::{self, BosunFacts, RunnerFacts, StepFacts};
 use rustix::process::{Pid, Signal};
@@ -50,7 +54,24 @@ pub struct Job {
     pub template: JobTemplate,
     pub contexts: Contexts,
     pub evaluated: Evaluated,
+    pub actions: Vec<NodeAction>,
+    pub fetched: Result<(), String>,
     pub minute: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct NodeAction {
+    pub uses: ActionReference,
+    pub directory: PathBuf,
+    pub node: PathBuf,
+    pub metadata: ActionMetadata,
+}
+
+impl NodeAction {
+    fn runs(&self) -> &NodeRuns {
+        let Runs::Node(runs) = &self.metadata.runs;
+        runs
+    }
 }
 
 #[derive(Debug)]
@@ -113,6 +134,8 @@ pub async fn run(
         template,
         contexts,
         evaluated,
+        actions,
+        fetched,
         minute,
     } = job;
     let events = Sink::new(
@@ -120,8 +143,10 @@ pub async fn run(
         Masker::new(contexts.secrets.values().filter_map(Value::as_str)),
     );
     let JobKind::Steps(steps) = template.kind;
-    let prepared =
-        prepare(&workspace, &temp, &tool_cache, &contexts.github).and_then(|directories| {
+    let prepared = fetched
+        .map_err(io::Error::other)
+        .and_then(|()| prepare(&workspace, &temp, &tool_cache, &contexts.github))
+        .and_then(|directories| {
             tracking
                 .start(&id)
                 .map(|processes| (directories, processes))
@@ -191,6 +216,7 @@ pub async fn run(
         shell,
         working_directory: working_directory.filter(|directory| !directory.is_empty()),
         fixed,
+        actions,
         minute,
         deadline: limit(minute, timeout_minutes).and_then(|limit| started.checked_add(limit)),
         standing: Standing::default(),
@@ -258,13 +284,21 @@ fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn actions(steps: &[Step]) -> Vec<String> {
+fn names(steps: &[Step]) -> Vec<String> {
     let mut taken = HashSet::new();
     steps
         .iter()
         .map(|step| {
-            let base = step.key.as_ref().map_or(SCRIPT, |key| key.as_str());
-            let mut name = base.to_owned();
+            let base = match (&step.key, &step.action) {
+                (Some(key), _) => key.as_str().to_owned(),
+                (None, Action::Uses(reference)) => format!(
+                    "__{}_{}",
+                    plain(&reference.owner),
+                    plain(&reference.repository)
+                ),
+                (None, Action::Run { .. }) => SCRIPT.to_owned(),
+            };
+            let mut name = base.clone();
             let mut number = 2;
             while !taken.insert(name.clone()) {
                 name = format!("{base}_{number}");
@@ -273,6 +307,80 @@ fn actions(steps: &[Step]) -> Vec<String> {
             name
         })
         .collect()
+}
+
+fn inputs(
+    phase: Phase,
+    action: &NodeAction,
+    step: &Step,
+    scope: &dyn Scope,
+    reports: &Reports,
+) -> Result<BTreeMap<String, String>, String> {
+    let mut inputs = BTreeMap::new();
+    for (name, template) in &step.with {
+        let value = scope::text(&format!("`with.{name}` of the step"), template, scope)?;
+        inputs.insert(variable(name), value);
+    }
+    let main = phase == Phase::Main;
+    for input in &action.metadata.inputs {
+        let supplied = step
+            .with
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case(&input.name));
+        if supplied {
+            if main && let Some(message) = &input.deprecation_message {
+                reports.note(
+                    AnnotationKind::Warning,
+                    format!(
+                        "the input `{}` of the action `{}` is deprecated: {message}",
+                        input.name, action.uses
+                    ),
+                );
+            }
+            continue;
+        }
+        let value = match &input.default {
+            Some(default) => scope::text(
+                &format!(
+                    "the default of the input `{}` of the action `{}`",
+                    input.name, action.uses
+                ),
+                default,
+                scope,
+            )?,
+            None => {
+                if main && input.required {
+                    reports.note(
+                        AnnotationKind::Warning,
+                        format!(
+                            "the action `{}` requires the input `{}`, which the step does not \
+                             supply",
+                            action.uses, input.name
+                        ),
+                    );
+                }
+                String::new()
+            }
+        };
+        inputs.insert(variable(&input.name), value);
+    }
+    Ok(inputs)
+}
+
+fn plain(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn variable(input: &str) -> String {
+    format!("INPUT_{}", input.replace(' ', "_").to_uppercase())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,6 +408,7 @@ struct Execution {
     shell: Option<Shell>,
     working_directory: Option<String>,
     fixed: Fixed,
+    actions: Vec<NodeAction>,
     minute: Duration,
     deadline: Option<Instant>,
     standing: Standing,
@@ -334,7 +443,16 @@ impl Ran {
 
 impl Execution {
     async fn steps(&mut self, steps: &[Step]) {
-        for ((index, step), action) in (0..).zip(steps).zip(actions(steps)) {
+        let names = names(steps);
+        let stages = ir::stages(steps, |reference| {
+            self.actions
+                .iter()
+                .find(|action| &action.uses == reference)
+                .map(NodeAction::runs)
+        });
+        let mut reached = vec![false; steps.len()];
+        let mut states = vec![BTreeMap::new(); steps.len()];
+        for (index, stage) in (0..).zip(stages) {
             if self
                 .deadline
                 .is_some_and(|deadline| Instant::now() >= deadline)
@@ -344,8 +462,42 @@ impl Execution {
             if self.timed_out {
                 return;
             }
-            self.step(index, step, action).await;
+            let position = stage.step as usize;
+            let (Some(step), Some(name), Some(state)) = (
+                steps.get(position),
+                names.get(position),
+                states.get_mut(position),
+            ) else {
+                continue;
+            };
+            if stage.phase == Phase::Post && !reached[position] {
+                self.events.finished(
+                    index,
+                    Conclusion::Skipped,
+                    Conclusion::Skipped,
+                    Results::default(),
+                );
+                continue;
+            }
+            let at = At {
+                index,
+                phase: stage.phase,
+                action: name.clone(),
+            };
+            if self.step(at, step, state).await {
+                reached[position] = true;
+            }
         }
+    }
+
+    fn action(&self, step: &Step) -> Option<NodeAction> {
+        let Action::Uses(reference) = &step.action else {
+            return None;
+        };
+        self.actions
+            .iter()
+            .find(|action| &action.uses == reference)
+            .cloned()
     }
 
     fn env_context(&self) -> BTreeMap<String, String> {
@@ -365,25 +517,58 @@ impl Execution {
         )
     }
 
-    async fn step(&mut self, index: u32, step: &Step, action: String) {
+    fn condition(&self, at: &At, step: &Step) -> (String, Option<Condition>) {
+        let action = match (at.phase, self.action(step)) {
+            (Phase::Pre | Phase::Post, Some(action)) => action,
+            _ => return ("`if` of the step".to_owned(), step.r#if.clone()),
+        };
+        let runs = action.runs();
+        let (key, condition) = match at.phase {
+            Phase::Pre => ("pre-if", runs.pre_if.clone()),
+            _ => ("post-if", runs.post_if.clone()),
+        };
+        (
+            format!("`{key}` of the action `{}`", action.uses),
+            condition,
+        )
+    }
+
+    async fn step(&mut self, at: At, step: &Step, state: &mut BTreeMap<String, String>) -> bool {
+        let index = at.index;
         if *self.cancel.borrow() {
             self.standing.cancelled = true;
         }
         let facts = StepFacts {
-            action,
+            action: at.action.clone(),
             id: Uuid::now_v7().to_string(),
         };
-        let github = github::step_context(&self.github, &self.runner, &facts);
+        let mut github = github::step_context(&self.github, &self.runner, &facts);
+        if let (Action::Uses(reference), Some(action)) = (&step.action, self.action(step)) {
+            for (property, value) in [
+                ("action_path", text(&action.directory)),
+                (
+                    "action_repository",
+                    format!("{}/{}", reference.owner, reference.repository),
+                ),
+                ("action_ref", reference.r#ref.clone()),
+            ] {
+                github.insert(property.to_owned(), Value::String(value));
+            }
+        }
         let env = self.env_context();
         let mut scope = self.scope(&github, &env);
-        let holds = match &step.r#if {
-            None => Ok(self.standing.succeeding()),
-            Some(condition) => bosun_expr::holds(condition, &scope)
-                .map_err(|error| scope::fault("`if` of the step", &error)),
+        let (what, condition) = self.condition(&at, step);
+        let holds = match &condition {
+            None if at.phase == Phase::Main => Ok(self.standing.succeeding()),
+            None => Ok(true),
+            Some(condition) => {
+                bosun_expr::holds(condition, &scope).map_err(|error| scope::fault(&what, &error))
+            }
         };
         match holds {
             Ok(false) => {
                 self.record(
+                    &at,
                     step,
                     Conclusion::Skipped,
                     Conclusion::Skipped,
@@ -395,7 +580,7 @@ impl Execution {
                     Conclusion::Skipped,
                     Results::default(),
                 );
-                return;
+                return false;
             }
             Ok(true) => self.start(index),
             Err(fault) => {
@@ -403,6 +588,7 @@ impl Execution {
                 self.events.line(index, &fault);
                 self.standing.failed = true;
                 self.record(
+                    &at,
                     step,
                     Conclusion::Failure,
                     Conclusion::Failure,
@@ -414,14 +600,14 @@ impl Execution {
                     Conclusion::Failure,
                     Results::default(),
                 );
-                return;
+                return true;
             }
         }
-        let cancellable = !self.standing.cancelled;
         let ran = self
-            .execute(index, step, &github, env, &mut scope, cancellable)
+            .execute(&at, step, &github, env, &mut scope, state)
             .await;
-        self.conclude(index, step, ran, &scope);
+        self.conclude(&at, step, ran, &scope);
+        true
     }
 
     fn start(&mut self, index: u32) {
@@ -429,7 +615,7 @@ impl Execution {
         self.events.started(index);
     }
 
-    fn conclude(&mut self, index: u32, step: &Step, ran: Ran, scope: &StepScope) {
+    fn conclude(&mut self, at: &At, step: &Step, ran: Ran, scope: &StepScope) {
         let Ran {
             outcome,
             timed_out,
@@ -446,7 +632,7 @@ impl Execution {
             ) {
                 Ok(true) => conclusion = Conclusion::Success,
                 Ok(false) => {}
-                Err(fault) => self.events.line(index, &fault),
+                Err(fault) => self.events.line(at.index, &fault),
             }
         }
         match conclusion {
@@ -457,17 +643,21 @@ impl Execution {
         if timed_out == Some(Limit::Job) {
             self.timed_out = true;
         }
-        self.record(step, outcome, conclusion, &results.outputs);
-        self.events.finished(index, outcome, conclusion, results);
+        self.record(at, step, outcome, conclusion, &results.outputs);
+        self.events.finished(at.index, outcome, conclusion, results);
     }
 
     fn record(
         &mut self,
+        at: &At,
         step: &Step,
         outcome: Conclusion,
         conclusion: Conclusion,
         outputs: &BTreeMap<String, String>,
     ) {
+        if at.phase != Phase::Main {
+            return;
+        }
         if let Some(key) = &step.key {
             self.records.push(Record {
                 key: key.to_string(),
@@ -480,13 +670,15 @@ impl Execution {
 
     async fn execute(
         &mut self,
-        index: u32,
+        at: &At,
         step: &Step,
         github: &Map<String, Value>,
         mut env: BTreeMap<String, String>,
         scope: &mut StepScope,
-        cancellable: bool,
+        state: &mut BTreeMap<String, String>,
     ) -> Ran {
+        let index = at.index;
+        let cancellable = !self.standing.cancelled;
         let failed = |fault: String| {
             self.events.line(index, &fault);
             Ran::failed()
@@ -519,41 +711,72 @@ impl Execution {
         }
         env.extend(variables.clone());
         scope.env = scope::strings(&env);
-        let directory = match &step.working_directory {
-            Some(template) => {
-                match scope::text("`working-directory` of the step", template, &*scope) {
-                    Ok(directory) => Some(directory).filter(|directory| !directory.is_empty()),
-                    Err(fault) => return failed(fault),
-                }
-            }
-            None => None,
-        };
-        let script = match &step.action {
-            Action::Run { script } => script,
-            Action::Uses(reference) => {
-                return failed(format!(
-                    "the step uses the action `{reference}`, which this agent cannot run"
-                ));
-            }
-        };
-        let script = match scope::text("`run` of the step", script, &*scope) {
-            Ok(script) => script,
-            Err(fault) => return failed(fault),
-        };
-        let directory = match directory.or_else(|| self.working_directory.clone()) {
-            Some(directory) => self.workspace.join(directory),
-            None => self.workspace.clone(),
-        };
-        let shell = step.shell.clone().or_else(|| self.shell.clone());
         let reports = Reports::new(index, self.events.clone());
+        let mut process_env = self.process_env(github, &variables);
+        let (program, directory) = match &step.action {
+            Action::Run { script } => {
+                let directory = match &step.working_directory {
+                    Some(template) => {
+                        match scope::text("`working-directory` of the step", template, &*scope) {
+                            Ok(directory) => {
+                                Some(directory).filter(|directory| !directory.is_empty())
+                            }
+                            Err(fault) => return failed(fault),
+                        }
+                    }
+                    None => None,
+                };
+                let script = match scope::text("`run` of the step", script, &*scope) {
+                    Ok(script) => script,
+                    Err(fault) => return failed(fault),
+                };
+                let directory = match directory.or_else(|| self.working_directory.clone()) {
+                    Some(directory) => self.workspace.join(directory),
+                    None => self.workspace.clone(),
+                };
+                let shell = step.shell.clone().or_else(|| self.shell.clone());
+                (Program::Script { script, shell }, directory)
+            }
+            Action::Uses(reference) => {
+                let Some(action) = self.action(step) else {
+                    return failed(format!(
+                        "the step uses the action `{reference}`, which the job did not fetch"
+                    ));
+                };
+                let inputs = match inputs(at.phase, &action, step, &*scope, &reports) {
+                    Ok(inputs) => inputs,
+                    Err(fault) => return failed(fault),
+                };
+                for (name, value) in inputs.into_iter().chain(
+                    state
+                        .iter()
+                        .map(|(name, value)| (format!("STATE_{name}"), value.clone())),
+                ) {
+                    process_env.insert(name.into(), value.into());
+                }
+                let runs = action.runs();
+                let entry = match at.phase {
+                    Phase::Pre => runs.pre.as_deref(),
+                    Phase::Main => Some(runs.main.as_str()),
+                    Phase::Post => runs.post.as_deref(),
+                }
+                .unwrap_or(runs.main.as_str());
+                (
+                    Program::Node {
+                        node: action.node.clone(),
+                        entry: action.directory.join(entry),
+                    },
+                    self.workspace.clone(),
+                )
+            }
+        };
         let (outcome, timed_out) = self
             .process(
                 index,
                 Process {
-                    script: &script,
-                    shell: shell.as_ref(),
+                    program,
                     directory: &directory,
-                    env: self.process_env(github, &variables),
+                    env: process_env,
                     minutes,
                     cancellable,
                     reports: reports.clone(),
@@ -584,6 +807,9 @@ impl Execution {
         }
         self.files
             .extend(effects.env.into_iter().chain(written.env));
+        if at.phase != Phase::Post {
+            state.extend(effects.state.into_iter().chain(written.state));
+        }
         let failed = !written.faults.is_empty() || effects.failed;
         let outcome = if outcome == Conclusion::Success && failed {
             Conclusion::Failure
@@ -665,8 +891,7 @@ impl Execution {
 
     async fn process(&mut self, index: u32, process: Process<'_>) -> (Conclusion, Option<Limit>) {
         let Process {
-            script,
-            shell,
+            program,
             directory,
             env,
             minutes,
@@ -683,29 +908,42 @@ impl Execution {
             );
             return (Conclusion::Failure, None);
         }
-        let invocation = match Invocation::resolve(
-            shell,
-            env.get(OsStr::new("PATH")).map(OsString::as_os_str),
-        ) {
-            Ok(invocation) => invocation,
-            Err(reason) => {
-                self.events.line(index, &reason);
-                return (Conclusion::Failure, None);
+        let (command, arguments) = match program {
+            Program::Script { script, shell } => {
+                let invocation = match Invocation::resolve(
+                    shell.as_ref(),
+                    env.get(OsStr::new("PATH")).map(OsString::as_os_str),
+                ) {
+                    Ok(invocation) => invocation,
+                    Err(reason) => {
+                        self.events.line(index, &reason);
+                        return (Conclusion::Failure, None);
+                    }
+                };
+                let file = self
+                    .temp
+                    .join(format!("step-{index}{}", invocation.extension()));
+                if let Err(error) = fs::write(&file, script) {
+                    self.events.line(
+                        index,
+                        &format!(
+                            "the script could not be written to {}: {error}",
+                            file.display()
+                        ),
+                    );
+                    return (Conclusion::Failure, None);
+                }
+                (
+                    OsString::from(invocation.program(&file)),
+                    invocation
+                        .arguments(&file)
+                        .into_iter()
+                        .map(OsString::from)
+                        .collect(),
+                )
             }
+            Program::Node { node, entry } => (node.into_os_string(), vec![entry.into_os_string()]),
         };
-        let file = self
-            .temp
-            .join(format!("step-{index}{}", invocation.extension()));
-        if let Err(error) = fs::write(&file, script) {
-            self.events.line(
-                index,
-                &format!(
-                    "the script could not be written to {}: {error}",
-                    file.display()
-                ),
-            );
-            return (Conclusion::Failure, None);
-        }
         let deadline = minutes
             .and_then(|minutes| Instant::now().checked_add(minutes))
             .map(|step| match self.deadline {
@@ -715,8 +953,8 @@ impl Execution {
             .or(self.deadline.map(|job| (job, Limit::Job)));
         let processor = Processor::new(reports, self.settings(&env), self.matchers.clone());
         let launch = Launch {
-            invocation: &invocation,
-            script: &file,
+            program: &command,
+            arguments,
             directory,
             env,
             processor,
@@ -728,7 +966,7 @@ impl Execution {
                     index,
                     &format!(
                         "the step could not start `{}`: {error}",
-                        invocation.program(&file)
+                        command.to_string_lossy()
                     ),
                 );
                 return (Conclusion::Failure, None);
@@ -758,17 +996,17 @@ impl Execution {
 
     fn spawn(&mut self, index: u32, launch: Launch<'_>) -> io::Result<((Child, Pid), Output)> {
         let Launch {
-            invocation,
-            script,
+            program,
+            arguments,
             directory,
             env,
             processor,
         } = launch;
         let (reader, writer) = io::pipe()?;
         let errors = writer.try_clone()?;
-        let mut command = Command::new(invocation.program(script));
+        let mut command = Command::new(program);
         command
-            .args(invocation.arguments(script))
+            .args(arguments)
             .current_dir(directory)
             .env_clear()
             .envs(env)
@@ -872,9 +1110,25 @@ impl Execution {
     }
 }
 
+enum Program {
+    Script {
+        script: String,
+        shell: Option<Shell>,
+    },
+    Node {
+        node: PathBuf,
+        entry: PathBuf,
+    },
+}
+
+struct At {
+    index: u32,
+    phase: Phase,
+    action: String,
+}
+
 struct Process<'a> {
-    script: &'a str,
-    shell: Option<&'a Shell>,
+    program: Program,
     directory: &'a Path,
     env: BTreeMap<OsString, OsString>,
     minutes: Option<Duration>,
@@ -883,8 +1137,8 @@ struct Process<'a> {
 }
 
 struct Launch<'a> {
-    invocation: &'a Invocation,
-    script: &'a Path,
+    program: &'a OsStr,
+    arguments: Vec<OsString>,
     directory: &'a Path,
     env: BTreeMap<OsString, OsString>,
     processor: Processor,

@@ -330,10 +330,7 @@ fn keys_the_planner_does_not_apply_yet_are_named_with_the_step_that_brings_them(
     )
     .expect("a valid workflow")
     .workflow;
-    assert_eq!(
-        planner::unapplied(&uses).as_deref(),
-        Some("a `uses` step of job `build`, which the planner applies from M1 step 33")
-    );
+    assert_eq!(planner::unapplied(&uses), None);
     let workflow = bosun_workflow::parse(
         "ci",
         "on: workflow_dispatch\nconcurrency: ci\njobs:\n  build:\n    runs-on: self-hosted\n    \

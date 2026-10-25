@@ -271,7 +271,7 @@ async fn an_assignment_the_agent_cannot_run_is_rejected_with_its_reason_and_the_
     for (job, reason) in [
         (
             assignment(vec![step("echo"), uses]),
-            "step 1 uses the action `actions/checkout@v4`, which agents run from M1 step 33",
+            "step 1 uses the action `actions/checkout@v4`, which the assignment does not resolve",
         ),
         (
             assignment(vec![bad_shell]),

@@ -5,6 +5,8 @@ mod jwt;
 mod webhook;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fs;
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -485,6 +487,35 @@ impl Repository {
     fn tree(&self, reference: &str) -> Option<(&str, &Tree)> {
         let sha = self.resolve(reference)?;
         self.commits.get(sha).map(|tree| (sha, tree))
+    }
+}
+
+pub fn fixture_actions() -> Vec<(String, Vec<u8>)> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat/fixtures/actions");
+    let mut files = Vec::new();
+    collect(&root, "", &mut files);
+    files.sort();
+    files
+}
+
+fn collect(directory: &Path, prefix: &str, files: &mut Vec<(String, Vec<u8>)>) {
+    let entries = fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("{} cannot be listed: {error}", directory.display()));
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|error| panic!("{}: {error}", directory.display()));
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "node_modules" {
+            continue;
+        }
+        let path = entry.path();
+        let relative = format!("{prefix}{name}");
+        if path.is_dir() {
+            collect(&path, &format!("{relative}/"), files);
+        } else {
+            let content = fs::read(&path)
+                .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));
+            files.push((relative, content));
+        }
     }
 }
 

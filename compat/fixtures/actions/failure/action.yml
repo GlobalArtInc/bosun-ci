@@ -1,0 +1,7 @@
+name: Failure
+description: Has a post step that runs only after a failure.
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
+  post-if: failure()

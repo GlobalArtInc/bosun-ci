@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use axum::Json;
-use axum::http::StatusCode;
+use axum::extract::{Path, State};
+use axum::http::header::AUTHORIZATION;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response as HttpResponse};
-use axum::routing::post;
+use axum::routing::{get, post};
 use bosun_proto::agent::v1::agent_message::Message as Inbound;
 use bosun_proto::agent::v1::agent_server::{Agent, AgentServer};
 use bosun_proto::agent::v1::server_message::Message as Outgoing;
@@ -38,7 +41,20 @@ pub struct FakeServer {
     agent_id: AgentId,
     streams: UnboundedReceiver<Stream>,
     registrations: UnboundedReceiver<RegisterAgentRequest>,
+    runtime: Runtime,
     task: JoinHandle<()>,
+}
+
+#[derive(Clone, Default)]
+struct Runtime {
+    files: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
+    requests: Arc<Mutex<Vec<Download>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Download {
+    pub path: String,
+    pub authorization: Option<String>,
 }
 
 #[derive(Clone)]
@@ -97,6 +113,7 @@ impl FakeServer {
         let agent_id: AgentId = Uuid::now_v7().try_into().expect("an agent id");
         let (streams, accepted) = mpsc::unbounded_channel();
         let (registered, registrations) = mpsc::unbounded_channel();
+        let runtime = Runtime::default();
         let routes = Routes::new(AgentServer::new(Fake { streams }))
             .into_axum_router()
             .route(
@@ -106,6 +123,10 @@ impl FakeServer {
                         register(request, agent_id, &registered)
                     },
                 ),
+            )
+            .route(
+                "/_runtime/{*path}",
+                get(download).with_state(runtime.clone()),
             );
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, routes).await;
@@ -115,8 +136,25 @@ impl FakeServer {
             agent_id,
             streams: accepted,
             registrations,
+            runtime,
             task,
         }
+    }
+
+    pub fn serve(&self, path: &str, content: Vec<u8>) {
+        self.runtime
+            .files
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(path.to_owned(), content);
+    }
+
+    pub fn downloads(&self) -> Vec<Download> {
+        self.runtime
+            .requests
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     pub fn url(&self) -> String {
@@ -145,6 +183,53 @@ impl FakeServer {
 impl Drop for FakeServer {
     fn drop(&mut self) {
         self.task.abort();
+    }
+}
+
+async fn download(
+    State(runtime): State<Runtime>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+) -> HttpResponse {
+    let path = format!("/_runtime/{path}");
+    let authorization = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    runtime
+        .requests
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(Download {
+            path: path.clone(),
+            authorization: authorization.clone(),
+        });
+    if authorization.as_deref() != Some(&format!("Bearer {CREDENTIAL}")) {
+        let envelope = ErrorEnvelope {
+            error: ErrorBody::new(
+                ErrorCode::Unauthenticated,
+                "the agent credential is not known",
+            ),
+        };
+        return (StatusCode::UNAUTHORIZED, Json(envelope)).into_response();
+    }
+    let found = runtime
+        .files
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&path)
+        .cloned();
+    match found {
+        Some(content) => (StatusCode::OK, content).into_response(),
+        None => {
+            let envelope = ErrorEnvelope {
+                error: ErrorBody::new(
+                    ErrorCode::NotFound,
+                    format!("the fake server keeps nothing at {path}"),
+                ),
+            };
+            (StatusCode::NOT_FOUND, Json(envelope)).into_response()
+        }
     }
 }
 

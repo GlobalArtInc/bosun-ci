@@ -322,37 +322,20 @@ pub(crate) fn unapplied_at(workflow: &ir::Workflow) -> Option<Unapplied> {
             vec![key("concurrency")],
         ),
         None => workflow.jobs.iter().find_map(|job| {
-            let concurrency = job.concurrency.as_ref().map(|_| {
+            job.concurrency.as_ref().map(|_| {
                 (
-                    "`concurrency`",
+                    format!("`concurrency` of job `{}`", job.key),
                     17,
                     job.span,
                     at(&job.key, &["concurrency"]),
                 )
-            });
-            concurrency
-                .or_else(|| uses_an_action(job))
-                .map(|(key, step, span, path)| {
-                    (format!("{key} of job `{}`", job.key), step, span, path)
-                })
+            })
         })?,
     };
     Some(Unapplied {
         message: format!("{what}, which the planner applies from M1 step {step}"),
         span,
         path,
-    })
-}
-
-fn uses_an_action(job: &ir::JobTemplate) -> Option<(&'static str, u32, Span, Vec<PathSegment>)> {
-    let ir::JobKind::Steps(steps) = &job.kind;
-    steps.iter().enumerate().find_map(|(index, step)| {
-        matches!(step.action, ir::Action::Uses(_)).then(|| {
-            let mut path = at(&job.key, &["steps"]);
-            path.push(PathSegment::Index(index as u64));
-            path.push(key("uses"));
-            ("a `uses` step", 33, step.span, path)
-        })
     })
 }
 
@@ -488,15 +471,29 @@ pub(crate) async fn assign(
     };
     env.extend(job_values.env);
     if let actions::Prepared::Ready {
-        pins: Some(pins),
+        actions,
+        pins,
         notices,
-        ..
     } = prepared
     {
-        bosun_db::actions::pin(run.transaction(), job.id, pins).await?;
-        for notice in notices {
-            run.notice(Some(job.id), &notice.diagnostic(&world.facts.workflow))
-                .await?;
+        if let Some(pins) = pins {
+            bosun_db::actions::pin(run.transaction(), job.id, pins).await?;
+            for notice in notices {
+                run.notice(Some(job.id), &notice.diagnostic(&world.facts.workflow))
+                    .await?;
+            }
+        }
+        let ir::JobKind::Steps(steps) = &claimed.job.kind;
+        let stages = ir::stages(steps, |reference| {
+            actions
+                .iter()
+                .find(|action| &action.uses == reference)
+                .map(|action| match &action.metadata.runs {
+                    ir::Runs::Node(runs) => runs,
+                })
+        });
+        if stages.iter().any(|stage| stage.phase != ir::Phase::Main) {
+            run.record_stages(execution, &stages).await?;
         }
     }
     Ok(Outcome::Assigned(Box::new(Assigned {

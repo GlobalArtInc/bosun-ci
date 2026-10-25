@@ -390,8 +390,11 @@ goes to an agent that reads it, or is cancelled with `no_agent` after `max_queue
 A step's `shell` travels as the IR holds it: `bash`, `sh`, `pwsh`, `python`, or a custom template,
 which must contain `{0}`. The agent answers `Accept` before it starts a job, or `Reject` with the
 reason when it is running another job, when it is stopping, or when the assignment holds something
-it cannot run: a field it does not know, a step that uses an action (until step 33 of
-[../plan.md](../plan.md)), a custom shell without `{0}`, or slugs that are not slugs. After a
+it cannot run: a field it does not know, a step that uses an action its `actions` do not resolve,
+an action whose owner, repository, commit or path cannot name a directory under `work/_actions`,
+whose `download` is not a path on the server or whose `node` is not a version of three numbers, two
+actions whose versions of Node would share one directory of `externals/`
+([Node actions](#node-actions)), a custom shell without `{0}`, or slugs that are not slugs. After a
 `Reject` with its slot free, and whenever its slot becomes free, it sends `Idle`.
 
 ## The execution engine
@@ -401,14 +404,15 @@ it cannot run: a field it does not know, a step that uses an action (until step 
 1. **Prepare.** Create the directories, fetch the actions and tools the job uses from the server,
    and, for jobs that use containers, pull images, create the job's network, start the service
    containers and wait for their health checks, and start the job container.
-2. **Pre steps.** For each Node action with `pre`, in the order the actions appear, run `pre`
-   when `pre-if` holds (default `always()`).
+2. **Pre steps.** For each step that uses a Node action with `pre`, in the order of the steps, run
+   `pre` when `pre-if` holds (default `always()`).
 3. **Main steps.** In order: evaluate `if`, assemble `env`, render the templates, honour
    breakpoints and pause requests at the boundaries, run with `timeout-minutes` and `retry`,
    process the file commands, record outputs and annotations.
-4. **Post steps** in the reverse order of their actions, when `post-if` holds (default
-   `always()`). Then evaluate the job outputs, tear down, and report `JobFinished`, so that a job
-   reported as finished has no process left on the agent and the slot is free for the next one.
+4. **Post steps** for each step that uses a Node action with `post`, in the reverse order of the
+   steps, when `post-if` holds (default `always()`). Then evaluate the job outputs, tear down, and
+   report `JobFinished`, so that a job reported as finished has no process left on the agent and
+   the slot is free for the next one.
 
 ### Main steps
 
@@ -431,8 +435,9 @@ target applies it to every failure of a step whose condition held, and one that 
 counts as false. Each value of the step's `env` sees the `env` context without the step's own
 variables; `working-directory`, `run` and `continue-on-error` see it with them. The agent does not
 render `name`, since no report carries the display name of a step and the server names steps when
-it creates them; `with` belongs to steps that use an action (step 33 of [../plan.md](../plan.md)),
-and `shell` takes no expression ([02-workflows.md](02-workflows.md)).
+it creates them; a step that uses an action renders its `with` after its `env` and sees what `run`
+sees ([Node actions](#node-actions)), and `shell` takes no expression
+([02-workflows.md](02-workflows.md)).
 
 **Defaults.** A step without `shell` runs with the `shell` of `defaults.run` in `evaluated`, or else
 with the default shell below. A step without `working-directory`, or whose `working-directory`
@@ -524,10 +529,11 @@ cancel, `failure` when its status is `failure` or its outputs failed, and `succe
   writes the payload, `github.event`, to `RUNNER_TEMP/_github_workflow/event.json`, the file
   `GITHUB_EVENT_PATH` names, and teardown removes it with the rest of `RUNNER_TEMP`. The cases in
   `contracts/fixtures/steps/` pin these rules.
-- **Node action.** Run with the Node runtime its `using` names, from the agent's tool directory, or
-  mounted into the job container at `/__e/node20` or `/__e/node24`; for images based on musl the
-  musl build is mounted. Inputs arrive as `INPUT_<NAME>`, with the name uppercased and spaces
-  replaced by `_`, defaults applied, and a warning for a missing required input.
+- **Node action.** Run with the Node runtime the assignment names for it, from the agent's
+  `externals/`, or mounted into the job container at `/__e/node20` or `/__e/node24`; for images
+  based on musl the musl build is mounted. Inputs arrive as `INPUT_<NAME>`, with the name uppercased
+  and spaces replaced by `_`, defaults applied, and a warning for a missing required input
+  ([Node actions](#node-actions)).
 - **Composite action.** Its steps run nested under the step that used it, with the `inputs`
   context bound to the action's inputs and with `GITHUB_ACTION_PATH` set; its outputs map from its
   steps.
@@ -538,6 +544,77 @@ cancel, `failure` when its status is `failure` or its outputs failed, and `succe
   `GITHUB_*` environment, and its `entrypoint` and `args`.
 - **`uses: ./path`** loads the action from the workspace; **`uses: docker://image`** runs an image
   as a step.
+
+### Node actions
+
+Step 33 of M1 ([../plan.md](../plan.md)) settled how the agent runs Node actions; the fixture
+actions in `compat/fixtures/actions/`, built with the published toolkit, pin it.
+
+**Stages.** A job's steps run as stages, which `bosun_types::ir::stages` derives from the job's
+steps and the metadata of their actions, so that the server and the agent count them alike: first
+a pre stage for each step that uses an action with `pre`, in the order of the steps; then a main
+stage for every step; last a post stage for each step that uses an action with `post`, in the
+reverse order of the steps. The index of a stage is the `step_index` of every report and log chunk
+about it, and the server creates one step per stage ([04-runs.md](04-runs.md#parts-of-a-run)). The
+target registers a post step when its action's pre or main step starts and runs them as a stack,
+so an action with `pre` has its post step after those of actions without one; Bosun keeps the plain
+reverse order of the steps, which the target produces whenever the actions agree on `pre`.
+
+**Conditions.** A pre stage runs when `pre-if` holds, `always()` without one; a main stage when the
+step's `if` holds, as for any step; a post stage when `post-if` holds, `always()` without one, and
+only after its pre or main stage started, as the target runs only the post steps it registered: a
+post stage whose pre and main stages both did not start, such as that of a skipped step whose action
+has no `pre`, is reported `skipped` without a `StepStarted`. A condition sees the job's status as
+the `if` of a step does, so a post stage after a cancel runs with its `always()` and runs to its
+end, and `post-if: failure()` runs only once the job has failed. A job over its timeout runs no further stage, post
+stages included. The step's `env`, `timeout-minutes` and `continue-on-error` apply to each of its
+stages, as the target applies them; only the main stage gives `steps.<id>` its entry.
+
+**Inputs.** Each stage renders the step's `with`, after its `env`, and every input of the metadata
+that `with` does not name, compared ignoring case, gets its default rendered with the contexts of the
+step, or the empty string without one. Each becomes `INPUT_<NAME>`, the name uppercased and spaces
+replaced by `_`, laid over the environment of a step together with `STATE_<name>` for the state
+saved so far. In the main stage, an input that is required, not named in `with` and without a
+default gives the warning ``the action `<uses>` requires the input `<name>`, which the step does not
+supply``, and a deprecated input that `with` names gives ``the input `<name>` of the action `<uses>`
+is deprecated: <message>``, each an annotation of the step with its line in the log. The toolkit's
+`getInput` would refuse a missing required input only when the action asks it to; the warning makes
+the omission visible either way.
+
+**State.** Each step that uses an action keeps a state of its own: what its pre stage saves, through
+`GITHUB_STATE` or `::save-state`, reaches its main and post stages as `STATE_<name>`, and what its
+main stage saves reaches its post stage. What a post stage saves goes nowhere. Two steps that use
+the same action keep two states.
+
+**Running.** A stage runs `<node> <directory>/<entry>`, the entry being the metadata's `pre`, `main`
+or `post`, in the workspace, with the process handling, file commands and workflow commands of a
+`run` step. `github.action` is the step's `id`, or `__<owner>_<repo>` for a step without one;
+`github.action_path` is the action's directory, `github.action_repository` its `<owner>/<repo>` and
+`github.action_ref` its ref as the step writes it, each mirrored as `GITHUB_ACTION_*`.
+
+**Fetching.** After it accepted a job and before its first stage, the agent fetches what the job's
+actions need from the server it connects to, with its credential as a bearer token, directly and
+without the proxy its configuration gives steps, as its stream connects:
+
+- each action's tarball, once per repository and commit, from its `download`, into
+  `work/_actions/<owner>/<repo>/<commit>` with the owner and the repository in lower case, the
+  tarball's top directory becoming that directory, and an action's `path` below it as its directory.
+  A directory that exists is complete and is used again by later jobs, since its commit pins it;
+- each version of Node the actions run on, from
+  `/_runtime/tools/node/<version>/<platform>.tar.xz`, into `externals/node<major>`, its top
+  directory becoming that directory and `bin/node` its program. `externals/node<major>.version`
+  records `<version> <platform>`, so a directory of another version, or of a fetch that stopped
+  before it recorded one, is fetched again and replaced. Two versions of one major version in one
+  assignment would share a directory, and the agent rejects the assignment.
+
+`<platform>` is `<os>-<arch>`, `linux-x64` or `linux-arm64`, with `-musl` on a host whose `/lib` or
+`/lib64` holds the loader of musl, `ld-musl-*`, and no loader of glibc, `ld-linux*`, since a host of
+glibc may carry musl's loader too. An agent built for macOS, which only developers run, asks for
+`darwin-<arch>`, which the server does not serve. An archive is written to `.<name>.download` beside its directory,
+unpacked into `.<name>.partial` with every entry kept inside it, and only then renamed into place,
+so an interrupted fetch leaves no directory that looks complete. A fetch that fails, an answer other
+than `200` among them, fails the job in its first stage with ``the job could not be prepared on
+this agent: <address> answered <status>: <message>`` and runs no stage after it.
 
 ### File commands and workflow commands
 
@@ -556,10 +633,10 @@ What `GITHUB_ENV` sets reaches the environment and the `env` context of the late
 job's `env`; what `GITHUB_PATH` adds goes to the front of their `PATH`, and a directory added again
 moves to the front. Neither changes the step that wrote it. `GITHUB_OUTPUT` sets the outputs of the
 step, the last value of a name winning, which `StepFinished` reports and `steps.<id>.outputs` shows
-from the next step on. `GITHUB_STATE` is read and checked like the others; its values are the state
-that the pre, main and post steps of a Node action pass on to each other, which arrive with them
-(step 33 of [../plan.md](../plan.md)). The cases in `contracts/fixtures/file-commands/` pin these
-rules.
+from the next step on. `GITHUB_STATE` is read and checked like the others; its values, and those of
+`::save-state`, are the state that the pre and main steps of a Node action pass on to the steps of
+the same action after them ([Node actions](#node-actions)), and a script's state goes nowhere, as in
+the target. The cases in `contracts/fixtures/file-commands/` pin these rules.
 
 Step 23 of M1 ([../plan.md](../plan.md)) settled the step summary, the workflow commands and the
 problem matchers below.
@@ -767,7 +844,8 @@ container actions need `podman` in every case.
   work/_temp                           RUNNER_TEMP
   work/_actions/<owner>/<repo>/<commit>
   tools/                               RUNNER_TOOL_CACHE
-  externals/node20, node24             Node runtimes for actions
+  externals/node<major>                Node runtimes for actions, such as node24
+  externals/node<major>.version        the version and platform each of them holds
   spool/<execution>/<seq>-<step>       unacknowledged log chunks
 ```
 

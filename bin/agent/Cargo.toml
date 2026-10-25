@@ -12,12 +12,15 @@ bosun-runner.workspace = true
 bosun-types.workspace = true
 chrono = { workspace = true, features = ["std"] }
 clap.workspace = true
+flate2.workspace = true
 getrandom.workspace = true
+lzma-rust2.workspace = true
 reqwest = { workspace = true, features = ["json", "rustls-tls-webpki-roots"] }
 rustix = { workspace = true, features = ["fs", "system"] }
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tar.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-stream.workspace = true
 toml = { workspace = true, features = ["display"] }
 tonic = { workspace = true, features = ["channel", "tls-ring", "tls-webpki-roots"] }
@@ -27,6 +30,8 @@ tracing-subscriber = { workspace = true, features = ["fmt", "json", "std"] }
 [dev-dependencies]
 axum = { workspace = true, features = ["http1", "http2", "json", "tokio"] }
 bosun-expr.workspace = true
+bosun-workflow.workspace = true
+lzma-rust2 = { workspace = true, features = ["encoder"] }
 prost.workspace = true
 prost-types.workspace = true
 rustix = { workspace = true, features = ["process"] }

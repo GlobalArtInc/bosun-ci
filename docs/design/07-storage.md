@@ -89,7 +89,7 @@ job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, 
              capabilities text[], actions jsonb, pinned_agent_id, carried_from,
              queued_at, started_at, completed_at
 execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
-             completed_at, log_bytes, log_compacted_at
+             completed_at, log_bytes, log_compacted_at, stages jsonb
 step         id, execution_id, parent_step_id, index, name, status, outcome, conclusion,
              conclusion_source, outputs jsonb, started_at, completed_at
 log_chunk    execution_id, seq, step_id, data bytea, dropped
@@ -198,7 +198,12 @@ They arrived with step 27 of [../plan.md](../plan.md).
 A job's `actions` are the commits its first assignment pinned for the actions its steps use, a list
 of `{"owner", "repository", "ref", "commit"}` with the owner and the repository in lower case, and
 `null` until then or for a job without a `uses`; they arrived with the action store (step 32 of
-[../plan.md](../plan.md)), together with two tables of what the object store keeps for agents.
+[../plan.md](../plan.md)), together with two tables of what the object store keeps for agents. An
+execution's `stages` are the stages of its assignment, a list of `{"phase", "step"}` with the phase
+`pre`, `main` or `post` and the index of the step in the job template, written in the transaction
+that sends the assignment when an action of the job has a pre or a post step and `null` otherwise;
+the agent's `Accept` creates one step per stage ([04-runs.md](04-runs.md#parts-of-a-run)). They
+arrived with Node actions (step 33).
 `action_ref` holds `id, owner, repository, sha, key, size, sha256, metadata jsonb, created_at`, one
 row per commit of an action repository, unique by owner, repository and commit, where `key` is the
 tarball's object, `sha256` its digest and `metadata` maps the path of every `action.yml` and

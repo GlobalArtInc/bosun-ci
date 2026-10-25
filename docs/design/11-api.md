@@ -405,9 +405,8 @@ A step that adds an endpoint adds its row here.
   `inputs.<name>`. A disabled workflow, and a current revision that this server's parser refuses,
   are `409 invalid_state`, the latter with its diagnostics. So is, until the planner applies it, a
   revision that uses a key the planner would otherwise ignore, so that a run never quietly differs
-  from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md) and a step that uses an
-  action until step 33, because the assignment carries resolved actions from step 32 on but no agent
-  runs them before. The message names the key and the step that brings it.
+  from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md). The message names the
+  key and the step that brings it.
 - `POST /projects/{project}/events` sends the project an event of the kind `repository_dispatch`,
   as the forge's own endpoint for it does, and needs `run.dispatch`. It takes `event_type`, 1 to
   100 characters, which is the event's `action`, and `client_payload`, an object of at most 10

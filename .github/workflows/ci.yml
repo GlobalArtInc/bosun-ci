@@ -133,8 +133,11 @@ jobs:
           tests=$(cargo test --workspace --no-run --message-format=json \
             | jq -r 'select(.reason == "compiler-artifact" and .target.kind == ["test"] and .target.name == "runner") | .executable')
           test -x "$tests"
+          node=$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")
           docker run --rm --init --privileged --cgroupns=private \
             -e BOSUN_TEST_REQUIRE_CGROUPS=1 \
+            -e PATH=/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            -v "$node:/opt/node:ro" \
             -v "$tests:/usr/local/bin/runner-tests:ro" \
             -v "$PWD:$PWD:ro" \
             debian:13 runner-tests

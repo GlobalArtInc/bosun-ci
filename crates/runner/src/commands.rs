@@ -20,6 +20,7 @@ pub(crate) struct Commands {
 pub(crate) struct Written {
     pub(crate) env: Vec<(String, String)>,
     pub(crate) outputs: Vec<(String, String)>,
+    pub(crate) state: Vec<(String, String)>,
     pub(crate) paths: Vec<String>,
     pub(crate) faults: Vec<String>,
 }
@@ -82,9 +83,10 @@ impl Commands {
         };
         let env = pairs_of("GITHUB_ENV", &self.env);
         let outputs = pairs_of("GITHUB_OUTPUT", &self.output);
-        pairs_of("GITHUB_STATE", &self.state);
+        let state = pairs_of("GITHUB_STATE", &self.state);
         written.env = env;
         written.outputs = outputs;
+        written.state = state;
         match read(&self.path) {
             Ok(text) => {
                 written.paths = lines(&text)

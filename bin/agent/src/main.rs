@@ -2,6 +2,7 @@ mod agent;
 mod backoff;
 mod config;
 mod connection;
+mod fetch;
 mod host;
 mod job;
 mod register;

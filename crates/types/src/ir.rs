@@ -649,6 +649,56 @@ pub enum NodeRuntime {
     Node24,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    Pre,
+    Main,
+    Post,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage {
+    pub phase: Phase,
+    pub step: u32,
+}
+
+pub fn stages<'a>(
+    steps: &[Step],
+    runs: impl Fn(&ActionReference) -> Option<&'a NodeRuns>,
+) -> Vec<Stage> {
+    let numbered: Vec<(u32, &Step)> = (0..).zip(steps).collect();
+    let hooked = |step: &Step, phase: Phase| match &step.action {
+        Action::Uses(reference) => runs(reference).is_some_and(|runs| match phase {
+            Phase::Pre => runs.pre.is_some(),
+            Phase::Main => true,
+            Phase::Post => runs.post.is_some(),
+        }),
+        Action::Run { .. } => false,
+    };
+    let pre = numbered
+        .iter()
+        .filter(|(_, step)| hooked(step, Phase::Pre))
+        .map(|(index, _)| Stage {
+            phase: Phase::Pre,
+            step: *index,
+        });
+    let main = numbered.iter().map(|(index, _)| Stage {
+        phase: Phase::Main,
+        step: *index,
+    });
+    let post = numbered
+        .iter()
+        .rev()
+        .filter(|(_, step)| hooked(step, Phase::Post))
+        .map(|(index, _)| Stage {
+            phase: Phase::Post,
+            step: *index,
+        });
+    pre.chain(main).chain(post).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Shell {

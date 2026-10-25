@@ -12,8 +12,12 @@ Bosun is checked.
   what they recorded, `expr.json`.
 - `fixtures/`: the fixtures of the tools of this directory: `inventory/`, a tree of workflows with
   its inventory, and `recordings/`, cases with their workflow, a log of its run and the recordings
-  imported from it. From M1 step 33, `fixtures/actions/` holds Bosun's own fixture actions, built
-  with the toolkit.
+  imported from it. `fixtures/actions/` holds Bosun's own fixture actions, `first`, `second` and
+  `failure`, built with the toolkit: their sources are in `src/<action>/`, and
+  `corepack pnpm install && corepack pnpm build` in that directory bundles each into
+  `<action>/dist/`, which is committed so that tests need no package registry. The tests of the
+  runner run them from this directory, the agent's tests from a tarball of it, and the server's
+  tests through the fake forge.
 - `actions/<owner>/<repo>/<ref>/`: upstream actions vendored for the end-to-end scenarios, each with
   its upstream commit and the SHA-256 of its tarball, from M1 step 46.
 

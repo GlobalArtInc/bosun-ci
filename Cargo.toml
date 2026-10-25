@@ -39,6 +39,7 @@ hmac = "0.12"
 http-body = "1"
 ipnet = "2"
 jsonschema = { version = "0.56", default-features = false }
+lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz"] }
 prost = "0.14"
 prost-types = "0.14"
 proptest = { version = "1", default-features = false, features = ["std"] }
@@ -84,4 +85,7 @@ uuid = { version = "1", default-features = false, features = ["std", "serde"] }
 opt-level = 3
 
 [profile.dev.package.blake2]
+opt-level = 3
+
+[profile.dev.package.lzma-rust2]
 opt-level = 3

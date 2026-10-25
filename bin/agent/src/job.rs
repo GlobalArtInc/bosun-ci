@@ -1,4 +1,5 @@
 use std::io;
+use std::path::{Component, Path};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -7,9 +8,9 @@ use bosun_proto::agent::v1::{
     Annotation as Reported, AnnotationKind as ReportedKind, Assignment, Conclusion as Concluded,
     JobFinished, StepFinished, StepStarted,
 };
-use bosun_proto::assignment::Documents;
+use bosun_proto::assignment::{self, Documents};
 use bosun_runner::{
-    Annotation, AnnotationKind, BosunFacts, Completed, Event, Job, Runner, Tracking,
+    Annotation, AnnotationKind, BosunFacts, Completed, Event, Job, NodeAction, Runner, Tracking,
 };
 use bosun_types::id::ExecutionId;
 use bosun_types::ir::{self, Action, JobKind, Shell};
@@ -24,6 +25,7 @@ use tokio::time::{Instant, sleep_until};
 use tracing::{info, warn};
 
 use crate::config::Config;
+use crate::fetch::{Archive, Compression, Fetches};
 use crate::host;
 use crate::spool::Spool;
 
@@ -53,6 +55,7 @@ impl Running {
 pub(crate) struct Prepared {
     execution: ExecutionId,
     job: Job,
+    fetches: Fetches,
 }
 
 impl Prepared {
@@ -86,12 +89,13 @@ pub(crate) fn prepare(
         job,
         contexts,
         evaluated,
-        actions: _,
+        actions,
     } = Documents::read(&assignment)?;
     let JobKind::Steps(steps) = &job.kind;
     for (index, step) in (0..).zip(steps) {
-        runnable(index, step)?;
+        runnable(index, step, &actions)?;
     }
+    let (actions, archives) = local(&actions, &config.dir, &host::platform())?;
     let bosun = BosunFacts {
         url: property(&contexts.bosun, "url"),
         run_id: property(&contexts.bosun, "run_id"),
@@ -125,9 +129,129 @@ pub(crate) fn prepare(
             template: job,
             contexts,
             evaluated,
+            actions,
+            fetched: Ok(()),
             minute: MINUTE,
         },
+        fetches: Fetches {
+            url: config.url.clone(),
+            credential: config.credential.clone(),
+            archives,
+        },
     })
+}
+
+fn local(
+    actions: &[assignment::Action],
+    dir: &Path,
+    platform: &str,
+) -> Result<(Vec<NodeAction>, Vec<Archive>), String> {
+    let mut local = Vec::new();
+    let mut archives: Vec<Archive> = Vec::new();
+    let mut runtimes: Vec<(String, String)> = Vec::new();
+    for action in actions {
+        let uses = &action.uses;
+        let owner = uses.owner.to_lowercase();
+        let repository = uses.repository.to_lowercase();
+        let commit = action.commit.as_str();
+        if [owner.as_str(), repository.as_str()]
+            .iter()
+            .any(|part| !segment(part))
+            || !commit.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || commit.len() < 7
+        {
+            return Err(format!(
+                "the action `{uses}` at `{commit}` names no directory this agent can fetch it into"
+            ));
+        }
+        if !action.download.starts_with('/') {
+            return Err(format!(
+                "the action `{uses}` has the download address `{}`, which is not a path on the \
+                 server",
+                action.download
+            ));
+        }
+        let root = dir
+            .join("work/_actions")
+            .join(&owner)
+            .join(&repository)
+            .join(commit);
+        let directory = match &uses.path {
+            Some(path) if inside(path) => root.join(path),
+            Some(path) => {
+                return Err(format!(
+                    "the action `{uses}` has the path `{path}`, which leaves its repository"
+                ));
+            }
+            None => root.clone(),
+        };
+        if !archives.iter().any(|archive| archive.into == root) {
+            archives.push(Archive {
+                path: action.download.clone(),
+                compression: Compression::Gzip,
+                into: root,
+                marker: None,
+            });
+        }
+        let major = node_major(&action.node).ok_or_else(|| {
+            format!(
+                "the action `{uses}` runs on Node `{}`, which is not a version",
+                action.node
+            )
+        })?;
+        let externals = dir.join("externals");
+        let runtime = format!("node{major}");
+        match runtimes.iter().find(|(known, _)| *known == runtime) {
+            Some((_, version)) if *version != action.node => {
+                return Err(format!(
+                    "the assignment runs actions on Node {version} and {}, which would share \
+                     {}",
+                    action.node,
+                    externals.join(&runtime).display()
+                ));
+            }
+            Some(_) => {}
+            None => {
+                runtimes.push((runtime.clone(), action.node.clone()));
+                archives.push(Archive {
+                    path: format!("/_runtime/tools/node/{}/{platform}.tar.xz", action.node),
+                    compression: Compression::Xz,
+                    into: externals.join(&runtime),
+                    marker: Some((
+                        externals.join(format!("{runtime}.version")),
+                        format!("{} {platform}\n", action.node),
+                    )),
+                });
+            }
+        }
+        local.push(NodeAction {
+            uses: uses.clone(),
+            directory,
+            node: externals.join(&runtime).join("bin/node"),
+            metadata: action.metadata.clone(),
+        });
+    }
+    Ok((local, archives))
+}
+
+fn segment(part: &str) -> bool {
+    !matches!(part, "" | "." | "..") && !part.contains(['/', '\\', '\0'])
+}
+
+fn inside(path: &str) -> bool {
+    !path.is_empty()
+        && Path::new(path)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn node_major(version: &str) -> Option<&str> {
+    let parts: Vec<&str> = version.split('.').collect();
+    (parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())))
+    .then_some(parts[0])
 }
 
 fn repository(github: &Map<String, Value>) -> Result<Option<&str>, String> {
@@ -160,10 +284,12 @@ fn property(context: &Map<String, Value>, name: &str) -> String {
         .to_owned()
 }
 
-fn runnable(index: u32, step: &ir::Step) -> Result<(), String> {
-    if let Action::Uses(reference) = &step.action {
+fn runnable(index: u32, step: &ir::Step, actions: &[assignment::Action]) -> Result<(), String> {
+    if let Action::Uses(reference) = &step.action
+        && !actions.iter().any(|action| &action.uses == reference)
+    {
         return Err(format!(
-            "step {index} uses the action `{reference}`, which agents run from M1 step 33"
+            "step {index} uses the action `{reference}`, which the assignment does not resolve"
         ));
     }
     if let Some(Shell::Custom(template)) = &step.shell {
@@ -180,10 +306,17 @@ pub(crate) fn start(
     spool: Arc<Spool>,
     out: UnboundedSender<Out>,
 ) -> Running {
-    let Prepared { execution, job } = prepared;
+    let Prepared {
+        execution,
+        mut job,
+        fetches,
+    } = prepared;
     let (cancel, cancelled) = watch::channel(false);
     let (events, received) = mpsc::unbounded_channel();
-    let runner = async move { bosun_runner::run(job, &tracking, events, cancelled).await };
+    let runner = async move {
+        job.fetched = fetches.run().await;
+        bosun_runner::run(job, &tracking, events, cancelled).await
+    };
     let pump = Pump {
         execution,
         spool,
@@ -384,18 +517,19 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use bosun_proto::agent::v1::Assignment;
-    use bosun_proto::assignment::{Contexts, Documents, Evaluated};
+    use bosun_proto::assignment::{self, Contexts, Documents, Evaluated};
     use bosun_runner::Event;
     use bosun_types::id::ExecutionId;
     use bosun_types::ir::{
-        Action, Defaults, Evaluable, JobKind, JobTemplate, RunsOn, SecretReferences, Shell, Span,
-        Step, Template,
+        Action, ActionMetadata, ActionReference, Defaults, Evaluable, JobKind, JobTemplate,
+        NodeRuns, NodeRuntime, Runs, RunsOn, SecretReferences, Shell, Span, Step, Template,
     };
     use serde_json::{Map, Value, json};
     use tokio::sync::mpsc;
 
-    use super::{Out, Pump, prepare};
+    use super::{Out, Pump, local, prepare};
     use crate::config::Config;
+    use crate::fetch::{Archive, Compression};
     use crate::spool::Spool;
 
     const EXECUTION: &str = "0199a5f2-2c6f-7a3e-8a3b-5f0d4c1e2b3a";
@@ -586,6 +720,155 @@ mod tests {
                      workspace"
                 )
             );
+        }
+    }
+
+    const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn resolved(owner: &str, path: Option<&str>, node: &str) -> assignment::Action {
+        assignment::Action {
+            uses: ActionReference {
+                owner: owner.to_owned(),
+                repository: "Actions".to_owned(),
+                path: path.map(str::to_owned),
+                r#ref: "v1".to_owned(),
+            },
+            commit: COMMIT.to_owned(),
+            download: format!(
+                "/_runtime/actions/{}/actions/{COMMIT}.tar.gz",
+                owner.to_lowercase()
+            ),
+            metadata: ActionMetadata {
+                name: None,
+                description: None,
+                author: None,
+                branding: None,
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                runs: Runs::Node(NodeRuns {
+                    using: NodeRuntime::Node16,
+                    main: "main.js".to_owned(),
+                    pre: None,
+                    pre_if: None,
+                    post: None,
+                    post_if: None,
+                }),
+            },
+            node: node.to_owned(),
+        }
+    }
+
+    #[test]
+    fn actions_go_under_their_commit_and_node_under_its_major_version_each_fetched_once() {
+        let dir = PathBuf::from("/var/lib/bosun/agents/1");
+        let (actions, archives) = local(
+            &[
+                resolved("Bosun-Fixtures", Some("first"), "24.21.0"),
+                resolved("Bosun-Fixtures", Some("second/nested"), "24.21.0"),
+                resolved("acme", None, "20.19.5"),
+            ],
+            &dir,
+            "linux-x64",
+        )
+        .expect("local actions");
+        let root = dir.join(format!("work/_actions/bosun-fixtures/actions/{COMMIT}"));
+        assert_eq!(
+            actions
+                .iter()
+                .map(|action| (action.directory.clone(), action.node.clone()))
+                .collect::<Vec<_>>(),
+            [
+                (root.join("first"), dir.join("externals/node24/bin/node")),
+                (
+                    root.join("second/nested"),
+                    dir.join("externals/node24/bin/node")
+                ),
+                (
+                    dir.join(format!("work/_actions/acme/actions/{COMMIT}")),
+                    dir.join("externals/node20/bin/node")
+                ),
+            ]
+        );
+        assert_eq!(
+            archives,
+            [
+                Archive {
+                    path: format!("/_runtime/actions/bosun-fixtures/actions/{COMMIT}.tar.gz"),
+                    compression: Compression::Gzip,
+                    into: root,
+                    marker: None,
+                },
+                Archive {
+                    path: "/_runtime/tools/node/24.21.0/linux-x64.tar.xz".to_owned(),
+                    compression: Compression::Xz,
+                    into: dir.join("externals/node24"),
+                    marker: Some((
+                        dir.join("externals/node24.version"),
+                        "24.21.0 linux-x64\n".to_owned()
+                    )),
+                },
+                Archive {
+                    path: format!("/_runtime/actions/acme/actions/{COMMIT}.tar.gz"),
+                    compression: Compression::Gzip,
+                    into: dir.join(format!("work/_actions/acme/actions/{COMMIT}")),
+                    marker: None,
+                },
+                Archive {
+                    path: "/_runtime/tools/node/20.19.5/linux-x64.tar.xz".to_owned(),
+                    compression: Compression::Xz,
+                    into: dir.join("externals/node20"),
+                    marker: Some((
+                        dir.join("externals/node20.version"),
+                        "20.19.5 linux-x64\n".to_owned()
+                    )),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn actions_that_would_leave_their_directories_or_share_one_runtime_are_refused() {
+        let dir = PathBuf::from("/var/lib/bosun/agents/1");
+        let mut commit = resolved("acme", None, "24.21.0");
+        commit.commit = "../../../etc".to_owned();
+        let mut download = resolved("acme", None, "24.21.0");
+        download.download = "https://elsewhere.example/a.tar.gz".to_owned();
+        for (actions, expected) in [
+            (
+                vec![resolved("..", None, "24.21.0")],
+                "the action `../Actions@v1` at `0123456789abcdef0123456789abcdef01234567` names \
+                 no directory this agent can fetch it into",
+            ),
+            (
+                vec![commit],
+                "the action `acme/Actions@v1` at `../../../etc` names no directory this agent can \
+                 fetch it into",
+            ),
+            (
+                vec![resolved("acme", Some("../escape"), "24.21.0")],
+                "the action `acme/Actions/../escape@v1` has the path `../escape`, which leaves its \
+                 repository",
+            ),
+            (
+                vec![download],
+                "the action `acme/Actions@v1` has the download address \
+                 `https://elsewhere.example/a.tar.gz`, which is not a path on the server",
+            ),
+            (
+                vec![resolved("acme", None, "24")],
+                "the action `acme/Actions@v1` runs on Node `24`, which is not a version",
+            ),
+            (
+                vec![
+                    resolved("acme", None, "24.21.0"),
+                    resolved("other", None, "24.22.1"),
+                ],
+                "the assignment runs actions on Node 24.21.0 and 24.22.1, which would share \
+                 /var/lib/bosun/agents/1/externals/node24",
+            ),
+        ] {
+            let refused = local(&actions, &dir, "linux-x64").expect_err("a refusal");
+            assert_eq!(refused, expected);
         }
     }
 

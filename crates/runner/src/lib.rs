@@ -12,5 +12,5 @@ mod workflow_commands;
 
 pub use annotation::{Annotation, AnnotationKind};
 pub use bosun_workflow::github::BosunFacts;
-pub use engine::{Completed, Event, Job, Runner, run};
+pub use engine::{Completed, Event, Job, NodeAction, Runner, run};
 pub use tracking::Tracking;

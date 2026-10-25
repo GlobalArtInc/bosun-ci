@@ -1,3 +1,4 @@
+mod actions;
 mod cancel;
 mod cases;
 #[cfg(target_os = "linux")]
@@ -101,6 +102,8 @@ pub fn job(directory: &Path, steps: Vec<Step>) -> Job {
             timeout_minutes: 360,
             continue_on_error: false,
         },
+        actions: Vec::new(),
+        fetched: Ok(()),
         minute: Duration::from_secs(60),
     }
 }

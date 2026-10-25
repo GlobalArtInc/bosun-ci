@@ -1,0 +1,16 @@
+name: Second
+description: >-
+  Runs a pre, a main and a post step on the Node that the server runs node16 on, and declares a
+  required input and a deprecated one.
+inputs:
+  name:
+    description: Required, without a default.
+    required: true
+  former:
+    description: Deprecated.
+    deprecationMessage: Use `name` instead.
+runs:
+  using: node16
+  pre: dist/pre.js
+  main: dist/main.js
+  post: dist/post.js

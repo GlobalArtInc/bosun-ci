@@ -1,0 +1,12 @@
+{
+  "name": "bosun-fixture-actions",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@actions/core": "3.0.1",
+    "esbuild": "0.28.2"
+  }
+}

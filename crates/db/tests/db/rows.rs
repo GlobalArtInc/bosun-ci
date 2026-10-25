@@ -373,6 +373,9 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         completed_at: ActiveValue::Set(None),
         log_bytes: ActiveValue::Set(40),
         log_compacted_at: ActiveValue::Set(None),
+        stages: ActiveValue::Set(Some(
+            json!([{ "phase": "pre", "step": 0 }, { "phase": "main", "step": 0 }]),
+        )),
     }
     .insert(db)
     .await
