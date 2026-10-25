@@ -18,8 +18,24 @@ Bosun is checked.
   `<action>/dist/`, which is committed so that tests need no package registry. The tests of the
   runner run them from this directory, the agent's tests from a tarball of it, and the server's
   tests through the fake forge.
-- `actions/<owner>/<repo>/<ref>/`: upstream actions vendored for the end-to-end scenarios, each with
-  its upstream commit and the SHA-256 of its tarball, from M1 step 46.
+- `actions/<owner>/<repo>/<ref>/`: upstream actions vendored for the end-to-end scenarios, from M1
+  step 46. Each is `tarball.tar.gz`, the tarball the forge serves for the upstream commit that
+  `<ref>` names, and `manifest.json` with that `commit` and the tarball's `sha256`. The fake forge
+  serves each as the public repository `<owner>/<repo>` holding the tarball's files at the
+  upstream commit, with the tag `<ref>` at it, so the server resolves `<owner>/<repo>@<ref>` to
+  the same commit as on GitHub.
+
+## Vendored actions
+
+`actions/checkout/v4` is `actions/checkout@v4` at its release v4.4.0, the commit
+`11d5960a326750d5838078e36cf38b85af677262`. Vendoring an action, or moving one to the commit its
+ref names now, takes the tarball from the forge and records its hash:
+
+```sh
+commit=$(git ls-remote https://github.com/<owner>/<repo> refs/tags/<ref> | cut -f1)
+curl -fsSL -o tarball.tar.gz https://api.github.com/repos/<owner>/<repo>/tarball/$commit
+shasum -a 256 tarball.tar.gz
+```
 
 ## Workflows and their inventory
 

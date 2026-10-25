@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use axum::middleware::{self, Next};
@@ -21,7 +21,7 @@ use super::git::{self, Node};
 use super::{
     APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, PULL_REQUEST_FILES,
     RecordedAnnotation, RecordedCheckRun, RecordedDownload, RecordedOutput, RecordedRequest,
-    RecordedStatus, Repository, Shared, State as Model, events, jwt,
+    RecordedStatus, Repository, Shared, State as Model, events, jwt, transport,
 };
 
 type Fake = State<Arc<Shared>>;
@@ -128,6 +128,17 @@ impl IntoResponse for Answer {
 }
 
 pub(super) fn router(shared: Arc<Shared>) -> Router {
+    let git = Router::new()
+        .route("/{owner}/{repo}/info/refs", get(transport::advertise))
+        .route(
+            "/{owner}/{repo}/git-upload-pack",
+            post(transport::upload_pack),
+        )
+        .route(
+            "/{owner}/{repo}/git-receive-pack",
+            post(transport::receive_pack),
+        )
+        .layer(DefaultBodyLimit::disable());
     Router::new()
         .route("/api/v3/app", get(app))
         .route(
@@ -144,6 +155,7 @@ pub(super) fn router(shared: Arc<Shared>) -> Router {
             "/api/v3/installation/repositories",
             get(installation_repositories),
         )
+        .route("/api/v3/repos/{owner}/{repo}", get(repository))
         .route("/api/v3/repos/{owner}/{repo}/contents", get(contents_root))
         .route(
             "/api/v3/repos/{owner}/{repo}/contents/{*path}",
@@ -186,12 +198,13 @@ pub(super) fn router(shared: Arc<Shared>) -> Router {
             "/codeload/{owner}/{repo}/legacy.tar.gz/{sha}",
             get(codeload),
         )
+        .merge(git)
         .fallback(missing)
         .layer(middleware::from_fn_with_state(Arc::clone(&shared), observe))
         .with_state(shared)
 }
 
-async fn missing() -> Response {
+pub(super) async fn missing() -> Response {
     Answer::not_found().into_response()
 }
 
@@ -349,6 +362,24 @@ async fn user(Path(login): Path<String>) -> Response {
     } else {
         Answer::not_found().into_response()
     }
+}
+
+async fn repository(
+    State(shared): Fake,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let full_name = format!("{owner}/{repo}");
+    let mut model = shared.lock();
+    let installation = match model.reader(&headers, &full_name, "metadata") {
+        Ok(installation) => installation,
+        Err(refused) => return refused.into_response(),
+    };
+    let answer = match model.repositories.get(&full_name) {
+        Some(found) => Answer::json(StatusCode::OK, &events::repository(&shared, &model, found)),
+        None => Answer::not_found(),
+    };
+    conditional(&mut model, &headers, installation, answer)
 }
 
 #[derive(Deserialize)]
@@ -1213,7 +1244,7 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
         .or_else(|| value.strip_prefix("token "))
 }
 
-fn level(access: &str) -> u8 {
+pub(super) fn level(access: &str) -> u8 {
     match access {
         "read" => 1,
         "write" | "admin" => 2,

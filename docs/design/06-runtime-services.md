@@ -222,20 +222,38 @@ with a path. It holds, in memory:
   request without a token for a private repository is answered `404`, as the forge answers it. A commit is the
   full tree of paths and blob hashes, the hashes being git's own, with its parents, which
   `git/commits/<sha>` serves, and a commit to a new branch starts from the default branch. A test
-  renames a repository, which keeps its id;
+  may also record a commit under a hash it gives, without parents and with a tag at it, which is
+  how an upstream action is served under its upstream commit. A test renames a repository, which
+  keeps its id;
 - the token endpoints. `/app` and the access token endpoint accept only a JWT that verifies against
   the public key of the App's fixture key and whose claims keep the forge's limits. A minted token
   is recorded with its installation, repositories and permissions; a request for a repository or a
   permission the installation lacks is refused with `422`, as the forge does; `DELETE
   /installation/token` revokes, and `/app/installations/<id>` answers what an installation holds. A
   token minted without repositories has the selection `all` and covers every repository of its
-  installation, those created or renamed after it included, as the forge's does. Tokens live an hour
-  unless a test shortens it;
+  installation, those created or renamed after it included, as the forge's does. A test may mint a
+  token of an installation without the App's JWT, with the selection `all` and the permissions it
+  names, to push with. Tokens live an hour unless a test shortens it;
 - `/installation/repositories`, the repositories a token covers, in pages of 30 by default and 100
   at most with `Link` headers;
-- the repository endpoints the client uses. Each checks that the token is live, covers the
-  repository and holds the permission the endpoint needs (`contents`, `pull_requests`, `checks` or
+- the repository endpoints the client uses, and `/repos/<owner>/<repo>`, which the toolkit reads
+  for a repository's default branch. Each checks that the token is live, covers the repository and
+  holds the permission the endpoint needs (`contents`, `metadata`, `pull_requests`, `checks` or
   `statuses`), and refuses with the forge's `401`, `404` and `403`;
+- git over the smart HTTP protocol, in a fake started with a directory to serve git from
+  (`FakeForge::serving_git`), as M1 step 46 ([../plan.md](../plan.md)) settled. Each repository is
+  a bare git repository in that directory, named by the repository's id so that a rename keeps it,
+  served by `git http-backend` at `/<owner>/<repo>` and `/<owner>/<repo>.git`: `info/refs`,
+  `git-upload-pack` and `git-receive-pack`, protocol version 2 included. Git authenticates with
+  HTTP basic, any user name and an installation token as the password, as `actions/checkout` sends
+  it. A fetch needs a live token that covers the repository and holds `contents: read`, or none for
+  a public repository; a push needs `contents: write`. A request without a live token is answered
+  `401` with the forge's challenge, a token that does not cover the repository `404`
+  (`Repository not found.`), and one without the permission `403`. A push becomes the fake's own:
+  the commits it brings with their parents, trees and blobs, and the branches and tags it moves,
+  which moves the merge commits of pull requests as a commit of a test does. The repositories
+  accept pushes from shallow clones, so a shallow checkout of CI pushes its commit alone. Commits a
+  test makes in memory are not in git, so a test that fetches pushes what it fetches;
 - weak `ETag`s and `304` for a matching `If-None-Match`, and a rate limit per installation that a
   test sets, which counts every answer but a `304` and, once spent, refuses with the forge's `403`
   and its headers;
@@ -260,6 +278,10 @@ with a path. It holds, in memory:
 
 The App's keys for tests are fixtures in `crates/testkit/keys/`: `app.pem`, in PKCS#1, is the
 fake App's key, and `foreign.pem`, in PKCS#8, is a key the fake does not know.
+
+The fake also runs as a process, `bosun-fake-forge` of `bosun-testkit`, which serves git and the
+upstream actions vendored in `compat/actions/` and takes a test's calls as JSON on a second port;
+`hack/e2e.sh` runs it ([12-operations.md](12-operations.md#end-to-end-tests)).
 
 ## The `github` context and the environment
 

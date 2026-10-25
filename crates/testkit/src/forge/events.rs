@@ -215,7 +215,7 @@ pub(super) fn repository(shared: &Shared, state: &State, repository: &Repository
         "node_id": node_id("R", repository.id),
         "name": repository.name,
         "full_name": format!("{}/{}", repository.owner, repository.name),
-        "private": true,
+        "private": !repository.public,
         "owner": {
             "login": repository.owner,
             "id": account.account_id,
@@ -232,7 +232,7 @@ fn listed(repository: &Repository) -> Value {
         "node_id": node_id("R", repository.id),
         "name": repository.name,
         "full_name": format!("{}/{}", repository.owner, repository.name),
-        "private": true,
+        "private": !repository.public,
     })
 }
 

@@ -550,3 +550,83 @@ when the next release will refuse them.
    repository, the required checks of its branch protection are bound to Bosun's App instead of
    GitHub Actions (their names stay the same), and the copy in `.bosun/` is deleted. Repository by
    repository, the same steps.
+
+## End-to-end tests
+
+`hack/e2e.sh` runs the scenarios of the exit checklists of [../plan.md](../plan.md) against real
+binaries: two replicas of `bosun-server` on one database of `BOSUN_TEST_DATABASE_URL` with the
+directory store, agents with the `shell` capability, the CLI, and from M1 step 46 the fake forge of
+[06-runtime-services.md](06-runtime-services.md#the-fake-forge) as a process, whose App both
+replicas are configured with. `hack/e2e.sh <scenario>…` runs some of them. M1 step 46 settled how
+the fake runs and how its address resolves.
+
+**The fake forge as a process.** `bosun-fake-forge --data <directory> --actions <directory>`, a
+binary of `bosun-testkit`, runs `FakeForge` serving git from the data directory, and serves every
+action vendored under the actions directory, `compat/actions/<owner>/<repo>/<ref>/` with its
+`tarball.tar.gz` and `manifest.json` ([compat/README.md](../../compat/README.md)), as the public
+repository `<owner>/<repo>` holding the tarball's files at the manifest's `commit` with the tag
+`<ref>` at it. It listens on two free ports of `127.0.0.1`, the forge's (the REST API under
+`/api/v3`, git at the root) and its control's, and then prints one line:
+
+```json
+{"message": "listening", "forge": "127.0.0.1:<port>", "control": "127.0.0.1:<port>", "app_id": 4242, "webhook_secret": "<secret>"}
+```
+
+The control takes and answers JSON and does what a test does with the fake in process:
+
+| Request | Does |
+|---------|------|
+| `POST /installations` `{"account", "permissions"}` | installs the App on an account; answers `{"id"}` |
+| `POST /repositories` `{"installation", "full_name", "public"}` | creates a repository of the installation's account; answers `{"id"}` |
+| `POST /tokens` `{"installation", "permissions"}` | mints a token of the installation without the App's JWT; answers `{"token"}` |
+| `POST /pulls` `{"repository", "base", "head", "fork"}` | opens a pull request between two branches, from the fork of the login `fork` when given; answers `{"number"}` |
+| `PUT /hook` `{"url"}` | sets the address the App's webhooks go to |
+| `POST /deliveries` `{"event": "installation", "installation", "action"}`, `{"event": "push", "repository", "ref", "before", "after", "sender"}` or `{"event": "pull_request", "repository", "number", "action", "sender"}` | builds that event from the fake's state, signs it and sends it to the hook; answers `{"delivery", "status"}` with the status the receiver answered |
+| `GET /check-runs`, `GET /statuses` | the check runs and commit statuses the fake recorded |
+
+A sender is `{"login", "id"}`. The script starts the fake before the servers, gives both replicas
+`github.app_id`, the fixture key `crates/testkit/keys/app.pem` and the printed webhook secret, and
+on the first scenario that needs the forge installs the App on `GlobalArtInc` with its repositories,
+points the hook at replica `a`, delivers the `installation` event and binds a project to each
+repository. A repository gets its commits by `git push` with a token the control minted, and an
+event is delivered only when a scenario asks for it, with the sender it names, as a test in process
+sends the events of the commits it makes.
+
+**The address and how it resolves.** `github.server_url` is `http://forge.localhost:<port>`. The
+toolkit takes a host under `.localhost` for the forge itself rather than for an enterprise server,
+which M2's artifact and cache scenarios rely on, and every step of a forge-bound run sees that
+address in `GITHUB_SERVER_URL`. `github.api_url` is `http://127.0.0.1:<port>/api/v3`, the same
+listener by its address, so the servers and the toolkit reach the API without resolving a name.
+Only git uses the name, since `actions/checkout` fetches from `<server_url>/<owner>/<repo>`: the
+agents run with `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=http.curloptResolve` and
+`GIT_CONFIG_VALUE_0=forge.localhost:<port>:127.0.0.1`, which every step inherits, so git connects
+to the fake's loopback address whatever the host does with `*.localhost`: systemd-resolved and
+nss-myhostname answer `::1` before `127.0.0.1`, where another process may hold the same port, and a
+host without either does not resolve the name at all. `.localhost` joins `NO_PROXY`.
+
+**Node.** The server takes Node from `tools.node_upstream`. On Linux the script packs the host's own
+`node` as `v<version>/node-v<version>-linux-<arch>.tar.xz` with its `SHASUMS256.txt` in a `file:`
+upstream of its work directory and maps `tools.node20` and `tools.node24` to that version, so
+nothing is fetched from the internet; `actions/checkout@v4`, which declares `node20`, runs on it.
+The server hands Node to Linux agents only, so the scenarios that run actions, `push` and
+`bosun-ci`, say that they are skipped on another system, such as macOS, and run in CI. `bosun-ci`
+also needs an X64 host, since the workflows of `.bosun/workflows/` run on
+`[self-hosted, Linux, X64]`.
+
+**The scenarios of M1** through the fake forge:
+
+- `push`: a pushed repository whose `.bosun/workflows/ci.yml` checks out with `actions/checkout@v4`,
+  reads a file of the checkout into an output in a matrix of two, and hands it to a dependent job.
+  The run succeeds, the fake holds one successful check run per job, both members of the matrix
+  included, the dependent job's stored log shows the value, and the host of the
+  `GITHUB_SERVER_URL` a step prints ends in `.localhost`;
+- `fork`: a pull request from a fork under the default fork policy creates no run, and the fake
+  records the error status `bosun/fork-policy` on its head;
+- `refusals`: users created through the API sign in with their passwords and create tokens; through
+  the CLI, the viewer's dispatch and the developer's write of a secret are refused, naming the
+  permission each lacks;
+- `bosun-ci`: the checkout's `HEAD`, pushed as `GlobalArtInc/bosun-ci`, runs every workflow of
+  `.bosun/workflows/` on the shell agents, each with conclusion `success`.
+
+The secret printed raw, as JSON and as base64 is the scenario `secrets`, against a project without
+a repository.

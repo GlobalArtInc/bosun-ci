@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
-scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface"
+scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface push fork refusals bosun-ci"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -31,13 +31,19 @@ for name in $(compgen -e); do
     BOSUN_*) unset "$name" ;;
   esac
 done
-export NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
+export NO_PROXY="127.0.0.1,localhost,.localhost${NO_PROXY:+,$NO_PROXY}"
 export no_proxy="$NO_PROXY"
 
-tools="cargo curl jq psql python3"
+tools="cargo curl git jq psql python3"
 case " $selected " in
   *" interface "*) tools="$tools corepack node" ;;
 esac
+checkout=""
+if [ "$(uname -s)" = Linux ]; then
+  case " $selected " in
+    *" push "* | *" bosun-ci "*) checkout=yes tools="$tools node" ;;
+  esac
+fi
 for tool in $tools; do
   command -v "$tool" >/dev/null || { echo "hack/e2e.sh needs $tool on the PATH" >&2; exit 1; }
 done
@@ -46,11 +52,13 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 work="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/bosun-e2e.XXXXXX")" && pwd -P)"
 export XDG_CONFIG_HOME="$work/config"
 mkdir -p "$work/logs" "$work/agents" "$work/workflows" "$work/out" "$work/gates" "$work/store"
+mkdir -p "$work/forge" "$work/repositories"
 database="bosun_e2e_$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
 databases=""
 current="setup"
 started=""
 serves=0
+forge_installation=""
 
 finish() {
   local status=$?
@@ -1308,14 +1316,285 @@ scenario_interface() {
   passed
 }
 
+fake() {
+  local method="$1" path="$2"
+  shift 2
+  curl -sS --noproxy '*' --fail-with-body -X "$method" -H 'Content-Type: application/json' "$@" \
+    "http://$forge_control$path"
+}
+
+deliver() {
+  local answer
+  answer="$(fake POST /deliveries --data "$1")" || fail "the fake forge did not deliver $1: $answer"
+  [ "$(jq -r .status <<<"$answer")" = 202 ] || fail "the server answered the delivery $1 with $answer"
+}
+
+push_event() {
+  jq -cn --arg repository "$1" --arg after "$2" '{
+    event: "push", repository: $repository, ref: "refs/heads/main",
+    before: "0000000000000000000000000000000000000000", after: $after,
+    sender: {login: "mona", id: 9001}
+  }'
+}
+
+local_git() {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 git \
+    -c user.name=Mona -c user.email=mona@example.org -c commit.gpgsign=false "$@"
+}
+
+commit_all() {
+  local_git -C "$1" add --all
+  local_git -C "$1" commit --quiet --message "$2"
+  committed="$(local_git -C "$1" rev-parse HEAD)"
+}
+
+forge_push() {
+  local directory="$1" repository="$2" out="$work/out/forge-push.txt"
+  shift 2
+  local_git -C "$directory" -c http.extraHeader="Authorization: Basic $pusher" push --quiet \
+    --no-verify "http://$forge_address/$repository.git" "$@" >"$out" 2>&1 ||
+    fail "git push $* to $repository in the fake forge failed: $(cat "$out")"
+}
+
+forge_ready() {
+  local repository answer deadline token
+  [ -z "$forge_installation" ] || return 0
+  answer="$(fake POST /installations --data '{"account": "GlobalArtInc", "permissions": {"checks": "write",
+    "contents": "read", "metadata": "read", "pull_requests": "read", "statuses": "write"}}')" ||
+    fail "the fake forge did not install the App: $answer"
+  forge_installation="$(jq -r .id <<<"$answer")"
+  for repository in e2e e2e-fork bosun-ci; do
+    fake POST /repositories --data "$(jq -cn --argjson installation "$forge_installation" \
+      --arg name "GlobalArtInc/$repository" '{installation: $installation, full_name: $name}')" >/dev/null ||
+      fail "the fake forge did not create GlobalArtInc/$repository"
+  done
+  token="$(fake POST /tokens --data "$(jq -cn --argjson installation "$forge_installation" \
+    '{installation: $installation, permissions: {contents: "write"}}')" | jq -r .token)" ||
+    fail "the fake forge minted no token to push with"
+  pusher="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
+  fake PUT /hook --data "$(jq -cn --arg url "http://$address_a/hooks/github" '{url: $url}')" ||
+    fail "the fake forge did not take the address of the webhooks"
+  deliver "$(jq -cn --argjson installation "$forge_installation" \
+    '{event: "installation", installation: $installation, action: "created"}')"
+  for repository in e2e e2e-fork bosun-ci; do
+    deadline=$((SECONDS + 60))
+    until answer="$(api POST /api/v1/projects --data "$(jq -cn --arg slug "$repository" \
+      '{organisation: "globalartinc", slug: $slug, name: $slug, repository: ("GlobalArtInc/" + $slug)}')" 2>&1)"; do
+      [ "$SECONDS" -lt "$deadline" ] ||
+        fail "the project globalartinc/$repository could not be bound to its repository: $answer"
+      sleep 0.5
+    done
+  done
+}
+
+on_linux() {
+  [ "$(uname -s)" = Linux ] && return 0
+  echo "scenario $current: skipped on $(uname -s): the server hands Node only to Linux agents, and the scenario runs actions/checkout"
+  return 1
+}
+
+await_runs() {
+  local project="$1" count="$2" seconds="$3" deadline
+  deadline=$((SECONDS + seconds))
+  until runs="$(api GET "/api/v1/runs?project=$project&limit=100")" &&
+    [ "$(jq '[.items[] | select(.status == "completed")] | length' <<<"$runs")" -ge "$count" ]; do
+    [ "$SECONDS" -lt "$deadline" ] ||
+      fail "$count runs of $project did not complete within ${seconds}s: $(jq -c '[.items[] | {display_name, status, conclusion}]' <<<"$runs" 2>/dev/null)"
+    sleep 1
+  done
+}
+
+explain_runs() {
+  local run job
+  for run in $(jq -r '.items[] | select(.conclusion != "success") | .id' <<<"$runs"); do
+    cli --profile a run show "$run" >&2 || true
+    for job in $(api GET "/api/v1/runs/$run/attempts/1/jobs" | jq -r '.items[].id'); do
+      cli --profile a job logs "$job" >&2 || true
+    done
+  done
+}
+
+scenario_push() {
+  begin push \
+    "a push through the fake forge runs a workflow with actions/checkout, a matrix of two and job outputs, with one check run per job"
+  on_linux || return 0
+  forge_ready
+  local repository="$work/repositories/e2e" greeting sha run jobs job checks expected server deadline
+  greeting="checked out $(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+  local_git init --quiet --initial-branch=main "$repository"
+  mkdir -p "$repository/.bosun/workflows"
+  printf '%s\n' "$greeting" >"$repository/greeting.txt"
+  cat >"$repository/.bosun/workflows/ci.yml" <<'YAML'
+name: checkout
+on: push
+jobs:
+  build:
+    strategy:
+      matrix:
+        half: [left, right]
+    runs-on: [self-hosted, alpha]
+    outputs:
+      greeting: ${{ steps.read.outputs.greeting }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          echo "server $GITHUB_SERVER_URL"
+          echo "greeting=$(cat greeting.txt)" >> "$GITHUB_OUTPUT"
+  report:
+    needs: build
+    runs-on: [self-hosted, beta]
+    steps:
+      - run: echo "the build read ${{ needs.build.outputs.greeting }}"
+YAML
+  commit_all "$repository" "check out, a matrix and outputs"
+  sha="$committed"
+  forge_push "$repository" GlobalArtInc/e2e main
+  deliver "$(push_event GlobalArtInc/e2e "$sha")"
+  await_runs globalartinc/e2e 1 300
+  run="$(jq -r '.items[0].id' <<<"$runs")"
+  if [ "$(jq -r '.items[0].conclusion' <<<"$runs")" != success ]; then
+    explain_runs
+    fail "the run of the push did not succeed: $(jq -c '.items[0]' <<<"$runs")"
+  fi
+  expected='[{"name":"build (left)","status":"completed","conclusion":"success"},{"name":"build (right)","status":"completed","conclusion":"success"},{"name":"report","status":"completed","conclusion":"success"}]'
+  deadline=$((SECONDS + 60))
+  until checks="$(fake GET /check-runs | jq -c --arg sha "$sha" '[.[] | select(.repository == "GlobalArtInc/e2e"
+    and .head_sha == $sha) | {name, status, conclusion}] | sort_by(.name)')" && [ "$checks" = "$expected" ]; do
+    [ "$SECONDS" -lt "$deadline" ] ||
+      fail "the fake forge does not hold one successful check run per job: $checks"
+    sleep 0.5
+  done
+  jobs="$(api GET "/api/v1/runs/$run/attempts/1/jobs")" || fail "the jobs of run $run could not be read"
+  job="$(jq -r '.items[] | select(.key == "report") | .id' <<<"$jobs")"
+  cli --profile b job logs "$job" >"$work/out/push-report.txt" 2>&1 ||
+    fail "bosun job logs of report failed: $(cat "$work/out/push-report.txt")"
+  grep -qE "^[^ ]+ the build read $greeting\$" "$work/out/push-report.txt" ||
+    fail "the log of the dependent job does not show the output: $(cat "$work/out/push-report.txt")"
+  for job in $(jq -r '.items[] | select(.key == "build" and .matrix != null) | .id' <<<"$jobs"); do
+    cli --profile a job logs "$job" >"$work/out/push-build.txt" 2>&1 ||
+      fail "bosun job logs of build failed: $(cat "$work/out/push-build.txt")"
+    server="$(sed -n 's/^[^ ]* server //p' "$work/out/push-build.txt" | head -n 1)"
+    python3 - "$server" <<'PY' ||
+import sys
+import urllib.parse
+
+sys.exit(0 if (urllib.parse.urlsplit(sys.argv[1]).hostname or "").endswith(".localhost") else 1)
+PY
+      fail "a step printed the GITHUB_SERVER_URL '$server', whose host does not end in .localhost"
+  done
+  echo "the steps printed the GITHUB_SERVER_URL $server"
+  passed
+}
+
+scenario_fork() {
+  begin fork \
+    "a fork pull request under the default policy creates no run, and the fake forge records the status of the fork policy"
+  forge_ready
+  local repository="$work/repositories/e2e-fork" head number statuses deadline found
+  local_git init --quiet --initial-branch=main "$repository"
+  mkdir -p "$repository/.bosun/workflows"
+  cat >"$repository/.bosun/workflows/fork.yml" <<'YAML'
+name: fork
+on: pull_request
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - run: echo "a run from a fork"
+YAML
+  commit_all "$repository" "a workflow for pull requests"
+  local_git -C "$repository" checkout --quiet -b patch
+  printf 'from a fork\n' >"$repository/patch.txt"
+  commit_all "$repository" "a change from a fork"
+  head="$committed"
+  forge_push "$repository" GlobalArtInc/e2e-fork main patch
+  number="$(fake POST /pulls --data '{"repository": "GlobalArtInc/e2e-fork", "base": "main", "head": "patch",
+    "fork": "mallory"}' | jq -r .number)" || fail "the fake forge did not open the pull request"
+  deliver "$(jq -cn --argjson number "$number" '{event: "pull_request", repository: "GlobalArtInc/e2e-fork",
+    number: $number, action: "opened", sender: {login: "mallory", id: 9002}}')"
+  deadline=$((SECONDS + 60))
+  until statuses="$(fake GET /statuses | jq -c --arg sha "$head" \
+    '[.[] | select(.repository == "GlobalArtInc/e2e-fork" and .sha == $sha)]')" &&
+    [ "$(jq length <<<"$statuses")" -gt 0 ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the fake forge recorded no status of the pull request's head"
+    sleep 0.5
+  done
+  found="$(jq -c '[.[] | {context, state, description}]' <<<"$statuses")"
+  [ "$found" = '[{"context":"bosun/fork-policy","state":"error","description":"Bosun runs no workflow for pull requests from forks in this project"}]' ] ||
+    fail "the fake forge recorded the statuses $found"
+  [ "$(api GET "/api/v1/runs?project=globalartinc/e2e-fork" | jq '.items | length')" -eq 0 ] ||
+    fail "the fork pull request created a run: $(api GET "/api/v1/runs?project=globalartinc/e2e-fork")"
+  passed
+}
+
+scenario_refusals() {
+  begin refusals "through the CLI, a viewer's dispatch and a developer's write of a secret are refused"
+  local refused="$work/out/refusals.txt"
+  member m1-viewer viewer '["project.view"]'
+  member m1-developer developer '["project.view", "run.dispatch", "run.cancel"]'
+  push refusals <<'EOF'
+name: refusals
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, nowhere]
+    steps:
+      - run: echo never
+EOF
+  if cli --profile m1-viewer workflow dispatch e2e/m0/refusals >"$refused" 2>&1; then
+    fail "a viewer dispatched a run: $(cat "$refused")"
+  fi
+  expect_line "$refused" 'error: `m1-viewer` does not hold `run.dispatch` on project `m0`' \
+    "the refusal of the viewer's dispatch did not say why"
+  [ "$(cli --profile a --json workflow show e2e/m0/refusals | jq -r .latest_run)" = null ] ||
+    fail "the refused dispatch left a run"
+  if printf '%s\n' 'never stored' | cli --profile m1-developer secret set m1_refused --project e2e/m0 \
+    >"$refused" 2>&1; then
+    fail "a developer wrote a secret: $(cat "$refused")"
+  fi
+  expect_line "$refused" 'error: `m1-developer` does not hold `secret.manage` on project `m0`' \
+    "the refusal of the developer's secret did not say why"
+  cli --profile a secret list --project e2e/m0 >"$refused" 2>&1 || fail "bosun secret list failed: $(cat "$refused")"
+  if grep -q '^M1_REFUSED ' "$refused"; then
+    fail "the refused secret was stored: $(cat "$refused")"
+  fi
+  passed
+}
+
+scenario_bosun_ci() {
+  begin bosun-ci \
+    "the current commit, pushed into the fake forge as GlobalArtInc/bosun-ci, runs every workflow of .bosun/workflows on the shell agent with conclusion success"
+  on_linux || return 0
+  if [ "$(uname -m)" != x86_64 ]; then
+    echo "scenario $current: skipped on $(uname -m): the workflows of .bosun/workflows run on [self-hosted, Linux, X64]"
+    return 0
+  fi
+  forge_ready
+  local sha workflows
+  sha="$(git -C "$root" rev-parse HEAD)"
+  workflows="$(git -C "$root" ls-tree --name-only HEAD .bosun/workflows/ | grep -cE '\.ya?ml$')"
+  forge_push "$root" GlobalArtInc/bosun-ci HEAD:refs/heads/main
+  deliver "$(push_event GlobalArtInc/bosun-ci "$sha")"
+  await_runs globalartinc/bosun-ci "$workflows" 900
+  [ "$(jq '.items | length' <<<"$runs")" -eq "$workflows" ] ||
+    fail "the push of $sha ran $(jq '.items | length' <<<"$runs") workflows, not the $workflows of .bosun/workflows"
+  if jq -e 'any(.items[]; .conclusion != "success")' <<<"$runs" >/dev/null; then
+    explain_runs
+    fail "a workflow of .bosun/workflows did not succeed: $(jq -c '[.items[] | {display_name, conclusion}]' <<<"$runs")"
+  fi
+  echo "$(jq -r '[.items[].display_name] | join(", ")' <<<"$runs") completed with success at $sha"
+  passed
+}
+
 case " $selected " in
   *" interface "*)
     echo "building the interface"
     (cd "$root/web" && corepack pnpm install --frozen-lockfile && corepack pnpm build)
     ;;
 esac
-echo "building bosun-server, bosun-agent and bosun"
-cargo build --manifest-path "$root/Cargo.toml" -p bosun-server-bin -p bosun-agent -p bosun-cli
+echo "building bosun-server, bosun-agent, bosun and bosun-fake-forge"
+cargo build --manifest-path "$root/Cargo.toml" -p bosun-server-bin -p bosun-agent -p bosun-cli -p bosun-testkit
 target="$(cargo metadata --manifest-path "$root/Cargo.toml" --format-version 1 --no-deps |
   jq -r .target_directory)"
 bin="$target/debug"
@@ -1324,12 +1603,56 @@ create_database "$database"
 database_url="$created_url"
 kek="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 printf '[server]\nlisten = "127.0.0.1:0"\nmetrics_listen = "127.0.0.1:0"\n' >"$work/server.toml"
+
+spawn fake-forge "$work/logs/fake-forge.log" "$bin/bosun-fake-forge" --data "$work/forge" \
+  --actions "$root/compat/actions"
+await_line "$work/logs/fake-forge.log" '"message":"listening"' 60 "the fake forge listening"
+listening="$(jq -Rc 'fromjson? | select(.message == "listening")' "$work/logs/fake-forge.log" | head -n 1)"
+forge_address="$(jq -r .forge <<<"$listening")"
+forge_control="$(jq -r .control <<<"$listening")"
+forge_host="forge.localhost:${forge_address##*:}"
+jq -r .webhook_secret <<<"$listening" >"$work/webhook-secret"
+echo "the fake forge serves http://$forge_host at $forge_address"
 settings=(
   "BOSUN_DATABASE_URL=$database_url"
   "BOSUN_DATABASE_MAX_CONNECTIONS=8"
   "BOSUN_KEYS_KEK=$kek"
   "BOSUN_STORE_PATH=$work/store"
+  "BOSUN_GITHUB_APP_ID=$(jq -r .app_id <<<"$listening")"
+  "BOSUN_GITHUB_PRIVATE_KEY_FILE=$root/crates/testkit/keys/app.pem"
+  "BOSUN_GITHUB_WEBHOOK_SECRET_FILE=$work/webhook-secret"
+  "BOSUN_GITHUB_SERVER_URL=http://$forge_host"
+  "BOSUN_GITHUB_API_URL=http://$forge_address/api/v3"
 )
+
+if [ -n "$checkout" ]; then
+  node_version="$(node -p 'process.versions.node')"
+  python3 - "$(node -p 'process.execPath')" "$work/node" "$node_version" "linux-$(node -p 'process.arch')" <<'PY' ||
+import hashlib
+import os
+import sys
+import tarfile
+
+node, upstream, version, platform = sys.argv[1:]
+name = "node-v%s-%s" % (version, platform)
+directory = os.path.join(upstream, "v" + version)
+os.makedirs(directory)
+archive = os.path.join(directory, name + ".tar.xz")
+with tarfile.open(archive, "w:xz", preset=0) as packed:
+    packed.add(node, arcname=name + "/bin/node")
+with open(archive, "rb") as packed:
+    digest = hashlib.sha256(packed.read()).hexdigest()
+with open(os.path.join(directory, "SHASUMS256.txt"), "w") as sums:
+    sums.write("%s  %s.tar.xz\n" % (digest, name))
+PY
+    fail "the Node of the host could not be packed"
+  settings+=(
+    "BOSUN_TOOLS_NODE_UPSTREAM=file://$work/node"
+    "BOSUN_TOOLS_NODE20=$node_version"
+    "BOSUN_TOOLS_NODE24=$node_version"
+  )
+  echo "packed Node $node_version of the host as the upstream of the agents' Node"
+fi
 
 owner_token="$(server admin create e2e 2>"$work/logs/admin.log")" || fail "bosun-server admin create failed"
 serve a 127.0.0.1:0
@@ -1359,7 +1682,8 @@ for agent in alpha:a beta:b; do
     --token "$registration" --name "e2e-$name" --dir "$work/agents/$name" --label "$name" \
     >"$work/logs/register-$name.log" 2>&1 ||
     fail "bosun-agent register of $name failed: $(cat "$work/logs/register-$name.log")"
-  spawn "agent-$name" "$work/logs/agent-$name.log" \
+  spawn "agent-$name" "$work/logs/agent-$name.log" env GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=http.curloptResolve GIT_CONFIG_VALUE_0="$forge_host:127.0.0.1" \
     "$bin/bosun-agent" run --config "$work/agents/$name.toml"
 done
 deadline=$((SECONDS + 60))

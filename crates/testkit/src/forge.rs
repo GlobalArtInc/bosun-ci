@@ -2,11 +2,12 @@ mod api;
 mod events;
 mod git;
 mod jwt;
+mod transport;
 mod webhook;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -14,6 +15,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use ring::signature::RsaKeyPair;
 use rustls_pki_types::PrivateKeyDer;
 use rustls_pki_types::pem::PemObject;
+use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use url::Url;
@@ -65,7 +67,7 @@ pub struct MintedToken {
     pub revoked: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RecordedCheckRun {
     pub id: u64,
     pub repository: String,
@@ -77,14 +79,14 @@ pub struct RecordedCheckRun {
     pub output: Option<RecordedOutput>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RecordedOutput {
     pub title: String,
     pub summary: String,
     pub annotations: Vec<RecordedAnnotation>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RecordedAnnotation {
     pub path: String,
     pub start_line: u64,
@@ -110,7 +112,7 @@ pub struct RecordedDownload {
     pub commit: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RecordedStatus {
     pub repository: String,
     pub sha: String,
@@ -122,6 +124,7 @@ pub struct RecordedStatus {
 
 struct Shared {
     api: Url,
+    git: Option<PathBuf>,
     public_key: Vec<u8>,
     webhook_secret: String,
     http: reqwest::Client,
@@ -183,6 +186,16 @@ struct Bucket {
 
 impl FakeForge {
     pub async fn start() -> FakeForge {
+        FakeForge::launch(None).await
+    }
+
+    pub async fn serving_git(root: PathBuf) -> FakeForge {
+        fs::create_dir_all(&root)
+            .unwrap_or_else(|error| panic!("{} cannot be created: {error}", root.display()));
+        FakeForge::launch(Some(root)).await
+    }
+
+    async fn launch(git: Option<PathBuf>) -> FakeForge {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .unwrap_or_else(|error| panic!("the fake forge cannot listen: {error}"));
@@ -197,6 +210,7 @@ impl FakeForge {
             .unwrap_or_else(|error| panic!("the fake forge has no HTTP client: {error}"));
         let shared = Arc::new(Shared {
             api,
+            git,
             public_key: public_key(APP_KEY),
             webhook_secret: Uuid::now_v7().simple().to_string(),
             http,
@@ -263,6 +277,9 @@ impl FakeForge {
             "installation {installation} belongs to `{account}`, which does not own {full_name}"
         );
         let id = state.allocate();
+        if let Some(root) = &self.shared.git {
+            transport::create(root, id, DEFAULT_BRANCH);
+        }
         state.repositories.insert(
             full_name.to_owned(),
             Repository {
@@ -362,6 +379,32 @@ impl FakeForge {
         sha
     }
 
+    pub fn vendor<P, C>(
+        &self,
+        repository: &str,
+        tag: &str,
+        commit: &str,
+        files: impl IntoIterator<Item = (P, C)>,
+    ) where
+        P: AsRef<str>,
+        C: AsRef<[u8]>,
+    {
+        let mut state = self.shared.lock();
+        let repository = state.repository(repository);
+        let mut tree = Tree::new();
+        for (path, content) in files {
+            let content = content.as_ref();
+            let sha = git::blob_sha(content);
+            repository.blobs.insert(sha.clone(), content.to_vec());
+            tree.insert(path.as_ref().to_owned(), sha);
+        }
+        repository.commits.insert(commit.to_owned(), tree);
+        repository.parents.insert(commit.to_owned(), Vec::new());
+        repository
+            .refs
+            .insert(format!("refs/tags/{tag}"), commit.to_owned());
+    }
+
     pub fn tag(&self, repository: &str, tag: &str, commit: &str) {
         let mut state = self.shared.lock();
         let repository = state.repository(repository);
@@ -454,6 +497,30 @@ impl FakeForge {
     pub fn set_token_lifetime(&self, lifetime: Duration) {
         self.shared.lock().token_lifetime = TimeDelta::from_std(lifetime)
             .unwrap_or_else(|error| panic!("{lifetime:?} is not a token lifetime: {error}"));
+    }
+
+    pub fn mint(&self, installation: u64, permissions: &[(&str, &str)]) -> String {
+        let mut state = self.shared.lock();
+        assert!(
+            state.installations.contains_key(&installation),
+            "the fake forge has no installation {installation}"
+        );
+        let token = format!("ghs_{}", Uuid::now_v7().simple());
+        let repositories = state.installation_repositories(installation);
+        let expires_at = Utc::now() + state.token_lifetime;
+        state.tokens.push(MintedToken {
+            token: token.clone(),
+            installation,
+            repository_selection: ALL_REPOSITORIES.to_owned(),
+            repositories: repositories.into_iter().collect(),
+            permissions: permissions
+                .iter()
+                .map(|(name, access)| ((*name).to_owned(), (*access).to_owned()))
+                .collect(),
+            expires_at,
+            revoked: false,
+        });
+        token
     }
 
     pub fn tokens(&self) -> Vec<MintedToken> {
