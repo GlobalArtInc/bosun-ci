@@ -56,6 +56,8 @@ const GITHUB_HOST: &str = "github.com";
 
 const GITHUB_API: &str = "https://api.github.com";
 
+const GITHUB_SERVER: &str = "https://github.com";
+
 const ENTERPRISE_API: [&str; 2] = ["api", "v3"];
 
 const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m or h, such as 30s";
@@ -80,6 +82,7 @@ pub(crate) struct GitHub {
     pub(crate) app_id: u64,
     pub(crate) private_key_file: PathBuf,
     pub(crate) webhook_secret_file: PathBuf,
+    pub(crate) server_url: Url,
     pub(crate) api_url: Url,
 }
 
@@ -333,6 +336,10 @@ impl Config {
         }
         let store = store(file.store, &data_dir)?;
         let github = github(file.github)?;
+        let site = match &github {
+            Some(github) => site.with_forge(&github.server_url, &github.api_url),
+            None => site,
+        };
         let agent_binaries = path("agents", "binary_dir", file.agents.binary_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_AGENT_BINARIES));
         Ok(Config {
@@ -437,10 +444,10 @@ fn github(file: GitHubFile) -> Result<Option<GitHub>, Error> {
             ),
         ));
     };
-    let api_url = match (api_url, server_url) {
+    let api_url = match (api_url, &server_url) {
         (Some(api_url), _) => api_url,
         (None, Some(server_url)) if server_url.host_str() != Some(GITHUB_HOST) => {
-            let mut api_url = server_url;
+            let mut api_url = server_url.clone();
             if let Ok(mut segments) = api_url.path_segments_mut() {
                 segments.pop_if_empty().extend(ENTERPRISE_API);
             }
@@ -449,10 +456,16 @@ fn github(file: GitHubFile) -> Result<Option<GitHub>, Error> {
         (None, _) => Url::parse(GITHUB_API)
             .map_err(|error| invalid("github", "api_url", format!("has no default: {error}")))?,
     };
+    let server_url = match server_url {
+        Some(server_url) => server_url,
+        None => Url::parse(GITHUB_SERVER)
+            .map_err(|error| invalid("github", "server_url", format!("has no default: {error}")))?,
+    };
     Ok(Some(GitHub {
         app_id,
         private_key_file,
         webhook_secret_file,
+        server_url,
         api_url,
     }))
 }

@@ -2,6 +2,7 @@ mod access;
 mod cancel;
 mod evaluation;
 mod events;
+mod forge_events;
 mod identity;
 mod journal;
 mod logs;
@@ -73,6 +74,7 @@ async fn state(
         site: Site::default(),
         sign_in: Arc::new(settings),
         forge: None,
+        parses: Arc::new(crate::forge_events::Parses::default()),
     }
 }
 
@@ -173,6 +175,9 @@ impl World {
                 workflow: stored,
                 revision_id: stored.revision_id.expect("a current revision"),
                 ir: workflow,
+                event: "workflow_dispatch",
+                git_ref: None,
+                sha: None,
                 payload: &payload,
                 actor: &operator(),
             },

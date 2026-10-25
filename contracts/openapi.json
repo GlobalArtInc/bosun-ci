@@ -134,6 +134,28 @@
           },
           {
             "properties": {
+              "id": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "forge",
+                "type": "string"
+              },
+              "login": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "login"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
               "kind": {
                 "const": "system",
                 "type": "string"
@@ -1591,6 +1613,20 @@
         ],
         "type": "object"
       },
+      "PlannedRuns": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/Run"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs"
+        ],
+        "type": "object"
+      },
       "Pool": {
         "properties": {
           "access": {
@@ -1954,6 +1990,24 @@
           "owner",
           "name",
           "default_branch"
+        ],
+        "type": "object"
+      },
+      "RepositoryDispatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_payload": {
+            "additionalProperties": true,
+            "default": {},
+            "type": "object"
+          },
+          "event_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_type",
+          "client_payload"
         ],
         "type": "object"
       },
@@ -3097,6 +3151,18 @@
               "kind"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "kind": {
+                "const": "repository",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
           }
         ]
       }
@@ -4199,6 +4265,62 @@
         ],
         "x-bosun-permission": {
           "key": "project.manage",
+          "on": "project"
+        }
+      }
+    },
+    "/api/v1/projects/{project}/events": {
+      "post": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositoryDispatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRuns"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "run.dispatch",
           "on": "project"
         }
       }

@@ -158,6 +158,15 @@ so a repository is bound to one project at most
 `webhook_delivery` holds `id, delivery, event, payload jsonb, received_at, attempts,
 next_attempt_at, last_error, processed_at`, unique by `delivery`, the forge's id of the delivery.
 
+A workflow's `source_kind` is `server` or `repository`. A repository workflow is named by the path
+of its file and is unique by project and path, which the partial unique index on
+`workflow (project_id, name) where source_kind = 'repository'` keeps, so two replicas that read a
+new file at once create one workflow; a revision of it carries `blob_sha`, the forge's hash of its
+blob, by which the file is found again without reading it, and which is `null` for the revisions of
+server-side workflows ([02-workflows.md](02-workflows.md#repository-workflows)). A run's `ref` and
+`sha` are the ref and the commit of its event, `null` for a run of a project without a repository.
+They arrived with step 27 of [../plan.md](../plan.md).
+
 An agent records its current replica in `agent.replica_id`, which no row references: replicas are
 processes, not rows. `agent.drain` says whether the agent is drained and `agent.deleted_at` when it
 was deleted, `null` while it exists

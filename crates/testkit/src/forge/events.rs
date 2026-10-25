@@ -2,7 +2,76 @@ use serde_json::{Value, json};
 
 use super::{APP_ID, APP_SLUG, FakeForge, Installation, Repository, Shared, State};
 
+pub const NO_COMMIT: &str = "0000000000000000000000000000000000000000";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sender<'a> {
+    pub login: &'a str,
+    pub id: u64,
+}
+
 impl FakeForge {
+    pub fn event(
+        &self,
+        full_name: &str,
+        action: Option<&str>,
+        fields: Value,
+        sender: Sender<'_>,
+    ) -> Value {
+        let state = self.shared.lock();
+        let repository = state
+            .repositories
+            .get(full_name)
+            .unwrap_or_else(|| panic!("the fake forge has no repository {full_name}"));
+        let installation = repository.installation;
+        let mut payload = match fields {
+            Value::Object(fields) => fields,
+            other => panic!("the fields of an event are an object, not {other}"),
+        };
+        if let Some(action) = action {
+            payload.insert("action".to_owned(), json!(action));
+        }
+        payload.insert(
+            "repository".to_owned(),
+            self::repository(&self.shared, &state, repository),
+        );
+        payload.insert(
+            "installation".to_owned(),
+            json!({ "id": installation, "node_id": node_id("I", installation) }),
+        );
+        payload.insert("sender".to_owned(), user(sender));
+        Value::Object(payload)
+    }
+
+    pub fn push_event(
+        &self,
+        full_name: &str,
+        git_ref: &str,
+        before: &str,
+        after: &str,
+        sender: Sender<'_>,
+    ) -> Value {
+        let created = before == NO_COMMIT;
+        let deleted = after == NO_COMMIT;
+        self.event(
+            full_name,
+            None,
+            json!({
+                "ref": git_ref,
+                "before": before,
+                "after": after,
+                "created": created,
+                "deleted": deleted,
+                "forced": false,
+                "base_ref": null,
+                "commits": [],
+                "head_commit": null,
+                "pusher": { "name": sender.login, "email": null },
+            }),
+            sender,
+        )
+    }
+
     pub fn installation_event(&self, installation: u64, action: &str) -> Value {
         let state = self.shared.lock();
         let repositories: Vec<Value> = state
@@ -118,6 +187,15 @@ fn described(id: u64, installation: &Installation) -> Value {
         "permissions": installation.permissions,
         "target_type": "Organization",
     })
+}
+
+fn user(sender: Sender<'_>) -> Value {
+    let kind = if sender.login.ends_with("[bot]") {
+        "Bot"
+    } else {
+        "User"
+    };
+    json!({ "login": sender.login, "id": sender.id, "type": kind })
 }
 
 fn sender(installation: &Installation) -> Value {

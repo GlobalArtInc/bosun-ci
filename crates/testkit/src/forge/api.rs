@@ -19,8 +19,8 @@ use uuid::Uuid;
 
 use super::git::{self, Node};
 use super::{
-    APP_ID, APP_SLUG, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedCheckRun, RecordedStatus,
-    Repository, Shared, State as Model, events, jwt,
+    APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedCheckRun,
+    RecordedStatus, Repository, Shared, State as Model, events, jwt,
 };
 
 type Fake = State<Arc<Shared>>;
@@ -295,7 +295,7 @@ async fn revoke(State(shared): Fake, headers: HeaderMap) -> Response {
 }
 
 async fn user(Path(login): Path<String>) -> Response {
-    if login == format!("{APP_SLUG}[bot]") {
+    if login == BOT.login {
         Answer::json(
             StatusCode::OK,
             &json!({ "login": login, "id": BOT_ID, "type": "Bot" }),

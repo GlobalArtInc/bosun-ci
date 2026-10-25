@@ -13,6 +13,7 @@ mod envelope;
 mod error;
 mod events;
 mod forge;
+mod forge_events;
 mod grpc;
 mod health;
 mod hooks;
@@ -84,6 +85,7 @@ struct AppState {
     clock: clock::Clock,
     sign_in: Arc<sign_in::Settings>,
     forge: Option<Arc<forge::Forge>>,
+    parses: Arc<forge_events::Parses>,
 }
 
 pub async fn serve(
@@ -131,6 +133,7 @@ pub async fn serve(
     let followers = Arc::new(logs::Followers::default());
     let deliveries = Arc::new(Notify::new());
     let events = Arc::new(events::Hub::default());
+    let parses = Arc::new(forge_events::Parses::default());
     let mut tasks = agents::start(
         db.clone(),
         Arc::clone(&replica),
@@ -144,7 +147,13 @@ pub async fn serve(
         },
     );
     if let Some(forge) = &forge {
-        tasks.spawn(hooks::work(db.clone(), Arc::clone(forge), deliveries));
+        tasks.spawn(hooks::work(
+            db.clone(),
+            Arc::clone(forge),
+            deliveries,
+            Arc::clone(&parses),
+            config.site.clone(),
+        ));
     }
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
     tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
@@ -175,6 +184,7 @@ pub async fn serve(
         clock,
         sign_in,
         forge,
+        parses,
     };
     axum::serve(
         listener,

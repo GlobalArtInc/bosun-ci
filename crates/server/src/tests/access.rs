@@ -1005,6 +1005,7 @@ async fn calls(
         ("POST", "/api/v1/workflows/{workflow}/dispatch") => {
             Some(json!({ "ref": null, "inputs": {} }))
         }
+        ("POST", "/api/v1/projects/{project}/events") => Some(json!({ "event_type": "deploy" })),
         ("POST", "/api/v1/registration-tokens") => Some(json!({
             "pool": "default",
             "reusable": false,

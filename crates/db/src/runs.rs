@@ -31,8 +31,6 @@ use crate::{Error, row};
 
 const RUNS: &str = "run";
 
-const DISPATCH: &str = "workflow_dispatch";
-
 const FIRST_ATTEMPT: u8 = 1;
 
 pub struct Locked<'a> {
@@ -106,6 +104,9 @@ pub struct RunFacts {
     pub number: u64,
     pub global_number: u64,
     pub event: String,
+    pub git_ref: Option<String>,
+    pub sha: Option<String>,
+    pub repository: Option<RepositoryFacts>,
     pub payload: Value,
     pub inputs: Value,
     pub actor: Actor,
@@ -115,6 +116,14 @@ pub struct RunFacts {
     pub project: String,
     pub organisation_id: OrganisationId,
     pub project_id: ProjectId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryFacts {
+    pub id: u64,
+    pub owner: String,
+    pub name: String,
+    pub owner_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -264,12 +273,16 @@ impl<'a> Locked<'a> {
         let found = self
             .transaction
             .query_one(statement(
-                "SELECT r.number, r.global_number, r.event, r.trigger, r.inputs, \
+                "SELECT r.number, r.global_number, r.event, r.ref, r.sha, r.trigger, r.inputs, \
                  w.name AS workflow, o.slug AS organisation, p.slug AS project, \
                  o.id AS organisation_id, p.id AS project_id, \
-                 a.actor AS triggering_actor FROM run r \
+                 a.actor AS triggering_actor, f.id AS repository_id, \
+                 f.owner AS repository_owner, f.name AS repository_name, \
+                 i.account_id AS repository_owner_id FROM run r \
                  JOIN workflow w ON w.id = r.workflow_id JOIN project p ON p.id = r.project_id \
                  JOIN organisation o ON o.id = p.organisation_id JOIN attempt a ON a.id = $2 \
+                 LEFT JOIN forge_repository f ON f.id = p.repository_id \
+                 LEFT JOIN forge_installation i ON i.id = f.installation_id \
                  WHERE r.id = $1",
                 [
                     Uuid::from(self.state.id).into(),
@@ -279,10 +292,25 @@ impl<'a> Locked<'a> {
             .await?
             .ok_or_else(|| Error::Vanished(format!("run {}", self.state.id)))?;
         let mut trigger: Value = found.try_get("", "trigger")?;
+        let repository = match (
+            found.try_get::<Option<i64>>("", "repository_id")?,
+            found.try_get::<Option<i64>>("", "repository_owner_id")?,
+        ) {
+            (Some(id), Some(owner_id)) => Some(RepositoryFacts {
+                id: row::unsigned("forge_repository", id)?,
+                owner: found.try_get("", "repository_owner")?,
+                name: found.try_get("", "repository_name")?,
+                owner_id: row::unsigned("forge_installation", owner_id)?,
+            }),
+            _ => None,
+        };
         Ok(RunFacts {
             number: row::unsigned(RUNS, found.try_get("", "number")?)?,
             global_number: row::unsigned(RUNS, found.try_get("", "global_number")?)?,
             event: found.try_get("", "event")?,
+            git_ref: found.try_get("", "ref")?,
+            sha: found.try_get("", "sha")?,
+            repository,
             payload: trigger
                 .get_mut("payload")
                 .map(Value::take)
@@ -496,6 +524,9 @@ pub struct NewRun<'a> {
     pub workflow: &'a Workflow,
     pub revision_id: RevisionId,
     pub ir: &'a ir::Workflow,
+    pub event: &'a str,
+    pub git_ref: Option<&'a str>,
+    pub sha: Option<&'a str>,
     pub payload: &'a Value,
     pub actor: &'a Actor,
 }
@@ -517,10 +548,10 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         number: ActiveValue::Set(number),
         global_number: ActiveValue::NotSet,
         display_name: ActiveValue::Set(Some(display_name.clone())),
-        event: ActiveValue::Set(DISPATCH.to_owned()),
+        event: ActiveValue::Set(new.event.to_owned()),
         trigger: ActiveValue::Set(json!({ "actor": actor, "payload": new.payload })),
-        git_ref: ActiveValue::Set(None),
-        sha: ActiveValue::Set(None),
+        git_ref: ActiveValue::Set(new.git_ref.map(str::to_owned)),
+        sha: ActiveValue::Set(new.sha.map(str::to_owned)),
         inputs: ActiveValue::NotSet,
         status: ActiveValue::Set(row::text(RUNS, RunStatus::Queued)?),
         conclusion: ActiveValue::Set(None),
@@ -546,7 +577,7 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
             revision_id: new.revision_id,
             number,
             global_number,
-            event: DISPATCH.to_owned(),
+            event: new.event.to_owned(),
         }),
     )
     .await?;

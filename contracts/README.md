@@ -56,6 +56,15 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/triggers/`: event matching, from step 5 of M1. Each file is a list of cases, each with a
   `description`, an `on` block written as JSON, an `event` (`name`, `action`, `ref`, `base_ref` and
   `changed_files`, each optional but the name) and whether it `matches`. `bosun-workflow` runs them.
+- `fixtures/pushes/`: `cases.json`, from step 27 of M1, what the server makes of a push. Each case
+  has a `description`, the repository's `default_branch` and the fields of the `push` payload that
+  decide it, and expects where the push's workflows are `read` (`after` or `default_branch`), the
+  comparison the server asks the forge for as `compare` (`base` and `head`, or `null`), and, given
+  the forge's `comparison` (its `files` and whether it is `truncated`, or `null` when the forge
+  cannot compare), the `changes`: `{"listed": [...]}`, the files path filters see, `"unknown"`,
+  which meets every path filter and counts every file as changed, or `"untouched"`, for a push that
+  path filters do not apply to and that changes no workflow file. The server's tests run them, and
+  its end-to-end tests push a tag and create a branch against the fake forge as the cases say.
 - `fixtures/matrix/`: the expansion of matrices, from step 16 of M1. Each case has a
   `description`, the `strategy` of a job `test` written as JSON in the order of the workflow, and
   maybe the job's `name` and the `outputs` of a job `setup` that `test` then needs. It expects
@@ -74,6 +83,10 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   `fixtures/workflows/template-condition.yml`, and the data of `run-notice.json` with the error
   notice of the run of `fixtures/workflows/timeout-minutes.yml`, both dispatched as the server-side
   workflow `ci`.
+- `fixtures/api/run-startup-failure.json`: from step 27 of M1, the server's tests push
+  `fixtures/workflows/runs-on-steps-context.yml` as `.bosun/workflows/ci.yml` to the fake forge and
+  compare the `display_name`, `event`, `status`, `conclusion`, `actor` and `notices` of the run the
+  push yields with this fixture.
 - `fixtures/api/me.json`: from step 9 of M1, the server's tests compare its `permissions` with
   those `GET /api/v1/me` lists for a user bound as the fixture describes
   ([../docs/design/11-api.md](../docs/design/11-api.md#permissions)).

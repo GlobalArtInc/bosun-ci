@@ -217,6 +217,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Request,
     ),
     (
+        "repository-dispatch-request.json",
+        "post",
+        "/api/v1/projects/{project}/events",
+        Part::Request,
+    ),
+    (
         "revision.json",
         "put",
         "/api/v1/workflows/{workflow}/source",
@@ -231,6 +237,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
     ("role.json", "post", "/api/v1/roles", Part::Response("201")),
     (
         "run.json",
+        "get",
+        "/api/v1/runs/{run}",
+        Part::Response("200"),
+    ),
+    (
+        "run-startup-failure.json",
         "get",
         "/api/v1/runs/{run}",
         Part::Response("200"),

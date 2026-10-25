@@ -1,0 +1,7 @@
+{
+  "event_type": "deploy",
+  "client_payload": {
+    "environment": "prod1",
+    "version": "0.4.2"
+  }
+}

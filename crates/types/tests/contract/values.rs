@@ -55,9 +55,10 @@ fn closed_enums_refuse_unknown_values() {
     let mut settings = fixture("api/project-settings.json");
     settings["token_permissions"]["administration"] = json!("write");
     refuses::<ProjectSettings>(settings);
-    refuses::<WorkflowSource>(json!({ "kind": "repository" }));
+    refuses::<WorkflowSource>(json!({ "kind": "draft" }));
     refuses::<Trigger>(json!({ "workflow_call": {} }));
     refuses::<Actor>(json!({ "kind": "plugin", "instance": "telegram" }));
+    refuses::<Actor>(json!({ "kind": "forge", "login": "octocat" }));
     refuses::<Command>(json!({ "type": "run.pause" }));
 
     let mut event = fixture("events/job-status.json");

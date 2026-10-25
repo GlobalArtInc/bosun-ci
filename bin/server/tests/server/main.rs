@@ -6,6 +6,7 @@ mod commands;
 mod config;
 mod data;
 mod events;
+mod forge_events;
 mod health;
 mod hooks;
 mod http;

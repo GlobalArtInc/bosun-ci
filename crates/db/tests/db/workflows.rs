@@ -247,3 +247,114 @@ async fn a_create_waits_for_a_create_of_the_same_project_and_then_finds_the_name
         1
     );
 }
+
+#[tokio::test]
+async fn files_of_a_repository_are_one_workflow_per_path_and_their_blobs_are_found_by_hash() {
+    let database = TestDatabase::migrated().await;
+    let db = database.connection();
+    let project = project(db).await;
+    workflows::create(db, new(&project, "ci", FIRST, sha256(1)))
+        .await
+        .expect("a server-side workflow");
+    let paths = [".bosun/workflows/ci.yml", ".github/workflows/lint.yml"];
+    let first = db.begin().await.expect("a transaction");
+    let created = workflows::repository_files(&first, project.id, &paths)
+        .await
+        .expect("the files");
+    let second = {
+        let pool = bosun_db::connect(&database.url(), 2)
+            .await
+            .expect("a second pool");
+        let project_id = project.id;
+        tokio::spawn(async move {
+            let transaction = pool.begin().await?;
+            let found = workflows::repository_files(&transaction, project_id, &paths).await;
+            transaction.commit().await?;
+            pool.close().await?;
+            found
+        })
+    };
+    sleep(Duration::from_millis(500)).await;
+    assert!(
+        !second.is_finished(),
+        "a second reader created the files while the first was not committed"
+    );
+    first.commit().await.expect("a commit");
+    let found = second.await.expect("the second reader").expect("the files");
+    assert_eq!(found, created);
+    let shown: Vec<(&str, &WorkflowSource, bool)> = found
+        .iter()
+        .map(|workflow| {
+            (
+                workflow.name.as_str(),
+                &workflow.source,
+                workflow.revision_id.is_none(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (paths[0], &WorkflowSource::Repository, true),
+            (paths[1], &WorkflowSource::Repository, true),
+        ]
+    );
+    assert_eq!(
+        workflow::Entity::find().count(db).await.expect("a count"),
+        3
+    );
+
+    let ci = found[0].id;
+    let blob = "4e1243bd22c66e76c2ba9eddc1f91394e57f9f83";
+    assert_eq!(
+        workflows::revision_of_blob(db, ci, blob)
+            .await
+            .expect("a read"),
+        None
+    );
+    let added = workflows::add_blob(
+        db,
+        ci,
+        workflows::Blob {
+            sha: blob,
+            source: FIRST,
+            sha256: sha256(3),
+        },
+    )
+    .await
+    .expect("a revision");
+    let again = workflows::add_blob(
+        db,
+        ci,
+        workflows::Blob {
+            sha: blob,
+            source: FIRST,
+            sha256: sha256(3),
+        },
+    )
+    .await
+    .expect("the same revision");
+    assert_eq!(again, added);
+    assert_eq!(
+        workflows::revision_of_blob(db, ci, blob)
+            .await
+            .expect("a read"),
+        Some(added.clone())
+    );
+    workflows::make_current(db, ci, added.id)
+        .await
+        .expect("a current revision");
+    let current = workflows::find(db, ci)
+        .await
+        .expect("a read")
+        .expect("the workflow");
+    assert_eq!(current.revision_id, Some(added.id));
+    let server_side = workflows::server_side(db, project.id)
+        .await
+        .expect("the server-side workflows");
+    let names: Vec<&str> = server_side
+        .iter()
+        .map(|workflow| workflow.name.as_str())
+        .collect();
+    assert_eq!(names, ["ci"]);
+}

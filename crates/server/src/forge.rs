@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::Path;
 
-use bosun_forge::GitHubApp;
+use bosun_forge::{App, Forge as _, GitHubApp};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use tokio::sync::OnceCell;
 
 use crate::Error;
 use crate::config::GitHub;
@@ -13,6 +14,7 @@ const SIGNATURE_PREFIX: &str = "sha256=";
 pub(crate) struct Forge {
     pub(crate) app: GitHubApp,
     secret: Vec<u8>,
+    identity: OnceCell<App>,
 }
 
 pub(crate) fn load(config: &GitHub) -> Result<Forge, Error> {
@@ -25,7 +27,11 @@ pub(crate) fn load(config: &GitHub) -> Result<Forge, Error> {
             path: config.webhook_secret_file.clone(),
         });
     }
-    Ok(Forge { app, secret })
+    Ok(Forge {
+        app,
+        secret,
+        identity: OnceCell::new(),
+    })
 }
 
 fn read(path: &Path, what: &'static str) -> Result<Vec<u8>, Error> {
@@ -37,6 +43,11 @@ fn read(path: &Path, what: &'static str) -> Result<Vec<u8>, Error> {
 }
 
 impl Forge {
+    pub(crate) async fn bot(&self) -> Result<u64, bosun_forge::Error> {
+        let identity = self.identity.get_or_try_init(|| self.app.app()).await?;
+        Ok(identity.bot.id)
+    }
+
     pub(crate) fn signed(&self, signature: &[u8], body: &[u8]) -> bool {
         let Some(digits) = signature.strip_prefix(SIGNATURE_PREFIX.as_bytes()) else {
             return false;

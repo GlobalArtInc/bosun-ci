@@ -18,11 +18,13 @@ use crate::envelope::{self, ApiError};
 use crate::openapi::{Api, Input, Spec};
 use crate::reply::Created;
 use crate::request::{Body, Faults, Idempotent, Listing, Segment, database, failed};
-use crate::{AppState, idempotency, organisations, settings, slug, workflows};
+use crate::{AppState, forge_events, idempotency, organisations, settings, slug, workflows};
 
 const WORKFLOWS: &str = "workflows";
 
 const SETTINGS: &str = "settings";
+
+const EVENTS: &str = "events";
 
 pub(crate) fn routes() -> Api {
     Api::new()
@@ -54,6 +56,11 @@ pub(crate) fn routes() -> Api {
             "/api/v1/projects/{project}/settings",
             settings::change,
         )
+        .describe(
+            Method::POST,
+            "/api/v1/projects/{project}/events",
+            forge_events::receive,
+        )
 }
 
 enum Reference {
@@ -65,6 +72,7 @@ enum Below {
     Nothing,
     Workflows,
     Settings,
+    Events,
 }
 
 fn parse(path: &str) -> Option<(Reference, Below)> {
@@ -73,6 +81,7 @@ fn parse(path: &str) -> Option<(Reference, Below)> {
     let below = |segment: &str| match segment {
         WORKFLOWS => Some(Below::Workflows),
         SETTINGS => Some(Below::Settings),
+        EVENTS => Some(Below::Events),
         _ => None,
     };
     match segments.as_slice() {
@@ -304,7 +313,7 @@ async fn read(
         Some((_, Below::Nothing)) => show.call(request, state).await,
         Some((_, Below::Workflows)) => workflows::list.call(request, state).await,
         Some((_, Below::Settings)) => settings::show.call(request, state).await,
-        None => envelope::absent(&method, &uri).into_response(),
+        Some((_, Below::Events)) | None => envelope::absent(&method, &uri).into_response(),
     }
 }
 
@@ -317,6 +326,7 @@ async fn write(
 ) -> Response {
     match parse(&path) {
         Some((_, Below::Workflows)) => workflows::create.call(request, state).await,
+        Some((_, Below::Events)) => forge_events::receive.call(request, state).await,
         _ => envelope::absent(&method, &uri).into_response(),
     }
 }

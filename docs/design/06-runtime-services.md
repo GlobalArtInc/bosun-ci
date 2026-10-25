@@ -38,7 +38,8 @@ delivery id so that a redelivery is not processed twice, stores the payload, and
 before planning, so a slow plan never makes the forge retry. An event whose sender is the App's own
 bot account starts no run unless it is `workflow_dispatch` or `repository_dispatch`: those are the
 events a job causes with its forge token, and the target ignores them for the same reason, to keep a
-workflow from triggering itself.
+workflow from triggering itself. The server compares the id of the payload's `sender` with the id of
+the bot, which it reads from the forge once per process.
 
 The forge sits behind the trait `Forge` in `bosun-forge`. In M1 it reads a file and a directory at
 a commit with their blob hashes, resolves a ref to a commit, compares two commits and says whether
@@ -95,8 +96,9 @@ processes it inside a savepoint of that transaction:
 A worker holds one database connection while it processes. Each processed delivery is logged as
 `processed a webhook delivery` with its `delivery`, `event` and `duration_ms`.
 
-The worker handles `installation`, `installation_repositories` and `repository`. Every other
-event is processed as nothing until the steps that plan runs from it (27 and 29 of M1).
+The worker handles `installation`, `installation_repositories` and `repository` itself, and plans
+the runs of every other event as [02-workflows.md](02-workflows.md#repository-workflows) says; the
+pull request events and merge groups are processed as nothing until step 29 of M1 plans them.
 
 ### Installations and repositories
 
@@ -215,7 +217,10 @@ with a path. It holds, in memory:
 - a sender of webhooks, signed with `X-Hub-Signature-256` under a secret drawn for each fake, with
   `X-GitHub-Event` and a fresh `X-GitHub-Delivery`. Sending the same webhook twice is a
   redelivery. The payloads of `installation`, `installation_repositories` and `repository` events
-  are built from the fake's state in the forge's shape;
+  are built from the fake's state in the forge's shape, and so are the `repository`,
+  `installation` and `sender` of any other event a test sends: a push between two commits, with
+  `created` and `deleted` set when either is the commit of zeros, or an event of any name with the
+  fields the test gives it. A sender is a login and an id; `BOT` is the App's bot;
 - a delay a test sets, by which every answer of the API is held back, so that tests make the
   forge slow.
 
@@ -323,7 +328,9 @@ the event, with the actor taken from the linked forge account of the Bosun user 
 - `schedule`: `{ "schedule": "<cron>" }` and nothing else.
 - `repository_dispatch` sent through `POST /api/v1/projects/{project}/events`: `action`, the event
   type; `branch`, the default branch; `client_payload` as sent; and `repository`, `organization`,
-  `sender` and `installation` as the forge describes them, when Bosun has them.
+  `sender` and `installation` as the forge describes them, when Bosun has them. Bosun keeps no
+  description of them from the forge in M1, so they are absent; the `github` context takes the
+  repository from the facts.
 
 `upstream` (M2) and trigger plugins (M5) define the payloads of their runs with their triggers.
 

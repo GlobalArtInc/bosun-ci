@@ -47,6 +47,12 @@ pub struct Settings {
     pub settings: ProjectSettings,
 }
 
+pub struct Binding {
+    pub project: Project,
+    pub installation: Option<u64>,
+    pub github_workflows: bool,
+}
+
 pub enum Holder {
     Workflow(WorkflowId),
     Run(RunId),
@@ -140,6 +146,46 @@ pub async fn list<C: ConnectionTrait>(
     }
     let found = query.all(db).await?;
     present(db, found).await
+}
+
+pub async fn bound_to<C: ConnectionTrait>(
+    db: &C,
+    repository: u64,
+) -> Result<Option<Binding>, Error> {
+    let found = project::Entity::find()
+        .filter(project::Column::RepositoryId.eq(row::signed(TABLE, repository)?))
+        .one(db)
+        .await?;
+    binding_of(db, found).await
+}
+
+pub async fn binding<C: ConnectionTrait>(db: &C, id: ProjectId) -> Result<Option<Binding>, Error> {
+    let found = project::Entity::find_by_id(Uuid::from(id)).one(db).await?;
+    binding_of(db, found).await
+}
+
+async fn binding_of<C: ConnectionTrait>(
+    db: &C,
+    found: Option<project::Model>,
+) -> Result<Option<Binding>, Error> {
+    let Some(found) = found else {
+        return Ok(None);
+    };
+    let github_workflows = found.github_workflows;
+    let installation = match found.repository_id {
+        Some(repository) => forge_repository::Entity::find_by_id(repository)
+            .one(db)
+            .await?
+            .and_then(|repository| repository.installation_id)
+            .map(|installation| row::unsigned("forge_repository", installation))
+            .transpose()?,
+        None => None,
+    };
+    Ok(one(db, Some(found)).await?.map(|project| Binding {
+        project,
+        installation,
+        github_workflows,
+    }))
 }
 
 pub async fn settings<C: ConnectionTrait>(

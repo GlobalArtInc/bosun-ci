@@ -1,0 +1,41 @@
+{
+  "id": "0192f3a4-5b6c-7d8e-9f01-000000000017",
+  "project_id": "0192f3a4-5b6c-7d8e-9f01-000000000002",
+  "workflow_id": "0192f3a4-5b6c-7d8e-9f01-000000000015",
+  "revision_id": "0192f3a4-5b6c-7d8e-9f01-000000000016",
+  "number": 1,
+  "global_number": 4032,
+  "display_name": ".bosun/workflows/ci.yml",
+  "event": "push",
+  "status": "completed",
+  "conclusion": "startup_failure",
+  "attempt": 1,
+  "actor": {
+    "kind": "forge",
+    "id": 7001,
+    "login": "roman"
+  },
+  "notices": [
+    {
+      "job_id": null,
+      "severity": "error",
+      "code": "unavailable_context",
+      "message": "context `steps` is not available in `jobs.<job_id>.runs-on`",
+      "file": ".bosun/workflows/ci.yml",
+      "span": {
+        "line": 5,
+        "column": 18,
+        "end_line": 5,
+        "end_column": 23
+      },
+      "path": [
+        "jobs",
+        "build",
+        "runs-on"
+      ]
+    }
+  ],
+  "created_at": "2026-10-25T09:12:40.311Z",
+  "started_at": null,
+  "completed_at": "2026-10-25T09:12:40.311Z"
+}

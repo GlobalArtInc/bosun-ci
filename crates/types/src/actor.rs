@@ -19,5 +19,9 @@ pub enum Actor {
         id: AgentId,
         name: String,
     },
+    Forge {
+        id: u64,
+        login: String,
+    },
     System,
 }

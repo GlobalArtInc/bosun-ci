@@ -211,8 +211,9 @@ Bosun adds one context, `bosun`, available wherever `github` is:
 `<url>/runs/<run_id>`; both are empty while the installation names no public address
 ([12-operations.md](12-operations.md)). `bosun.run_id` is the run's id, `bosun.attempt` a number,
 and `bosun.project` the slugs of the organisation and the project. `bosun.trigger.kind` is the kind
-of the actor that started the run (`user`, `token`, `agent` or `system`), and `login` its login, the
-name of an agent, or `null` for the system.
+of the actor that started the run (`user`, `token`, `agent`, `forge` or `system`), and `login` its
+login, the name of an agent, the login of the forge account whose event started it, or `null` for
+the system.
 
 Using `bosun` in a file under `.github/workflows/` produces the extension warning of
 [02-workflows.md](02-workflows.md).
@@ -222,11 +223,14 @@ Using `bosun` in a file under `.github/workflows/` produces the extension warnin
 The planner evaluates the server's keys with these contexts:
 
 - `github`, derived as [06-runtime-services.md](06-runtime-services.md) specifies from the run's
-  event and payload and the facts the server holds: the project, its repository when it has one,
-  the workflow's `name` and file, the run's numbers, the actor of the run and of the attempt, and
-  the job's key, which is empty for `run-name`. The workspace is the agent's, so `github.workspace`
-  is empty on the server. `retention_days` is 90, the default of the log retention
-  ([07-storage.md](07-storage.md)), until project settings change it.
+  event and payload and the facts the server holds: the project, its repository when it has one
+  (its owner and name as the forge last gave them, its id and its owner's id, which is the account
+  of the installation that sees it) with the forge's addresses, the ref and the commit the run
+  records, the workflow's `name` and file, the run's numbers, the actor of the run, with its forge
+  id when it is a forge account, and the actor of the attempt, and the job's key, which is empty
+  for `run-name`. The workspace is the agent's, so `github.workspace` is empty on the server.
+  `retention_days` is 90, the default of the log retention ([07-storage.md](07-storage.md)), until
+  project settings change it.
 - `inputs`, the run's inputs, which are empty until dispatch inputs arrive (step 30 of
   [../plan.md](../plan.md)).
 - `vars` and `secrets`, empty objects until secrets and variables arrive (step 24).

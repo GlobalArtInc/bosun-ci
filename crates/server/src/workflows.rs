@@ -2,7 +2,9 @@ use axum::Json;
 use axum::extract::State;
 use bosun_db::projects::Holder;
 use bosun_db::workflows::NewWorkflow;
-use bosun_types::api::{CreateWorkflowRequest, Page, Revision, UpdateSourceRequest, Workflow};
+use bosun_types::api::{
+    CreateWorkflowRequest, Page, Revision, UpdateSourceRequest, Workflow, WorkflowSource,
+};
 use bosun_types::diagnostic::Severity;
 use bosun_types::error::{ErrorBody, ErrorCode, FieldError};
 use bosun_types::id::WorkflowId;
@@ -142,6 +144,15 @@ async fn save(
     body: Result<Body<UpdateSourceRequest>, ApiError>,
 ) -> Result<Saved<Revision>, ApiError> {
     let workflow = find(&state.db, &caller, &reference).await?;
+    if workflow.source == WorkflowSource::Repository {
+        return Err(ApiError::new(
+            ErrorCode::InvalidState,
+            format!(
+                "workflow `{}` is a file of the repository, whose source changes with its commits",
+                workflow.name
+            ),
+        ));
+    }
     let Body(UpdateSourceRequest { source }) = body?;
     validate(&workflow.name, &source)?;
     let transaction = state.db.begin().await.map_err(database)?;

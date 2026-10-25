@@ -136,9 +136,11 @@ tables from this document and compares them with the code.
 
 When a trigger is accepted, the server finds the workflows whose `on` matches it and, in one
 transaction per workflow, creates the run, attempt 1, and one job per template in status
-`pending`. It evaluates `run-name` and the workflow-level `concurrency` at that moment. A reusable
-workflow named by a job is fetched and validated now, so a missing or invalid callee ends the run
-with `startup_failure` before anything executes. The planner then runs in the same transaction, so
+`pending`; the runs of an event the forge delivered share the transaction of its delivery
+([02-workflows.md](02-workflows.md#repository-workflows)). It evaluates `run-name` and the
+workflow-level `concurrency` at that moment. A reusable workflow named by a job is fetched and
+validated now, so a missing or invalid callee ends the run with `startup_failure` before anything
+executes. The planner then runs in the same transaction, so
 the jobs that need no other job leave it `queued`.
 
 The warnings of the revision become the run's first notices ([Run notices](#run-notices)). The
@@ -312,10 +314,11 @@ and the queue page says which slots are occupied this way.
 
 Everything that happens to a run is an event in its journal, the table `run_event`: an
 ever-increasing sequence number, the run, the attempt, the job, the execution and the step it
-concerns where applicable, the kind, the actor (`user`, `token`, `agent`, `plugin` or `system`,
-with its identity), a JSON payload, and the time. The status columns of runs, jobs, executions and
-steps are a projection of the journal, written in the same transaction as the event, so reading a
-status never requires replaying events and the journal never disagrees with it; a run's
+concerns where applicable, the kind, the actor (`user`, `token`, `agent`, `forge`, `plugin` or
+`system`, with its identity; `forge` is the account of the forge whose event started the run, with
+its forge id and login), a JSON payload, and the time. The status columns of runs, jobs, executions
+and steps are a projection of the journal, written in the same transaction as the event, so reading
+a status never requires replaying events and the journal never disagrees with it; a run's
 `cancel_requested_at` belongs to the projection too, set by the `command.accepted` of a
 `run.cancel`. A property test drives random job graphs with random step results, commands, lost
 agents, expired leases, rejected assignments and queue timeouts, and checks after every transaction
@@ -389,9 +392,11 @@ that is not a status. Notices are `run.notice` events, so they keep the order of
   [02-workflows.md](02-workflows.md) and without a job;
 - when the server evaluates an expression for the run or one of its jobs and the evaluation fails,
   as an error at the expression's span;
-- from later milestones: the diagnostics of a `startup_failure` (step 27 of [../plan.md](../plan.md)),
-  a Node runtime substituted for an action (step 32), and a scope of the forge token that the App
-  lacks (step 34).
+- when a file with errors yields a run that ends with `startup_failure`, from every diagnostic of
+  the file, and from a key the planner does not apply yet as `not_implemented`, with their codes
+  from [02-workflows.md](02-workflows.md#repository-workflows) and without a job;
+- from later milestones: a Node runtime substituted for an action (step 32 of
+  [../plan.md](../plan.md)), and a scope of the forge token that the App lacks (step 34).
 
 The codes of runtime notices:
 

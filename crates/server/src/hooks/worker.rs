@@ -9,6 +9,8 @@ use tracing::{info, warn};
 
 use super::installations;
 use crate::forge::Forge;
+use crate::forge_events::{self, Failed, Parses};
+use crate::site::Site;
 
 const POLL: Duration = Duration::from_secs(5);
 
@@ -32,6 +34,18 @@ impl From<bosun_db::Error> for Failure {
     }
 }
 
+impl From<Failed> for Failure {
+    fn from(failed: Failed) -> Failure {
+        match failed {
+            Failed::Database(error) => error.into(),
+            Failed::Forge(error) => error.into(),
+            Failed::Payload(error) => Failure::Refused(format!(
+                "the payload does not have the shape of its event: {error}"
+            )),
+        }
+    }
+}
+
 impl From<bosun_forge::Error> for Failure {
     fn from(error: bosun_forge::Error) -> Failure {
         let at_least = match &error {
@@ -49,12 +63,24 @@ impl From<bosun_forge::Error> for Failure {
     }
 }
 
-pub(crate) async fn work(db: DatabaseConnection, forge: Arc<Forge>, wake: Arc<Notify>) {
+struct Planning {
+    parses: Arc<Parses>,
+    site: Site,
+}
+
+pub(crate) async fn work(
+    db: DatabaseConnection,
+    forge: Arc<Forge>,
+    wake: Arc<Notify>,
+    parses: Arc<Parses>,
+    site: Site,
+) {
+    let planning = Planning { parses, site };
     loop {
         let notified = wake.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
-        match next(&db, &forge).await {
+        match next(&db, &forge, &planning).await {
             Ok(true) => {}
             Ok(false) => {
                 tokio::select! {
@@ -70,14 +96,18 @@ pub(crate) async fn work(db: DatabaseConnection, forge: Arc<Forge>, wake: Arc<No
     }
 }
 
-async fn next(db: &DatabaseConnection, forge: &Forge) -> Result<bool, bosun_db::Error> {
+async fn next(
+    db: &DatabaseConnection,
+    forge: &Forge,
+    planning: &Planning,
+) -> Result<bool, bosun_db::Error> {
     let transaction = db.begin().await?;
     let Some(delivery) = deliveries::claim(&transaction).await? else {
         return Ok(false);
     };
     let started = Instant::now();
     let nested = transaction.begin().await?;
-    match process(&nested, forge, &delivery).await {
+    match process(&nested, forge, planning, &delivery).await {
         Ok(()) => {
             nested.commit().await?;
             deliveries::finish(&transaction, delivery.id, None).await?;
@@ -120,6 +150,7 @@ async fn next(db: &DatabaseConnection, forge: &Forge) -> Result<bool, bosun_db::
 async fn process(
     transaction: &DatabaseTransaction,
     forge: &Forge,
+    planning: &Planning,
     delivery: &Delivery,
 ) -> Result<(), Failure> {
     match delivery.event.as_str() {
@@ -128,7 +159,16 @@ async fn process(
             installations::installation_repositories(transaction, forge, &delivery.payload).await
         }
         "repository" => installations::repository(transaction, forge, &delivery.payload).await,
-        _ => Ok(()),
+        event => forge_events::delivered(
+            transaction,
+            forge,
+            &planning.parses,
+            &planning.site,
+            event,
+            &delivery.payload,
+        )
+        .await
+        .map_err(Failure::from),
     }
 }
 

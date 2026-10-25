@@ -17,6 +17,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 use uuid::Uuid;
 
+pub use events::{NO_COMMIT, Sender};
 pub use webhook::Webhook;
 
 use self::git::Tree;
@@ -26,6 +27,11 @@ pub const APP_ID: u64 = 4242;
 pub const APP_SLUG: &str = "bosun-fake";
 
 pub const BOT_ID: u64 = 424_242;
+
+pub const BOT: Sender<'static> = Sender {
+    login: "bosun-fake[bot]",
+    id: BOT_ID,
+};
 
 pub const APP_KEY: &str = include_str!("../keys/app.pem");
 

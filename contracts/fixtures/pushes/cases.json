@@ -1,0 +1,191 @@
+[
+  {
+    "description": "a push to an existing branch reads its new commit and compares it with the commit before",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/main",
+      "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "after": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c",
+      "created": false,
+      "deleted": false,
+      "forced": false
+    },
+    "read": "after",
+    "compare": {
+      "base": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "head": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c"
+    },
+    "comparison": { "files": ["src/a.rs"], "truncated": false },
+    "changes": { "listed": ["src/a.rs"] }
+  },
+  {
+    "description": "a forced push compares its two commits like any other push to an existing branch",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/feature",
+      "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "after": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c",
+      "created": false,
+      "deleted": false,
+      "forced": true
+    },
+    "read": "after",
+    "compare": {
+      "base": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "head": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c"
+    },
+    "comparison": { "files": ["docs/guide.md", "src/a.rs"], "truncated": false },
+    "changes": { "listed": ["docs/guide.md", "src/a.rs"] }
+  },
+  {
+    "description": "a push that creates a branch compares its commit with the default branch",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/feature",
+      "before": "0000000000000000000000000000000000000000",
+      "after": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c",
+      "created": true,
+      "deleted": false,
+      "forced": false
+    },
+    "read": "after",
+    "compare": {
+      "base": "main",
+      "head": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c"
+    },
+    "comparison": { "files": ["docs/guide.md"], "truncated": false },
+    "changes": { "listed": ["docs/guide.md"] }
+  },
+  {
+    "description": "a branch created at a commit of the default branch changes no file",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/feature",
+      "before": "0000000000000000000000000000000000000000",
+      "after": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "created": true,
+      "deleted": false,
+      "forced": false
+    },
+    "read": "after",
+    "compare": {
+      "base": "main",
+      "head": "6113728f27ae82c7b1a177c8d03f9e96e0adf246"
+    },
+    "comparison": { "files": [], "truncated": false },
+    "changes": { "listed": [] }
+  },
+  {
+    "description": "the first push of the default branch changes files the server does not list",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/main",
+      "before": "0000000000000000000000000000000000000000",
+      "after": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "created": true,
+      "deleted": false,
+      "forced": false
+    },
+    "read": "after",
+    "compare": null,
+    "changes": "unknown"
+  },
+  {
+    "description": "a created branch the forge cannot compare with the default branch changes files the server does not list",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/orphan",
+      "before": "0000000000000000000000000000000000000000",
+      "after": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c",
+      "created": true,
+      "deleted": false,
+      "forced": false
+    },
+    "read": "after",
+    "compare": {
+      "base": "main",
+      "head": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c"
+    },
+    "comparison": null,
+    "changes": "unknown"
+  },
+  {
+    "description": "a comparison the forge truncated changes files the server does not list",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/main",
+      "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "after": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c",
+      "created": false,
+      "deleted": false,
+      "forced": false
+    },
+    "read": "after",
+    "compare": {
+      "base": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "head": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c"
+    },
+    "comparison": { "files": ["docs/1.md", "docs/2.md"], "truncated": true },
+    "changes": "unknown"
+  },
+  {
+    "description": "a tag push reads the tagged commit and compares nothing, since path filters do not apply to tags",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/tags/v1.0.0",
+      "before": "0000000000000000000000000000000000000000",
+      "after": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "created": true,
+      "deleted": false,
+      "forced": false
+    },
+    "read": "after",
+    "compare": null,
+    "changes": "untouched"
+  },
+  {
+    "description": "a tag moved to another commit compares nothing either",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/tags/latest",
+      "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "after": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c",
+      "created": false,
+      "deleted": false,
+      "forced": true
+    },
+    "read": "after",
+    "compare": null,
+    "changes": "untouched"
+  },
+  {
+    "description": "a push that deletes a branch reads the default branch and changes no file",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/heads/feature",
+      "before": "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c",
+      "after": "0000000000000000000000000000000000000000",
+      "created": false,
+      "deleted": true,
+      "forced": false
+    },
+    "read": "default_branch",
+    "compare": null,
+    "changes": { "listed": [] }
+  },
+  {
+    "description": "a push that deletes a tag reads the default branch and changes no file",
+    "default_branch": "main",
+    "push": {
+      "ref": "refs/tags/v1.0.0",
+      "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "after": "0000000000000000000000000000000000000000",
+      "created": false,
+      "deleted": true,
+      "forced": false
+    },
+    "read": "default_branch",
+    "compare": null,
+    "changes": { "listed": [] }
+  }
+]

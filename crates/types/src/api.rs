@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, Utc};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::actor::Actor;
 use crate::diagnostic::Diagnostic;
@@ -408,6 +408,7 @@ pub enum Reporting {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkflowSource {
     Server,
+    Repository,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -445,6 +446,19 @@ pub struct UpdateSourceRequest {
 pub struct DispatchRequest {
     pub r#ref: Option<String>,
     pub inputs: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryDispatchRequest {
+    pub event_type: String,
+    #[serde(default)]
+    pub client_payload: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PlannedRuns {
+    pub runs: Vec<Run>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

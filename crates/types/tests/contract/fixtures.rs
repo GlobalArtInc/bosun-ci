@@ -8,10 +8,10 @@ use bosun_types::api::{
     CreateTeamRequest, CreateUserRequest, CreateWorkflowRequest, DispatchRequest, Execution, Job,
     LabelAlias, LogEnd, LogLine, Me, Organisation, Page, PasswordChangeRequest, PersonalToken,
     PersonalTokenCreated, Pool, Project, ProjectSettings, QueuedJob, RegisterAgentRequest,
-    RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest, Revision, Role,
-    RoleBinding, Run, SetLabelAliasRequest, SignInMethods, SignInRequest, Step, Team,
-    UpdateAgentRequest, UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest, User,
-    Workflow,
+    RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest,
+    RepositoryDispatchRequest, Revision, Role, RoleBinding, Run, SetLabelAliasRequest,
+    SignInMethods, SignInRequest, Step, Team, UpdateAgentRequest, UpdateOrganisationRequest,
+    UpdateProjectRequest, UpdateSourceRequest, User, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -33,7 +33,14 @@ struct ActionCase {
     diagnostics: Vec<Diagnostic>,
 }
 
-const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github", "hash-files", "matrix", "triggers"];
+const RUN_BY_OTHER_SUITES: &[&str] = &[
+    "expr",
+    "github",
+    "hash-files",
+    "matrix",
+    "pushes",
+    "triggers",
+];
 
 fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, String> {
     let typed: T = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
@@ -178,10 +185,15 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "api/registration-token-request.json",
             round_trip::<RegistrationTokenRequest>,
         ),
+        (
+            "api/repository-dispatch-request.json",
+            round_trip::<RepositoryDispatchRequest>,
+        ),
         ("api/revision.json", round_trip::<Revision>),
         ("api/role-binding.json", round_trip::<RoleBinding>),
         ("api/role.json", round_trip::<Role>),
         ("api/run.json", round_trip::<Run>),
+        ("api/run-startup-failure.json", round_trip::<Run>),
         (
             "api/set-label-alias-request.json",
             round_trip::<SetLabelAliasRequest>,

@@ -9,6 +9,7 @@ use sea_orm::{
 use serde_json::json;
 
 use crate::entity::{project, workflow, workflow_revision};
+use crate::row::statement;
 use crate::{Error, row};
 
 const WORKFLOWS: &str = "workflow";
@@ -16,6 +17,8 @@ const WORKFLOWS: &str = "workflow";
 const REVISIONS: &str = "workflow_revision";
 
 const SERVER: &str = "server";
+
+const REPOSITORY: &str = "repository";
 
 pub struct NewWorkflow<'a> {
     pub project_id: ProjectId,
@@ -27,6 +30,12 @@ pub struct NewWorkflow<'a> {
 pub struct Saved {
     pub revision: Revision,
     pub created: bool,
+}
+
+pub struct Blob<'a> {
+    pub sha: &'a str,
+    pub source: &'a str,
+    pub sha256: Vec<u8>,
 }
 
 pub async fn create<C: ConnectionTrait>(db: &C, new: NewWorkflow<'_>) -> Result<Workflow, Error> {
@@ -103,6 +112,118 @@ pub async fn list<C: ConnectionTrait>(
         .collect()
 }
 
+pub async fn server_side<C: ConnectionTrait>(
+    db: &C,
+    project_id: ProjectId,
+) -> Result<Vec<Workflow>, Error> {
+    workflow::Entity::find()
+        .filter(workflow::Column::ProjectId.eq(Uuid::from(project_id)))
+        .filter(workflow::Column::SourceKind.eq(SERVER))
+        .order_by_asc(workflow::Column::Id)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(decode)
+        .collect()
+}
+
+pub async fn repository_files<C: ConnectionTrait>(
+    db: &C,
+    project_id: ProjectId,
+    paths: &[&str],
+) -> Result<Vec<Workflow>, Error> {
+    let project_id = Uuid::from(project_id);
+    let paths: Vec<String> = paths.iter().map(|path| (*path).to_owned()).collect();
+    let ids: Vec<Uuid> = paths.iter().map(|_| Uuid::now_v7()).collect();
+    db.execute(statement(
+        "INSERT INTO workflow (id, project_id, name, source_kind) \
+         SELECT id, $1, path, $4 FROM unnest($2::uuid[], $3::text[]) AS file (id, path) \
+         ON CONFLICT (project_id, name) WHERE source_kind = 'repository' DO NOTHING",
+        [
+            project_id.into(),
+            ids.into(),
+            paths.clone().into(),
+            REPOSITORY.into(),
+        ],
+    ))
+    .await?;
+    workflow::Entity::find()
+        .filter(workflow::Column::ProjectId.eq(project_id))
+        .filter(workflow::Column::SourceKind.eq(REPOSITORY))
+        .filter(workflow::Column::Name.is_in(paths))
+        .order_by_asc(workflow::Column::Name)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(decode)
+        .collect()
+}
+
+pub async fn revision_of_blob<C: ConnectionTrait>(
+    db: &C,
+    workflow_id: WorkflowId,
+    blob: &str,
+) -> Result<Option<Revision>, Error> {
+    workflow_revision::Entity::find()
+        .filter(workflow_revision::Column::WorkflowId.eq(Uuid::from(workflow_id)))
+        .filter(workflow_revision::Column::BlobSha.eq(blob))
+        .one(db)
+        .await?
+        .map(decode_revision)
+        .transpose()
+}
+
+pub async fn add_blob<C: ConnectionTrait>(
+    db: &C,
+    workflow_id: WorkflowId,
+    blob: Blob<'_>,
+) -> Result<Revision, Error> {
+    let workflow_id = Uuid::from(workflow_id);
+    workflow_revision::Entity::insert(workflow_revision::ActiveModel {
+        id: ActiveValue::Set(Uuid::now_v7()),
+        workflow_id: ActiveValue::Set(workflow_id),
+        sha256: ActiveValue::Set(blob.sha256.clone()),
+        source: ActiveValue::Set(blob.source.to_owned()),
+        created_at: ActiveValue::NotSet,
+        blob_sha: ActiveValue::Set(Some(blob.sha.to_owned())),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            workflow_revision::Column::WorkflowId,
+            workflow_revision::Column::Sha256,
+        ])
+        .do_nothing()
+        .to_owned(),
+    )
+    .do_nothing()
+    .exec_without_returning(db)
+    .await?;
+    workflow_revision::Entity::find()
+        .filter(workflow_revision::Column::WorkflowId.eq(workflow_id))
+        .filter(workflow_revision::Column::Sha256.eq(blob.sha256))
+        .one(db)
+        .await?
+        .map(decode_revision)
+        .transpose()?
+        .ok_or_else(|| Error::Vanished(format!("the revision of workflow {workflow_id}")))
+}
+
+pub async fn make_current<C: ConnectionTrait>(
+    db: &C,
+    workflow_id: WorkflowId,
+    revision_id: RevisionId,
+) -> Result<(), Error> {
+    db.execute(statement(
+        "UPDATE workflow SET revision_id = $2 WHERE id = $1 AND revision_id IS DISTINCT FROM $2",
+        [
+            Uuid::from(workflow_id).into(),
+            Uuid::from(revision_id).into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
 pub async fn revision<C: ConnectionTrait>(
     db: &C,
     id: RevisionId,
@@ -147,6 +268,7 @@ async fn store<C: ConnectionTrait>(
         sha256: ActiveValue::Set(sha256.clone()),
         source: ActiveValue::Set(source.to_owned()),
         created_at: ActiveValue::NotSet,
+        blob_sha: ActiveValue::Set(None),
     })
     .on_conflict(
         OnConflict::columns([

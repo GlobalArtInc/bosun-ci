@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use axum::extract::State;
 use bosun_db::runs::NewRun;
-use bosun_types::api::{DispatchRequest, Run};
+use bosun_types::api::{DispatchRequest, Run, WorkflowSource};
 use bosun_types::error::{ErrorBody, ErrorCode};
 use bosun_workflow::github::{self, Dispatch};
 use sea_orm::TransactionTrait;
@@ -12,6 +12,8 @@ use crate::envelope::ApiError;
 use crate::reply::Created;
 use crate::request::{Faults, Idempotent, Segment, database, failed};
 use crate::{AppState, idempotency, planner, workflows};
+
+const DISPATCH: &str = "workflow_dispatch";
 
 pub(crate) async fn dispatch(
     State(state): State<AppState>,
@@ -41,6 +43,15 @@ pub(crate) async fn dispatch(
         );
     }
     faults.finish("the dispatch is not valid")?;
+    if workflow.source == WorkflowSource::Repository {
+        return Err(ApiError::new(
+            ErrorCode::InvalidState,
+            format!(
+                "workflow `{}` is a file of the repository, which a dispatch runs from M1 step 30",
+                workflow.name
+            ),
+        ));
+    }
 
     let transaction = state.db.begin().await.map_err(database)?;
     if let Some(replayed) = idempotency::replay(&transaction, body.idempotency.as_ref()).await? {
@@ -103,6 +114,9 @@ pub(crate) async fn dispatch(
             workflow: &workflow,
             revision_id,
             ir: &ir,
+            event: DISPATCH,
+            git_ref: None,
+            sha: None,
             payload: &payload,
             actor: &caller.principal.actor(),
         },

@@ -38,6 +38,73 @@ run ([04-runs.md](04-runs.md)) and turned into a commit or a pull request
 A workflow can be disabled per project. A disabled workflow is still parsed and shown, but no
 trigger creates a run of it; a manual dispatch says why it was refused.
 
+### Repository workflows
+
+Step 27 of M1 ([../plan.md](../plan.md)) settled how the forge's events become runs of a
+repository-bound project's files.
+
+- **Which events.** Every delivery the worker of
+  [06-runtime-services.md](06-runtime-services.md#deliveries) processes, other than the App's own
+  `installation`, `installation_repositories` and `repository` events and `ping`, belongs to the
+  project bound to the payload's `repository.id`, if any; a repository that no installation sees
+  receives nothing. `pull_request`, `pull_request_target`, `pull_request_review`,
+  `pull_request_review_comment` and `merge_group` are planned with the pull requests (step 29),
+  since they run at a merge ref under the fork policy, and a delivered `workflow_dispatch`, which
+  the forge sends for a dispatch of one of its own workflows, starts no run: dispatches of Bosun's
+  workflows come through its API.
+- **Bosun's own events.** An event whose `sender` has the id of the App's bot starts no run, unless
+  it is `repository_dispatch` (or `workflow_dispatch`, which the API starts). The server reads the
+  App's identity from the forge once per process.
+- **Which commit.** The files are read at the commit the `github` context names for the event
+  ([06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment)): a
+  push's `after`, or the default branch's last commit when it deletes a ref; for `create` and
+  `release`, the commit of the created ref or of the release's tag; for `deployment` and
+  `deployment_status`, `deployment.sha`; for every other event, the last commit of the default
+  branch, which the server resolves through the forge. A ref that resolves to nothing, as in a
+  repository without commits, starts no run. The run records that ref and that commit, which the
+  planner gives the `github` context with the repository and the forge's addresses.
+- **Which files.** Every file ending in `.yml` or `.yaml` directly under `.bosun/workflows/` at that
+  commit, and with `github_workflows` on, under `.github/workflows/` the files whose names
+  `.bosun/workflows/` does not have. Each file is a workflow of the project named by its path,
+  created the first time an event reads it; its revisions are its blobs.
+- **The blob cache.** A revision of a repository workflow carries the forge's hash of its blob, so
+  the server reads a file's content from the forge only for a blob the workflow has no revision of;
+  the directory listings, which carry the hashes, are all an event reads otherwise. What a file
+  lowers to (its triggers, its IR when it has no error, and every diagnostic `lint` gives at its
+  path) is kept in memory by each replica, keyed by the path and the blob's hash, for the 256 files
+  parsed last; the oldest goes first. A new version of the server therefore parses afresh, so
+  nothing a parser of another version lowered is ever reused. Each event is logged as `planned the runs of an
+  event` with the counters of the cache: `files` read, `parsed` and `reused`, and `runs` planned.
+- **Current revisions.** An event read at the last commit of the default branch makes the
+  revisions it read the current ones of their workflows, so `revision_id` follows the default
+  branch; a workflow seen only on another branch has none.
+- **Matching.** Each file's `on` is matched with `matches` ([Matching events](#matching-events)):
+  the event's name, its `action`, and for a push its `ref` and its changed files. A match plans a
+  run in the transaction of the delivery, with the payload and the `sender` as the trigger, the
+  actor being of the kind `forge`; the runs of one delivery commit together with its processing,
+  so a delivery that is tried again plans them once. The warnings of the file become the run's
+  first notices. A disabled workflow creates no run, not even a `startup_failure`.
+- **Broken files.** A file with errors whose `on` matches yields a run that is completed at once
+  with `startup_failure`: it has no jobs, its IR holds only the file's triggers, and its notices are
+  every diagnostic of the file, errors and warnings, in their order. A file whose `on` itself
+  cannot be parsed yields such a run for every push that changes it. A file the planner cannot run
+  yet, because it uses a key whose step has not arrived
+  ([11-api.md](11-api.md#projects-and-server-side-workflows)), yields one too, with an error notice
+  `not_implemented` at that key.
+- **Changed files of a push.** The cases in `contracts/fixtures/pushes/` pin, for each kind of push,
+  where its workflows are read and what the server compares:
+  - a push to an existing branch, forced or not, compares `before` with `after`;
+  - a push that creates a branch compares the default branch with `after`, the changes of the new
+    branch since it left the default branch; the push that creates the default branch itself, the
+    first of a repository, compares nothing and changes files the server does not list;
+  - a tag push compares nothing, since path filters do not apply to tags, and changes no workflow
+    file for the rule of broken files;
+  - a push that deletes a branch or a tag is read at the default branch and changes no file, so a
+    workflow with path filters does not run for it;
+  - a comparison the forge truncated, and one it cannot make because it does not know a commit,
+    changes files the server does not list: path filters are then met, and every file counts as
+    changed for the rule of broken files.
+
 ## Parsing
 
 The parser reads YAML 1.2 with the core schema, so `on`, `yes` and `no` are strings, as the target
@@ -139,8 +206,9 @@ start no runs, except `workflow_dispatch` and `repository_dispatch`, so a workfl
 itself in a loop ([06-runtime-services.md](06-runtime-services.md)).
 
 Path filters are evaluated against the list of changed files: for a push, the comparison of
-`before` and `after` through the forge API, since the webhook payload truncates its file lists;
-for a pull request, the files of the pull request. Glob patterns follow the target syntax,
+`before` and `after` through the forge API, since the webhook payload truncates its file lists, as
+[Repository workflows](#repository-workflows) details; for a pull request, the files of the pull
+request. Glob patterns follow the target syntax,
 including negation with `!` and the order-sensitive evaluation of mixed lists.
 
 Pull requests from forks are subject to the project's fork policy before any run is created
@@ -424,6 +492,9 @@ the first two.
 - `timeout-minutes` and `max-parallel` take whole numbers. The target truncates a fraction such as
   `0.5` to `0`, which for a step means no timeout at all; Bosun refuses it with `invalid_value`
   instead.
+- A push whose comparison the forge truncated at 300 files meets every path filter. The target
+  judges such a push by the 300 files it lists, and so skips a workflow whose files come later;
+  Bosun would rather run a workflow too many than skip one silently.
 - The `matrix` context lists the properties of a member in the order of their names, since the
   member's combination is stored as a JSON object ([07-storage.md](07-storage.md)), rather than in
   the order of the workflow; it shows only in `toJSON(matrix)` and `matrix.*`, and the member's

@@ -295,9 +295,12 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   defaults to `https://api.github.com` for GitHub and to `<server_url>/api/v3` for any other
   server, the address at which an enterprise server serves it; both are http or https addresses
   with a host and without a user, a query or a fragment, and setting either without the App is
-  refused. `serve` reads both files and builds the App's client before it connects to the
-  database, so an unreadable file, a key the client refuses and an empty secret stop it with an
-  error line that names the file.
+  refused. The runs of repository-bound projects see both in `github.server_url` and
+  `github.api_url`, and `github.graphql_url` is the API's address with a final `v3` replaced by
+  `graphql`, or with `graphql` appended when it has none, as the forge serves it. `serve` reads
+  both files and builds the App's client before it connects to the database, so an unreadable
+  file, a key the client refuses and an empty secret stop it with an error line that names the
+  file.
 - `agents.heartbeat_interval` defaults to 30 seconds and `agents.offline_after` to 60 seconds,
   which must be longer than the interval; `limits.agent_grace` defaults to 10 minutes
   ([05-execution.md](05-execution.md)). `agents.assignment_lease`, the time an agent has to accept

@@ -9,6 +9,7 @@ pub struct Model {
     pub sha256: Vec<u8>,
     pub source: String,
     pub created_at: DateTimeUtc,
+    pub blob_sha: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

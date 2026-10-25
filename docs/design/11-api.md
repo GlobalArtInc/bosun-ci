@@ -20,8 +20,8 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   `/projects/<id>/workflows` name the same list. A single segment after `/projects/` is always an
   id, and `/projects/<x>/workflows` is the list of project `<x>` when `<x>` is an id and the project
   `workflows` of organisation `<x>` otherwise, which is unambiguous because an organisation's slug
-  never reads as an id ([08-access.md](08-access.md)); `/projects/<x>/settings` is read the same
-  way.
+  never reads as an id ([08-access.md](08-access.md)); `/projects/<x>/settings` and
+  `/projects/<x>/events` are read the same way.
 - A request body that is not JSON of the shape the endpoint takes is `422 invalid_input`, with the
   parser's message saying where it stopped.
 - Lists use cursor pagination: `?limit=` (default 50, at most 500) and `?cursor=` from the previous
@@ -257,6 +257,7 @@ with the answers each built-in role gets:
 | `POST /projects/{project}/workflows` | `workflow.edit` | `project` |
 | `GET /projects/{project}/settings` | `project.view` | `project` |
 | `PATCH /projects/{project}/settings` | `project.manage` | `project` |
+| `POST /projects/{project}/events` | `run.dispatch` | `project` |
 | `GET /workflows/{workflow}` | `project.view` | `project` |
 | `PUT /workflows/{workflow}/source` | `workflow.edit` | `project` |
 | `GET /workflows/{workflow}/revisions` | `project.view` | `project` |
@@ -332,6 +333,12 @@ A step that adds an endpoint adds its row here.
   becomes current again. A source with errors is `422 invalid_input` with the field `source`, the
   message `the workflow is not valid` and the diagnostics, and stores nothing
   ([02-workflows.md](02-workflows.md)). `GET /workflows/{workflow}/revisions` lists newest first.
+- The workflows of a project's repository are listed with its server-side ones, each named by its
+  path, such as `.bosun/workflows/ci.yml`, with the source `{"kind": "repository"}`
+  ([02-workflows.md](02-workflows.md#repository-workflows)). Their source changes with the
+  repository's commits, so `PUT /workflows/{workflow}/source` refuses them with `409 invalid_state`,
+  and so does `POST /workflows/{workflow}/dispatch` until step 30 of [../plan.md](../plan.md)
+  dispatches the file at a ref.
 - `POST /workflows/{workflow}/dispatch` takes `ref` and `inputs` and answers `201` with the run as
   planning left it, whose actor is the token of the request. In the same transaction it creates
   attempt 1, one `pending` job per job template and their journal events, stores the IR of the
@@ -346,6 +353,20 @@ A step that adds an endpoint adds its row here.
   from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md) and a step that uses an
   action until step 33, because the assignment carries no such step before. The message names the
   key and the step that brings it.
+- `POST /projects/{project}/events` sends the project an event of the kind `repository_dispatch`,
+  as the forge's own endpoint for it does, and needs `run.dispatch`. It takes `event_type`, 1 to
+  100 characters, which is the event's `action`, and `client_payload`, an object of at most 10
+  properties at its top that defaults to `{}`; outside these limits the request is `422
+  invalid_input` naming the field. It builds the payload of
+  [06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment) and plans,
+  in one transaction, a run of every workflow the event matches: for a project bound to a
+  repository, the repository's workflows at the last commit of its default branch, read through
+  the forge as a delivered event's are ([02-workflows.md](02-workflows.md#repository-workflows));
+  for a project without one, its server-side workflows. It answers `201` with `{"runs": [...]}`,
+  each run as planning left it and its actor the caller, an empty list when no workflow matches,
+  and takes an `Idempotency-Key`. A bound project on a server without a GitHub App, or whose
+  repository no installation sees, is `409 invalid_state`; a forge that limits the rate of its
+  requests is `429 rate_limited`.
 
 ### Project settings
 

@@ -20,7 +20,7 @@ use bosun_workflow::github::{self, Account, Facts, WorkflowFile};
 use sea_orm::DatabaseTransaction;
 use serde_json::{Map, json};
 
-use crate::site::Site;
+use crate::site::{ForgeSite, Site};
 use matrix::Expansion;
 
 const LOG_RETENTION_DAYS: u32 = 90;
@@ -28,6 +28,15 @@ const LOG_RETENTION_DAYS: u32 = 90;
 const INVALID_TYPE: &str = "invalid_type";
 
 const INVALID_VALUE: &str = "invalid_value";
+
+const NOT_IMPLEMENTED: &str = "not_implemented";
+
+const START: Span = Span {
+    line: 1,
+    column: 1,
+    end_line: 1,
+    end_column: 1,
+};
 
 const SINGLE: Strategy = Strategy {
     fail_fast: true,
@@ -59,6 +68,25 @@ pub(crate) async fn dispatch(
         None => None,
     };
     planned(&mut run, site, world).await?;
+    bosun_db::views::run(transaction, created.id)
+        .await?
+        .ok_or_else(|| Error::Vanished(format!("run {}", created.id)))
+}
+
+pub(crate) async fn fail_startup(
+    transaction: &DatabaseTransaction,
+    new: NewRun<'_>,
+    notices: &[Diagnostic],
+) -> Result<Run, Error> {
+    let created = bosun_db::runs::dispatch(transaction, new).await?;
+    let mut run = bosun_db::runs::lock(transaction, created.id)
+        .await?
+        .ok_or_else(|| Error::Vanished(format!("run {}", created.id)))?;
+    for notice in notices {
+        run.notice(None, notice).await?;
+    }
+    run.set_status(RunStatus::Completed, Some(RunConclusion::StartupFailure))
+        .await?;
     bosun_db::views::run(transaction, created.id)
         .await?
         .ok_or_else(|| Error::Vanished(format!("run {}", created.id)))
@@ -252,29 +280,73 @@ pub(crate) fn admits_cancellation(workflow: &ir::Workflow, key: &JobKey) -> bool
         .is_some_and(bosun_expr::calls_status)
 }
 
-pub(crate) fn unapplied(workflow: &ir::Workflow) -> Option<String> {
-    let (what, step) = match &workflow.concurrency {
-        Some(_) => ("`concurrency` of the workflow".to_owned(), 17),
-        None => workflow.jobs.iter().find_map(|job| {
-            [
-                (job.concurrency.is_some(), "`concurrency`", 17),
-                (uses_an_action(job), "a `uses` step", 33),
-            ]
-            .into_iter()
-            .find(|(used, ..)| *used)
-            .map(|(_, key, step)| (format!("{key} of job `{}`", job.key), step))
-        })?,
-    };
-    Some(format!(
-        "{what}, which the planner applies from M1 step {step}"
-    ))
+pub(crate) struct Unapplied {
+    pub(crate) message: String,
+    span: Span,
+    path: Vec<PathSegment>,
 }
 
-fn uses_an_action(job: &ir::JobTemplate) -> bool {
+impl Unapplied {
+    pub(crate) fn notice(&self, file: &str) -> Diagnostic {
+        Diagnostic {
+            severity: Severity::Error,
+            code: NOT_IMPLEMENTED.to_owned(),
+            message: format!(
+                "the workflow uses {}, so a run of it cannot start yet",
+                self.message
+            ),
+            file: file.to_owned(),
+            span: self.span,
+            path: self.path.clone(),
+        }
+    }
+}
+
+pub(crate) fn unapplied(workflow: &ir::Workflow) -> Option<String> {
+    unapplied_at(workflow).map(|unapplied| unapplied.message)
+}
+
+pub(crate) fn unapplied_at(workflow: &ir::Workflow) -> Option<Unapplied> {
+    let (what, step, span, path) = match &workflow.concurrency {
+        Some(_) => (
+            "`concurrency` of the workflow".to_owned(),
+            17,
+            START,
+            vec![key("concurrency")],
+        ),
+        None => workflow.jobs.iter().find_map(|job| {
+            let concurrency = job.concurrency.as_ref().map(|_| {
+                (
+                    "`concurrency`",
+                    17,
+                    job.span,
+                    at(&job.key, &["concurrency"]),
+                )
+            });
+            concurrency
+                .or_else(|| uses_an_action(job))
+                .map(|(key, step, span, path)| {
+                    (format!("{key} of job `{}`", job.key), step, span, path)
+                })
+        })?,
+    };
+    Some(Unapplied {
+        message: format!("{what}, which the planner applies from M1 step {step}"),
+        span,
+        path,
+    })
+}
+
+fn uses_an_action(job: &ir::JobTemplate) -> Option<(&'static str, u32, Span, Vec<PathSegment>)> {
     let ir::JobKind::Steps(steps) = &job.kind;
-    steps
-        .iter()
-        .any(|step| matches!(step.action, ir::Action::Uses(_)))
+    steps.iter().enumerate().find_map(|(index, step)| {
+        matches!(step.action, ir::Action::Uses(_)).then(|| {
+            let mut path = at(&job.key, &["steps"]);
+            path.push(PathSegment::Index(index as u64));
+            path.push(key("uses"));
+            ("a `uses` step", 33, step.span, path)
+        })
+    })
 }
 
 pub(crate) struct Assigned {
@@ -352,6 +424,7 @@ pub(crate) async fn assign(
 struct World {
     ir: ir::Workflow,
     facts: RunFacts,
+    forge: Option<ForgeSite>,
     attempt: u32,
     inputs: Value,
     bosun: Value,
@@ -386,6 +459,10 @@ impl World {
             bosun: value(serde_json::Value::Object(bosun_context.clone()))?,
             bosun_context,
             attempt: state.attempt,
+            forge: facts
+                .repository
+                .as_ref()
+                .and_then(|_| site.forge().cloned()),
             ir,
             facts,
         })
@@ -397,10 +474,23 @@ impl World {
 
     fn github_context(&self, job: &str) -> Map<String, serde_json::Value> {
         let facts = Facts {
-            repository: None,
-            forge: None,
-            git_ref: None,
-            sha: None,
+            repository: self
+                .facts
+                .repository
+                .as_ref()
+                .map(|repository| github::Repository {
+                    owner: repository.owner.clone(),
+                    name: repository.name.clone(),
+                    id: repository.id,
+                    owner_id: repository.owner_id,
+                }),
+            forge: self.forge.as_ref().map(|forge| github::Forge {
+                server_url: forge.server_url.clone(),
+                api_url: forge.api_url.clone(),
+                graphql_url: forge.graphql_url.clone(),
+            }),
+            git_ref: self.facts.git_ref.clone(),
+            sha: self.facts.sha.clone(),
             ref_protected: false,
             workflow: WorkflowFile {
                 name: self.ir.name.clone(),
@@ -414,7 +504,10 @@ impl World {
             },
             actor: Account {
                 login: login(&self.facts.actor).unwrap_or_default().to_owned(),
-                id: None,
+                id: match &self.facts.actor {
+                    Actor::Forge { id, .. } => Some(*id),
+                    _ => None,
+                },
             },
             triggering_actor: login(&self.facts.triggering_actor)
                 .unwrap_or_default()
@@ -457,13 +550,16 @@ fn kind(actor: &Actor) -> &'static str {
         Actor::User { .. } => "user",
         Actor::Token { .. } => "token",
         Actor::Agent { .. } => "agent",
+        Actor::Forge { .. } => "forge",
         Actor::System => "system",
     }
 }
 
 fn login(actor: &Actor) -> Option<&str> {
     match actor {
-        Actor::User { login, .. } | Actor::Token { login, .. } => Some(login),
+        Actor::User { login, .. } | Actor::Token { login, .. } | Actor::Forge { login, .. } => {
+            Some(login)
+        }
         Actor::Agent { name, .. } => Some(name),
         Actor::System => None,
     }

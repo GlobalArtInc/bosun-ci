@@ -8,14 +8,14 @@ use serde_json::{Value, json};
 use crate::api::{Api, send, text};
 use crate::{Launch, WAIT, client, errors, message, strings};
 
-const PERMISSIONS: &[(&str, &str)] = &[
+pub const PERMISSIONS: &[(&str, &str)] = &[
     ("checks", "write"),
     ("contents", "read"),
     ("metadata", "read"),
     ("statuses", "write"),
 ];
 
-const ACCOUNT: &str = "GlobalArtInc";
+pub const ACCOUNT: &str = "GlobalArtInc";
 
 async fn deliver(
     api: &Api,
@@ -43,7 +43,7 @@ async fn stored(database: &TestDatabase) -> Vec<String> {
     .await
 }
 
-async fn processed(database: &TestDatabase) {
+pub async fn processed(database: &TestDatabase) {
     let deadline = Instant::now() + WAIT;
     loop {
         let pending = bosun_db::deliveries::pending(database.connection())
@@ -67,7 +67,7 @@ async fn processed(database: &TestDatabase) {
     assert!(failed.is_empty(), "deliveries failed: {failed:?}");
 }
 
-async fn delivered(api: &Api, forge: &FakeForge, event: &str, payload: &Value) {
+pub async fn delivered(api: &Api, forge: &FakeForge, event: &str, payload: &Value) {
     let status = forge.webhook(event, payload).send(&api.hooks()).await;
     assert_eq!(status, 202, "{event}");
 }
