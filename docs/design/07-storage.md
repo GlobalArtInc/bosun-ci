@@ -271,8 +271,10 @@ step's log to the object store as one zstd stream with a line index every 1000 l
 reads, records it in `log_object`, and deletes the chunks. The server serves a compacted log by
 range, and searches it by streaming decompression for the API and MCP.
 
-An execution's log is limited to 128 MiB; beyond it the agent stops sending lines and the log ends
-with a notice of how much was dropped.
+An execution's log is limited to 128 MiB, and the server enforces the limit as it ingests chunks:
+it acknowledges a chunk that would take the log past the limit without storing it, so the agent's
+spool still drains, and the log of the completed execution ends with a notice of how many bytes
+were dropped. The agent itself sends every line.
 
 ## Retention
 

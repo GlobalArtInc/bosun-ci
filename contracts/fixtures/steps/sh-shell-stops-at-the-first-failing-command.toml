@@ -1,0 +1,11 @@
+conclusion = "failure"
+
+[[steps]]
+shell = "sh"
+run = """
+echo before
+false
+echo after
+"""
+outcome = "failure"
+output = ["before"]

@@ -96,6 +96,8 @@ message Assignment {
   string job_name = 6;
   map<string, string> env = 7;
   repeated Step steps = 8;
+  string organisation = 9;
+  string project = 10;
 }
 
 message Step {

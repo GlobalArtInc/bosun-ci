@@ -1,0 +1,12 @@
+conclusion = "success"
+
+[[steps]]
+run = """
+test "$CI" = true
+test "$PWD" = "$GITHUB_WORKSPACE"
+test "$RUNNER_WORKSPACE" = "$(dirname "$GITHUB_WORKSPACE")"
+test -d "$RUNNER_TEMP"
+echo ok
+"""
+outcome = "success"
+output = ["ok"]

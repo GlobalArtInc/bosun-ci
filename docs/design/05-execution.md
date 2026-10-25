@@ -38,13 +38,20 @@ the building block for executors that provide a fresh machine per job ([10-plugi
    single or repeated use, in the web interface, the CLI or the API
    (`POST /api/v1/registration-tokens` with the pool's name, `reusable` and an optional
    `expires_at`, by default 24 hours ahead and at most one year).
-2. `bosun-agent register --url <server> --token brt_… --name <name> [--label <label>]…` calls
-   `POST /api/v1/agents/register`. The server records the agent and returns its id and its
-   credential `bat_…`, shown once. A token that is malformed, unknown, expired or, for a single-use
-   token, already used is refused with `401 unauthenticated`, and the message says which. An agent
-   name is 1 to 64 characters without spaces or control characters; a label is the same without
-   commas either. Labels are stored lowercased.
-3. The agent writes both into `/etc/bosun/agent-<n>.toml`, readable only by its user.
+2. `bosun-agent register --config <file> --url <server> --token brt_… --name <name> --dir <dir>
+   [--label <label>]…` calls `POST /api/v1/agents/register`. The server records the agent and
+   returns its id and its credential `bat_…`, shown once. A token that is malformed, unknown,
+   expired or, for a single-use token, already used is refused with `401 unauthenticated`, and the
+   message says which. An agent name is 1 to 64 characters without spaces or control characters; a
+   label is the same without commas either. Labels are stored lowercased.
+3. The agent writes both into its configuration file, `/etc/bosun/agent-<n>.toml` on a host the
+   install script set up, created with mode `0600` so only its user reads it, together with the
+   server's address, the directory and the labels
+   ([12-operations.md](12-operations.md#configuration)). `register` refuses to overwrite an existing
+   file, so a second registration cannot orphan the first; a refusal of the server is printed with
+   the server's message. `bosun-agent run --config <file>` then connects and runs jobs until
+   `SIGTERM` or `SIGINT`; on either it cancels a running job as a `cancel` would, reports it while
+   it has a stream, and exits.
 
 The server can ask an agent to rotate its credential in the `Welcome` message; the old credential
 stays valid until the agent has confirmed the new one. Deleting an agent revokes its credential;
@@ -61,10 +68,14 @@ service Agent {
 ```
 
 The stream runs over HTTP/2 with TLS; the credential travels as a bearer token in the request
-metadata. Keepalive pings go every 30 seconds in both directions. On any failure the agent
-reconnects with jittered exponential backoff from 1 to 60 seconds and resolves the server's name
-anew on every attempt, so a server that moved to another address is found without restarting the
-agent.
+metadata; an `https` address, for the registration as for the stream, is verified against the
+public root certificates built into the agent, so a host needs no certificate bundle of its own.
+Keepalive pings go every 30 seconds in both directions. On any failure the agent reconnects with
+jittered exponential backoff from 1 to 60 seconds: after n failures in a row it waits a random time
+between half of and all of the smaller of 2ⁿ⁻¹ and 60 seconds, and never less than one second, so
+1 second after the first failure, 1 to 2 seconds after the second and 2 to 4 after the third; a
+`Welcome` resets the count. Every attempt opens a new channel and so resolves the server's name
+anew, so a server that moved to another address is found without restarting the agent.
 
 | Agent to server | Carries |
 |-----------------|---------|
@@ -81,7 +92,7 @@ agent.
 
 | Server to agent | Carries |
 |-----------------|---------|
-| `Welcome` | agent id, server version, settings (log chunk size, heartbeat interval), an optional request to rotate the credential |
+| `Welcome` | agent id, server version, settings (the heartbeat interval), an optional request to rotate the credential |
 | `Assignment` | a job assignment, below |
 | `Control` | an id, the execution, and one of `cancel`, `force_cancel`, `pause`, `resume`, `skip_step`, `breakpoint`, `abort_step`, `retry_step`, `continue`, `release`, `extend` |
 | `TerminalOpen`, `TerminalInput`, `TerminalResize`, `TerminalClose` | a debug terminal session |
@@ -114,10 +125,26 @@ The heartbeat interval is the setting `agents.heartbeat_interval` (default 30 se
 sends nothing for `agents.offline_after` (default 60 seconds) is ended by the server with
 `UNAVAILABLE`, so a hung agent reconnects.
 
-**Logs.** Every log chunk carries a sequence number per execution. The server stores chunks
-idempotently and acknowledges them; the agent keeps unacknowledged chunks on disk, up to 256 MiB by
-default, and sends them again after a reconnect. A reconnect therefore loses no log lines and
-duplicates none.
+**Logs.** Every log chunk carries a sequence number per execution, counted from 1. A chunk holds
+whole lines of one step, each prefixed with its RFC 3339 time in nanoseconds and a space
+([07-storage.md](07-storage.md#logs)); the agent closes a chunk 200 milliseconds after its first
+line, at 64 KiB, and at every step boundary, so a live log lags by at most that much. The server
+stores chunks idempotently and acknowledges them with the highest sequence number stored; the
+agent keeps unacknowledged chunks on disk, up to 256 MiB by default (`spool_max_bytes`), as one file
+per chunk under `spool/<execution>/` in its directory, written in full and synced before it is
+renamed into place, and sends them again after a reconnect and after a restart of the agent, in
+order and before anything else that follows the `Welcome`. A reconnect or a restart therefore
+loses no log lines and duplicates none. While the spool is full the agent drops output instead of
+stopping the job, and the next chunk it stores begins with a line that says how many bytes were
+dropped.
+
+**Reports.** `StepStarted`, `StepFinished` and `JobFinished` are sent in the order they happen,
+after the log chunks that precede them. While the agent has no stream it keeps them in memory and
+sends them after the next `Welcome`, after the spooled chunks; its `Hello` lists the execution it
+runs and every execution whose `JobFinished` it still holds, so the server does not complete them
+as lost. Only steps that started are reported: a failing or cancelled step ends the job, the steps
+after it do not start, and the server completes them when the job ends
+([04-runs.md](04-runs.md#states)).
 
 **A lost connection.** A job keeps running when the stream drops. The server marks the agent
 offline after `agents.offline_after` (default 60 seconds) without a heartbeat; a periodic sweep
@@ -140,14 +167,17 @@ for that agent are rows of `control_message`, published with Postgres `NOTIFY` o
 that replica forwards them over the stream. A replica also sends every unacknowledged control
 message of an agent when the agent connects and after its listening connection was re-established,
 so a message published while the agent had no stream, or while a notification was lost, still
-arrives; the agent answers each with `ControlAck`, which the server records on the row, and ignores
-an id it has seen. No replica keeps state another replica needs.
+arrives; the agent answers each with `ControlAck`, which the server records on the row, and does not
+act again on an id it has seen: it repeats the acknowledgement it gave, for the last 1024 ids. A
+`cancel` of the execution the agent runs takes effect; any other id is acknowledged as having no
+effect. No replica keeps state another replica needs.
 
 ## The job assignment
 
 An assignment carries everything an agent needs and nothing more:
 
-- identity: run, attempt, job, execution, job key, matrix values;
+- identity: run, attempt, job, execution, job key, matrix values, and the slugs of the job's
+  organisation and project, which name its workspace;
 - the job part of the IR: steps as templates, outputs, `retry`, `pause` and hold settings;
 - values the server already evaluated ([03-expressions.md](03-expressions.md)): `runs-on`,
   `container` and `services` images and credentials, `env` (workflow and job merged), `defaults`,
@@ -162,6 +192,13 @@ An assignment carries everything an agent needs and nothing more:
 reads secrets by a computed name, it receives every secret in its scope, and the validator has
 already warned about that.
 
+A step's `shell` travels as text: `bash`, `sh`, `pwsh`, `python`, or a custom template with `{0}`.
+The agent answers `Accept` before it starts a job, or `Reject` with the reason when it is running
+another job, when it is stopping, or when the assignment holds something it cannot run: a step
+without an action it knows, a template segment it does not know, a shell that is neither named nor
+has `{0}`, or slugs that are not slugs. After a `Reject` with its slot free, and whenever its slot
+becomes free, it sends `Idle`.
+
 ## The execution engine
 
 `bosun-runner` executes one job in four phases.
@@ -175,7 +212,8 @@ already warned about that.
    breakpoints and pause requests at the boundaries, run with `timeout-minutes` and `retry`,
    process the file commands, record outputs and annotations.
 4. **Post steps** in the reverse order of their actions, when `post-if` holds (default
-   `always()`). Then evaluate the job outputs, report `JobFinished`, and tear down.
+   `always()`). Then evaluate the job outputs, tear down, and report `JobFinished`, so that a job
+   reported as finished has no process left on the agent and the slot is free for the next one.
 
 ### Kinds of steps
 
@@ -184,7 +222,21 @@ already warned about that.
   and `sh -e {0}` otherwise. An explicit `shell: bash` is `bash --noprofile --norc -eo pipefail {0}`,
   which differs from the default as it does in the target; `sh` is `sh -e {0}`, `python` is
   `python {0}`, `pwsh` is `pwsh -command ". '{0}'"`, and any other value is a template that must
-  contain `{0}`. `working-directory` is relative to the workspace.
+  contain `{0}`. A template is split into words at white space, a double-quoted part stays one word
+  without its quotes and `\"` is a quote, as the target splits it; the first word is the program
+  and `{0}` becomes the script's path in every word. The script is `RUNNER_TEMP/step-<index>` with
+  the extension the target gives its program, the first word as written in any case: `.sh` for
+  `bash` and `sh`, `.py` for `python`, `.ps1` for `pwsh` and `powershell`, `.cmd` for `cmd`, and
+  none for any other program, `python3` and `/bin/bash` included. `working-directory` is relative
+  to the workspace and must exist, or the step fails. Standard output and standard error share one pipe, so their lines
+  keep the order they were written in; lines longer than 64 KiB are split. A step ends when its
+  shell exits; a process it left in the background keeps running into the next steps, as in the
+  target, its output still counts as the output of its step, and teardown ends it. The step's
+  environment is the agent's own, then `CI=true`, `GITHUB_WORKSPACE`, `RUNNER_WORKSPACE` and
+  `RUNNER_TEMP`, then the proxy settings of the agent, the job's `env` and the step's `env`, each
+  overriding the ones before it; the other variables of
+  [06-runtime-services.md](06-runtime-services.md) come with the contexts. The cases in
+  `contracts/fixtures/steps/` pin these rules.
 - **Node action.** Run with the Node runtime its `using` names, from the agent's tool directory, or
   mounted into the job container at `/__e/node20` or `/__e/node24`; for images based on musl the
   musl build is mounted. Inputs arrive as `INPUT_<NAME>`, with the name uppercased and spaces
@@ -251,16 +303,31 @@ container actions need `podman` in every case.
   work/_actions/<owner>/<repo>/<commit>
   tools/                               RUNNER_TOOL_CACHE
   externals/node20, node24             Node runtimes for actions
+  spool/<execution>/<seq>-<step>       unacknowledged log chunks
 ```
 
 The organisation and project slugs in the path keep two repositories of the same name apart on an
-agent that serves several organisations.
+agent that serves several organisations. A repository-less project has no repository name, so its
+project slug stands in for it: `work/<org>.<project>/<project>`.
 
 The systemd unit runs the agent with `Delegate=yes`, and the agent puts every job in a cgroup of
-its own, so teardown kills every process the job started, including ones that detached. Each step
-runs in its own process group. Cancelling a step sends `SIGINT` to the group, then `SIGTERM` after
-7.5 seconds, then `SIGKILL` after 2.5 more. The agent passes `HTTP_PROXY`, `HTTPS_PROXY` and
-`NO_PROXY` from its configuration into every step.
+its own, so teardown kills every process the job started, including ones that detached. The cgroup
+is `bosun-job-<execution>` under the agent's own cgroup of the unified hierarchy
+(`/proc/self/cgroup`, mounted at `/sys/fs/cgroup`); every step's process enters it before it
+executes the shell, so no child escapes it, and teardown writes `cgroup.kill`, or kills the members
+one by one on kernels older than 5.14, and removes the cgroup. At start the agent probes whether it
+may create cgroups and move processes into them, and logs what it found. Where it may not, because
+the agent's cgroup is not delegated (an agent started by hand or under a unit without
+`Delegate=yes`) or because the host is not Linux, it tracks jobs by process group alone: teardown
+sends `SIGKILL` to the group of every step, which ends background processes, `nohup` included, but
+not a process that left its group with `setsid`. When the agent cannot create a job's directories
+or its cgroup, the job fails in its first step, whose log says why.
+
+Each step runs in its own process group. Cancelling a step sends `SIGINT` to the group, then
+`SIGTERM` after 7.5 seconds, then `SIGKILL` after 2.5 more, so even a step that ignores both
+signals ends within 10 seconds; the step and the job conclude `cancelled`. The agent passes
+`HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` from its configuration into every step, and the same
+values as `http_proxy`, `https_proxy` and `no_proxy`, since many tools read only those.
 
 The `shell` capability offers no isolation beyond the unix user, so it is only allowed in pools of
 trust level `trusted` ([08-access.md](08-access.md)).

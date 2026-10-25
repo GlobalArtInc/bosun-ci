@@ -1,0 +1,10 @@
+conclusion = "success"
+
+[[steps]]
+shell = "bash {0}"
+run = """
+false
+echo after
+"""
+outcome = "success"
+output = ["after"]

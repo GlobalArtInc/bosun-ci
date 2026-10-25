@@ -86,6 +86,17 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Runner tests with a cgroup per job
+        run: |
+          tests=$(cargo test --workspace --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .target.kind == ["test"] and .target.name == "runner") | .executable')
+          test -x "$tests"
+          docker run --rm --init --privileged --cgroupns=private \
+            -e BOSUN_TEST_REQUIRE_CGROUPS=1 \
+            -v "$tests:/usr/local/bin/runner-tests:ro" \
+            -v "$PWD:$PWD:ro" \
+            debian:13 runner-tests
+
       - name: WebAssembly build of the pure crates
         run: cargo build -p bosun-types -p bosun-workflow --target wasm32-unknown-unknown
 

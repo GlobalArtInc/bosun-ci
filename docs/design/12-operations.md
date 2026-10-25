@@ -197,8 +197,26 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   which must be longer than the interval; `limits.agent_grace` defaults to 10 minutes
   ([05-execution.md](05-execution.md)). Tests shorten them.
 
-`agent-<n>.toml` holds the server address, the agent id and credential, labels, `allow_terminal`,
-proxy settings, the log spool limit and `cache_max_bytes`.
+`agent-<n>.toml` holds the server address, the agent's directory, the agent id and credential,
+labels, `allow_terminal`, proxy settings, the log spool limit and `cache_max_bytes`:
+
+```toml
+url = "https://ci.example.org"
+dir = "/var/lib/bosun/agents/1"
+agent_id = "0199a5f2-2c6f-7a3e-8a3b-5f0d4c1e2b3a"
+credential = "bat_…"
+labels = ["deploy"]
+http_proxy = "http://proxy.example.org:3128"
+https_proxy = "http://proxy.example.org:3128"
+no_proxy = "localhost,.example.org"
+spool_max_bytes = 268435456
+```
+
+`bosun-agent register` writes the first five keys ([05-execution.md](05-execution.md)); the others
+are optional and set by hand, and `dir` is an absolute path. The proxy keys reach every step and
+`spool_max_bytes` defaults to 256 MiB. `allow_terminal` and `cache_max_bytes` arrive with the debug
+terminal and cache volumes; until then, as any key the agent does not know, they are refused with
+the file's name, the line and the column.
 
 ## Scaling
 

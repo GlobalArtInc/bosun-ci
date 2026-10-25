@@ -13,6 +13,7 @@ repository = "https://github.com/GlobalArtInc/bosun-ci"
 bosun-blob = { path = "crates/blob" }
 bosun-db = { path = "crates/db" }
 bosun-proto = { path = "crates/proto" }
+bosun-runner = { path = "crates/runner" }
 bosun-server = { path = "crates/server" }
 bosun-testkit = { path = "crates/testkit" }
 bosun-types = { path = "crates/types" }
@@ -29,6 +30,7 @@ prost-types = "0.14"
 proptest = { version = "1", default-features = false, features = ["std"] }
 protox = "0.9"
 reqwest = { version = "0.12", default-features = false }
+rustix = "1.1"
 saphyr-parser = "0.2"
 sea-orm = { version = "1.1", default-features = false, features = [
     "macros",

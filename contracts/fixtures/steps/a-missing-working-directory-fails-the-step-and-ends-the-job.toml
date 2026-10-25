@@ -1,0 +1,9 @@
+conclusion = "failure"
+
+[[steps]]
+working-directory = "missing"
+run = "echo never"
+outcome = "failure"
+
+[[steps]]
+run = "echo never"

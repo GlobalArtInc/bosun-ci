@@ -420,7 +420,10 @@ messages through `NOTIFY`.
 **Goal.** Claiming of queued jobs by idle agents as in [design/07-storage.md](design/07-storage.md)
 (labels contained in the agent's labels, pool, priority, age), assignment leases, lease expiry,
 `NOTIFY bosun_queue` and the periodic sweep, `max_queue_time`, advisory locks for the periodic
-tasks.
+tasks. The `Assignment` sent to the agent carries the slugs of the job's organisation and project,
+which name its workspace, and each step's `shell` as the text `bosun_types::ir::Shell` displays; the
+agent of step 12 rejects an assignment without valid slugs
+([design/05-execution.md](design/05-execution.md#the-job-assignment)).
 
 **Touches.** `crates/server/`, `crates/db/`.
 
@@ -455,10 +458,12 @@ cancellation by `SIGINT`, `SIGTERM`, `SIGKILL`, and reports step and job results
 
 **Goal.** Ingestion of log chunks with `ON CONFLICT DO NOTHING` and acknowledgement, reading a
 step's log by range, following it as an event stream across replicas through `NOTIFY bosun_log`,
-compaction into the object store after the execution completes, and the 128 MiB limit. The object
-store enters the server here, as its first user: the `[store]` section with the directory backend,
-the refusal to start when the store is unreachable, and its probe in `/readyz`
-([design/12-operations.md](design/12-operations.md)), which step 6 leaves out.
+compaction into the object store after the execution completes, and the 128 MiB limit, which the
+server enforces at ingestion, since the agent sends every line
+([design/07-storage.md](design/07-storage.md#logs)). The object store enters the server here, as its
+first user: the `[store]` section with the directory backend, the refusal to start when the store is
+unreachable, and its probe in `/readyz` ([design/12-operations.md](design/12-operations.md)), which
+step 6 leaves out.
 
 **Touches.** `crates/server/`, `crates/db/`.
 

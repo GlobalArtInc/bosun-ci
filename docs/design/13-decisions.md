@@ -118,6 +118,10 @@ after it, and the end of a block scalar its trailing blank lines.
 - Executors beyond `shell` and `podman`: Kubernetes pods or virtual machines through an executor
   plugin, and when.
 - Agents that update themselves from the server.
+- Acknowledgements for step and job reports. The agent protocol acknowledges log chunks and
+  control messages but not `StepStarted`, `StepFinished` and `JobFinished`, so a report handed to a
+  stream that fails before the server reads it is lost, and the server then completes the execution
+  as `agent_lost` ([05-execution.md](05-execution.md)).
 - macOS agents.
 - Whether Bosun stays private or is published.
 - Plugins that contribute pages to the interface.

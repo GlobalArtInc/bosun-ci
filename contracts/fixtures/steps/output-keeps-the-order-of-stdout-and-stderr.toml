@@ -1,0 +1,10 @@
+conclusion = "success"
+
+[[steps]]
+run = """
+echo one
+echo two >&2
+echo three
+"""
+outcome = "success"
+output = ["one", "two", "three"]

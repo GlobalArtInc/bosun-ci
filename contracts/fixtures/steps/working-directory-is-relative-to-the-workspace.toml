@@ -1,0 +1,12 @@
+conclusion = "success"
+
+[[steps]]
+run = "mkdir -p sub/dir"
+outcome = "success"
+output = []
+
+[[steps]]
+working-directory = "sub/dir"
+run = 'echo "${PWD#"$GITHUB_WORKSPACE"/}"'
+outcome = "success"
+output = ["sub/dir"]

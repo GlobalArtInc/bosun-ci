@@ -1,0 +1,9 @@
+conclusion = "success"
+
+[[steps]]
+run = """
+false | true
+echo after
+"""
+outcome = "success"
+output = ["after"]

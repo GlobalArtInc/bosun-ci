@@ -1,0 +1,10 @@
+conclusion = "failure"
+
+[[steps]]
+shell = "bash"
+run = """
+false | true
+echo after
+"""
+outcome = "failure"
+output = []

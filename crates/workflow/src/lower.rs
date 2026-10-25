@@ -789,20 +789,14 @@ impl<'f> Lowering<'f> {
     fn shell(&mut self, field: &Entry<'_>, place: &str) -> Option<Shell> {
         let text = self.string(field.value, &field.path, &format!("`shell` of {place}"))?;
         let text = self.literal(text, field.value, &field.path)?;
-        match text.as_str() {
-            "bash" => Some(Shell::Bash),
-            "sh" => Some(Shell::Sh),
-            "pwsh" => Some(Shell::Pwsh),
-            "python" => Some(Shell::Python),
-            _ if text.contains("{0}") => Some(Shell::Custom(text)),
-            _ => {
+        match text.parse::<Shell>() {
+            Ok(shell) => Some(shell),
+            Err(error) => {
                 self.error(
                     Code::InvalidValue,
                     field.value.span,
                     &field.path,
-                    format!(
-                        "`shell` of {place} is `{text}`, which is neither `bash`, `sh`, `pwsh` nor `python` and has no `{{0}}` for the script"
-                    ),
+                    format!("`shell` of {place} is {error}"),
                 );
                 None
             }

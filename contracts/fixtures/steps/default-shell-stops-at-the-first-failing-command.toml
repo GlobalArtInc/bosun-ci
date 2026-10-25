@@ -1,0 +1,10 @@
+conclusion = "failure"
+
+[[steps]]
+run = """
+echo before
+false
+echo after
+"""
+outcome = "failure"
+output = ["before"]

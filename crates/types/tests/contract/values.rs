@@ -10,6 +10,7 @@ use bosun_types::event::RunEvent;
 use bosun_types::id::{JobId, RunId};
 use bosun_types::ir::{self, Segment, Shell, Template, Trigger};
 use bosun_types::key::{JobKey, StepKey};
+use bosun_types::slug;
 use bosun_types::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, RunConclusion, RunStatus,
     StatusReason, StepStatus, WaitingReason,
@@ -113,6 +114,56 @@ fn keys_follow_the_identifier_pattern() {
         assert!(JobKey::from_str(invalid).is_err(), "{invalid:?}");
         assert!(StepKey::from_str(invalid).is_err(), "{invalid:?}");
         refuses::<JobKey>(json!(invalid));
+    }
+}
+
+#[test]
+fn slugs_follow_the_rule_of_logins() {
+    let longest = "a".repeat(64);
+    for valid in ["globalart", "keel", "0day", "a.b-c_d", longest.as_str()] {
+        assert!(slug::is_slug(valid), "{valid:?}");
+    }
+    let too_long = "a".repeat(65);
+    for invalid in [
+        "",
+        "Keel",
+        "-keel",
+        ".keel",
+        "_keel",
+        "../escape",
+        "a b",
+        "ключ",
+        &too_long,
+    ] {
+        assert!(!slug::is_slug(invalid), "{invalid:?}");
+    }
+}
+
+#[test]
+fn a_shell_is_parsed_from_the_text_it_displays() {
+    for (text, shell) in [
+        ("bash", Shell::Bash),
+        ("sh", Shell::Sh),
+        ("pwsh", Shell::Pwsh),
+        ("python", Shell::Python),
+        (
+            "bash -c \"{0}\"",
+            Shell::Custom("bash -c \"{0}\"".to_owned()),
+        ),
+        ("python3 {0}", Shell::Custom("python3 {0}".to_owned())),
+    ] {
+        assert_eq!(Shell::from_str(text).as_ref(), Ok(&shell), "{text}");
+        assert_eq!(shell.to_string(), text);
+    }
+    for refused in ["perl -w", "zsh", ""] {
+        let error = Shell::from_str(refused).expect_err(refused);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "`{refused}`, which is neither `bash`, `sh`, `pwsh` nor `python` and has no `{{0}}` \
+                 for the script"
+            )
+        );
     }
 }
 

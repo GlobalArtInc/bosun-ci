@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -139,3 +141,45 @@ pub enum Shell {
     Python,
     Custom(String),
 }
+
+impl fmt::Display for Shell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Shell::Bash => "bash",
+            Shell::Sh => "sh",
+            Shell::Pwsh => "pwsh",
+            Shell::Python => "python",
+            Shell::Custom(template) => template,
+        })
+    }
+}
+
+impl FromStr for Shell {
+    type Err = ShellError;
+
+    fn from_str(text: &str) -> Result<Shell, ShellError> {
+        match text {
+            "bash" => Ok(Shell::Bash),
+            "sh" => Ok(Shell::Sh),
+            "pwsh" => Ok(Shell::Pwsh),
+            "python" => Ok(Shell::Python),
+            _ if text.contains("{0}") => Ok(Shell::Custom(text.to_owned())),
+            _ => Err(ShellError(text.to_owned())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellError(String);
+
+impl fmt::Display for ShellError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "`{}`, which is neither `bash`, `sh`, `pwsh` nor `python` and has no `{{0}}` for the script",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for ShellError {}

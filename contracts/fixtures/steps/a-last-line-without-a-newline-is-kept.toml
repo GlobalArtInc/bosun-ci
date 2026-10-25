@@ -1,0 +1,6 @@
+conclusion = "success"
+
+[[steps]]
+run = "printf 'no newline'"
+outcome = "success"
+output = ["no newline"]

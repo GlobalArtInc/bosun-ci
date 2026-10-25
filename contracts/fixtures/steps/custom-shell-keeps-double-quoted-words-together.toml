@@ -1,0 +1,7 @@
+conclusion = "success"
+
+[[steps]]
+shell = 'bash -c "echo template; . {0}"'
+run = "echo script"
+outcome = "success"
+output = ["template", "script"]

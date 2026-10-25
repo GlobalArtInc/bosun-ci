@@ -1,0 +1,16 @@
+conclusion = "success"
+
+[env]
+SCOPE = "job"
+KEPT = "job"
+
+[[steps]]
+run = 'echo "$SCOPE $KEPT"'
+env = { SCOPE = "step" }
+outcome = "success"
+output = ["step job"]
+
+[[steps]]
+run = 'echo "$SCOPE"'
+outcome = "success"
+output = ["job"]
