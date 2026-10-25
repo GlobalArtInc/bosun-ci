@@ -7,14 +7,15 @@ use axum::Router;
 use axum::body::{self, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
-use bosun_db::agents::NewRegistrationToken;
+use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_db::entity::{organisation, project, role};
 use bosun_db::roles::{NewBinding, Subject};
 use bosun_db::tokens::NewToken;
 use bosun_db::workflows::NewWorkflow;
 use bosun_types::api::{Permissions, Project, Workflow};
 use bosun_types::id::{
-    ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, TokenId, UserId,
+    AgentId, ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, TokenId,
+    UserId,
 };
 use bosun_types::permission::Permission;
 use chrono::{TimeDelta, Utc};
@@ -598,6 +599,40 @@ impl Site {
         .expect("a registration token");
         token.into_string()
     }
+
+    async fn agent(&self, name: &str) -> AgentId {
+        let pool = bosun_db::pools::default_pool(self.db())
+            .await
+            .expect("the default pool");
+        let sha256 = Uuid::now_v7().as_bytes().repeat(2);
+        bosun_db::agents::create_registration_token(
+            self.db(),
+            NewRegistrationToken {
+                pool_id: pool.id,
+                sha256: sha256.clone(),
+                reusable: false,
+                expires_at: Utc::now() + TimeDelta::hours(1),
+            },
+        )
+        .await
+        .expect("a registration token");
+        let registered = bosun_db::agents::register(
+            self.db(),
+            &sha256,
+            Utc::now(),
+            NewAgent {
+                name: name.to_owned(),
+                labels: Vec::new(),
+                credential_sha256: Uuid::now_v7().as_bytes().repeat(2),
+            },
+        )
+        .await
+        .expect("a registration");
+        let Registration::Registered(agent) = registered else {
+            panic!("the agent `{name}` was not registered");
+        };
+        agent.id
+    }
 }
 
 pub(super) fn request(method: Method, path: &str) -> axum::http::request::Builder {
@@ -1021,6 +1056,17 @@ async fn calls(
             "projects": [],
             "expires_at": Utc::now() + TimeDelta::days(1)
         })),
+        ("PATCH", "/api/v1/agents/{agent}") => {
+            let agent = site.agent(&format!("drained-{name}")).await;
+            return vec![call(
+                format!("/api/v1/agents/{agent}"),
+                Some(json!({ "drain": true })),
+            )];
+        }
+        ("DELETE", "/api/v1/agents/{agent}") => {
+            let agent = site.agent(&format!("deleted-{name}")).await;
+            return vec![call(format!("/api/v1/agents/{agent}"), None)];
+        }
         ("POST", "/api/v1/agents/register") => Some(json!({
             "token": site.registration_token().await,
             "name": format!("agent-{name}"),
@@ -1411,6 +1457,106 @@ async fn me_lists_the_permissions_in_the_shape_of_the_fixture() {
             "organisations": {},
             "projects": {}
         })
+    );
+}
+
+#[tokio::test]
+async fn neither_a_developer_nor_an_administrator_of_an_organisation_drains_or_deletes_an_agent() {
+    let site = Site::new().await;
+    let project = site.project().await;
+    let agent = site.agent("runner2-1").await;
+    let path = format!("/api/v1/agents/{agent}");
+    for (login, role) in [("dana", "developer"), ("ada", "admin")] {
+        let (user, credentials) = site.user(login).await;
+        site.bind(role, Subject::User(user), project.organisation_id, None)
+            .await;
+        let refusal = format!(
+            "`{login}` does not hold `agent.manage` on this installation, which only its owners do"
+        );
+        for (method, body) in [
+            (Method::PATCH, Some(json!({ "drain": true }))),
+            (Method::DELETE, None),
+        ] {
+            let answer = site.send(method.clone(), &path, &credentials, body).await;
+            forbidden(&answer, &format!("{method} of an agent by the {role}"));
+            assert_eq!(answer.body["error"]["message"], refusal);
+        }
+    }
+    let owner = owner_credentials(&site).await;
+    let listed = site.get("/api/v1/agents", &owner).await;
+    let shown = |listed: &Answer| -> Vec<(Value, Value)> {
+        listed.body["items"]
+            .as_array()
+            .expect("a page")
+            .iter()
+            .map(|agent| (agent["name"].clone(), agent["drain"].clone()))
+            .collect()
+    };
+    assert_eq!(
+        shown(&listed),
+        [
+            (json!("runner1-1"), json!(false)),
+            (json!("runner2-1"), json!(false))
+        ]
+    );
+
+    let drained = site
+        .send(Method::PATCH, &path, &owner, Some(json!({ "drain": true })))
+        .await;
+    assert_eq!(drained.status, StatusCode::OK, "{drained:?}");
+    assert_eq!(drained.body["drain"], true);
+    let unchanged = site
+        .send(Method::PATCH, &path, &owner, Some(json!({})))
+        .await;
+    assert_eq!(unchanged.status, StatusCode::OK, "{unchanged:?}");
+    assert_eq!(unchanged.body, drained.body);
+    for body in [json!({ "drain": null }), json!({ "labels": ["rust"] })] {
+        let refused = site
+            .send(Method::PATCH, &path, &owner, Some(body.clone()))
+            .await;
+        assert_eq!(
+            refused.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{body}: {refused:?}"
+        );
+        assert_eq!(refused.body["error"]["code"], "invalid_input");
+    }
+    for reference in ["runner2-1".to_owned(), Uuid::now_v7().to_string()] {
+        absent(
+            &site
+                .send(
+                    Method::PATCH,
+                    &format!("/api/v1/agents/{reference}"),
+                    &owner,
+                    Some(json!({ "drain": true })),
+                )
+                .await,
+            &format!("there is no agent `{reference}`"),
+        );
+    }
+
+    let deleted = site.send(Method::DELETE, &path, &owner, None).await;
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{deleted:?}");
+    assert_eq!(deleted.body, Value::Null);
+    let missing = format!("there is no agent `{agent}`");
+    absent(
+        &site.send(Method::DELETE, &path, &owner, None).await,
+        &missing,
+    );
+    absent(
+        &site
+            .send(
+                Method::PATCH,
+                &path,
+                &owner,
+                Some(json!({ "drain": false })),
+            )
+            .await,
+        &missing,
+    );
+    assert_eq!(
+        shown(&site.get("/api/v1/agents", &owner).await),
+        [(json!("runner1-1"), json!(false))]
     );
 }
 

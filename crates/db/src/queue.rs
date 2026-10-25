@@ -64,7 +64,7 @@ pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Clai
         .query_one(statement(
             "SELECT a.pool_id, a.labels, a.capabilities, p.trust FROM agent a \
              JOIN pool p ON p.id = a.pool_id WHERE a.id = $1 AND a.replica_id = $2 \
-             FOR NO KEY UPDATE OF a",
+             AND NOT a.drain AND a.deleted_at IS NULL FOR NO KEY UPDATE OF a",
             [Uuid::from(claim.agent).into(), claim.replica_id.into()],
         ))
         .await?

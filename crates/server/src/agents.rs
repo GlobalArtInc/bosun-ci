@@ -63,6 +63,8 @@ impl Drop for Tasks {
 pub(crate) fn routes() -> Api {
     Api::new()
         .get("/api/v1/agents", http::list)
+        .patch("/api/v1/agents/{agent}", http::update)
+        .delete("/api/v1/agents/{agent}", http::delete)
         .post("/api/v1/registration-tokens", http::create_token)
         .merge(Api::public().post("/api/v1/agents/register", http::register))
 }

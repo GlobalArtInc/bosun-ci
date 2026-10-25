@@ -66,7 +66,7 @@ impl Dispatcher {
         }
     }
 
-    fn wake(self: &Arc<Self>, agent: AgentId) {
+    pub(crate) fn wake(self: &Arc<Self>, agent: AgentId) {
         if let Some(turn) = self.replica.take_turn(agent) {
             tokio::spawn(Arc::clone(self).claim(agent, turn));
         }

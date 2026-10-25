@@ -14,7 +14,7 @@ use serde::Serialize;
 use crate::entity::{agent, execution, registration_token};
 use crate::periodic::{self, Task};
 use crate::row::statement;
-use crate::{Error, row, stream};
+use crate::{Error, control, row, stream};
 
 const TABLE: &str = "agent";
 
@@ -61,6 +61,13 @@ pub struct Connection {
 pub struct Sweep {
     pub offline: Vec<(AgentId, String)>,
     pub abandoned: Vec<ExecutionId>,
+    pub removed: Vec<(AgentId, ExecutionId)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Standing {
+    pub drain: bool,
+    pub deleted: bool,
 }
 
 pub async fn create_registration_token<C: ConnectionTrait>(
@@ -123,6 +130,8 @@ pub async fn register<C: TransactionTrait>(
         last_seen_at: ActiveValue::Set(None),
         created_at: ActiveValue::NotSet,
         replica_id: ActiveValue::Set(None),
+        drain: ActiveValue::Set(false),
+        deleted_at: ActiveValue::Set(None),
     }
     .insert(&transaction)
     .await?;
@@ -138,6 +147,7 @@ pub async fn authenticate<C: ConnectionTrait>(
 ) -> Result<Option<Agent>, Error> {
     let found = agent::Entity::find()
         .filter(agent::Column::CredentialSha256.eq(credential_sha256.to_vec()))
+        .filter(agent::Column::DeletedAt.is_null())
         .one(db)
         .await?;
     match found {
@@ -150,11 +160,20 @@ pub async fn authenticate<C: ConnectionTrait>(
     }
 }
 
+pub async fn revoked<C: ConnectionTrait>(db: &C, credential_sha256: &[u8]) -> Result<bool, Error> {
+    let found = agent::Entity::find()
+        .filter(agent::Column::CredentialSha256.eq(credential_sha256.to_vec()))
+        .filter(agent::Column::DeletedAt.is_not_null())
+        .one(db)
+        .await?;
+    Ok(found.is_some())
+}
+
 pub async fn connect<C: TransactionTrait>(
     db: &C,
     agent: AgentId,
     connection: Connection,
-) -> Result<(), Error> {
+) -> Result<Option<bool>, Error> {
     let capabilities = connection
         .capabilities
         .iter()
@@ -164,7 +183,7 @@ pub async fn connect<C: TransactionTrait>(
     let connected = agent::Entity::find()
         .from_raw_sql(statement(
             "UPDATE agent SET online = true, last_seen_at = now(), replica_id = $2, version = $3, \
-             labels = $4, capabilities = $5 WHERE id = $1 RETURNING *",
+             labels = $4, capabilities = $5 WHERE id = $1 AND deleted_at IS NULL RETURNING *",
             [
                 Uuid::from(agent).into(),
                 connection.replica_id.into(),
@@ -175,35 +194,170 @@ pub async fn connect<C: TransactionTrait>(
         ))
         .all(&transaction)
         .await?;
+    let drain = connected.first().map(|connected| connected.drain);
     changed(&transaction, connected).await?;
     transaction.commit().await?;
-    Ok(())
+    Ok(drain)
 }
 
 pub async fn heartbeat<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     agent: AgentId,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     let seen = db
         .execute(statement(
-            "UPDATE agent SET last_seen_at = now() WHERE id = $1 AND online",
+            "UPDATE agent SET last_seen_at = now() WHERE id = $1 AND online \
+             AND deleted_at IS NULL",
             [Uuid::from(agent).into()],
         ))
         .await?;
     if seen.rows_affected() > 0 {
-        return Ok(());
+        return Ok(true);
     }
     let transaction = db.begin().await?;
     let back = agent::Entity::find()
         .from_raw_sql(statement(
-            "UPDATE agent SET online = true, last_seen_at = now() WHERE id = $1 AND NOT online \
-             RETURNING *",
+            "UPDATE agent SET online = true, last_seen_at = now() \
+             WHERE id = $1 AND NOT online AND deleted_at IS NULL RETURNING *",
             [Uuid::from(agent).into()],
         ))
         .all(&transaction)
         .await?;
+    let alive = if back.is_empty() {
+        standing(&transaction, agent)
+            .await?
+            .is_some_and(|standing| !standing.deleted)
+    } else {
+        true
+    };
     changed(&transaction, back).await?;
     transaction.commit().await?;
+    Ok(alive)
+}
+
+pub async fn find<C: ConnectionTrait>(db: &C, agent: AgentId) -> Result<Option<Agent>, Error> {
+    let found = agent::Entity::find_by_id(Uuid::from(agent))
+        .filter(agent::Column::DeletedAt.is_null())
+        .one(db)
+        .await?;
+    match found {
+        Some(found) => {
+            let running = running(db, &[found.id]).await?;
+            let execution = running.get(&found.id).copied();
+            Ok(Some(decode(found, execution)?))
+        }
+        None => Ok(None),
+    }
+}
+
+pub async fn standing<C: ConnectionTrait>(
+    db: &C,
+    agent: AgentId,
+) -> Result<Option<Standing>, Error> {
+    db.query_one(statement(
+        "SELECT drain, deleted_at IS NOT NULL AS deleted FROM agent WHERE id = $1",
+        [Uuid::from(agent).into()],
+    ))
+    .await?
+    .map(|found| {
+        Ok(Standing {
+            drain: found.try_get("", "drain")?,
+            deleted: found.try_get("", "deleted")?,
+        })
+    })
+    .transpose()
+}
+
+pub async fn drain<C: TransactionTrait>(
+    db: &C,
+    agent: AgentId,
+    drain: bool,
+) -> Result<Option<Agent>, Error> {
+    let transaction = db.begin().await?;
+    let Some(found) = transaction
+        .query_one(statement(
+            "SELECT drain, replica_id FROM agent WHERE id = $1 AND deleted_at IS NULL \
+             FOR NO KEY UPDATE",
+            [Uuid::from(agent).into()],
+        ))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let toggled = found.try_get::<bool>("", "drain")? != drain;
+    if toggled {
+        transaction
+            .execute(statement(
+                "UPDATE agent SET drain = $2 WHERE id = $1",
+                [Uuid::from(agent).into(), drain.into()],
+            ))
+            .await?;
+        if let Some(replica_id) = found.try_get::<Option<Uuid>>("", "replica_id")? {
+            notify(&transaction, agent, replica_id).await?;
+        }
+    }
+    let current = find(&transaction, agent).await?;
+    if toggled && let Some(current) = &current {
+        stream::agent_changed(&transaction, current.clone()).await?;
+    }
+    transaction.commit().await?;
+    Ok(current)
+}
+
+pub async fn delete<C: TransactionTrait>(db: &C, agent: AgentId) -> Result<bool, Error> {
+    let transaction = db.begin().await?;
+    let deleted = agent::Entity::find()
+        .from_raw_sql(statement(
+            "UPDATE agent SET deleted_at = now(), online = false \
+             WHERE id = $1 AND deleted_at IS NULL RETURNING *",
+            [Uuid::from(agent).into()],
+        ))
+        .all(&transaction)
+        .await?;
+    let removed = !deleted.is_empty();
+    changed(&transaction, deleted).await?;
+    transaction.commit().await?;
+    Ok(removed)
+}
+
+pub async fn held<C: ConnectionTrait>(db: &C, agent: AgentId) -> Result<Vec<ExecutionId>, Error> {
+    let found = db
+        .query_all(statement(
+            "SELECT id FROM execution WHERE agent_id = $1 AND status <> $2 ORDER BY id",
+            [
+                Uuid::from(agent).into(),
+                name(ExecutionStatus::Completed)?.into(),
+            ],
+        ))
+        .await?;
+    executions(found)
+}
+
+pub async fn announce<C: ConnectionTrait>(db: &C, agent: AgentId) -> Result<(), Error> {
+    let replica = db
+        .query_one(statement(
+            "SELECT replica_id FROM agent WHERE id = $1",
+            [Uuid::from(agent).into()],
+        ))
+        .await?
+        .map(|found| found.try_get::<Option<Uuid>>("", "replica_id"))
+        .transpose()?
+        .flatten();
+    if let Some(replica_id) = replica {
+        notify(db, agent, replica_id).await?;
+    }
+    Ok(())
+}
+
+async fn notify<C: ConnectionTrait>(db: &C, agent: AgentId, replica_id: Uuid) -> Result<(), Error> {
+    db.execute(statement(
+        "SELECT pg_notify($1, $2)",
+        [
+            control::channel(replica_id).into(),
+            agent.to_string().into(),
+        ],
+    ))
+    .await?;
     Ok(())
 }
 
@@ -236,6 +390,7 @@ pub async fn list<C: ConnectionTrait>(
     limit: u64,
 ) -> Result<Vec<Agent>, Error> {
     let mut query = agent::Entity::find()
+        .filter(agent::Column::DeletedAt.is_null())
         .order_by_asc(agent::Column::Id)
         .limit(limit);
     if let Some(after) = after {
@@ -279,14 +434,37 @@ pub async fn sweep<C: TransactionTrait>(
     let abandoned = transaction
         .query_all(statement(
             "SELECT e.id FROM execution e JOIN agent a ON a.id = e.agent_id \
-             WHERE e.status = ANY($1) AND NOT a.online \
+             WHERE e.status = ANY($1) AND NOT a.online AND a.deleted_at IS NULL \
              AND a.last_seen_at < now() - make_interval(secs => $2) ORDER BY e.id",
             [running_names()?.into(), grace.as_secs_f64().into()],
         ))
         .await?;
     let abandoned = executions(abandoned)?;
+    let removed = transaction
+        .query_all(statement(
+            "SELECT e.agent_id, e.id FROM execution e JOIN agent a ON a.id = e.agent_id \
+             WHERE e.status <> $1 \
+             AND a.deleted_at < now() - make_interval(secs => $2) ORDER BY e.id",
+            [
+                name(ExecutionStatus::Completed)?.into(),
+                offline_after.as_secs_f64().into(),
+            ],
+        ))
+        .await?
+        .into_iter()
+        .map(|found| {
+            Ok((
+                row::id(TABLE, found.try_get::<Uuid>("", "agent_id")?)?,
+                row::id("execution", found.try_get::<Uuid>("", "id")?)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
     transaction.commit().await?;
-    Ok(Some(Sweep { offline, abandoned }))
+    Ok(Some(Sweep {
+        offline,
+        abandoned,
+        removed,
+    }))
 }
 
 pub async fn abandoned<C: ConnectionTrait>(
@@ -349,6 +527,7 @@ fn decode(agent: agent::Model, execution_id: Option<ExecutionId>) -> Result<Agen
             .collect::<Result<Vec<Capability>, Error>>()?,
         version: agent.version,
         online: agent.online,
+        drain: agent.drain,
         last_seen_at: agent.last_seen_at,
         execution_id,
         created_at: agent.created_at,

@@ -376,7 +376,7 @@ impl Locked<'_> {
         Ok(true)
     }
 
-    async fn requeue(
+    pub async fn requeue(
         &self,
         execution: ExecutionId,
         reason: StatusReason,

@@ -1,4 +1,4 @@
-use bosun_types::id::JobId;
+use bosun_types::id::{AgentId, JobId};
 use sea_orm::prelude::Uuid;
 use sea_orm::sqlx::postgres::PgListener;
 
@@ -10,6 +10,7 @@ use crate::{Error, deliveries, queue, sqlx_error};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Notification {
     Control(Notice),
+    Agent(AgentId),
     Queued(JobId),
     Log(LogNotice),
     Delivery,
@@ -46,7 +47,9 @@ impl Listener {
                 logs::CHANNEL => logs::notice(payload).map(Notification::Log),
                 deliveries::CHANNEL => Some(Notification::Delivery),
                 stream::CHANNEL => stream::notice(payload).map(Notification::Events),
-                _ => control::notice(payload).map(Notification::Control),
+                _ => control::notice(payload)
+                    .map(Notification::Control)
+                    .or_else(|| payload.parse().ok().map(Notification::Agent)),
             };
             if let Some(heard) = heard {
                 return Ok(Some(heard));

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use bosun_db::Error;
+use bosun_db::control::{self, Kind};
 use bosun_db::runs::{ExecutionState, Locked};
 use bosun_types::actor::Actor;
 use bosun_types::id::{AgentId, ExecutionId};
@@ -249,6 +250,41 @@ async fn lose(
     )
     .await?;
     planner::plan(&mut run, site).await?;
+    transaction.commit().await?;
+    Ok(true)
+}
+
+pub(crate) async fn remove(
+    db: &DatabaseConnection,
+    agent: AgentId,
+    execution: ExecutionId,
+    actor: &Actor,
+    site: &Site,
+) -> Result<bool, Error> {
+    let transaction = db.begin().await?;
+    let Some((mut run, state)) = bosun_db::runs::lock_execution(&transaction, execution).await?
+    else {
+        return Ok(false);
+    };
+    if state.agent_id != agent {
+        return Ok(false);
+    }
+    if state.status == ExecutionStatus::Assigned {
+        run.requeue(execution, StatusReason::AgentRemoved, actor)
+            .await?;
+    } else if bosun_db::agents::RUNNING.contains(&state.status) {
+        run.finish_execution(
+            execution,
+            Conclusion::Failure,
+            Some(StatusReason::AgentRemoved),
+            actor,
+        )
+        .await?;
+        planner::plan(&mut run, site).await?;
+    } else {
+        return Ok(false);
+    }
+    control::publish(run.transaction(), execution, Kind::Cancel).await?;
     transaction.commit().await?;
     Ok(true)
 }

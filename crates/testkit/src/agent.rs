@@ -215,6 +215,17 @@ impl Connection {
         (assignment, documents)
     }
 
+    pub async fn within(&mut self, period: Duration) -> Option<Result<Option<Incoming>, Status>> {
+        timeout(period, next(&mut self.inbound)).await.ok()
+    }
+
+    pub async fn drain(&mut self) {
+        match self.message().await {
+            Ok(Some(Incoming::Drain(_))) => {}
+            other => panic!("the server sent no Drain but {other:?}"),
+        }
+    }
+
     pub async fn control(&mut self) -> Control {
         match self.message().await {
             Ok(Some(Incoming::Control(control))) => control,

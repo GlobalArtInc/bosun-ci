@@ -2,10 +2,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use bosun_db::control::{self, Kind};
-use bosun_proto::agent::v1::{ControlKind, Hello};
+use bosun_proto::agent::v1::agent_message::Message as Report;
+use bosun_proto::agent::v1::{Accept, Conclusion, ControlKind, Hello, StepStarted};
 use bosun_testkit::TestDatabase;
-use bosun_testkit::agent::{FakeAgent, VERSION};
+use bosun_testkit::agent::{Connection, FakeAgent, VERSION};
 use bosun_types::id::{AgentId, ExecutionId};
+use reqwest::Method;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::{Value, json};
 use tokio::time::{Instant, sleep};
@@ -17,6 +19,20 @@ use crate::{CONFIG, Launch, Server, WAIT, client, message, owner, strings};
 const AGENTS: &str = "\n[agents]\nheartbeat_interval = \"200ms\"\noffline_after = \"1s\"\n";
 
 const BEAT: Duration = Duration::from_millis(200);
+
+const QUIET: Duration = Duration::from_millis(1500);
+
+const DELETED: &str = "the agent was deleted, which revoked its credential";
+
+const BUILD: &str = concat!(
+    "name: ci\n",
+    "on: workflow_dispatch\n",
+    "jobs:\n",
+    "  build:\n",
+    "    runs-on: [self-hosted]\n",
+    "    steps:\n",
+    "      - run: \"true\"\n",
+);
 
 fn launch(database: &str) -> Launch {
     Launch::serve(database).config(&format!("{CONFIG}{AGENTS}"))
@@ -133,6 +149,108 @@ async fn executions(db: &DatabaseConnection, agents: &[AgentId]) -> Vec<Executio
         executions.push(execution.try_into().expect("a version 7 UUID"));
     }
     executions
+}
+
+async fn send(
+    address: SocketAddr,
+    owner: &str,
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+) -> (u16, Value) {
+    let mut request = client()
+        .request(method.clone(), format!("http://{address}{path}"))
+        .bearer_auth(owner);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("{method} {path}: {error}"));
+    let status = response.status().as_u16();
+    let text = response.text().await.expect("a body");
+    if text.is_empty() {
+        return (status, Value::Null);
+    }
+    let body = serde_json::from_str(&text)
+        .unwrap_or_else(|error| panic!("{method} {path} answered `{text}`: {error}"));
+    (status, body)
+}
+
+async fn workflow(address: SocketAddr, owner: &str) -> String {
+    let (status, _) = post(
+        address,
+        "/api/v1/organisations",
+        Some(owner),
+        json!({ "slug": "globalart", "name": "GlobalArt" }),
+    )
+    .await;
+    assert_eq!(status, 201);
+    let (status, project) = post(
+        address,
+        "/api/v1/projects",
+        Some(owner),
+        json!({ "organisation": "globalart", "slug": "ops", "name": "Operations" }),
+    )
+    .await;
+    assert_eq!(status, 201, "{project}");
+    let (status, workflow) = post(
+        address,
+        &format!(
+            "/api/v1/projects/{}/workflows",
+            project["id"].as_str().expect("a project id")
+        ),
+        Some(owner),
+        json!({ "name": "ci", "source": BUILD }),
+    )
+    .await;
+    assert_eq!(status, 201, "{workflow}");
+    workflow["id"].as_str().expect("a workflow id").to_owned()
+}
+
+async fn dispatch(address: SocketAddr, owner: &str, workflow: &str) -> String {
+    let (status, run) = post(
+        address,
+        &format!("/api/v1/workflows/{workflow}/dispatch"),
+        Some(owner),
+        json!({ "ref": null, "inputs": {} }),
+    )
+    .await;
+    assert_eq!(status, 201, "{run}");
+    run["id"].as_str().expect("a run id").to_owned()
+}
+
+async fn until(db: &DatabaseConnection, sql: &str, expected: &[&str]) {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let found = strings(db, sql).await;
+        if found == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{sql} gave {found:?} and not {expected:?} within {WAIT:?}"
+        );
+        sleep(Duration::from_millis(50)).await;
+    }
+}
+
+fn run_state(run: &str) -> String {
+    format!("SELECT concat_ws(' ', status, conclusion) AS value FROM bosun.run WHERE id = '{run}'")
+}
+
+fn job_state(run: &str) -> String {
+    format!(
+        "SELECT j.status AS value FROM bosun.job j JOIN bosun.attempt a ON a.id = j.attempt_id \
+         WHERE a.run_id = '{run}'"
+    )
+}
+
+async fn quiet(connection: &mut Connection, what: &str) {
+    if let Some(received) = connection.within(QUIET).await {
+        panic!("{what} received {received:?}");
+    }
 }
 
 fn misspelt(token: &str) -> String {
@@ -579,4 +697,267 @@ async fn an_agent_stream_ends_with_unavailable_and_the_reason_when_the_server_st
     );
     let (status, lines) = server.exit().await;
     assert!(status.success(), "{lines:#?}");
+}
+
+#[tokio::test]
+async fn an_agent_drained_through_another_replica_finishes_its_job_and_takes_no_other_until_lifted()
+{
+    let database = TestDatabase::migrated().await;
+    let owner = owner(&database.url(), "roman").await;
+    let mut a = launch(&database.url()).spawn();
+    let mut b = launch(&database.url()).spawn();
+    let (on_a, on_b) = (a.listening().await, b.listening().await);
+    let db = database.connection();
+    let token = registration_token(on_a, &owner, false).await;
+    let fake = FakeAgent::register(on_a, &token, "runner1-1", &[]).await;
+    let workflow = workflow(on_a, &owner).await;
+    let path = format!("/api/v1/agents/{}", fake.id());
+
+    let mut on_replica_b = fake.connect(on_b).await;
+    on_replica_b.beat_every(BEAT);
+    on_replica_b.idle();
+    let first = dispatch(on_a, &owner, &workflow).await;
+    let running = on_replica_b.assignment().await;
+    assert_eq!(running.run_id, first);
+    on_replica_b.send(Report::Accept(Accept {
+        execution_id: running.execution_id.clone(),
+    }));
+    until(db, &job_state(&first), &["in_progress"]).await;
+
+    let (status, drained) = send(
+        on_a,
+        &owner,
+        Method::PATCH,
+        &path,
+        Some(json!({ "drain": true })),
+    )
+    .await;
+    assert_eq!(status, 200, "{drained}");
+    assert_eq!(drained["drain"], true);
+    assert_eq!(drained["execution_id"], running.execution_id.as_str());
+    on_replica_b.drain().await;
+    let second = dispatch(on_a, &owner, &workflow).await;
+    on_replica_b.finish_job(&running.execution_id, Conclusion::Success, &[]);
+    on_replica_b.idle();
+    until(db, &run_state(&first), &["completed success"]).await;
+    quiet(&mut on_replica_b, "the drained agent").await;
+    assert_eq!(strings(db, &job_state(&second)).await, ["queued"]);
+    let listed = agent(on_b, &owner, fake.id()).await;
+    assert_eq!(
+        (&listed["online"], &listed["drain"], &listed["execution_id"]),
+        (&json!(true), &json!(true), &Value::Null),
+        "{listed}"
+    );
+
+    drop(on_replica_b);
+    let mut on_replica_a = fake.connect(on_a).await;
+    on_replica_a.beat_every(BEAT);
+    on_replica_a.drain().await;
+    on_replica_a.idle();
+    quiet(&mut on_replica_a, "the drained agent after it reconnected").await;
+    assert_eq!(strings(db, &job_state(&second)).await, ["queued"]);
+
+    let (status, again) = send(
+        on_a,
+        &owner,
+        Method::PATCH,
+        &path,
+        Some(json!({ "drain": true })),
+    )
+    .await;
+    assert_eq!((status, &again["drain"]), (200, &json!(true)), "{again}");
+    quiet(&mut on_replica_a, "an agent drained twice").await;
+
+    let (status, lifted) = send(
+        on_b,
+        &owner,
+        Method::PATCH,
+        &path,
+        Some(json!({ "drain": false })),
+    )
+    .await;
+    assert_eq!(status, 200, "{lifted}");
+    assert_eq!(lifted["drain"], false);
+    let next = on_replica_a.assignment().await;
+    assert_eq!(next.run_id, second);
+    on_replica_a.send(Report::Accept(Accept {
+        execution_id: next.execution_id.clone(),
+    }));
+    on_replica_a.finish_job(&next.execution_id, Conclusion::Success, &[]);
+    until(db, &run_state(&second), &["completed success"]).await;
+    a.expect("that the drain was lifted", |line| {
+        message(line) == "the drain of an agent was lifted"
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn deleting_an_agent_in_the_middle_of_a_job_fails_it_with_agent_removed_and_revokes_the_credential()
+ {
+    let database = TestDatabase::migrated().await;
+    let owner = owner(&database.url(), "roman").await;
+    let mut a = launch(&database.url()).spawn();
+    let mut b = launch(&database.url()).spawn();
+    let (on_a, on_b) = (a.listening().await, b.listening().await);
+    let db = database.connection();
+    let token = registration_token(on_a, &owner, false).await;
+    let fake = FakeAgent::register(on_a, &token, "runner1-1", &[]).await;
+    let workflow = workflow(on_a, &owner).await;
+    let path = format!("/api/v1/agents/{}", fake.id());
+
+    let mut connection = fake.connect(on_b).await;
+    connection.beat_every(BEAT);
+    connection.idle();
+    let run = dispatch(on_a, &owner, &workflow).await;
+    let running = connection.assignment().await;
+    connection.send(Report::Accept(Accept {
+        execution_id: running.execution_id.clone(),
+    }));
+    connection.send(Report::StepStarted(StepStarted {
+        execution_id: running.execution_id.clone(),
+        step_index: 0,
+        started_at: None,
+    }));
+    until(
+        db,
+        &format!(
+            "SELECT s.status AS value FROM bosun.step s WHERE s.execution_id = '{}'",
+            running.execution_id
+        ),
+        &["in_progress"],
+    )
+    .await;
+
+    let (status, body) = send(on_a, &owner, Method::DELETE, &path, None).await;
+    assert_eq!((status, &body), (204, &Value::Null));
+    let cancel = connection.control().await;
+    assert_eq!(cancel.kind(), ControlKind::Cancel);
+    assert_eq!(cancel.execution_id, running.execution_id);
+    let ended = connection.closed().await;
+    assert_eq!(ended.code(), Code::Unauthenticated, "{ended:?}");
+    assert_eq!(ended.message(), DELETED);
+    until(db, &run_state(&run), &["completed failure"]).await;
+    assert_eq!(
+        strings(
+            db,
+            &format!(
+                "SELECT concat_ws(' ', e.status, e.conclusion, e.reason, j.status, j.conclusion) \
+                 AS value FROM bosun.execution e JOIN bosun.job j ON j.id = e.job_id \
+                 WHERE e.id = '{}'",
+                running.execution_id
+            )
+        )
+        .await,
+        ["completed failure agent_removed completed failure"]
+    );
+    assert_eq!(
+        strings(
+            db,
+            &format!(
+                "SELECT concat_ws(' ', kind, data ->> 'to', data ->> 'reason', actor ->> 'kind', \
+                 actor ->> 'login') AS value FROM bosun.run_event \
+                 WHERE run_id = '{run}' AND data ->> 'reason' = 'agent_removed' ORDER BY seq"
+            )
+        )
+        .await,
+        [
+            "execution.status completed agent_removed token roman",
+            "job.status completed agent_removed token roman"
+        ]
+    );
+    b.expect("that the stream of the deleted agent ended", |line| {
+        message(line) == "ending the stream of a deleted agent"
+    })
+    .await;
+
+    let refused = fake
+        .connect_with(on_a, fake.hello())
+        .await
+        .err()
+        .expect("a refusal");
+    assert_eq!(refused.code(), Code::Unauthenticated, "{refused:?}");
+    assert_eq!(refused.message(), DELETED);
+    assert_eq!(agents(on_b, &owner).await, Vec::<Value>::new());
+    let missing = format!("there is no agent `{}`", fake.id());
+    for (method, body) in [
+        (Method::DELETE, None),
+        (Method::PATCH, Some(json!({ "drain": true }))),
+    ] {
+        let (status, body) = send(on_b, &owner, method.clone(), &path, body).await;
+        assert_eq!(status, 404, "{method}: {body}");
+        assert_eq!(body["error"]["message"], missing.as_str(), "{method}");
+    }
+    assert_eq!(
+        strings(
+            db,
+            &format!(
+                "SELECT concat_ws(' ', name, online, deleted_at IS NOT NULL) AS value \
+                 FROM bosun.agent WHERE id = '{}'",
+                fake.id()
+            )
+        )
+        .await,
+        ["runner1-1 f t"]
+    );
+}
+
+#[tokio::test]
+async fn the_sweep_ends_the_executions_that_an_abandoned_deletion_left_open() {
+    let database = TestDatabase::migrated().await;
+    let owner = owner(&database.url(), "roman").await;
+    let mut server = launch(&database.url()).spawn();
+    let address = server.listening().await;
+    let db = database.connection();
+    let token = registration_token(address, &owner, false).await;
+    let fake = FakeAgent::register(address, &token, "runner1-1", &[]).await;
+    let executions = executions(db, &[fake.id()]).await;
+
+    execute(
+        db,
+        &format!(
+            "UPDATE bosun.agent SET deleted_at = now() - interval '1 hour' WHERE id = '{}'",
+            fake.id()
+        ),
+    )
+    .await;
+    let line = server
+        .expect("that the sweep ended the execution", |line| {
+            message(line)
+                == "an execution of a deleted agent was ended, which its deletion left open"
+        })
+        .await;
+    assert_eq!(line["execution_id"], executions[0].to_string());
+    assert_eq!(
+        strings(
+            db,
+            &format!(
+                "SELECT concat_ws(' ', e.status, e.conclusion, e.reason, j.status, j.conclusion) \
+                 AS value FROM bosun.execution e JOIN bosun.job j ON j.id = e.job_id \
+                 WHERE e.id = '{}'",
+                executions[0]
+            )
+        )
+        .await,
+        ["completed failure agent_removed completed failure"]
+    );
+    assert_eq!(
+        strings(
+            db,
+            "SELECT concat_ws(' ', kind, actor ->> 'kind') AS value FROM bosun.run_event \
+             WHERE data ->> 'reason' = 'agent_removed' ORDER BY seq"
+        )
+        .await,
+        ["execution.status system", "job.status system"]
+    );
+    assert_eq!(
+        strings(
+            db,
+            &format!(
+                "SELECT kind AS value FROM bosun.control_message WHERE execution_id = '{}'",
+                executions[0]
+            )
+        )
+        .await,
+        ["cancel"]
+    );
 }

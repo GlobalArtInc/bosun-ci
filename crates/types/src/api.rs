@@ -344,6 +344,14 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
+fn given<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProjectSettings {
     pub github_workflows: bool,
@@ -622,9 +630,22 @@ pub struct Agent {
     pub capabilities: Vec<Capability>,
     pub version: Option<String>,
     pub online: bool,
+    pub drain: bool,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub execution_id: Option<ExecutionId>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateAgentRequest {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "given"
+    )]
+    #[schemars(with = "bool")]
+    pub drain: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

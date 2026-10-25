@@ -295,6 +295,107 @@ async fn an_execution_whose_agent_is_lost_fails_its_job_and_the_planner_takes_th
 }
 
 #[tokio::test]
+async fn removing_its_agent_fails_a_running_job_and_returns_an_assigned_one_to_the_queue() {
+    let world = World::new().await;
+    let run = world
+        .dispatch(&workflow(vec![
+            template("build", &[], 1),
+            template("lint", &[], 1),
+            template("test", &["build"], 1),
+        ]))
+        .await;
+    let projection = world.project(run).await;
+    let (build, _) = projection.job("build");
+    let (lint, _) = projection.job("lint");
+    let running = world.start(run, build).await;
+    let assigned = world.assign(run, lint).await;
+    let agent = world.agent().id;
+    let stranger = AgentId::try_from(Uuid::now_v7()).expect("an agent id");
+    assert!(
+        !progress::remove(world.db(), stranger, running, &operator(), &Site::default())
+            .await
+            .expect("a removal"),
+        "the execution of another agent was removed"
+    );
+
+    for execution in [running, assigned] {
+        assert!(
+            progress::remove(world.db(), agent, execution, &operator(), &Site::default())
+                .await
+                .expect("a removal")
+        );
+        assert!(
+            !progress::remove(world.db(), agent, execution, &operator(), &Site::default())
+                .await
+                .expect("a removal"),
+            "a completed execution was removed twice"
+        );
+    }
+
+    let projection = world.project(run).await;
+    assert_eq!(replay(&world.journal(run).await), Ok(projection.clone()));
+    for (execution, conclusion) in [
+        (running, Conclusion::Failure),
+        (assigned, Conclusion::Cancelled),
+    ] {
+        let row = &projection.executions[&execution];
+        assert_eq!(
+            (row.status, row.conclusion, row.reason),
+            (
+                ExecutionStatus::Completed,
+                Some(conclusion),
+                Some(StatusReason::AgentRemoved)
+            )
+        );
+    }
+    assert_eq!(
+        world.controls().await.into_iter().collect::<Vec<_>>(),
+        [running, assigned]
+    );
+    let build_row = projection.job("build").1;
+    assert_eq!(
+        (build_row.status, build_row.conclusion),
+        (JobStatus::Completed, Some(Conclusion::Failure))
+    );
+    let lint_row = projection.job("lint").1;
+    assert_eq!(
+        (lint_row.status, lint_row.queued),
+        (JobStatus::Queued, true)
+    );
+    assert_eq!(
+        projection.job("test").1.conclusion,
+        Some(Conclusion::Skipped)
+    );
+    let removed: Vec<(&str, String)> = world
+        .journal(run)
+        .await
+        .iter()
+        .filter_map(|event| match &event.event {
+            Event::ExecutionStatusChanged(changed)
+                if changed.reason == Some(StatusReason::AgentRemoved) =>
+            {
+                Some(("execution", format!("{:?}", changed.to)))
+            }
+            Event::JobStatusChanged(changed)
+                if changed.reason == Some(StatusReason::AgentRemoved) =>
+            {
+                Some(("job", format!("{:?}", changed.to)))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        removed,
+        [
+            ("execution", "Completed".to_owned()),
+            ("job", "Completed".to_owned()),
+            ("execution", "Completed".to_owned()),
+            ("job", "Queued".to_owned()),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn reports_that_do_not_fit_the_execution_change_nothing() {
     let world = World::new().await;
     let run = world

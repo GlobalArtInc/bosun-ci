@@ -15,6 +15,8 @@ pub struct Model {
     pub last_seen_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub replica_id: Option<Uuid>,
+    pub drain: bool,
+    pub deleted_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

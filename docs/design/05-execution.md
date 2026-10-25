@@ -103,7 +103,8 @@ containers arrive in M2.
 
 The server can ask an agent to rotate its credential in the `Welcome` message; the old credential
 stays valid until the agent has confirmed the new one. Deleting an agent revokes its credential;
-a job it was running is completed as `failure` with the reason `agent_removed`.
+a job it was running is completed as `failure` with the reason `agent_removed`
+([Draining and deleting agents](#draining-and-deleting-agents)).
 
 ## Protocol
 
@@ -145,7 +146,7 @@ anew, so a server that moved to another address is found without restarting the 
 | `Control` | an id, the execution, and one of `cancel`, `force_cancel`, `pause`, `resume`, `skip_step`, `breakpoint`, `abort_step`, `retry_step`, `continue`, `release`, `extend` |
 | `TerminalOpen`, `TerminalInput`, `TerminalResize`, `TerminalClose` | a debug terminal session |
 | `LogAck` | the sequence number of a log chunk the server handled, which releases every chunk up to it |
-| `Drain` | finish the current job and take no more |
+| `Drain` | the agent is drained: it finishes the current job and is offered no other ([Draining and deleting agents](#draining-and-deleting-agents)) |
 
 The protobuf definitions live in `proto/bosun/agent/v1/agent.proto` and are compiled by
 `bosun-proto` with a protobuf compiler written in Rust, so building needs no `protoc`. The first
@@ -231,6 +232,64 @@ arrives; the agent answers each with `ControlAck`, which the server records on t
 act again on an id it has seen: it repeats the acknowledgement it gave, for the last 1024 ids. A
 `cancel` of the execution the agent runs takes effect; any other id is acknowledged as having no
 effect. No replica keeps state another replica needs.
+
+## Draining and deleting agents
+
+Step 19 of M1 ([../plan.md](../plan.md)) settled how an administrator takes an agent out of
+service; the endpoints are in [11-api.md](11-api.md#agents) and the commands in
+[11-api.md](11-api.md#the-cli).
+
+**Draining.** `PATCH /agents/{agent}` with `"drain": true` stores the drain on the agent
+(`agent.drain`), so it outlasts a reconnect and a restart of the agent or of the server, and the
+claim takes nothing for a drained agent ([07-storage.md](07-storage.md#the-queue)). The claim is
+what keeps jobs away from it: the agent finishes the job it runs, reports it as always, and is
+offered no other, whichever replica it connects to. The transaction that stores the drain announces
+it on `bosun_replica_<id>` of the agent's current replica, with the agent's id alone as the payload
+([07-storage.md](07-storage.md#notifications-between-replicas)), so the replica that holds the
+stream learns of it whichever replica took the request, reads the agent and sends `Drain`. It also
+sends `Drain` right after the `Welcome` of every stream of a drained agent and, after its listening
+connection was re-established, to every drained agent it holds; a stream carries one `Drain` until
+the drain is lifted. The agent logs the `Drain` and changes nothing else, since the server already
+offers it no job; an agent of the previous minor version does not know the message and drops it,
+and is kept from jobs all the same. A drain or its lifting that changes the stored value also writes
+an `agent.status` event in the transaction of the change ([11-api.md](11-api.md#the-event-stream)),
+so the agents page follows it without a request.
+
+**A drained agent once it is idle** stays connected and idle: it keeps its stream and its
+heartbeats, sends `Idle` as before, is listed as online and drained, and is offered no job until the
+drain is lifted or the agent is deleted. It does not exit. Under its unit, which restarts it only on
+a failure ([12-operations.md](12-operations.md#agents)), an agent that exited would leave the host
+without an agent until someone started it by hand, and one that exited with a failure would be
+started again and drained again in a loop; staying connected lets an administrator see from the
+agents page when it went idle, lift the drain without touching the host, or delete it.
+
+**Lifting a drain.** `"drain": false` lifts it at once, through the same announcement: the replica
+that holds the stream claims a job for the agent when the agent is idle, as after an `Idle`, and
+sends the agent nothing, since the drain changed nothing on it. A drain lifted while the agent has
+no stream applies when it connects. Draining and lifting are therefore how an agent is taken out of
+service for a while, for the upgrade of its host among other things, without being registered
+again.
+
+**Deleting.** `DELETE /agents/{agent}` marks the agent deleted (`agent.deleted_at`) and offline in
+one statement, which writes an `agent.status` event of the agent as offline. From then on its credential is refused when it connects, with `UNAUTHENTICATED` and
+``the agent was deleted, which revoked its credential``, it is not listed, the claim takes nothing
+for it, and every request that names it is `404`. Its row stays, because its executions keep naming
+it through a plain foreign key ([07-storage.md](07-storage.md#tables)). The server then ends each
+execution of the agent that is not completed, each in a transaction of its own under its run's
+lock: a running one completes as `failure` with the reason `agent_removed`, and its job with it,
+after which the planner takes the run on; one still `assigned`, which the agent never started,
+returns to the queue with the same reason and keeps its place, as after an expired lease. Each also
+gets a `cancel` control message, and its events carry the caller as their actor. Last, the server
+announces the agent on its current replica's channel; that replica sends the agent its
+unacknowledged control messages, the cancels among them, and then ends the stream with
+`UNAUTHENTICATED` and the message above, so a job still running on the host is cancelled there as by
+a `cancel`, and nothing it reports afterwards reaches the server. The agent keeps trying to
+connect with its backoff and is refused every time, until its instance is removed from the host.
+A deletion that its replica abandoned halfway is finished by the others: the sweep of agents ends
+the open executions of agents deleted longer than `agents.offline_after` ago the same way, with the
+actor `system`, so it does not race the replica that is still at it, and a heartbeat of a
+deleted agent that has no open execution left ends its stream as the announcement would, after its
+unacknowledged control messages, so the cancels still arrive first.
 
 ## The job assignment
 

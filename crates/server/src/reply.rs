@@ -64,6 +64,20 @@ impl<T: JsonSchema> Output for Saved<T> {
     }
 }
 
+pub(crate) struct Deleted;
+
+impl IntoResponse for Deleted {
+    fn into_response(self) -> Response {
+        StatusCode::NO_CONTENT.into_response()
+    }
+}
+
+impl Output for Deleted {
+    fn output(spec: &mut Spec<'_>) {
+        spec.empty(StatusCode::NO_CONTENT);
+    }
+}
+
 pub(crate) fn etag(version: u64) -> String {
     format!("\"{version}\"")
 }

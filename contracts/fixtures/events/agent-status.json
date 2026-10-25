@@ -19,6 +19,7 @@
     ],
     "version": "0.1.0",
     "online": false,
+    "drain": false,
     "last_seen_at": "2026-10-24T18:34:50.078Z",
     "execution_id": null,
     "created_at": "2026-10-24T18:30:00Z"

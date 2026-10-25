@@ -30,6 +30,7 @@ message ServerMessage {
     Assignment assignment = 2;
     Control control = 3;
     LogAck log_ack = 4;
+    Drain drain = 5;
   }
 }
 
@@ -152,6 +153,8 @@ message Control {
   string execution_id = 2;
   ControlKind kind = 3;
 }
+
+message Drain {}
 
 message ControlAck {
   string id = 1;

@@ -5,21 +5,22 @@ use axum::response::{IntoResponse, Response};
 use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_types::api::{
     Agent, Page, RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
-    RegistrationTokenRequest,
+    RegistrationTokenRequest, UpdateAgentRequest,
 };
 use bosun_types::error::{ErrorBody, ErrorCode, FieldError};
 use bosun_types::id::AgentId;
 use chrono::{TimeDelta, Utc};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
+use super::progress;
 use super::{LABEL_RULE, NAME_RULE, valid_label, valid_name};
 use crate::AppState;
 use crate::access::{AgentManage, Caller, OnInstallation};
 use crate::auth::Refusal;
 use crate::envelope::ApiError;
 use crate::openapi::{self, Input, Output, Spec};
-use crate::reply::Created;
-use crate::request::Body;
+use crate::reply::{Created, Deleted};
+use crate::request::{Body, Segment};
 use crate::token::{AGENT, REGISTRATION, Token};
 
 const DEFAULT_LIFETIME: TimeDelta = TimeDelta::hours(24);
@@ -222,6 +223,104 @@ pub(crate) async fn list(
         None
     };
     Ok(Json(Page { items, next }))
+}
+
+pub(crate) async fn update(
+    State(state): State<AppState>,
+    caller: Caller<OnInstallation<AgentManage>>,
+    Segment(reference): Segment,
+    body: Result<Body<UpdateAgentRequest>, ApiError>,
+) -> Result<Json<Agent>, Failure> {
+    caller.installation().map_err(Failure::Api)?;
+    let agent = named(&reference)?;
+    let current = bosun_db::agents::find(&state.db, agent)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| absent(&reference))?;
+    let Body(UpdateAgentRequest { drain }) = body.map_err(Failure::Api)?;
+    let Some(drain) = drain else {
+        return Ok(Json(current));
+    };
+    let changed = bosun_db::agents::drain(&state.db, agent, drain)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| absent(&reference))?;
+    if changed.drain != current.drain {
+        let login = &caller.principal.user.login;
+        if drain {
+            info!(agent_id = %agent, name = changed.name, login, "drained an agent");
+        } else {
+            info!(agent_id = %agent, name = changed.name, login, "lifted the drain of an agent");
+        }
+    }
+    Ok(Json(changed))
+}
+
+pub(crate) async fn delete(
+    State(state): State<AppState>,
+    caller: Caller<OnInstallation<AgentManage>>,
+    Segment(reference): Segment,
+) -> Result<Deleted, Failure> {
+    caller.installation().map_err(Failure::Api)?;
+    let agent = named(&reference)?;
+    if !bosun_db::agents::delete(&state.db, agent)
+        .await
+        .map_err(internal)?
+    {
+        return Err(absent(&reference));
+    }
+    info!(
+        agent_id = %agent,
+        login = caller.principal.user.login,
+        "deleted an agent and revoked its credential"
+    );
+    let actor = caller.principal.actor();
+    let held = bosun_db::agents::held(&state.db, agent)
+        .await
+        .unwrap_or_else(|failure| {
+            warn!(
+                agent_id = %agent,
+                error = %failure,
+                "the executions of a deleted agent could not be read, so the sweep ends them"
+            );
+            Vec::new()
+        });
+    for execution_id in held {
+        match progress::remove(&state.db, agent, execution_id, &actor, &state.site).await {
+            Ok(true) => info!(
+                agent_id = %agent,
+                %execution_id,
+                "ended an execution of a deleted agent"
+            ),
+            Ok(false) => {}
+            Err(failure) => warn!(
+                agent_id = %agent,
+                %execution_id,
+                error = %failure,
+                "an execution of a deleted agent could not be ended, so the sweep ends it"
+            ),
+        }
+    }
+    if let Err(failure) = bosun_db::agents::announce(&state.db, agent).await {
+        warn!(
+            agent_id = %agent,
+            error = %failure,
+            "the replica holding a deleted agent could not be told, so its next heartbeat ends \
+             its stream"
+        );
+    }
+    Ok(Deleted)
+}
+
+fn named(reference: &str) -> Result<AgentId, Failure> {
+    reference.parse().map_err(|_| absent(reference))
+}
+
+fn absent(reference: &str) -> Failure {
+    Failure::Api(ApiError::new(
+        ErrorCode::NotFound,
+        format!("there is no agent `{reference}`"),
+    ))
 }
 
 pub(crate) enum Failure {

@@ -1,3 +1,4 @@
+use bosun_types::actor::Actor;
 use sea_orm::DatabaseConnection;
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{info, warn};
@@ -20,6 +21,24 @@ pub(crate) async fn run(db: DatabaseConnection, settings: Agents, site: Site) {
                         offline_after_ms = settings.offline_after.as_millis(),
                         "an agent went offline without a heartbeat"
                     );
+                }
+                for (agent_id, execution_id) in sweep.removed {
+                    match progress::remove(&db, agent_id, execution_id, &Actor::System, &site).await
+                    {
+                        Ok(true) => warn!(
+                            %agent_id,
+                            %execution_id,
+                            "an execution of a deleted agent was ended, which its deletion left \
+                             open"
+                        ),
+                        Ok(false) => {}
+                        Err(error) => warn!(
+                            %agent_id,
+                            %execution_id,
+                            %error,
+                            "an execution of a deleted agent could not be ended"
+                        ),
+                    }
                 }
                 for execution_id in sweep.abandoned {
                     match progress::lose_after_grace(&db, execution_id, &site).await {

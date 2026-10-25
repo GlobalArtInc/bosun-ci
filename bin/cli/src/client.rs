@@ -144,15 +144,23 @@ impl Client {
     pub(crate) async fn patch<B: Serialize, T: DeserializeOwned>(
         &self,
         path: &str,
-        tag: &str,
+        tag: Option<&str>,
         body: &B,
     ) -> Result<T, Failure> {
-        let request = self
+        let mut request = self
             .request(Method::PATCH, path)
-            .header(IF_MATCH, tag)
             .json(body)
             .timeout(REQUEST_TIMEOUT);
+        if let Some(tag) = tag {
+            request = request.header(IF_MATCH, tag);
+        }
         decode(path, send(path, request).await?).await
+    }
+
+    pub(crate) async fn delete(&self, path: &str) -> Result<(), Failure> {
+        let request = self.request(Method::DELETE, path).timeout(REQUEST_TIMEOUT);
+        send(path, request).await?;
+        Ok(())
     }
 
     pub(crate) async fn text(&self, path: &str) -> Result<String, Failure> {

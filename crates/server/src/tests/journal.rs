@@ -13,7 +13,9 @@ use proptest::collection::vec;
 use proptest::prelude::{Just, Strategy, any, prop_oneof};
 use proptest::test_runner::{Config, TestCaseError, TestRunner};
 
-use super::{Projection, World, finished, job_cancel, replay, run_cancel, template, workflow};
+use super::{
+    Projection, World, finished, job_cancel, operator, replay, run_cancel, template, workflow,
+};
 use crate::agents::progress::{self, Progress, StepEnd};
 use crate::commands::Applied;
 use crate::queue;
@@ -117,6 +119,7 @@ pub(super) enum Action {
     FinishStep(ExecutionId, u32, Conclusion),
     FinishJob(ExecutionId, Conclusion),
     Lose(ExecutionId),
+    Remove(ExecutionId),
     Expire(ExecutionId),
     Reject(ExecutionId),
     TimeOut(JobId),
@@ -421,6 +424,7 @@ fn actions(
                 progress.push(Action::Accept(execution));
                 extra.push(Action::Expire(execution));
                 extra.push(Action::Reject(execution));
+                extra.push(Action::Remove(execution));
             }
             ExecutionStatus::InProgress => {
                 let results = &case.jobs[index_of(&projection.jobs[&row.job].key)].steps;
@@ -429,6 +433,7 @@ fn actions(
                     progress.push(Action::FinishJob(execution, Conclusion::Cancelled));
                 }
                 extra.push(Action::Lose(execution));
+                extra.push(Action::Remove(execution));
             }
             _ => {}
         }
@@ -495,6 +500,17 @@ pub(super) async fn perform(
             progress::lose_forgotten(db, agent.id, execution, &Site::default())
                 .await
                 .map_err(|error| TestCaseError::fail(error.to_string()))?;
+            return Ok(false);
+        }
+        Action::Remove(execution) => {
+            let removed = progress::remove(db, agent.id, execution, &operator(), &Site::default())
+                .await
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+            if !removed {
+                return Err(TestCaseError::fail(format!(
+                    "the execution {execution} outlived the removal of its agent"
+                )));
+            }
             return Ok(false);
         }
         Action::Expire(execution) => {

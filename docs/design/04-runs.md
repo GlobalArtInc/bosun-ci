@@ -377,7 +377,7 @@ that is not self-explanatory:
 | `rejected_by_agent` | the agent answered the assignment with a rejection |
 | `no_agent` | the job stayed queued longer than `max_queue_time` |
 | `agent_lost` | the agent did not come back within the grace period |
-| `agent_removed` | the agent was deleted while it held the job |
+| `agent_removed` | the agent was deleted while it held the job: a job it ran fails, and one it had not accepted yet returns to the queue ([05-execution.md](05-execution.md#draining-and-deleting-agents)) |
 
 ### Run notices
 

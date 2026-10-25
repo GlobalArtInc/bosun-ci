@@ -57,7 +57,7 @@ enum Command {
     Run(run::Command),
     #[command(subcommand, about = "Read the logs of jobs")]
     Job(job::Command),
-    #[command(subcommand, about = "List agents")]
+    #[command(subcommand, about = "List, drain and delete agents")]
     Agent(agent::Command),
     #[command(
         subcommand,

@@ -4,7 +4,7 @@ use std::str::FromStr;
 use bosun_types::actor::Actor;
 use bosun_types::api::{
     Capability, ForgeAccess, ForgePermission, ForkPolicy, ProjectSettings, Reporting, TrustLevel,
-    UpdateOrganisationRequest, UpdateProjectRequest, WorkflowSource,
+    UpdateAgentRequest, UpdateOrganisationRequest, UpdateProjectRequest, WorkflowSource,
 };
 use bosun_types::command::{Command, CommandRequest};
 use bosun_types::diagnostic::Severity;
@@ -310,4 +310,25 @@ fn an_update_tells_a_field_left_out_from_a_field_set_to_null() {
     assert_eq!(installation.installation, Some(None));
     refuses::<UpdateOrganisationRequest>(json!({ "installation": "GlobalArtInc" }));
     refuses::<UpdateOrganisationRequest>(json!({ "slug": "globalart" }));
+}
+
+#[test]
+fn an_update_of_an_agent_drains_it_lifts_its_drain_or_changes_nothing_and_never_takes_null() {
+    let read = |value: Value| -> UpdateAgentRequest {
+        serde_json::from_value(value).unwrap_or_else(|error| panic!("an update: {error}"))
+    };
+    assert_eq!(read(json!({})).drain, None);
+    assert_eq!(read(json!({ "drain": true })).drain, Some(true));
+    assert_eq!(read(json!({ "drain": false })).drain, Some(false));
+    assert_eq!(
+        serde_json::to_value(read(json!({}))).expect("JSON"),
+        json!({})
+    );
+    assert_eq!(
+        serde_json::to_value(read(json!({ "drain": false }))).expect("JSON"),
+        json!({ "drain": false })
+    );
+    refuses::<UpdateAgentRequest>(json!({ "drain": null }));
+    refuses::<UpdateAgentRequest>(json!({ "drain": "yes" }));
+    refuses::<UpdateAgentRequest>(json!({ "labels": ["rust"] }));
 }

@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use super::admission::{self, SERVER_VERSION};
 use super::progress::{self, JobEnd, Progress, Reporter, StepEnd};
-use super::replica::{self, Outbound, Replica};
+use super::replica::{self, DELETED, Outbound, Replica};
 use super::{LABEL_RULE, valid_label};
 use crate::auth;
 use crate::config::Agents;
@@ -39,6 +39,7 @@ const SHELL: &str = "shell";
 enum Ending {
     Breach(String),
     Unavailable(String),
+    Deleted,
 }
 
 impl From<String> for Ending {
@@ -80,13 +81,23 @@ impl Connector {
         let token = Token::parse(AGENT, credential).ok_or_else(|| {
             Status::unauthenticated("the bearer token is not a well-formed agent credential")
         })?;
-        bosun_db::agents::authenticate(&self.db, &token.sha256())
+        let lookup = |failure: bosun_db::Error| {
+            error!(error = %failure, "an agent credential could not be looked up");
+            Status::internal("the agent credential could not be checked")
+        };
+        if let Some(agent) = bosun_db::agents::authenticate(&self.db, &token.sha256())
             .await
-            .map_err(|failure| {
-                error!(error = %failure, "an agent credential could not be looked up");
-                Status::internal("the agent credential could not be checked")
-            })?
-            .ok_or_else(|| Status::unauthenticated("the agent credential is not known"))
+            .map_err(lookup)?
+        {
+            return Ok(agent);
+        }
+        if bosun_db::agents::revoked(&self.db, &token.sha256())
+            .await
+            .map_err(lookup)?
+        {
+            return Err(Status::unauthenticated(DELETED));
+        }
+        Err(Status::unauthenticated("the agent credential is not known"))
     }
 
     async fn hello(&self, inbound: &mut Streaming<AgentMessage>) -> Result<Hello, Status> {
@@ -176,13 +187,21 @@ impl Agent for Connector {
             },
         )
         .await;
-        if let Err(failure) = connected {
-            self.replica.detach(agent.id, number);
-            error!(agent_id = %agent.id, error = %failure, "an agent could not be recorded as online");
-            return Err(Status::internal(
-                "the agent could not be recorded as online",
-            ));
-        }
+        let drained = match connected {
+            Ok(Some(drained)) => drained,
+            Ok(None) => {
+                self.replica.detach(agent.id, number);
+                info!(agent_id = %agent.id, "refused a deleted agent");
+                return Err(Status::unauthenticated(DELETED));
+            }
+            Err(failure) => {
+                self.replica.detach(agent.id, number);
+                error!(agent_id = %agent.id, error = %failure, "an agent could not be recorded as online");
+                return Err(Status::internal(
+                    "the agent could not be recorded as online",
+                ));
+            }
+        };
         info!(
             agent_id = %agent.id,
             name = agent.name,
@@ -190,6 +209,10 @@ impl Agent for Connector {
             replica_id = %self.replica.id(),
             "an agent connected"
         );
+        if drained {
+            info!(agent_id = %agent.id, name = agent.name, "the agent is drained");
+            self.replica.drain(agent.id);
+        }
         let reads_assignments = hello.assignment_revision == ASSIGNMENT_REVISION;
         if !reads_assignments {
             warn!(
@@ -302,6 +325,7 @@ impl Session {
                 let (status, reason) = match ending {
                     Ending::Breach(reason) => (Status::invalid_argument(reason.clone()), reason),
                     Ending::Unavailable(reason) => (Status::unavailable(reason.clone()), reason),
+                    Ending::Deleted => (Status::unauthenticated(DELETED), DELETED.to_owned()),
                 };
                 let _ = self.outbound.send(Err(status));
                 return reason;
@@ -312,9 +336,12 @@ impl Session {
     async fn handle(&self, message: AgentMessage) -> Result<(), Ending> {
         match message.message {
             Some(Inbound::Heartbeat(_)) => {
-                if let Err(failure) = bosun_db::agents::heartbeat(&self.db, self.reporter.id).await
-                {
-                    warn!(agent_id = %self.reporter.id, error = %failure, "a heartbeat could not be recorded");
+                match bosun_db::agents::heartbeat(&self.db, self.reporter.id).await {
+                    Ok(true) => {}
+                    Ok(false) => self.deleted().await?,
+                    Err(failure) => {
+                        warn!(agent_id = %self.reporter.id, error = %failure, "a heartbeat could not be recorded");
+                    }
                 }
             }
             Some(Inbound::ControlAck(ack)) => {
@@ -424,6 +451,24 @@ impl Session {
 }
 
 impl Session {
+    async fn deleted(&self) -> Result<(), Ending> {
+        match bosun_db::agents::held(&self.db, self.reporter.id).await {
+            Ok(held) if held.is_empty() => {
+                replica::deliver_pending(&self.db, &self.replica, self.reporter.id).await;
+                Err(Ending::Deleted)
+            }
+            Ok(_) => Ok(()),
+            Err(failure) => {
+                warn!(
+                    agent_id = %self.reporter.id,
+                    error = %failure,
+                    "the executions of a deleted agent could not be read"
+                );
+                Ok(())
+            }
+        }
+    }
+
     async fn log(&self, log: Log) -> Result<(), Ending> {
         let execution = execution_id(&log.execution_id)?;
         if log.seq == 0 || i64::try_from(log.seq).is_err() {

@@ -3,10 +3,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use bosun_db::agents::Standing;
 use bosun_db::control::{self, Control, Kind};
 use bosun_db::notify::{Listener, Notification};
 use bosun_proto::agent::v1::server_message::Message;
-use bosun_proto::agent::v1::{self as proto, ControlKind, ServerMessage};
+use bosun_proto::agent::v1::{self as proto, ControlKind, Drain, ServerMessage};
 use bosun_types::id::{AgentId, ExecutionId, JobId};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc::UnboundedSender;
@@ -18,6 +19,8 @@ use super::Listeners;
 use crate::queue::Dispatcher;
 
 const RETRY: Duration = Duration::from_secs(1);
+
+pub(crate) const DELETED: &str = "the agent was deleted, which revoked its credential";
 
 pub(crate) type Outbound = UnboundedSender<Result<ServerMessage, Status>>;
 
@@ -36,6 +39,7 @@ struct Stream {
     again: bool,
     offered: Option<(ExecutionId, JobId)>,
     passed_over: HashSet<JobId>,
+    drained: bool,
 }
 
 pub(crate) struct Turn {
@@ -90,6 +94,7 @@ impl Replica {
                 again: false,
                 offered: None,
                 passed_over: HashSet::new(),
+                drained: false,
             },
         );
         if let Some(replaced) = replaced {
@@ -129,6 +134,37 @@ impl Replica {
                 kind: kind.into(),
             })),
         }));
+    }
+
+    pub(crate) fn drain(&self, agent: AgentId) {
+        let mut streams = self.streams();
+        let Some(stream) = streams.get_mut(&agent) else {
+            return;
+        };
+        if stream.drained {
+            return;
+        }
+        stream.drained = true;
+        let _ = stream.outbound.send(Ok(ServerMessage {
+            message: Some(Message::Drain(Drain {})),
+        }));
+    }
+
+    fn lift(&self, agent: AgentId) -> bool {
+        let mut streams = self.streams();
+        match streams.get_mut(&agent) {
+            Some(stream) if stream.drained => {
+                stream.drained = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn end(&self, agent: AgentId, status: Status) {
+        if let Some(stream) = self.streams().get(&agent) {
+            let _ = stream.outbound.send(Err(status));
+        }
     }
 
     pub(crate) fn set_idle(&self, agent: AgentId, number: u64) {
@@ -226,6 +262,43 @@ pub(crate) async fn deliver_pending(db: &DatabaseConnection, replica: &Replica, 
     }
 }
 
+async fn refresh(
+    db: &DatabaseConnection,
+    replica: &Replica,
+    dispatcher: &Arc<Dispatcher>,
+    agent: AgentId,
+) {
+    let standing = match bosun_db::agents::standing(db, agent).await {
+        Ok(standing) => standing,
+        Err(error) => {
+            warn!(agent_id = %agent, %error, "the state of an agent could not be read");
+            return;
+        }
+    };
+    match standing {
+        Some(Standing {
+            deleted: false,
+            drain: true,
+        }) => {
+            replica.drain(agent);
+        }
+        Some(Standing {
+            deleted: false,
+            drain: false,
+        }) => {
+            if replica.lift(agent) {
+                info!(agent_id = %agent, "the drain of an agent was lifted");
+            }
+            dispatcher.wake(agent);
+        }
+        Some(Standing { deleted: true, .. }) | None => {
+            deliver_pending(db, replica, agent).await;
+            info!(agent_id = %agent, "ending the stream of a deleted agent");
+            replica.end(agent, Status::unauthenticated(DELETED));
+        }
+    }
+}
+
 pub(crate) async fn forward(
     db: DatabaseConnection,
     replica: Arc<Replica>,
@@ -241,6 +314,11 @@ pub(crate) async fn forward(
                 listeners.followers.announce(notice.execution_id);
             }
             Ok(Some(Notification::Events(notice))) => listeners.events.announce(notice),
+            Ok(Some(Notification::Agent(agent))) => {
+                if replica.holds(agent) {
+                    refresh(&db, &replica, &dispatcher, agent).await;
+                }
+            }
             Ok(Some(Notification::Control(notice))) => {
                 if !replica.holds(notice.agent_id) {
                     continue;
@@ -257,7 +335,7 @@ pub(crate) async fn forward(
             }
             Ok(None) => {
                 info!("the notification connection was re-established");
-                resend(&db, &replica).await;
+                resend(&db, &replica, &dispatcher).await;
                 dispatcher.wake_all();
                 listeners.followers.wake_all();
                 listeners.deliveries.notify_waiters();
@@ -266,7 +344,7 @@ pub(crate) async fn forward(
             Err(error) => {
                 warn!(%error, "the notification connection failed");
                 tokio::time::sleep(RETRY).await;
-                resend(&db, &replica).await;
+                resend(&db, &replica, &dispatcher).await;
                 dispatcher.wake_all();
                 listeners.followers.wake_all();
                 listeners.deliveries.notify_waiters();
@@ -276,8 +354,9 @@ pub(crate) async fn forward(
     }
 }
 
-async fn resend(db: &DatabaseConnection, replica: &Replica) {
+async fn resend(db: &DatabaseConnection, replica: &Replica, dispatcher: &Arc<Dispatcher>) {
     for agent in replica.agents() {
         deliver_pending(db, replica, agent).await;
+        refresh(db, replica, dispatcher, agent).await;
     }
 }

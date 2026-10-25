@@ -321,6 +321,20 @@ impl Agent {
                 }
                 Ok(())
             }
+            Incoming::Drain(_) => {
+                match &self.job {
+                    Some(job) => info!(
+                        execution_id = %job.execution,
+                        "the server drained this agent: it finishes the job it runs and is \
+                         offered no other until the drain is lifted"
+                    ),
+                    None => info!(
+                        "the server drained this agent: it is offered no job until the drain is \
+                         lifted"
+                    ),
+                }
+                Ok(())
+            }
             Incoming::Welcome(_) => {
                 warn!("the server sent a second Welcome, which the agent ignores");
                 Ok(())

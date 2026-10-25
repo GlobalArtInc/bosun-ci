@@ -170,8 +170,10 @@ Everything the script does is in functions that run after the whole script has a
 download cut short runs nothing.
 
 Upgrading an agent is running the same command again, which replaces the binary with the server's
-version and restarts the instances; an instance that is running a job finishes it first when it
-receives `Drain`.
+version and restarts the instances. A restart cancels a running job as `SIGTERM` does
+([05-execution.md](05-execution.md#registration-and-identity)), so the agents of the host are
+drained first and upgraded once they are idle; they come back drained, and lifting the drain gives
+them jobs again ([05-execution.md](05-execution.md#draining-and-deleting-agents)).
 
 ## Configuration
 

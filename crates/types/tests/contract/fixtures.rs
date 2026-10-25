@@ -10,7 +10,8 @@ use bosun_types::api::{
     PersonalTokenCreated, Pool, Project, ProjectSettings, QueuedJob, RegisterAgentRequest,
     RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest, Revision, Role,
     RoleBinding, Run, SetLabelAliasRequest, SignInMethods, SignInRequest, Step, Team,
-    UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest, User, Workflow,
+    UpdateAgentRequest, UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest, User,
+    Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -189,6 +190,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/sign-in-request.json", round_trip::<SignInRequest>),
         ("api/step.json", round_trip::<Step>),
         ("api/team.json", round_trip::<Team>),
+        (
+            "api/update-agent-request.json",
+            round_trip::<UpdateAgentRequest>,
+        ),
         (
             "api/update-organisation-request.json",
             round_trip::<UpdateOrganisationRequest>,

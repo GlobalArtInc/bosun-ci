@@ -159,9 +159,13 @@ so a repository is bound to one project at most
 next_attempt_at, last_error, processed_at`, unique by `delivery`, the forge's id of the delivery.
 
 An agent records its current replica in `agent.replica_id`, which no row references: replicas are
-processes, not rows. `control_message` holds the control messages sent to agents
-([05-execution.md](05-execution.md)): `id, execution_id, kind, created_at, acknowledged_at,
-took_effect`; its agent is the agent of its execution.
+processes, not rows. `agent.drain` says whether the agent is drained and `agent.deleted_at` when it
+was deleted, `null` while it exists
+([05-execution.md](05-execution.md#draining-and-deleting-agents)); a deleted agent keeps its row,
+which its executions reference, and both columns arrived with step 19 of [../plan.md](../plan.md).
+`control_message` holds the control messages sent to agents ([05-execution.md](05-execution.md)):
+`id, execution_id, kind, created_at, acknowledged_at, took_effect`; its agent is the agent of its
+execution.
 
 Statuses, conclusions, reasons, trust levels, capabilities and event kinds are `text` holding the
 names `bosun-types` serialises them to, with neither Postgres enum types nor check constraints, so
@@ -280,7 +284,8 @@ assignment ([05-execution.md](05-execution.md)). That replica keeps the state in
 own streams only, and claims for one agent at a time: a reason to claim that arrives while a claim
 for the agent runs makes it try once more when that claim finds nothing. The claim itself checks the
 database too: it takes the agent's row `FOR NO KEY UPDATE`, which orders two claims for one agent,
-and takes nothing for an agent whose current replica is another one or that still has an execution
+and takes nothing for an agent whose current replica is another one, that is drained or deleted
+([05-execution.md](05-execution.md#draining-and-deleting-agents)), or that still has an execution
 that is not `completed`. It looks for those executions in a statement of its own after the lock is
 held, so a claim that waited for another one of the same agent sees the execution that one created.
 A job an agent rejected on its current stream is passed over for that agent until it reconnects, so
@@ -312,7 +317,7 @@ of its own under its run's lock, after checking again, with the reason `no_agent
 | Channel | Payload | Listener |
 |---------|---------|----------|
 | `bosun_queue` | job id | replicas with idle agents |
-| `bosun_replica_<id>` | agent id and control message id, separated by a space | the replica holding that agent's stream |
+| `bosun_replica_<id>` | agent id and control message id, separated by a space; or the agent id alone, when the agent was drained, its drain was lifted or it was deleted | the replica holding that agent's stream |
 | `bosun_events` | `run` and the run's id, or `agent` and the agent's id, separated by a space | replicas with subscribers on the event stream |
 | `bosun_log` | execution id and the sequence number of the chunk stored, separated by a space | replicas with followers of that log |
 | `bosun_webhook` | the id of a stored webhook delivery | the webhook worker of every replica with a GitHub App |
@@ -320,7 +325,7 @@ of its own under its run's lock, after checking again, with the reason `no_agent
 Payloads carry identifiers only; the data is read from the tables. A listener that reconnects reads
 everything newer than the last sequence number it saw, so a dropped connection loses nothing; for
 `bosun_replica_<id>` that is every unacknowledged control message of the agents the replica holds,
-and for `bosun_events` every stream reads after its position. Every journal event and every stream
+and the drain or deletion of each of them, and for `bosun_events` every stream reads after its position. Every journal event and every stream
 event announces itself in the statement that inserts it, and since Postgres delivers a payload once
 per transaction however often it was sent, a transaction announces each run and each agent it wrote
 events of once. The `<id>` of a replica is a UUIDv7 it draws at start, written as 32 hexadecimal
@@ -330,9 +335,10 @@ own, outside its pool.
 ## Periodic tasks
 
 Periodic tasks run in every replica: the cron scheduler (minute resolution), lease expiry, offline
-detection of agents together with the end of their grace period, the queue timeout, log compaction,
-retention, cache eviction, the removal of idempotency keys older than 24 hours, the expiry of
-tokens, and the removal of ended sessions together with forgotten failed sign-ins
+detection of agents together with the end of their grace period and the open executions of deleted
+agents, the queue timeout, log compaction, retention, cache eviction, the removal of idempotency
+keys older than 24 hours, the expiry of tokens, and the removal of ended sessions together with
+forgotten failed sign-ins
 ([08-access.md](08-access.md#local-sign-in)). Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
 work of each task, and each change it finds checks its condition again under the lock of what it
 changes. Outbox delivery is not a singleton: workers in every replica claim rows with

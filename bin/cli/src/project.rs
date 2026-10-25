@@ -44,7 +44,7 @@ async fn settings(
     let path = format!("/api/v1/projects/{project}/settings");
     let (mut document, tag): (Value, String) = client.tagged(&path).await?;
     if !changes.is_empty() {
-        document = client.patch(&path, &tag, &changes).await?;
+        document = client.patch(&path, Some(&tag), &changes).await?;
     }
     if context.json() {
         output::json(&document)?;

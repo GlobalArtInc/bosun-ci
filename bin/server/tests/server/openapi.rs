@@ -79,6 +79,7 @@ async fn every_operation_reaches_a_handler_with_the_owners_token() {
             ("{role}", vec![Uuid::now_v7().to_string()]),
             ("{binding}", vec![Uuid::now_v7().to_string()]),
             ("{token}", vec![Uuid::now_v7().to_string()]),
+            ("{agent}", vec![Uuid::now_v7().to_string()]),
         ] {
             concrete = concrete
                 .iter()

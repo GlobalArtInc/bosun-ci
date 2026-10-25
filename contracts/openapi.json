@@ -169,6 +169,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "drain": {
+            "type": "boolean"
+          },
           "execution_id": {
             "format": "uuid",
             "type": [
@@ -218,6 +221,7 @@
           "capabilities",
           "version",
           "online",
+          "drain",
           "last_seen_at",
           "execution_id",
           "created_at"
@@ -2944,6 +2948,15 @@
         ],
         "type": "string"
       },
+      "UpdateAgentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "drain": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "UpdateOrganisationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3188,6 +3201,95 @@
         "security": [],
         "x-bosun-permission": {
           "on": "anyone"
+        }
+      }
+    },
+    "/api/v1/agents/{agent}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the agent's id",
+            "in": "path",
+            "name": "agent",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "agent.manage",
+          "on": "installation"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "description": "the agent's id",
+            "in": "path",
+            "name": "agent",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "agent.manage",
+          "on": "installation"
         }
       }
     },

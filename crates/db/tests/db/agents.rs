@@ -1,12 +1,15 @@
 use std::time::Duration;
 
-use bosun_db::agents::{self, NewAgent, NewRegistrationToken, Registration};
+use bosun_db::agents::{self, Connection, NewAgent, NewRegistrationToken, Registration, Standing};
 use bosun_db::journal;
+use bosun_db::notify::{Listener, Notification};
 use bosun_testkit::TestDatabase;
+use bosun_types::api::Capability;
 use bosun_types::id::{AgentId, ExecutionId, RunId};
 use sea_orm::{ConnectionTrait, TransactionTrait};
+use tokio::time::{Instant, timeout, timeout_at};
 
-use crate::rows::{self, AGENT, EXECUTION, RUN};
+use crate::rows::{self, AGENT, EXECUTION, REPLICA, RUN};
 use crate::strings;
 
 const MINUTE: Duration = Duration::from_secs(60);
@@ -47,6 +50,18 @@ async fn statuses<C: ConnectionTrait>(db: &C) -> Vec<String> {
              j.status, j.conclusion, j.conclusion_source, j.completed_at IS NOT NULL) AS value \
              FROM bosun.execution e JOIN bosun.job j ON j.id = e.job_id WHERE e.id = '{}'",
             rows::id(EXECUTION)
+        ),
+    )
+    .await
+}
+
+async fn drains_announced<C: ConnectionTrait>(db: &C) -> Vec<String> {
+    strings(
+        db,
+        &format!(
+            "SELECT data->>'drain' AS value FROM bosun.stream_event \
+             WHERE subject = '{}' AND kind = 'agent.status' ORDER BY seq",
+            rows::id(AGENT)
         ),
     )
     .await
@@ -241,4 +256,222 @@ async fn one_sweep_runs_at_a_time() {
             .expect("a sweep")
             .is_some()
     );
+}
+
+async fn announced(listener: &mut Listener) -> Notification {
+    loop {
+        let heard = timeout(MINUTE, listener.next())
+            .await
+            .expect("a notice in time")
+            .expect("a notice")
+            .expect("a notice without a reconnect");
+        if !matches!(heard, Notification::Events(_)) {
+            return heard;
+        }
+    }
+}
+
+async fn silent(listener: &mut Listener, what: &str) {
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while let Ok(heard) = timeout_at(deadline, listener.next()).await {
+        match heard {
+            Ok(Some(Notification::Events(_))) => {}
+            other => panic!("{what} announced {other:?}"),
+        }
+    }
+}
+
+fn connection() -> Connection {
+    Connection {
+        replica_id: rows::id(REPLICA),
+        version: "0.1.0".to_owned(),
+        labels: vec!["self-hosted".to_owned()],
+        capabilities: vec![Capability::Shell],
+    }
+}
+
+#[tokio::test]
+async fn a_drain_and_its_lifting_are_announced_to_the_replica_of_the_agent_once_each() {
+    let database = TestDatabase::migrated().await;
+    let db = database.connection();
+    rows::write(db, "alone").await;
+    let mut listener = Listener::connect(&database.url(), rows::id(REPLICA))
+        .await
+        .expect("a listener");
+    let standing = |drain| {
+        Some(Standing {
+            drain,
+            deleted: false,
+        })
+    };
+    assert_eq!(
+        agents::standing(db, agent_id()).await.expect("a read"),
+        standing(false)
+    );
+
+    let drained = agents::drain(db, agent_id(), true)
+        .await
+        .expect("a drain")
+        .expect("the agent");
+    assert!(drained.drain);
+    assert_eq!(drained.execution_id, Some(execution_id()));
+    assert_eq!(
+        announced(&mut listener).await,
+        Notification::Agent(agent_id())
+    );
+    assert_eq!(
+        agents::standing(db, agent_id()).await.expect("a read"),
+        standing(true)
+    );
+    let again = agents::drain(db, agent_id(), true)
+        .await
+        .expect("a drain")
+        .expect("the agent");
+    assert_eq!(again, drained);
+    silent(&mut listener, "a second drain").await;
+    assert_eq!(drains_announced(db).await, ["false", "true"]);
+    assert_eq!(
+        agents::connect(db, agent_id(), connection())
+            .await
+            .expect("a connection"),
+        Some(true)
+    );
+    assert_eq!(drains_announced(db).await, ["false", "true", "true"]);
+
+    let lifted = agents::drain(db, agent_id(), false)
+        .await
+        .expect("a lifting")
+        .expect("the agent");
+    assert!(!lifted.drain);
+    assert_eq!(
+        announced(&mut listener).await,
+        Notification::Agent(agent_id())
+    );
+    assert_eq!(
+        agents::connect(db, agent_id(), connection())
+            .await
+            .expect("a connection"),
+        Some(false)
+    );
+    assert_eq!(
+        drains_announced(db).await,
+        ["false", "true", "true", "false", "false"]
+    );
+
+    execute(db, "UPDATE bosun.agent SET replica_id = NULL").await;
+    agents::drain(db, agent_id(), true)
+        .await
+        .expect("a drain")
+        .expect("the agent");
+    silent(&mut listener, "the drain of an agent without a stream").await;
+    assert_eq!(
+        drains_announced(db).await,
+        ["false", "true", "true", "false", "false", "true"]
+    );
+}
+
+#[tokio::test]
+async fn a_deleted_agent_keeps_its_row_and_is_refused_everywhere() {
+    let database = TestDatabase::migrated().await;
+    let db = database.connection();
+    rows::write(db, "alone").await;
+    let mut listener = Listener::connect(&database.url(), rows::id(REPLICA))
+        .await
+        .expect("a listener");
+    let credential = [0x33; 32];
+    assert!(
+        agents::authenticate(db, &credential)
+            .await
+            .expect("a lookup")
+            .is_some()
+    );
+    assert!(!agents::revoked(db, &credential).await.expect("a lookup"));
+
+    assert_eq!(drains_announced(db).await, ["false"]);
+    assert!(agents::delete(db, agent_id()).await.expect("a deletion"));
+    assert!(
+        !agents::delete(db, agent_id()).await.expect("a deletion"),
+        "an agent was deleted twice"
+    );
+    assert_eq!(
+        drains_announced(db).await,
+        ["false", "false"],
+        "the deletion was not announced once"
+    );
+    assert_eq!(
+        agents::standing(db, agent_id()).await.expect("a read"),
+        Some(Standing {
+            drain: false,
+            deleted: true
+        })
+    );
+    assert_eq!(
+        agents::authenticate(db, &credential)
+            .await
+            .expect("a lookup"),
+        None
+    );
+    assert!(agents::revoked(db, &credential).await.expect("a lookup"));
+    assert!(!agents::revoked(db, &[0x99; 32]).await.expect("a lookup"));
+    assert_eq!(agents::find(db, agent_id()).await.expect("a read"), None);
+    assert_eq!(agents::list(db, None, 10).await.expect("the agents"), []);
+    assert_eq!(
+        agents::drain(db, agent_id(), true).await.expect("a drain"),
+        None
+    );
+    assert!(
+        !agents::heartbeat(db, agent_id())
+            .await
+            .expect("a heartbeat")
+    );
+    assert_eq!(
+        agents::connect(db, agent_id(), connection())
+            .await
+            .expect("a connection"),
+        None
+    );
+    assert_eq!(
+        strings(
+            db,
+            "SELECT concat_ws(' ', name, online, replica_id IS NOT NULL) AS value FROM bosun.agent"
+        )
+        .await,
+        ["runner1-1 alone f t"]
+    );
+    assert_eq!(
+        agents::held(db, agent_id()).await.expect("the executions"),
+        [execution_id()]
+    );
+
+    agents::announce(db, agent_id())
+        .await
+        .expect("an announcement");
+    assert_eq!(
+        announced(&mut listener).await,
+        Notification::Agent(agent_id())
+    );
+    last_seen(db, false, "11 minutes").await;
+    let sweep = agents::sweep(db, MINUTE, 10 * MINUTE)
+        .await
+        .expect("a sweep")
+        .expect("the sweep lock");
+    assert!(
+        sweep.removed.is_empty(),
+        "the sweep took on a deletion that its replica may still be finishing"
+    );
+    execute(
+        db,
+        "UPDATE bosun.agent SET deleted_at = now() - interval '2 minutes'",
+    )
+    .await;
+    let sweep = agents::sweep(db, MINUTE, 10 * MINUTE)
+        .await
+        .expect("a sweep")
+        .expect("the sweep lock");
+    assert_eq!(sweep.removed, [(agent_id(), execution_id())]);
+    assert!(
+        sweep.abandoned.is_empty(),
+        "the execution of a deleted agent was found lost too"
+    );
+    assert_eq!(statuses(db).await, ["in_progress f in_progress f"]);
 }

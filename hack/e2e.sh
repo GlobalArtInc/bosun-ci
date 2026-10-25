@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens"
+scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents"
 scenarios="$scenarios interface"
 
 usage() {
@@ -756,6 +756,125 @@ EOF
     "the refusal of the expiry did not say why"
   grep -q '^  expires_at: lies more than a year ahead' "$refused" ||
     fail "the refusal does not name expires_at: $(cat "$refused")"
+  passed
+}
+
+job_of() {
+  api GET "/api/v1/runs/$1/attempts/1/jobs" | jq -r '.items[0] | .id + " " + .status'
+}
+
+until_job() {
+  local run="$1" status="$2" what="$3" deadline found
+  deadline=$((SECONDS + 60))
+  found="$(job_of "$run")"
+  until [ "${found#* }" = "$status" ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "$what: the job of run $run is ${found#* }, not $status"
+    sleep 0.2
+    found="$(job_of "$run")"
+  done
+  job="${found%% *}"
+}
+
+until_run() {
+  local run="$1" expected="$2" deadline state
+  deadline=$((SECONDS + 60))
+  state="$(api GET "/api/v1/runs/$run" | jq -r '.status + " " + (.conclusion // "")')"
+  until [ "$state" = "$expected" ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "run $run is $state, not $expected"
+    sleep 0.2
+    state="$(api GET "/api/v1/runs/$run" | jq -r '.status + " " + (.conclusion // "")')"
+  done
+}
+
+scenario_agents() {
+  begin agents \
+    "a drained agent finishes its job and takes no other until the drain is lifted, also after a restart, and a deleted one is cancelled and refused"
+  local token gate="$work/gates/drained" first second third pid deadline execution
+  token="$(cli --profile a --json pool token create default | jq -r .token)" ||
+    fail "bosun pool token create default failed"
+  "$bin/bosun-agent" register --config "$work/agents/delta.toml" --url "http://$address_b" \
+    --token "$token" --name e2e-delta --dir "$work/agents/delta" --label delta \
+    >"$work/logs/register-delta.log" 2>&1 ||
+    fail "bosun-agent register of delta failed: $(cat "$work/logs/register-delta.log")"
+  spawn agent-delta "$work/logs/agent-delta.log" "$bin/bosun-agent" run --config "$work/agents/delta.toml"
+  deadline=$((SECONDS + 60))
+  until [ "$(cli --profile a --json agent list | jq '[.[] | select(.name == "e2e-delta" and .online)] | length')" -eq 1 ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the agent e2e-delta did not come online"
+    sleep 0.2
+  done
+  push drained <<EOF
+name: drained
+on: workflow_dispatch
+jobs:
+  hold:
+    runs-on: [self-hosted, delta]
+    steps:
+      - run: |
+          echo "holding as \$\$"
+          while [ ! -e "$gate" ]; do sleep 0.1; done
+EOF
+  first="$(cli --profile a --json workflow dispatch e2e/m0/drained | jq -r .id)" ||
+    fail "bosun workflow dispatch of drained failed"
+  until_job "$first" in_progress "the first job"
+  cli --profile a agent drain e2e-delta >"$work/out/drain.txt" 2>&1 ||
+    fail "bosun agent drain failed: $(cat "$work/out/drain.txt")"
+  grep -qE '^drained the agent e2e-delta [0-9a-f-]+; it finishes the job it runs and is offered no other$' \
+    "$work/out/drain.txt" || fail "bosun agent drain printed: $(cat "$work/out/drain.txt")"
+  await_line "$work/logs/agent-delta.log" 'the server drained this agent: it finishes the job it runs' 30 \
+    "the Drain reaching the agent on replica b"
+  second="$(cli --profile a --json workflow dispatch e2e/m0/drained | jq -r .id)" ||
+    fail "the second dispatch of drained failed"
+  touch "$gate"
+  until_run "$first" "completed success"
+  sleep 3
+  until_job "$second" queued "the drained agent"
+  cli --profile b agent list >"$work/out/drained-agents.txt" || fail "bosun agent list failed"
+  grep -qE '^e2e-delta +online, drained ' "$work/out/drained-agents.txt" ||
+    fail "bosun agent list does not show the agent drained: $(cat "$work/out/drained-agents.txt")"
+
+  stop_process agent-delta "$(pid_of agent-delta)" 30
+  spawn agent-delta "$work/logs/agent-delta-again.log" "$bin/bosun-agent" run --config "$work/agents/delta.toml"
+  await_line "$work/logs/agent-delta-again.log" 'the server drained this agent: it is offered no job' 60 \
+    "the Drain after the agent restarted"
+  sleep 3
+  until_job "$second" queued "the drained agent after its restart"
+  cli --profile b agent drain e2e-delta --lift >"$work/out/lift.txt" 2>&1 ||
+    fail "bosun agent drain --lift failed: $(cat "$work/out/lift.txt")"
+  grep -qE '^lifted the drain of the agent e2e-delta [0-9a-f-]+; it is offered jobs again$' \
+    "$work/out/lift.txt" || fail "bosun agent drain --lift printed: $(cat "$work/out/lift.txt")"
+  until_run "$second" "completed success"
+
+  rm -f "$gate"
+  third="$(cli --profile a --json workflow dispatch e2e/m0/drained | jq -r .id)" ||
+    fail "the third dispatch of drained failed"
+  until_job "$third" in_progress "the job of the agent to delete"
+  deadline=$((SECONDS + 30))
+  pid=""
+  until [ -n "$pid" ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the job of the agent to delete logged no process"
+    sleep 0.2
+    pid="$(cli --profile a job logs "$job" --step 1 2>/dev/null |
+      sed -n 's/^[^ ]* holding as \([0-9]*\)$/\1/p' | head -n 1)"
+  done
+  kill -0 "$pid" 2>/dev/null || fail "the step of the agent to delete, process $pid, is not running"
+  cli --profile a agent delete e2e-delta >"$work/out/delete.txt" 2>&1 ||
+    fail "bosun agent delete failed: $(cat "$work/out/delete.txt")"
+  grep -qE '^deleted the agent e2e-delta [0-9a-f-]+ and revoked its credential$' "$work/out/delete.txt" ||
+    fail "bosun agent delete printed: $(cat "$work/out/delete.txt")"
+  until_run "$third" "completed failure"
+  execution="$(api GET "/api/v1/jobs/$job" | jq -r .execution_id)"
+  [ "$(api GET "/api/v1/executions/$execution" | jq -r '.conclusion + " " + .reason')" = "failure agent_removed" ] ||
+    fail "the execution of the deleted agent did not end as failure with agent_removed"
+  deadline=$((SECONDS + 15))
+  while kill -0 "$pid" 2>/dev/null; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the step of the deleted agent, process $pid, still runs"
+    sleep 0.2
+  done
+  await_line "$work/logs/agent-delta-again.log" 'the agent was deleted, which revoked its credential' 60 \
+    "the refusal of the deleted agent"
+  [ "$(cli --profile b --json agent list | jq '[.[] | select(.name == "e2e-delta")] | length')" -eq 0 ] ||
+    fail "bosun agent list still lists the deleted agent"
+  stop_process agent-delta "$(pid_of agent-delta)" 30
   passed
 }
 

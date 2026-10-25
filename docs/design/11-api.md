@@ -271,6 +271,8 @@ with the answers each built-in role gets:
 | `GET /events` | `project.view`, and `agent.manage` on the installation for the events of no project | `items` |
 | `GET /queue` | `project.view` | `items` |
 | `GET /agents` | `agent.manage` | `installation` |
+| `PATCH /agents/{agent}` | `agent.manage` | `installation` |
+| `DELETE /agents/{agent}` | `agent.manage` | `installation` |
 | `POST /registration-tokens` | `agent.manage` | `installation` |
 | `POST /agents/register` | — | `anyone` |
 | `GET /pools` | `agent.manage` | `installation` |
@@ -525,6 +527,27 @@ token holds, is in [08-access.md](08-access.md#users-teams-roles-and-tokens).
   also when it was revoked already; a token of another user is `404 not_found`. All three act on
   the caller alone, so they are declared `authenticated`.
 
+### Agents
+
+Step 19 of M1 ([../plan.md](../plan.md)) settled draining and deleting agents; what each does is in
+[05-execution.md](05-execution.md#draining-and-deleting-agents).
+
+- `GET /agents` lists the agents oldest first, as a cursor page without filters. An agent is
+  `{"id", "name", "pool_id", "labels", "capabilities", "version", "online", "drain",
+  "last_seen_at", "execution_id", "created_at"}`, whose `drain` says whether it is drained and whose
+  `execution_id` is its execution that is not completed, or `null`. A deleted agent is not listed.
+- `PATCH /agents/{agent}` takes `drain`: `true` drains the agent and `false` lifts its drain. It
+  answers `200` with the agent. Draining a drained agent, and lifting the drain of one that is not
+  drained, change nothing; an empty body changes nothing either, and `null` is `invalid_input`,
+  since an agent is drained or not.
+- `DELETE /agents/{agent}` deletes the agent, revokes its credential, ends its stream and ends its
+  executions, and answers `204` without a body.
+- `{agent}` is an agent's id. Any other segment, an agent that does not exist and one that was
+  deleted are `404 not_found` with the message ``there is no agent `<agent>` ``, so a second
+  `DELETE` of an agent is `404`.
+- All three are checked on the installation, since agents belong to it
+  ([08-access.md](08-access.md#roles-and-bindings)).
+
 ### Logs
 
 - `GET /executions/{execution}/steps/{step}/log` serves the log of one step
@@ -682,7 +705,7 @@ and read in order is in [07-storage.md](07-storage.md#the-journal).
 
 | Stream kind | Data | Written |
 |-------------|------|---------|
-| `agent.status` | the agent as `GET /agents` lists it | when an agent registers, when it connects, when a heartbeat brings an agent that was marked offline back online, and when the sweep marks it offline; `project_id` and `run_id` are `null` |
+| `agent.status` | the agent as `GET /agents` lists it | when an agent registers, when it connects, when a heartbeat brings an agent that was marked offline back online, when the sweep marks it offline, when it is drained or its drain is lifted, and when it is deleted, which marks it offline; `project_id` and `run_id` are `null` |
 | `queue.job` | the job's entry as `GET /queue` lists it ([The queue](#the-queue)) | when a job becomes `queued` or `waiting`, when it moves between the two, and when it leaves them; `project_id` and `run_id` are those of the job |
 
 A heartbeat of an online agent changes its `last_seen_at` without an event, and an agent's
@@ -770,7 +793,7 @@ bosun job terminal <job>
 bosun step skip | breakpoint [--after] [--clear] | abort [--as skipped] <job> <step>
 bosun hold retry-step | continue [--as success] | release | extend <job> [<duration>]
 bosun approval list | approve <id> [--input k=v]... | reject <id> --comment <text> | bypass <id>
-bosun agent list | drain <agent> | delete <agent>
+bosun agent list | drain <agent> [--lift] | delete <agent>
 bosun pool list | token create <pool> [--expires <d>] [--reusable]
 bosun pool create <name> [--untrusted] [--all-projects] [--organisation <o>]... [--project <p>]...
 bosun alias set <label> [--pool <p>] [--capability <c>] [--image <i>] [--organisation <o>]
@@ -832,6 +855,15 @@ What M1 settles of these commands:
   of minutes, hours or days as for `bosun pool token create`, which the command requires. It prints
   the token alone on standard output and, on standard error, a line that names its keys, where it
   reaches and its expiry, and says that it is shown only once; `--json` prints the created token.
+- `bosun agent list` prints one line per agent with its name, its state (`online` or `offline`,
+  followed by `, drained` for a drained agent), its labels, capabilities and version, the execution
+  it runs and its id.
+- `bosun agent drain <agent>` drains the agent and prints that it finishes the job it runs and is
+  offered no other; `--lift` lifts the drain instead. `bosun agent delete <agent>` deletes the agent
+  and prints that its credential is revoked. `<agent>` is an agent's id or the name of an agent,
+  which no other agent may have: the commands read the list of agents first, and a name that
+  several agents have fails, listing their ids. With `--json`, `drain` prints the agent as the
+  server answers it and `delete` the agent it deleted, as it was.
 - `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
   and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
   `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the
