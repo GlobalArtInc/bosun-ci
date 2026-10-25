@@ -17,8 +17,8 @@ async fn sigterm_or_sigint_cancels_the_running_job_reports_it_and_stops_the_agen
         stream.idle().await;
 
         let job = assignment(vec![
-            step(0, "sleep 600 &\necho \"sleeping $!\"\nwait"),
-            step(1, "echo never"),
+            step("sleep 600 &\necho \"sleeping $!\"\nwait"),
+            step("echo never"),
         ]);
         let execution = job.execution_id.clone();
         stream.send(Outgoing::Assignment(job));

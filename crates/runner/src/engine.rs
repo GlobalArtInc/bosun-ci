@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
@@ -8,11 +8,14 @@ use std::time::{Duration, SystemTime};
 
 use bosun_types::ir::Shell;
 use bosun_types::status::Conclusion;
+use bosun_workflow::github::{self, BosunFacts, RunnerFacts, StepFacts};
 use rustix::process::{Pid, Signal};
+use serde_json::{Map, Value};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch;
 use tokio::time::timeout;
+use uuid::Uuid;
 
 use crate::output::Output;
 use crate::shell::Invocation;
@@ -24,18 +27,32 @@ const TERMINATE_GRACE: Duration = Duration::from_millis(2500);
 
 const OUTPUT_AFTER_TEARDOWN: Duration = Duration::from_secs(2);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+const SCRIPT: &str = "__run";
+
+#[derive(Debug)]
 pub struct Job {
     pub id: String,
     pub workspace: PathBuf,
     pub temp: PathBuf,
+    pub tool_cache: PathBuf,
+    pub runner: Runner,
+    pub github: Map<String, Value>,
+    pub bosun: BosunFacts,
     pub env: BTreeMap<String, String>,
     pub steps: Vec<Step>,
+}
+
+#[derive(Debug)]
+pub struct Runner {
+    pub name: String,
+    pub os: String,
+    pub arch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
     pub index: u32,
+    pub key: Option<String>,
     pub script: String,
     pub shell: Option<Shell>,
     pub working_directory: Option<String>,
@@ -72,7 +89,7 @@ pub async fn run(
             .start(&job.id)
             .map(|processes| (directories, processes))
     });
-    let ((workspace, temp), processes) = match prepared {
+    let (directories, processes) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
             let Some(first) = job.steps.first() else {
@@ -91,20 +108,29 @@ pub async fn run(
             return Conclusion::Failure;
         }
     };
-    let mut base: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
-    base.insert("CI".into(), "true".into());
-    base.insert("GITHUB_WORKSPACE".into(), workspace.clone().into());
-    if let Some(parent) = workspace.parent() {
-        base.insert("RUNNER_WORKSPACE".into(), parent.into());
-    }
-    base.insert("RUNNER_TEMP".into(), temp.clone().into());
-    for (name, value) in &job.env {
-        base.insert(name.into(), value.into());
-    }
+    let Directories {
+        workspace,
+        temp,
+        tool_cache,
+    } = directories;
+    let mut github = job.github;
+    github.insert("workspace".to_owned(), Value::String(text(&workspace)));
+    let runner = RunnerFacts {
+        name: job.runner.name,
+        os: job.runner.os,
+        arch: job.runner.arch,
+        temp: text(&temp),
+        tool_cache: text(&tool_cache),
+        workspace: workspace.parent().map(text).unwrap_or_default(),
+    };
     let mut execution = Execution {
         workspace,
         temp,
-        base,
+        base: std::env::vars_os().collect(),
+        github,
+        runner,
+        bosun: job.bosun,
+        env: job.env,
         processes,
         outputs: Vec::new(),
         events,
@@ -115,19 +141,60 @@ pub async fn run(
     conclusion
 }
 
-fn prepare(job: &Job) -> io::Result<(PathBuf, PathBuf)> {
-    fs::create_dir_all(&job.workspace)?;
-    fs::create_dir_all(&job.temp)?;
-    Ok((
-        fs::canonicalize(&job.workspace)?,
-        fs::canonicalize(&job.temp)?,
-    ))
+struct Directories {
+    workspace: PathBuf,
+    temp: PathBuf,
+    tool_cache: PathBuf,
+}
+
+fn prepare(job: &Job) -> io::Result<Directories> {
+    for directory in [&job.workspace, &job.temp, &job.tool_cache] {
+        fs::create_dir_all(directory)?;
+    }
+    let directories = Directories {
+        workspace: fs::canonicalize(&job.workspace)?,
+        temp: fs::canonicalize(&job.temp)?,
+        tool_cache: fs::canonicalize(&job.tool_cache)?,
+    };
+    let events = directories.temp.join("_github_workflow");
+    fs::create_dir_all(&events)?;
+    let payload = job.github.get("event").unwrap_or(&Value::Null);
+    fs::write(
+        events.join("event.json"),
+        serde_json::to_vec_pretty(payload)?,
+    )?;
+    Ok(directories)
+}
+
+fn text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn actions(steps: &[Step]) -> Vec<String> {
+    let mut taken = HashSet::new();
+    steps
+        .iter()
+        .map(|step| {
+            let base = step.key.as_deref().unwrap_or(SCRIPT);
+            let mut name = base.to_owned();
+            let mut number = 2;
+            while !taken.insert(name.clone()) {
+                name = format!("{base}_{number}");
+                number += 1;
+            }
+            name
+        })
+        .collect()
 }
 
 struct Execution {
     workspace: PathBuf,
     temp: PathBuf,
     base: BTreeMap<OsString, OsString>,
+    github: Map<String, Value>,
+    runner: RunnerFacts,
+    bosun: BosunFacts,
+    env: BTreeMap<String, String>,
     processes: Processes,
     outputs: Vec<Output>,
     events: UnboundedSender<Event>,
@@ -136,7 +203,7 @@ struct Execution {
 
 impl Execution {
     async fn steps(&mut self, steps: &[Step]) -> Conclusion {
-        for step in steps {
+        for (step, action) in steps.iter().zip(actions(steps)) {
             if *self.cancel.borrow() {
                 return Conclusion::Cancelled;
             }
@@ -144,7 +211,7 @@ impl Execution {
                 index: step.index,
                 at: SystemTime::now(),
             });
-            let outcome = self.step(step).await;
+            let outcome = self.step(step, action).await;
             finished(&self.events, step.index, outcome);
             if outcome != Conclusion::Success {
                 return outcome;
@@ -153,9 +220,18 @@ impl Execution {
         Conclusion::Success
     }
 
-    async fn step(&mut self, step: &Step) -> Conclusion {
+    async fn step(&mut self, step: &Step, action: String) -> Conclusion {
+        let facts = StepFacts {
+            action,
+            id: Uuid::now_v7().to_string(),
+        };
+        let github = github::step_context(&self.github, &self.runner, &facts);
         let mut env = self.base.clone();
-        for (name, value) in &step.env {
+        for (name, value) in github::environment(&github, &self.runner, &self.bosun)
+            .iter()
+            .chain(&self.env)
+            .chain(&step.env)
+        {
             env.insert(name.into(), value.into());
         }
         let directory = match &step.working_directory {

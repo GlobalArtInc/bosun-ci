@@ -6,11 +6,11 @@ use bosun_proto::agent::v1::agent_message::Message as Inbound;
 use bosun_proto::agent::v1::agent_server::Agent;
 use bosun_proto::agent::v1::server_message::Message as Outgoing;
 use bosun_proto::agent::v1::{
-    AgentMessage, Capability as Offered, Conclusion as Reported, Hello, Log, LogAck, ServerMessage,
-    Settings, Welcome,
+    ASSIGNMENT_REVISION, AgentMessage, Capability as Offered, Conclusion as Reported, Hello, Log,
+    LogAck, ServerMessage, Settings, Welcome,
 };
 use bosun_types::api::{self, Capability};
-use bosun_types::id::{AgentId, ExecutionId};
+use bosun_types::id::ExecutionId;
 use bosun_types::status::Conclusion;
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
@@ -104,10 +104,10 @@ impl Connector {
         }
     }
 
-    fn welcome(&self, agent: AgentId) -> ServerMessage {
+    fn welcome(&self, agent: &api::Agent) -> ServerMessage {
         ServerMessage {
             message: Some(Outgoing::Welcome(Welcome {
-                agent_id: agent.to_string(),
+                agent_id: agent.id.to_string(),
                 server_version: SERVER_VERSION.to_owned(),
                 settings: Some(Settings {
                     heartbeat_interval: prost_types::Duration::try_from(
@@ -115,6 +115,7 @@ impl Connector {
                     )
                     .ok(),
                 }),
+                agent_name: agent.name.clone(),
             })),
         }
     }
@@ -142,7 +143,7 @@ impl Agent for Connector {
             )));
         }
         let (outbound, receiver) = mpsc::unbounded_channel();
-        let _ = outbound.send(Ok(self.welcome(agent.id)));
+        let _ = outbound.send(Ok(self.welcome(&agent)));
         let number = self.replica.attach(agent.id, outbound.clone());
         let connected = bosun_db::agents::connect(
             &self.db,
@@ -169,6 +170,18 @@ impl Agent for Connector {
             replica_id = %self.replica.id(),
             "an agent connected"
         );
+        let reads_assignments = hello.assignment_revision == ASSIGNMENT_REVISION;
+        if !reads_assignments {
+            warn!(
+                agent_id = %agent.id,
+                name = agent.name,
+                version = hello.version,
+                agent_revision = hello.assignment_revision,
+                server_revision = ASSIGNMENT_REVISION,
+                "the agent reads another revision of the assignment than this server sends, so it \
+                 is offered no job until it is upgraded"
+            );
+        }
         match bosun_db::agents::abandoned(&self.db, agent.id, &running).await {
             Ok(abandoned) => {
                 for execution_id in abandoned {
@@ -213,6 +226,7 @@ impl Agent for Connector {
             },
             number,
             outbound,
+            reads_assignments,
         };
         tokio::spawn(session.run(inbound).instrument(Span::current()));
         Ok(Response::new(UnboundedReceiverStream::new(receiver)))
@@ -227,6 +241,7 @@ struct Session {
     reporter: Reporter,
     number: u64,
     outbound: Outbound,
+    reads_assignments: bool,
 }
 
 impl Session {
@@ -310,7 +325,11 @@ impl Session {
                     ),
                 }
             }
-            Some(Inbound::Idle(_)) => self.dispatcher.idle(self.reporter.id, self.number),
+            Some(Inbound::Idle(_)) => {
+                if self.reads_assignments {
+                    self.dispatcher.idle(self.reporter.id, self.number);
+                }
+            }
             Some(Inbound::Reject(reject)) => {
                 let execution = execution_id(&reject.execution_id)?;
                 self.replica
@@ -350,6 +369,7 @@ impl Session {
                     at: finished.completed_at.and_then(time),
                     outcome: conclusion(finished.outcome(), "the outcome of a step")?,
                     conclusion: conclusion(finished.conclusion(), "the conclusion of a step")?,
+                    outputs: finished.outputs.into_iter().collect(),
                 };
                 let recorded =
                     progress::step_finished(&self.db, &self.reporter, execution, end).await;

@@ -21,6 +21,7 @@ struct Case {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct CaseStep {
+    id: Option<String>,
     run: String,
     shell: Option<String>,
     working_directory: Option<String>,
@@ -69,6 +70,7 @@ async fn every_step_case_produces_its_outcomes_and_its_output() {
             .zip(0..)
             .map(|(step, index)| Step {
                 index,
+                key: step.id.clone(),
                 script: step.run.clone(),
                 shell: step.shell.as_deref().map(shell),
                 working_directory: step.working_directory.clone(),

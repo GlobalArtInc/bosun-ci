@@ -79,7 +79,7 @@ anew, so a server that moved to another address is found without restarting the 
 
 | Agent to server | Carries |
 |-----------------|---------|
-| `Hello` | agent version, protocol version, capabilities, labels, OS, architecture, host name, and the executions it is still running with the last log sequence number of each |
+| `Hello` | agent version, protocol version, the revision of the assignment it reads, capabilities, labels, OS, architecture, host name, and the executions it is still running with the last log sequence number of each |
 | `Idle` | the slot is free |
 | `Accept`, `Reject` | answer to an assignment, with a reason for a rejection |
 | `StepStarted`, `StepFinished` | step identity, times, outcome, conclusion, outputs, annotations, the reference of the uploaded step summary |
@@ -92,7 +92,7 @@ anew, so a server that moved to another address is found without restarting the 
 
 | Server to agent | Carries |
 |-----------------|---------|
-| `Welcome` | agent id, server version, settings (the heartbeat interval), an optional request to rotate the credential |
+| `Welcome` | agent id and name, server version, settings (the heartbeat interval), an optional request to rotate the credential |
 | `Assignment` | a job assignment, below |
 | `Control` | an id, the execution, and one of `cancel`, `force_cancel`, `pause`, `resume`, `skip_step`, `breakpoint`, `abort_step`, `retry_step`, `continue`, `release`, `extend` |
 | `TerminalOpen`, `TerminalInput`, `TerminalResize`, `TerminalClose` | a debug terminal session |
@@ -112,7 +112,8 @@ all lowercased; they replace the labels given at registration.
 **Reports.** The server applies what an agent reports about an execution it holds, each report in
 a transaction of its own under the run's lock ([07-storage.md](07-storage.md)), and plans the run
 after it ([04-runs.md](04-runs.md)). `Accept` starts the execution and its job and creates the
-job's steps; `StepStarted` and `StepFinished` move a step, with the times the agent gives;
+job's steps; `StepStarted` and `StepFinished` move a step, with the times the agent gives, and
+`StepFinished` stores on the step the outputs it reports;
 `JobFinished` completes the execution with its conclusion, the steps it left open and the job, and
 stores on the job the outputs it reports for the names the job declares; the server logs and drops
 any other name, so a dependent's `needs` hold only declared outputs. A
@@ -201,17 +202,62 @@ An assignment carries everything an agent needs and nothing more:
 reads secrets by a computed name, it receives every secret in its scope, and the validator has
 already warned about that.
 
-A step's `shell` travels as text: `bash`, `sh`, `pwsh`, `python`, or a custom template with `{0}`.
-The agent answers `Accept` before it starts a job, or `Reject` with the reason when it is running
-another job, when it is stopping, or when the assignment holds something it cannot run: a step
-without an action it knows, a template segment it does not know, a shell that is neither named nor
-has `{0}`, or slugs that are not slugs. After a `Reject` with its slot free, and whenever its slot
-becomes free, it sends `Idle`.
+**Encoding.** The identity travels in fields of `Assignment`. Everything else travels in three JSON
+documents beside it, which the agent reads with every field it does not know refused:
 
-The assignment of M0 carries the steps as structured templates whose segments are text, and `env`
-as text. Until the server evaluates expressions at assignment, a step's expression segment travels
-as a segment with no known kind, which the agent rejects, and a variable of the workflow's or the
-job's `env` whose value holds an expression is left out of `env`.
+- `job`, the job's template from the IR exactly as the run's snapshot stores it
+  ([02-workflows.md](02-workflows.md)), its steps as templates;
+- `contexts`, an object with the server's contexts `github`, `needs`, `strategy`, `matrix`,
+  `inputs`, `vars`, `secrets` and `bosun`, built for the job as
+  [03-expressions.md](03-expressions.md#the-contexts-the-server-supplies) describes. `github.workspace`
+  is empty there, and the agent fills it in with the job's workspace; `strategy` and `matrix` are
+  `null` until matrices arrive (step 16 of [../plan.md](../plan.md));
+- `evaluated`, the values the server evaluated: `env`, `shell` and `working_directory` of
+  `defaults.run`, `timeout_minutes` and `continue_on_error`. `env` is the workflow's `env`,
+  evaluated when the job is assigned with the contexts that key sees
+  ([03-expressions.md](03-expressions.md#where-each-expression-is-evaluated)), with the job's `env`,
+  which the planner evaluated when the job became ready, merged over it, so a name in both takes the
+  job's value.
+
+JSON rather than protobuf messages carries these for two reasons. The IR is already serialised as
+JSON for the run's snapshot, so the server hands over the template it stores, and the agent reads it
+with the same types from `bosun-types`. And a JSON reader can refuse what it does not know, where
+protobuf drops an unknown field without a word, which would let an agent run a job without a part it
+never saw. The documents replaced the structured steps and the text `env` of M0, whose field
+numbers are reserved.
+
+An expression of the workflow's `env` that fails to evaluate fails the job at its assignment, as an
+error of the planner does ([04-runs.md](04-runs.md#planning)): after an error notice at the
+expression's span, the execution and the job complete as `failure` with the reason
+`evaluation_failed` in the same transaction, the agent is sent nothing, and the replica claims the
+next job for it at once.
+
+**Revisions.** The assignment has a revision, `1` from M1 on, and the agent announces the revision
+it reads in its `Hello` (`assignment_revision`). The revision rises when the assignment changes so
+that an agent of the previous revision would misread it rather than refuse it. The assignment of M1
+is such a change: an agent of M0 reads neither the documents nor any field it does not know, so it
+would see a job without steps and report it successful. An agent of M0 does not know the field
+either, and so announces `0`. A replica admits an agent of another revision as the version rule
+says, so it can still report the job it was running when the server was upgraded under it, logs a
+warning that names both revisions, and never claims a job for it: the agent stays connected and
+idle until it is upgraded, and no job is offered to it, in a loop or otherwise.
+
+**Fields an agent does not know.** Within a revision a newer server may hand over something an
+agent does not know, such as a key of the IR that a later step lowers. The agent answers `Reject`
+with a reason that names the document and the field, as in ``the document `job` of the assignment
+is not one this agent reads: unknown field `container`, …``. Like every rejection this returns the
+job to the queue, and the replica does not offer that job to that agent again on the stream, so it
+goes to an agent that reads it, or is cancelled with `no_agent` after `max_queue_time`.
+
+A step's `shell` travels as the IR holds it: `bash`, `sh`, `pwsh`, `python`, or a custom template,
+which must contain `{0}`. The agent answers `Accept` before it starts a job, or `Reject` with the
+reason when it is running another job, when it is stopping, or when the assignment holds something
+it cannot run: a field it does not know, a step that uses an action (until step 33 of
+[../plan.md](../plan.md)), a custom shell without `{0}`, or slugs that are not slugs; and, until the
+agent evaluates the expressions of steps and applies their keys (step 21), a step whose `run`,
+`env` or `working-directory` holds an expression, or that sets `if`, `continue-on-error` or
+`timeout-minutes`. After a `Reject` with its slot free, and whenever its slot becomes free, it sends
+`Idle`.
 
 ## The execution engine
 
@@ -246,10 +292,16 @@ job's `env` whose value holds an expression is left out of `env`.
   keep the order they were written in; lines longer than 64 KiB are split. A step ends when its
   shell exits; a process it left in the background keeps running into the next steps, as in the
   target, its output still counts as the output of its step, and teardown ends it. The step's
-  environment is the agent's own, then `CI=true`, `GITHUB_WORKSPACE`, `RUNNER_WORKSPACE` and
-  `RUNNER_TEMP`, then the proxy settings of the agent, the job's `env` and the step's `env`, each
-  overriding the ones before it; the other variables of
-  [06-runtime-services.md](06-runtime-services.md) come with the contexts. The cases in
+  environment is the agent's own, then the variables of a step of
+  [06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment) (`CI`,
+  `GITHUB_ACTIONS`, the `GITHUB_*` of the step's context, `GITHUB_WORKSPACE` among them, `RUNNER_*`
+  from the facts of the runner, and `BOSUN_*`), then the proxy settings of the agent, the job's
+  `env` and the step's `env`, each overriding the ones before it. The facts of the runner are the
+  agent's name, which the `Welcome` carries, its operating system and architecture as its labels
+  name them, and `RUNNER_TEMP` (`work/_temp`), `RUNNER_TOOL_CACHE` (`tools/`) and
+  `RUNNER_WORKSPACE`, which the agent creates before the first step. Before the first step it also
+  writes the payload, `github.event`, to `RUNNER_TEMP/_github_workflow/event.json`, the file
+  `GITHUB_EVENT_PATH` names, and teardown removes it with the rest of `RUNNER_TEMP`. The cases in
   `contracts/fixtures/steps/` pin these rules.
 - **Node action.** Run with the Node runtime its `using` names, from the agent's tool directory, or
   mounted into the job container at `/__e/node20` or `/__e/node24`; for images based on musl the
@@ -321,7 +373,9 @@ container actions need `podman` in every case.
 ```
 
 The organisation and project slugs in the path keep two repositories of the same name apart on an
-agent that serves several organisations. A repository-less project has no repository name, so its
+agent that serves several organisations. The repository's name is the part of `github.repository`
+after its owner, and the agent rejects an assignment whose `github.repository` is not an owner and a
+name, or whose name is `.` or `..`. A repository-less project has no repository name, so its
 project slug stands in for it: `work/<org>.<project>/<project>`.
 
 The systemd unit runs the agent with `Delegate=yes`, and the agent puts every job in a cgroup of

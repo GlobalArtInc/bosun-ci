@@ -267,6 +267,7 @@ impl Job {
             completed_at: None,
             outcome: Conclusion::Success.into(),
             conclusion: Conclusion::Success.into(),
+            outputs: Default::default(),
         }));
     }
 

@@ -16,7 +16,7 @@ use sea_orm::ConnectionTrait;
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 
 use crate::row::statement;
-use crate::runs::{Evaluated, Locked, refuse};
+use crate::runs::{Evaluated, Locked, StepEnd, refuse};
 use crate::{Error, queue, row};
 
 const JOBS: &str = "job";
@@ -24,12 +24,6 @@ const JOBS: &str = "job";
 const EXECUTIONS: &str = "execution";
 
 const STEPS: &str = "step";
-
-struct StepEnd {
-    outcome: Conclusion,
-    conclusion: Conclusion,
-    at: Option<DateTimeUtc>,
-}
 
 impl Locked<'_> {
     pub async fn prepare_job(
@@ -453,9 +447,7 @@ impl Locked<'_> {
         &self,
         execution: ExecutionId,
         index: u32,
-        at: Option<DateTimeUtc>,
-        outcome: Conclusion,
-        conclusion: Conclusion,
+        end: StepEnd,
         actor: &Actor,
     ) -> Result<(), Error> {
         let job = self.running(execution).await?;
@@ -463,17 +455,8 @@ impl Locked<'_> {
         if !matches!(from, StepStatus::Pending | StepStatus::InProgress) {
             return Err(refuse("step", step, from, StepStatus::Completed));
         }
-        self.close_step(
-            (job, execution, step),
-            from,
-            StepEnd {
-                outcome,
-                conclusion,
-                at,
-            },
-            actor,
-        )
-        .await
+        self.close_step((job, execution, step), from, end, actor)
+            .await
     }
 
     pub async fn finish_execution(
@@ -518,6 +501,7 @@ impl Locked<'_> {
                     outcome: ended,
                     conclusion: ended,
                     at: None,
+                    outputs: BTreeMap::new(),
                 },
                 actor,
             )
@@ -611,11 +595,13 @@ impl Locked<'_> {
             outcome,
             conclusion,
             at,
+            outputs,
         } = end;
         self.transaction()
             .execute(statement(
                 "UPDATE step SET status = $2, outcome = $3, conclusion = $4, \
-                 conclusion_source = $5, completed_at = coalesce($6, now()) WHERE id = $1",
+                 conclusion_source = $5, completed_at = coalesce($6, now()), outputs = $7 \
+                 WHERE id = $1",
                 [
                     Uuid::from(step).into(),
                     row::text(STEPS, StepStatus::Completed)?.into(),
@@ -623,6 +609,7 @@ impl Locked<'_> {
                     row::text(STEPS, conclusion)?.into(),
                     row::text(STEPS, ConclusionSource::Natural)?.into(),
                     at.into(),
+                    serde_json::to_value(outputs)?.into(),
                 ],
             ))
             .await?;

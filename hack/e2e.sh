@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios journal-replay"
+scenarios="$scenarios step-environment journal-replay"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -453,6 +453,95 @@ EOF
     fail "bosun job logs failed: $(cat "$work/out/restart-log.txt")"
   [ "$(cut -d' ' -f2- "$work/out/restart-log.txt")" = "$(counted_lines 1 40 "")" ] ||
     fail "the stored log does not hold lines 1 to 40 once each: $(cat "$work/out/restart-log.txt")"
+  passed
+}
+
+scenario_step_environment() {
+  begin step-environment \
+    "a step sees the variables of the dispatch fixture with the values of the run, and the payload"
+  local dump="$work/out/environment.json" event="$work/out/event.json" run job payload
+  push backup <<EOF
+name: Nightly backup
+on: workflow_dispatch
+jobs:
+  backup:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - run: |
+          python3 -c 'import json, os, sys; json.dump(dict(os.environ), open(sys.argv[1], "w"))' "$dump"
+          cp "\$GITHUB_EVENT_PATH" "$event"
+EOF
+  watch a backup
+  watch_ended 60 backup
+  [ "$reaped" -eq 0 ] ||
+    fail "bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
+  run="$(api GET "/api/v1/runs/$run_id")" || fail "run $run_id could not be read: $run"
+  job="$(job_id backup)"
+  [ -n "$job" ] || fail "the watch named no job: $(cat "$watched")"
+  payload="$(psql "$database_url" -XAtc "SELECT trigger -> 'payload' FROM bosun.run WHERE id = '$run_id'")" ||
+    fail "the payload of run $run_id could not be read"
+  python3 - "$root/contracts/fixtures/github/workflow-dispatch-without-repository.json" "$dump" \
+    "$event" "$run" "$job" "$payload" "$work/agents/alpha" >"$work/out/environment.txt" 2>&1 <<'PY' ||
+import json
+import platform
+import re
+import sys
+
+fixture_path, dump_path, event_path, run_text, job, payload, agent = sys.argv[1:]
+fixture = json.load(open(fixture_path))["environment"]
+seen = json.load(open(dump_path))
+run = json.loads(run_text)
+temp = agent + "/work/_temp"
+commands = temp + "/_runner_file_commands/"
+step = re.fullmatch(re.escape(commands) + "set_env_([0-9a-f-]{36})", seen.get("GITHUB_ENV", ""))
+if step is None:
+    sys.exit("GITHUB_ENV is %r" % seen.get("GITHUB_ENV"))
+step = step.group(1)
+arch = {"x86_64": "X64", "amd64": "X64", "arm64": "ARM64", "aarch64": "ARM64"}
+of_the_run = {
+    "BOSUN_JOB_ID": job,
+    "BOSUN_RUN_ID": run["id"],
+    "BOSUN_RUN_URL": "",
+    "BOSUN_URL": "",
+    "GITHUB_ACTOR": "e2e",
+    "GITHUB_EVENT_PATH": temp + "/_github_workflow/event.json",
+    "GITHUB_RETENTION_DAYS": "90",
+    "GITHUB_RUN_ATTEMPT": str(run["attempt"]),
+    "GITHUB_RUN_ID": str(run["global_number"]),
+    "GITHUB_RUN_NUMBER": str(run["number"]),
+    "GITHUB_TRIGGERING_ACTOR": "e2e",
+    "GITHUB_WORKSPACE": agent + "/work/e2e.m0/m0",
+    "RUNNER_ARCH": arch[platform.machine().lower()],
+    "RUNNER_NAME": "e2e-alpha",
+    "RUNNER_OS": {"Linux": "Linux", "Darwin": "macOS"}[platform.system()],
+    "RUNNER_TEMP": temp,
+    "RUNNER_TOOL_CACHE": agent + "/tools",
+    "RUNNER_WORKSPACE": agent + "/work/e2e.m0",
+}
+for variable, prefix in [
+    ("GITHUB_ENV", "set_env_"),
+    ("GITHUB_OUTPUT", "set_output_"),
+    ("GITHUB_PATH", "add_path_"),
+    ("GITHUB_STATE", "save_state_"),
+    ("GITHUB_STEP_SUMMARY", "step_summary_"),
+]:
+    of_the_run[variable] = commands + prefix + step
+stray = sorted(set(of_the_run) - set(fixture))
+if stray:
+    sys.exit("the fixture has no variables %s" % stray)
+wrong = [
+    "%s: expected %r, the step saw %r" % (name, of_the_run.get(name, value), seen.get(name))
+    for name, value in sorted(fixture.items())
+    if seen.get(name) != of_the_run.get(name, value)
+]
+if wrong:
+    sys.exit("\n".join(wrong))
+if json.load(open(event_path)) != json.loads(payload):
+    sys.exit("GITHUB_EVENT_PATH holds %s, the payload of the run is %s" % (open(event_path).read(), payload))
+print("the step saw the %d variables of the fixture and the payload of the run" % len(fixture))
+PY
+    fail "the environment of the step differs: $(cat "$work/out/environment.txt")"
+  cat "$work/out/environment.txt"
   passed
 }
 

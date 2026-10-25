@@ -3,6 +3,7 @@ mod cases;
 #[cfg(target_os = "linux")]
 mod cgroup;
 mod cleanup;
+mod environment;
 mod order;
 mod prepare;
 
@@ -11,9 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use bosun_runner::{Event, Job, Step, Tracking};
+use bosun_runner::{BosunFacts, Event, Job, Runner, Step, Tracking};
 use bosun_types::status::Conclusion;
 use rustix::process::{Pid, test_kill_process};
+use serde_json::Map;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep};
 
@@ -33,6 +35,20 @@ pub fn job(directory: &Path, steps: Vec<Step>) -> Job {
         ),
         workspace: directory.join("work/globalart.keel/keel"),
         temp: directory.join("work/_temp"),
+        tool_cache: directory.join("tools"),
+        runner: Runner {
+            name: "runner1-1".to_owned(),
+            os: "Linux".to_owned(),
+            arch: "X64".to_owned(),
+        },
+        github: Map::new(),
+        bosun: BosunFacts {
+            url: "https://ci.example.org".to_owned(),
+            run_id: "0192f3a4-5b6c-7d8e-9f01-000000000007".to_owned(),
+            run_url: "https://ci.example.org/runs/0192f3a4-5b6c-7d8e-9f01-000000000007".to_owned(),
+            job_id: "0192f3a4-5b6c-7d8e-9f01-000000000009".to_owned(),
+            draft: false,
+        },
         env: BTreeMap::new(),
         steps,
     }
@@ -41,6 +57,7 @@ pub fn job(directory: &Path, steps: Vec<Step>) -> Job {
 pub fn step(index: u32, script: &str) -> Step {
     Step {
         index,
+        key: None,
         script: script.to_owned(),
         shell: None,
         working_directory: None,

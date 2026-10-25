@@ -25,7 +25,7 @@ use tonic::service::Routes;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
-use crate::WAIT;
+use crate::{NAME, WAIT};
 
 pub const TOKEN: &str = "brt_fake";
 
@@ -191,6 +191,7 @@ impl Stream {
             settings: Some(Settings {
                 heartbeat_interval: prost_types::Duration::try_from(HEARTBEAT).ok(),
             }),
+            agent_name: NAME.to_owned(),
         }));
     }
 

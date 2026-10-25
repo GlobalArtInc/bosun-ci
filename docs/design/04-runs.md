@@ -79,7 +79,7 @@ The transitions of a job, exhaustively:
 | `queued` | `completed` | cancellation, `no_agent`, `job.skip`, `job.mark-success` |
 | `assigned` | `queued` | the lease expired or the agent rejected the job |
 | `assigned` | `in_progress` | the agent started the job |
-| `assigned` | `completed` | cancellation, the agent removed |
+| `assigned` | `completed` | cancellation, the agent removed, an evaluation error at the assignment |
 | `in_progress` | `paused` | a pause request or a breakpoint at a step boundary |
 | `paused` | `in_progress` | `job.resume`, `run.resume` |
 | `in_progress` | `held` | a failing step under hold-on-failure |
@@ -106,7 +106,7 @@ The transitions of an execution, exhaustively:
 | From | To | Cause |
 |------|----|-------|
 | `assigned` | `in_progress` | the agent started the job |
-| `assigned` | `completed` | the lease expired, the agent rejected the job, cancellation, the agent removed |
+| `assigned` | `completed` | the lease expired, the agent rejected the job, cancellation, the agent removed, an evaluation error at the assignment |
 | `in_progress` | `paused` | a pause request or a breakpoint at a step boundary |
 | `in_progress` | `held` | a failing step under hold-on-failure |
 | `paused`, `held` | `in_progress` | `job.resume`, `run.resume`, `hold.retry-step`, `hold.continue` |
@@ -189,7 +189,10 @@ A gate skips steps 2, 3 and the queue: once its admission rules pass, it waits f
 An expression of steps 1 to 3 that fails to evaluate, or whose value the key cannot use, completes
 the job as `failure` with the reason `evaluation_failed`, whatever its `continue-on-error`, after an
 error notice at the expression's span that names the job. Its dependents then follow their `if`.
-The keys are evaluated in the order of the list, and the first error ends the evaluation.
+The keys are evaluated in the order of the list, and the first error ends the evaluation. The
+workflow's `env` is evaluated later, when an agent claims the job
+([05-execution.md](05-execution.md#the-job-assignment)); an error there completes the assigned
+execution and the job the same way, before the agent is sent anything.
 
 A job group completes when all its members are complete. Its conclusion is `failure` when a member
 failed without `continue-on-error`, `cancelled` when a member was cancelled, and `success`

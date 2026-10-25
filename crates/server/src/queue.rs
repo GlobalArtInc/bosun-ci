@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,17 +5,18 @@ use bosun_db::Error;
 use bosun_db::control::{self, Kind};
 use bosun_db::queue::{Claim, Claimed, ClaimedJob};
 use bosun_proto::agent::v1::server_message::Message;
-use bosun_proto::agent::v1::step::Action as Offered;
-use bosun_proto::agent::v1::{self as proto, Assignment, ServerMessage};
+use bosun_proto::agent::v1::{Assignment, ServerMessage};
+use bosun_proto::assignment::{Documents, Evaluated};
 use bosun_types::id::{AgentId, ExecutionId, JobId};
-use bosun_types::ir::{Action, JobKind, Segment, Template};
+use bosun_types::ir::{Action, JobKind};
+use bosun_types::status::ExecutionStatus;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{info, warn};
 
 use crate::agents::{Offer, Replica, Turn, Turned};
 use crate::config::Queue;
-use crate::planner;
+use crate::planner::{self, Assigned};
 use crate::site::Site;
 
 const SWEEP: Duration = Duration::from_secs(5);
@@ -90,8 +90,12 @@ impl Dispatcher {
                         "assigned a job to an agent"
                     );
                     let job_id = claimed.job_id;
-                    match offer(*claimed) {
-                        Ok(offer) => Turned::Offered(Box::new(offer)),
+                    match assignment(&self.db, *claimed, &self.site).await {
+                        Ok(Some(offer)) => Turned::Offered(Box::new(offer)),
+                        Ok(None) => {
+                            contended = 0;
+                            continue;
+                        }
                         Err(error) => {
                             warn!(
                                 agent_id = %agent,
@@ -239,74 +243,82 @@ pub(crate) async fn cancel_unclaimed(
     Ok(true)
 }
 
-pub(crate) fn offer(claimed: ClaimedJob) -> Result<Offer, Error> {
-    let merged: HashMap<&String, &Template> = claimed.env.iter().chain(&claimed.job.env).collect();
-    let env = merged
-        .into_iter()
-        .filter_map(|(name, value)| Some((name.clone(), value.as_literal()?)))
-        .collect();
-    let JobKind::Steps(steps) = claimed.job.kind;
-    let steps = (0..)
-        .zip(steps)
-        .map(|(index, step)| {
-            let Action::Run { script } = &step.action else {
-                return Err(Error::Row {
-                    table: "run",
-                    message: format!(
-                        "step {index} of job `{}` uses an action, which an agent runs from M1 \
-                         step 33",
-                        claimed.key
-                    ),
-                });
-            };
-            Ok(proto::Step {
-                index,
-                key: step.key.map(|key| key.to_string()),
-                name: step.name.as_ref().map(template),
-                action: Some(Offered::Run(template(script))),
-                shell: step.shell.map(|shell| shell.to_string()),
-                working_directory: step.working_directory.as_ref().map(template),
-                env: step
-                    .env
-                    .iter()
-                    .map(|(name, value)| (name.clone(), template(value)))
-                    .collect(),
-            })
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
+pub(crate) async fn assignment(
+    db: &DatabaseConnection,
+    claimed: ClaimedJob,
+    site: &Site,
+) -> Result<Option<Offer>, Error> {
+    let execution = claimed.execution_id;
+    let transaction = db.begin().await?;
+    let Some((mut run, state)) = bosun_db::runs::lock_execution(&transaction, execution).await?
+    else {
+        return Ok(None);
+    };
+    if state.status != ExecutionStatus::Assigned {
+        return Ok(None);
+    }
+    let assigned = planner::assign(&mut run, site, execution, &claimed.key, &claimed.env).await?;
+    transaction.commit().await?;
+    match assigned {
+        Some(assigned) => offer(claimed, assigned).map(Some),
+        None => {
+            warn!(
+                job_id = %claimed.job_id,
+                %execution,
+                "a job failed at its assignment because the env of its workflow could not be \
+                 evaluated"
+            );
+            Ok(None)
+        }
+    }
+}
+
+fn offer(claimed: ClaimedJob, assigned: Assigned) -> Result<Offer, Error> {
+    let JobKind::Steps(steps) = &claimed.job.kind;
+    if let Some(index) = steps
+        .iter()
+        .position(|step| matches!(step.action, Action::Uses(_)))
+    {
+        return Err(Error::Row {
+            table: "run",
+            message: format!(
+                "step {index} of job `{}` uses an action, which an agent runs from M1 step 33",
+                claimed.key
+            ),
+        });
+    }
+    let mut env = assigned.env;
+    env.extend(claimed.evaluated.env);
+    let documents = Documents {
+        job: claimed.job,
+        contexts: assigned.contexts,
+        evaluated: Evaluated {
+            env,
+            shell: claimed.evaluated.shell,
+            working_directory: claimed.evaluated.working_directory,
+            timeout_minutes: claimed.evaluated.timeout_minutes,
+            continue_on_error: claimed.continue_on_error,
+        },
+    };
+    let mut assignment = Assignment {
+        run_id: claimed.run_id.to_string(),
+        attempt_id: claimed.attempt_id.to_string(),
+        job_id: claimed.job_id.to_string(),
+        execution_id: claimed.execution_id.to_string(),
+        job_key: claimed.key.to_string(),
+        job_name: claimed.name,
+        organisation: claimed.organisation,
+        project: claimed.project,
+        ..Assignment::default()
+    };
+    documents.write(&mut assignment)?;
     Ok(Offer {
         job: claimed.job_id,
         execution: claimed.execution_id,
         message: ServerMessage {
-            message: Some(Message::Assignment(Assignment {
-                run_id: claimed.run_id.to_string(),
-                attempt_id: claimed.attempt_id.to_string(),
-                job_id: claimed.job_id.to_string(),
-                execution_id: claimed.execution_id.to_string(),
-                job_key: claimed.key.to_string(),
-                job_name: claimed.name,
-                env,
-                steps,
-                organisation: claimed.organisation,
-                project: claimed.project,
-            })),
+            message: Some(Message::Assignment(assignment)),
         },
     })
-}
-
-fn template(template: &Template) -> proto::Template {
-    proto::Template {
-        segments: template
-            .segments()
-            .iter()
-            .map(|segment| proto::Segment {
-                segment: match segment {
-                    Segment::Text(text) => Some(proto::segment::Segment::Text(text.clone())),
-                    Segment::Expression(_) => None,
-                },
-            })
-            .collect(),
-    }
 }
 
 #[cfg(test)]

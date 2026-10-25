@@ -196,8 +196,9 @@ the default branch.
 - `event_path`: `<RUNNER_TEMP>/_github_workflow/event.json`, the file that holds the payload;
 - the file command files, fresh for each step under `<RUNNER_TEMP>/_runner_file_commands/`: `env`
   (`set_env_<step>`), `path` (`add_path_<step>`), `output` (`set_output_<step>`), `state`
-  (`save_state_<step>`) and `step_summary` (`step_summary_<step>`), where `<step>` is the step's
-  identifier in place of the target's random GUID.
+  (`save_state_<step>`) and `step_summary` (`step_summary_<step>`), where `<step>` is a version 7
+  UUID the agent draws for each step, in place of the target's random GUID, since the server creates
+  its own rows for the steps only when the agent accepts the job.
 
 Two properties of the target are absent: `secret_source`, which says which of the target's secret
 stores a run reads, while Bosun has one; and `action_status`, which exists inside composite actions

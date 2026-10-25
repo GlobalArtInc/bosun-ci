@@ -3,13 +3,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use bosun_proto::agent::v1::agent_message::Message as Report;
-use bosun_proto::agent::v1::segment::Segment;
-use bosun_proto::agent::v1::step::Action;
-use bosun_proto::agent::v1::{
-    Accept, Conclusion, ControlKind, JobFinished, Reject, Step, Template,
-};
+use bosun_proto::agent::v1::{Accept, Conclusion, ControlKind, Hello, JobFinished, Reject};
 use bosun_testkit::TestDatabase;
 use bosun_testkit::agent::FakeAgent;
+use bosun_types::ir::{Action, JobKind, Shell, Template};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep, timeout};
@@ -141,14 +138,6 @@ fn many_jobs(count: usize) -> String {
         ));
     }
     source
-}
-
-fn template(text: &str) -> Template {
-    Template {
-        segments: vec![bosun_proto::agent::v1::Segment {
-            segment: Some(Segment::Text(text.to_owned())),
-        }],
-    }
 }
 
 #[tokio::test]
@@ -451,7 +440,7 @@ async fn agents_receive_only_jobs_their_labels_satisfy_and_a_rejected_job_goes_t
 }
 
 #[tokio::test]
-async fn an_assignment_carries_the_slugs_the_merged_env_and_each_step_with_its_shell_as_text() {
+async fn an_assignment_carries_the_slugs_the_job_of_the_ir_and_the_values_the_server_evaluated() {
     let cluster = Cluster::start(1, "").await;
     let workflow = cluster.workflow(&fixture("workflows/two-jobs.yml")).await;
     let fake = cluster.agent("runner1-1", &[]).await;
@@ -459,7 +448,7 @@ async fn an_assignment_carries_the_slugs_the_merged_env_and_each_step_with_its_s
     connection.idle();
     let run = cluster.dispatch(&workflow).await;
 
-    let build = connection.assignment().await;
+    let (build, documents) = connection.job().await;
     let ids = cluster
         .values(&format!(
             "SELECT concat_ws(' ', a.run_id, a.id, j.id, e.id) AS value FROM bosun.execution e \
@@ -483,31 +472,60 @@ async fn an_assignment_carries_the_slugs_the_merged_env_and_each_step_with_its_s
         ("build", "Build")
     );
     assert_eq!(
-        build.env,
+        documents.evaluated.env,
         [("CARGO_TERM_COLOR".to_owned(), "always".to_owned())].into()
     );
     assert_eq!(
-        build.steps,
-        [
-            Step {
-                index: 0,
-                key: Some("compile".to_owned()),
-                name: Some(template("Compile")),
-                action: Some(Action::Run(template("cargo build --workspace\n"))),
-                shell: Some("bash".to_owned()),
-                working_directory: None,
-                env: [("RUSTFLAGS".to_owned(), template("-D warnings"))].into(),
+        (
+            documents.evaluated.timeout_minutes,
+            documents.evaluated.continue_on_error,
+            &documents.evaluated.shell,
+            &documents.evaluated.working_directory
+        ),
+        (360, false, &None, &None)
+    );
+    assert_eq!(documents.job.key.as_str(), "build");
+    let JobKind::Steps(steps) = &documents.job.kind;
+    assert_eq!(steps.len(), 2);
+    assert_eq!(
+        (
+            steps[0].key.as_ref().map(|key| key.to_string()),
+            &steps[0].shell,
+            &steps[0].action,
+            &steps[0].env
+        ),
+        (
+            Some("compile".to_owned()),
+            &Some(Shell::Bash),
+            &Action::Run {
+                script: Template::text("cargo build --workspace\n")
             },
-            Step {
-                index: 1,
-                key: None,
-                name: None,
-                action: Some(Action::Run(template("ls target\n"))),
-                shell: None,
-                working_directory: Some(template("crates")),
-                env: Default::default(),
-            },
-        ]
+            &[("RUSTFLAGS".to_owned(), Template::text("-D warnings"))].into()
+        )
+    );
+    assert_eq!(steps[1].working_directory, Some(Template::text("crates")));
+    assert_eq!(documents.contexts.github["job"], "build");
+    assert_eq!(documents.contexts.github["event_name"], "workflow_dispatch");
+    assert_eq!(documents.contexts.github["workspace"], "");
+    assert_eq!(documents.contexts.bosun["run_id"], json!(build.run_id));
+    assert_eq!(documents.contexts.bosun["project"], "globalart/ops");
+    assert_eq!(
+        (
+            &documents.contexts.needs,
+            &documents.contexts.inputs,
+            &documents.contexts.vars,
+            &documents.contexts.secrets,
+            &documents.contexts.strategy,
+            &documents.contexts.matrix
+        ),
+        (
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+            &Value::Null,
+            &Value::Null
+        )
     );
 
     connection.send(Report::Accept(Accept {
@@ -519,9 +537,56 @@ async fn an_assignment_carries_the_slugs_the_merged_env_and_each_step_with_its_s
         outputs: Default::default(),
     }));
     connection.idle();
-    let test = connection.assignment().await;
+    let (test, documents) = connection.job().await;
     assert_eq!(test.job_key, "test");
-    assert_eq!(test.steps.len(), 1);
-    assert_eq!(test.steps[0].shell.as_deref(), Some("perl {0}"));
-    assert_eq!(test.steps[0].key.as_deref(), Some("unit"));
+    let JobKind::Steps(steps) = &documents.job.kind;
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].shell, Some(Shell::Custom("perl {0}".to_owned())));
+    assert_eq!(
+        documents.contexts.needs,
+        json!({ "build": { "result": "success", "outputs": {} } })
+            .as_object()
+            .cloned()
+            .expect("an object")
+    );
+}
+
+#[tokio::test]
+async fn an_agent_that_reads_another_revision_of_the_assignment_is_offered_no_job() {
+    let mut cluster = Cluster::start(1, "").await;
+    let workflow = cluster.workflow(&many_jobs(1)).await;
+    let old = cluster.agent("runner0-1", &[]).await;
+    let mut on_old = old
+        .connect_with(
+            cluster.addresses[0],
+            Hello {
+                assignment_revision: 0,
+                ..old.hello()
+            },
+        )
+        .await
+        .expect("an agent of the previous revision is admitted");
+    on_old.idle();
+    let run = cluster.dispatch(&workflow).await;
+    let job = cluster.job(&run, "j0").await;
+    let warned = cluster.servers[0]
+        .expect("the warning about the revision", |line| {
+            message(line).starts_with("the agent reads another revision of the assignment")
+        })
+        .await;
+    assert_eq!(
+        (&warned["agent_revision"], &warned["server_revision"]),
+        (&json!(0), &json!(1))
+    );
+    assert!(
+        timeout(Duration::from_millis(500), on_old.assignment())
+            .await
+            .is_err(),
+        "an agent of another revision was offered a job"
+    );
+
+    let current = cluster.agent("runner1-1", &[]).await;
+    let mut on_current = current.connect(cluster.addresses[0]).await;
+    on_current.idle();
+    assert_eq!(on_current.assignment().await.job_id, job);
 }

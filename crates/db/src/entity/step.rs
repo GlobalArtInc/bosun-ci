@@ -12,6 +12,8 @@ pub struct Model {
     pub outcome: Option<String>,
     pub conclusion: Option<String>,
     pub conclusion_source: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub outputs: Json,
     pub started_at: Option<DateTimeUtc>,
     pub completed_at: Option<DateTimeUtc>,
 }

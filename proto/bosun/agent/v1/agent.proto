@@ -62,6 +62,7 @@ message Hello {
   string arch = 6;
   string hostname = 7;
   repeated RunningExecution executions = 8;
+  uint32 assignment_revision = 9;
 }
 
 message RunningExecution {
@@ -73,6 +74,7 @@ message Welcome {
   string agent_id = 1;
   string server_version = 2;
   Settings settings = 3;
+  string agent_name = 4;
 }
 
 message Settings {
@@ -88,38 +90,19 @@ message Heartbeat {
 message Idle {}
 
 message Assignment {
+  reserved 7, 8;
+  reserved "env", "steps";
   string run_id = 1;
   string attempt_id = 2;
   string job_id = 3;
   string execution_id = 4;
   string job_key = 5;
   string job_name = 6;
-  map<string, string> env = 7;
-  repeated Step steps = 8;
   string organisation = 9;
   string project = 10;
-}
-
-message Step {
-  uint32 index = 1;
-  optional string key = 2;
-  Template name = 3;
-  oneof action {
-    Template run = 4;
-  }
-  optional string shell = 5;
-  Template working_directory = 6;
-  map<string, Template> env = 7;
-}
-
-message Template {
-  repeated Segment segments = 1;
-}
-
-message Segment {
-  oneof segment {
-    string text = 1;
-  }
+  string job = 11;
+  string contexts = 12;
+  string evaluated = 13;
 }
 
 message Accept {
@@ -143,6 +126,7 @@ message StepFinished {
   google.protobuf.Timestamp completed_at = 3;
   Conclusion outcome = 4;
   Conclusion conclusion = 5;
+  map<string, string> outputs = 6;
 }
 
 message Log {

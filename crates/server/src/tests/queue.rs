@@ -4,15 +4,17 @@ use std::time::Duration;
 use bosun_db::agents::{Connection, NewAgent, NewRegistrationToken, Registration};
 use bosun_db::notify::{Listener, Notification};
 use bosun_db::queue::{Claim, Claimed, ClaimedJob};
-use bosun_proto::agent::v1::segment::Segment as Sent;
+use bosun_db::runs::Evaluated as Stored;
+use bosun_proto::agent::v1::Assignment;
 use bosun_proto::agent::v1::server_message::Message;
-use bosun_proto::agent::v1::step::Action as Offered;
+use bosun_proto::assignment::{Documents, Evaluated};
 use bosun_types::actor::Actor;
 use bosun_types::api::Capability;
+use bosun_types::diagnostic::{PathSegment, Severity};
 use bosun_types::event::{Event, JobStatusChanged, RunEvent};
 use bosun_types::id::{AgentId, JobId};
 use bosun_types::ir::{
-    Action, ActionReference, Evaluable, Expr, JobKind, JobTemplate, RunsOn, Segment, Span, Template,
+    self, Action, ActionReference, Evaluable, JobKind, JobTemplate, RunsOn, Template,
 };
 use bosun_types::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, RunConclusion, RunStatus,
@@ -23,7 +25,7 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, TransactionTrait};
 use tokio::time::timeout;
 
-use super::{World, finished, replay, template, workflow};
+use super::{World, finished, replay, site, template, workflow};
 use crate::agents::progress::{self, Progress, Reporter};
 use crate::queue;
 use crate::site::Site;
@@ -218,7 +220,8 @@ async fn a_claimed_job_with_a_step_that_uses_an_action_is_not_offered_to_the_age
         .await
         .expect("a claim");
     assert_eq!(
-        queue::offer(claimed)
+        queue::assignment(db, claimed, &site())
+            .await
             .map(|_| ())
             .map_err(|error| error.to_string()),
         Err(
@@ -266,15 +269,23 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
     assert_eq!(claimed.name, "build");
     assert_eq!(claimed.job, ir.jobs[0]);
     assert_eq!(claimed.env, ir.env);
-    let Some(Message::Assignment(assignment)) = queue::offer(claimed.clone())
-        .expect("an offer")
-        .message
-        .message
-    else {
-        panic!("the offer of a claim is not an assignment");
-    };
     assert_eq!(
-        assignment.env,
+        (&claimed.evaluated, claimed.continue_on_error),
+        (
+            &Stored {
+                timeout_minutes: 360,
+                env: [("B".to_owned(), "job".to_owned())].into(),
+                shell: None,
+                working_directory: None,
+            },
+            false
+        )
+    );
+    let (assignment, documents) = assigned(db, claimed.clone()).await;
+    assert_eq!(assignment.execution_id, claimed.execution_id.to_string());
+    assert_eq!(documents.job, ir.jobs[0]);
+    assert_eq!(
+        documents.evaluated.env,
         [
             ("A".to_owned(), "workflow".to_owned()),
             ("B".to_owned(), "job".to_owned())
@@ -333,65 +344,201 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
     assert_eq!(next.run_id, second);
 }
 
-#[tokio::test]
-async fn an_assignment_carries_no_expression_the_server_has_not_evaluated() {
-    let world = World::new().await;
-    let replica = Uuid::now_v7();
-    world
-        .dispatch(&workflow(vec![template("build", &[], 1)]))
-        .await;
-    let agent = connected(&world, "runner1-1", &LABELS, replica).await;
-    let mut claimed = claim(world.db(), agent.id, replica, LEASE, &[])
+async fn assigned(db: &DatabaseConnection, claimed: ClaimedJob) -> (Assignment, Documents) {
+    let Some(Message::Assignment(assignment)) = queue::assignment(db, claimed, &site())
         .await
-        .expect("a claim");
-    let expression = Segment::Expression(Expr::Context {
-        name: "github".to_owned(),
-        span: Span {
-            line: 1,
-            column: 9,
-            end_line: 1,
-            end_column: 15,
-        },
-    });
-    claimed
-        .env
-        .insert("A".to_owned(), Template::text("workflow"));
-    claimed.env.insert(
-        "B".to_owned(),
-        Template::new(vec![Segment::Text("x".to_owned()), expression.clone()]),
-    );
-    claimed
-        .env
-        .insert("C".to_owned(), Template::text("workflow"));
-    claimed
-        .job
-        .env
-        .insert("C".to_owned(), Template::new(vec![expression.clone()]));
-    let JobKind::Steps(steps) = &mut claimed.job.kind;
-    steps[0].action = Action::Run {
-        script: Template::new(vec![Segment::Text("echo ".to_owned()), expression]),
-    };
-
-    let Some(Message::Assignment(assignment)) =
-        queue::offer(claimed).expect("an offer").message.message
+        .expect("an assignment")
+        .expect("an offer")
+        .message
+        .message
     else {
         panic!("the offer of a claim is not an assignment");
     };
+    let documents = Documents::read(&assignment).expect("readable documents");
+    (assignment, documents)
+}
+
+fn parse(source: &str) -> ir::Workflow {
+    bosun_workflow::parse("ci", source)
+        .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
+        .workflow
+}
+
+#[tokio::test]
+async fn the_workflow_env_is_evaluated_at_assignment_and_a_name_in_both_takes_the_job_value() {
+    let world = World::new().await;
+    let replica = Uuid::now_v7();
+    let run = world
+        .dispatch(&parse(
+            "name: Release
+on: workflow_dispatch
+env:
+  EVENT: ${{ github.event_name }} by ${{ github.actor }}
+  SHARED: workflow ${{ github.job }}
+  PROJECT: ${{ bosun.project }} ${{ toJSON(inputs) }} ${{ toJSON(vars) }}
+jobs:
+  build:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    continue-on-error: true
+    env:
+      SHARED: job ${{ github.job }}
+    defaults:
+      run:
+        shell: sh
+        working-directory: crates
+    steps:
+      - run: make
+",
+        ))
+        .await;
+    let agent = connected(&world, "runner1-1", &LABELS, replica).await;
+    let claimed = claim(world.db(), agent.id, replica, LEASE, &[])
+        .await
+        .expect("a claim");
+    let (_, documents) = assigned(world.db(), claimed).await;
     assert_eq!(
-        assignment.env,
-        [("A".to_owned(), "workflow".to_owned())].into()
+        documents.evaluated,
+        Evaluated {
+            env: [
+                ("EVENT".to_owned(), "workflow_dispatch by roman".to_owned()),
+                ("PROJECT".to_owned(), "globalart/keel {} {}".to_owned()),
+                ("SHARED".to_owned(), "job build".to_owned()),
+            ]
+            .into(),
+            shell: Some(ir::Shell::Sh),
+            working_directory: Some("crates".to_owned()),
+            timeout_minutes: 20,
+            continue_on_error: true,
+        }
     );
-    let Some(Offered::Run(script)) = &assignment.steps[0].action else {
-        panic!("the step is not a run step");
-    };
+    assert_eq!(documents.contexts.github["job"], "build");
+    assert_eq!(documents.contexts.github["workflow"], "Release");
+    assert_eq!(documents.contexts.bosun["run_id"], run.to_string());
     assert_eq!(
-        script
-            .segments
-            .iter()
-            .map(|segment| segment.segment.clone())
+        documents.contexts.bosun["run_url"],
+        format!("https://ci.example.org/runs/{run}")
+    );
+    assert_eq!(
+        replay(&world.journal(run).await),
+        Ok(world.project(run).await)
+    );
+}
+
+#[tokio::test]
+async fn an_evaluation_error_in_the_workflow_env_fails_the_job_at_its_assignment() {
+    let world = World::new().await;
+    let db = world.db();
+    let replica = Uuid::now_v7();
+    let run = world
+        .dispatch(&parse(
+            "on: workflow_dispatch
+env:
+  BROKEN: ${{ fromJSON('x') }}
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - run: make
+  test:
+    needs: build
+    runs-on: self-hosted
+    steps:
+      - run: make test
+",
+        ))
+        .await;
+    world
+        .dispatch(&workflow(vec![template("lint", &[], 1)]))
+        .await;
+    let agent = connected(&world, "runner1-1", &LABELS, replica).await;
+    let claimed = claim(db, agent.id, replica, LEASE, &[])
+        .await
+        .expect("a claim");
+    assert_eq!(claimed.run_id, run);
+    let execution = claimed.execution_id;
+    assert!(
+        queue::assignment(db, claimed, &site())
+            .await
+            .expect("a failed assignment")
+            .is_none(),
+        "a job whose workflow env fails to evaluate was offered"
+    );
+
+    let projection = world.project(run).await;
+    let (build, row) = projection.job("build");
+    assert_eq!(
+        (row.status, row.conclusion),
+        (JobStatus::Completed, Some(Conclusion::Failure))
+    );
+    let executions = projection.executions_of(build);
+    assert_eq!(
+        (executions[0].0, executions[0].1.status),
+        (execution, ExecutionStatus::Completed)
+    );
+    assert_eq!(
+        projection.job("test").1.conclusion,
+        Some(Conclusion::Skipped)
+    );
+    let journal = world.journal(run).await;
+    assert_eq!(
+        reasons(&journal)
+            .into_iter()
+            .filter(|(_, to, _)| *to == JobStatus::Completed)
             .collect::<Vec<_>>(),
-        [Some(Sent::Text("echo ".to_owned())), None]
+        [
+            (
+                JobStatus::Assigned,
+                JobStatus::Completed,
+                Some(StatusReason::EvaluationFailed)
+            ),
+            (
+                JobStatus::Pending,
+                JobStatus::Completed,
+                Some(StatusReason::IfFalse)
+            ),
+        ]
     );
+    let shown = world.run(run).await;
+    assert_eq!(
+        (shown.status, shown.conclusion),
+        (RunStatus::Completed, Some(RunConclusion::Failure))
+    );
+    let [notice] = shown.notices.as_slice() else {
+        panic!("the run has the notices {:?}", shown.notices);
+    };
+    assert_eq!(notice.job_id, Some(build));
+    let diagnostic = &notice.diagnostic;
+    assert_eq!(
+        (
+            diagnostic.severity,
+            diagnostic.code.as_str(),
+            &diagnostic.path,
+            diagnostic.span.line
+        ),
+        (
+            Severity::Error,
+            "function_failed",
+            &vec![
+                PathSegment::Key("env".to_owned()),
+                PathSegment::Key("BROKEN".to_owned())
+            ],
+            3
+        )
+    );
+    assert!(
+        diagnostic
+            .message
+            .starts_with("`env.BROKEN` of the workflow: "),
+        "{}",
+        diagnostic.message
+    );
+    assert_eq!(replay(&journal), Ok(projection));
+
+    let next = claim(db, agent.id, replica, LEASE, &[])
+        .await
+        .expect("the agent is free for the next job");
+    assert_ne!(next.run_id, run);
 }
 
 #[tokio::test]

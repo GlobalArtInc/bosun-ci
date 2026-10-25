@@ -19,11 +19,8 @@ async fn a_step_that_ignores_sigint_and_sigterm_is_killed_within_15_seconds_of_a
     stream.idle().await;
 
     let job = assignment(vec![
-        step(
-            0,
-            "trap '' INT TERM\nsleep 600 &\necho \"sleeping $!\"\nwait",
-        ),
-        step(1, "echo never"),
+        step("trap '' INT TERM\nsleep 600 &\necho \"sleeping $!\"\nwait"),
+        step("echo never"),
     ]);
     let execution = job.execution_id.clone();
     stream.send(Outgoing::Assignment(job));

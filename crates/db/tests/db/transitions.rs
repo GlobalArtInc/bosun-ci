@@ -1,6 +1,7 @@
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use bosun_db::runs::{self, JobState};
+use bosun_db::runs::{self, JobState, StepEnd};
 use bosun_db::{Error, journal};
 use bosun_testkit::TestDatabase;
 use bosun_types::actor::Actor;
@@ -173,9 +174,12 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
     run.finish_step(
         execution,
         0,
-        None,
-        Conclusion::Failure,
-        Conclusion::Failure,
+        StepEnd {
+            outcome: Conclusion::Failure,
+            conclusion: Conclusion::Failure,
+            at: None,
+            outputs: BTreeMap::from([("digest".to_owned(), "sha256:0f1e".to_owned())]),
+        },
         &Actor::System,
     )
     .await
@@ -217,14 +221,14 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
         strings(
             db,
             &format!(
-                "SELECT concat_ws(' ', s.index, s.name, s.status, s.outcome, s.conclusion) \
-                 AS value FROM bosun.step s JOIN bosun.execution e ON e.id = s.execution_id \
-                 WHERE e.job_id = '{}'",
+                "SELECT concat_ws(' ', s.index, s.name, s.status, s.outcome, s.conclusion, \
+                 s.outputs) AS value FROM bosun.step s \
+                 JOIN bosun.execution e ON e.id = s.execution_id WHERE e.job_id = '{}'",
                 rows::id(TEST)
             ),
         )
         .await,
-        ["0 Run perl -e 'exit 0' completed failure failure"]
+        ["0 Run perl -e 'exit 0' completed failure failure {\"digest\": \"sha256:0f1e\"}"]
     );
     assert_eq!(
         strings(

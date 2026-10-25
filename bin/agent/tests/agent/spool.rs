@@ -17,7 +17,6 @@ async fn unacknowledged_log_chunks_survive_an_agent_restart_and_are_delivered_on
     stream.welcome(server.agent_id());
     stream.idle().await;
     let job = assignment(vec![step(
-        0,
         "for batch in 1 2 3 4; do\n\
          for line in 1 2 3; do echo \"batch $batch line $line\"; done\n\
          sleep 0.5\n\

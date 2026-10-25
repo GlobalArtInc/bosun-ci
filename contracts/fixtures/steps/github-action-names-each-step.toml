@@ -1,0 +1,17 @@
+conclusion = "success"
+
+[[steps]]
+run = 'echo "$GITHUB_ACTION"'
+outcome = "success"
+output = ["__run"]
+
+[[steps]]
+id = "build"
+run = 'echo "$GITHUB_ACTION"'
+outcome = "success"
+output = ["build"]
+
+[[steps]]
+run = 'echo "$GITHUB_ACTION"'
+outcome = "success"
+output = ["__run_2"]

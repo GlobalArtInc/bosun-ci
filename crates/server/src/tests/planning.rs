@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use bosun_types::event::Event;
 use bosun_types::ir::{Action, ActionReference, Evaluable, JobKind, RunsOn, Template};
 use bosun_types::status::{
@@ -115,6 +117,7 @@ async fn a_job_waits_for_every_job_it_needs_and_the_run_succeeds_when_all_do() {
                             at: None,
                             outcome: Conclusion::Success,
                             conclusion: Conclusion::Success,
+                            outputs: BTreeMap::new(),
                         },
                     )
                     .await,
@@ -375,6 +378,7 @@ async fn a_failing_step_fails_its_job_skips_its_dependents_and_fails_the_run() {
             at: None,
             outcome: Conclusion::Failure,
             conclusion: Conclusion::Failure,
+            outputs: BTreeMap::new(),
         },
     )
     .await

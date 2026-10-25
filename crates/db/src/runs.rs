@@ -11,7 +11,7 @@ use bosun_types::id::{AgentId, AttemptId, ExecutionId, JobId, RevisionId, RunId,
 use bosun_types::ir::{self, Shell, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{Conclusion, ExecutionStatus, JobStatus, RunConclusion, RunStatus};
-use sea_orm::prelude::Uuid;
+use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
@@ -65,6 +65,14 @@ pub struct Evaluated {
     pub env: BTreeMap<String, String>,
     pub shell: Option<Shell>,
     pub working_directory: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepEnd {
+    pub outcome: Conclusion,
+    pub conclusion: Conclusion,
+    pub at: Option<DateTimeUtc>,
+    pub outputs: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

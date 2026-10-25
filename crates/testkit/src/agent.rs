@@ -5,9 +5,10 @@ use bosun_proto::agent::v1::agent_client::AgentClient;
 use bosun_proto::agent::v1::agent_message::Message as Outgoing;
 use bosun_proto::agent::v1::server_message::Message as Incoming;
 use bosun_proto::agent::v1::{
-    AgentMessage, Assignment, Capability, Conclusion, Control, ControlAck, Heartbeat, Hello, Idle,
-    JobFinished, LogAck, PROTOCOL, ServerMessage, Welcome,
+    ASSIGNMENT_REVISION, AgentMessage, Assignment, Capability, Conclusion, Control, ControlAck,
+    Heartbeat, Hello, Idle, JobFinished, LogAck, PROTOCOL, ServerMessage, Welcome,
 };
+use bosun_proto::assignment::Documents;
 use bosun_types::api::{RegisterAgentRequest, RegisterAgentResponse};
 use bosun_types::id::AgentId;
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -100,6 +101,7 @@ impl FakeAgent {
             arch: "X64".to_owned(),
             hostname: format!("{}.example.org", self.name),
             executions: Vec::new(),
+            assignment_revision: ASSIGNMENT_REVISION,
         }
     }
 
@@ -191,6 +193,13 @@ impl Connection {
             Ok(Some(Incoming::Assignment(assignment))) => assignment,
             other => panic!("the server sent no assignment but {other:?}"),
         }
+    }
+
+    pub async fn job(&mut self) -> (Assignment, Documents) {
+        let assignment = self.assignment().await;
+        let documents = Documents::read(&assignment)
+            .unwrap_or_else(|reason| panic!("the fake agent cannot read its assignment: {reason}"));
+        (assignment, documents)
     }
 
     pub async fn control(&mut self) -> Control {

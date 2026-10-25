@@ -37,8 +37,8 @@ async fn a_job_runs_on_without_a_stream_and_the_agent_delivers_its_chunks_then_i
     stream.idle().await;
 
     let job = assignment(vec![
-        step(0, "echo before\nsleep 3\necho after"),
-        step(1, "echo second"),
+        step("echo before\nsleep 3\necho after"),
+        step("echo second"),
     ]);
     let execution = job.execution_id.clone();
     stream.send(Outgoing::Assignment(job));

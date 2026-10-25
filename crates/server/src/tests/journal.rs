@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::Duration;
 
 use bosun_types::command::Command;
@@ -470,6 +470,7 @@ async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, Test
                     at: None,
                     outcome: result,
                     conclusion: result,
+                    outputs: BTreeMap::new(),
                 },
             )
             .await

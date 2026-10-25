@@ -63,6 +63,7 @@ fn report_step(connection: &Connection, execution: &str, index: u32, conclusion:
         completed_at: None,
         outcome: conclusion.into(),
         conclusion: conclusion.into(),
+        outputs: Default::default(),
     }));
 }
 
@@ -351,10 +352,72 @@ async fn a_job_runs_where_the_output_its_dependency_reported_places_it() {
     let gpu = FakeAgent::register(api.address, text(&token["token"]), "gpu1", &["gpu"]).await;
     let mut on_gpu = gpu.connect(api.address).await;
     on_gpu.idle();
-    let assignment = on_gpu.assignment().await;
+    let (assignment, documents) = on_gpu.job().await;
     assert_eq!(
         (assignment.job_key.as_str(), assignment.job_id),
         ("build", build)
+    );
+    assert_eq!(
+        Value::Object(documents.contexts.needs),
+        json!({ "setup": { "result": "success", "outputs": { "label": "GPU" } } })
+    );
+}
+
+#[tokio::test]
+async fn the_server_stores_the_outputs_an_agent_reports_for_a_step() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::start(&database).await;
+    let run = dispatched(&api).await;
+    let (status, token) = api
+        .post(
+            "/api/v1/registration-tokens",
+            &json!({ "pool": "default", "reusable": false, "expires_at": null }),
+        )
+        .await;
+    assert_eq!(status, 201, "{token}");
+    let agent = FakeAgent::register(api.address, text(&token["token"]), "runner1", &[]).await;
+    let mut connection = agent.connect(api.address).await;
+    connection.idle();
+    let execution = connection.assignment().await.execution_id;
+    connection.send(Report::Accept(Accept {
+        execution_id: execution.clone(),
+    }));
+    connection.send(Report::StepStarted(StepStarted {
+        execution_id: execution.clone(),
+        step_index: 0,
+        started_at: None,
+    }));
+    connection.send(Report::StepFinished(StepFinished {
+        execution_id: execution.clone(),
+        step_index: 0,
+        completed_at: None,
+        outcome: Conclusion::Success.into(),
+        conclusion: Conclusion::Success.into(),
+        outputs: [
+            ("digest".to_owned(), "sha256:0f1e".to_owned()),
+            ("lines".to_owned(), "a\nb".to_owned()),
+        ]
+        .into(),
+    }));
+    report_step(&connection, &execution, 1, Conclusion::Success);
+    connection.finish_job(&execution, Conclusion::Success, &[]);
+    until(
+        &api,
+        &format!("/api/v1/runs/{}/attempts/1/jobs", text(&run["id"])),
+        |page| job_named(page, "build")["status"] == "completed",
+    )
+    .await;
+    let stored = crate::strings(
+        database.connection(),
+        &format!(
+            "SELECT concat_ws(' ', index, outputs) AS value FROM bosun.step \
+             WHERE execution_id = '{execution}' ORDER BY index"
+        ),
+    )
+    .await;
+    assert_eq!(
+        stored,
+        [r#"0 {"lines": "a\nb", "digest": "sha256:0f1e"}"#, "1 {}"]
     );
 }
 

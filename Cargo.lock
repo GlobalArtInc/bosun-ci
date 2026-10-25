@@ -443,9 +443,12 @@ dependencies = [
 name = "bosun-proto"
 version = "0.1.0"
 dependencies = [
+ "bosun-types",
  "prost",
  "prost-types",
  "protox",
+ "serde",
+ "serde_json",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
@@ -456,11 +459,14 @@ name = "bosun-runner"
 version = "0.1.0"
 dependencies = [
  "bosun-types",
+ "bosun-workflow",
  "rustix",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "toml",
+ "uuid",
 ]
 
 [[package]]

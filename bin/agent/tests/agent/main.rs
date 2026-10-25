@@ -10,11 +10,16 @@ use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::Duration;
 
-use bosun_proto::agent::v1::segment::Segment as Text;
-use bosun_proto::agent::v1::step::Action;
-use bosun_proto::agent::v1::{Assignment, Log, Segment, Step, Template};
+use std::collections::{BTreeMap, BTreeSet};
+
+use bosun_proto::agent::v1::{Assignment, Log};
+use bosun_proto::assignment::{Contexts, Documents, Evaluated};
+use bosun_types::ir::{
+    Action, Defaults, Evaluable, JobKind, JobTemplate, RunsOn, SecretReferences, Span, Step,
+    Template,
+};
 use rustix::process::{Pid, Signal, kill_process, test_kill_process};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -183,39 +188,110 @@ impl Running {
     }
 }
 
-pub fn template(text: &str) -> Template {
-    Template {
-        segments: vec![Segment {
-            segment: Some(Text::Text(text.to_owned())),
-        }],
-    }
-}
+const SPAN: Span = Span {
+    line: 1,
+    column: 1,
+    end_line: 1,
+    end_column: 1,
+};
 
-pub fn step(index: u32, script: &str) -> Step {
+pub const JOB_ID: &str = "0192f3a4-5b6c-7d8e-9f01-000000000009";
+
+pub fn step(script: &str) -> Step {
     Step {
-        index,
         key: None,
         name: None,
-        action: Some(Action::Run(template(script))),
+        r#if: None,
+        action: Action::Run {
+            script: Template::text(script),
+        },
         shell: None,
         working_directory: None,
-        env: Default::default(),
+        with: BTreeMap::new(),
+        env: BTreeMap::new(),
+        continue_on_error: Evaluable::Literal(false),
+        timeout_minutes: None,
+        span: SPAN,
     }
 }
 
-pub fn assignment(steps: Vec<Step>) -> Assignment {
-    Assignment {
+pub fn documents(steps: Vec<Step>) -> Documents {
+    let object = |value: Value| value.as_object().cloned().expect("an object");
+    Documents {
+        job: JobTemplate {
+            key: "build".parse().expect("a job key"),
+            name: None,
+            needs: Vec::new(),
+            r#if: None,
+            runs_on: Evaluable::Literal(RunsOn {
+                group: None,
+                labels: vec![Template::text("self-hosted")],
+            }),
+            permissions: None,
+            concurrency: None,
+            strategy: None,
+            env: BTreeMap::new(),
+            defaults: Defaults::default(),
+            timeout_minutes: Evaluable::Literal(360),
+            continue_on_error: Evaluable::Literal(false),
+            outputs: BTreeMap::new(),
+            secrets: SecretReferences::Named(BTreeSet::new()),
+            kind: JobKind::Steps(steps),
+            span: SPAN,
+        },
+        contexts: Contexts {
+            github: object(json!({
+                "event_name": "workflow_dispatch",
+                "job": "build",
+                "workspace": "",
+                "event": { "inputs": null, "ref": null, "workflow": "ci" },
+            })),
+            needs: Map::new(),
+            strategy: Value::Null,
+            matrix: Value::Null,
+            inputs: Map::new(),
+            vars: Map::new(),
+            secrets: Map::new(),
+            bosun: object(json!({
+                "url": "https://ci.example.org",
+                "run_url": "https://ci.example.org/runs/0192f3a4-5b6c-7d8e-9f01-000000000007",
+                "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+                "attempt": 1,
+                "draft": false,
+                "project": "globalart/keel",
+                "trigger": { "kind": "user", "login": "roman" },
+            })),
+        },
+        evaluated: Evaluated {
+            env: BTreeMap::new(),
+            shell: None,
+            working_directory: None,
+            timeout_minutes: 360,
+            continue_on_error: false,
+        },
+    }
+}
+
+pub fn assignment_of(documents: &Documents) -> Assignment {
+    let mut assignment = Assignment {
         run_id: Uuid::now_v7().to_string(),
         attempt_id: Uuid::now_v7().to_string(),
-        job_id: Uuid::now_v7().to_string(),
+        job_id: JOB_ID.to_owned(),
         execution_id: Uuid::now_v7().to_string(),
         job_key: "build".to_owned(),
         job_name: "build".to_owned(),
-        env: Default::default(),
-        steps,
         organisation: "globalart".to_owned(),
         project: "keel".to_owned(),
-    }
+        ..Assignment::default()
+    };
+    documents
+        .write(&mut assignment)
+        .expect("the documents are JSON");
+    assignment
+}
+
+pub fn assignment(steps: Vec<Step>) -> Assignment {
+    assignment_of(&documents(steps))
 }
 
 pub fn text(logs: &[&Log]) -> Vec<String> {

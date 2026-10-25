@@ -110,12 +110,14 @@ its rendered `name`, its `continue-on-error`, which the conclusion of the run re
 in: the pool `runs-on.group` names, none when no pool has that name, and without a group every pool
 open to the project, which until pool access lists arrive in M1 is every pool. A job's `outputs` are
 the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then.
+A step's `outputs` are the outputs its agent reported in `StepFinished`, `{}` until then.
 
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
 `derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `pinned_agent_id` and
-`carried_from` of jobs, `parent_step_id` and `outputs` of steps) arrive with their milestones as
-additive migrations; the display name of runs and the evaluated values and outputs of jobs arrived
-with the planner's expressions (step 15 of [../plan.md](../plan.md)). The indexes of the queue arrived with the claim (step 11
+`carried_from` of jobs, `parent_step_id` of steps) arrive with their milestones as additive
+migrations; the display name of runs and the evaluated values and outputs of jobs arrived with the
+planner's expressions (step 15 of [../plan.md](../plan.md)), and the outputs of steps with the
+assignment of M1 (step 20). The indexes of the queue arrived with the claim (step 11
 of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
 'assigned'` that the lease expiry reads. The partial index on `execution (completed_at) where status =
 'completed' and log_compacted_at is null` that the compaction of logs reads arrived with the logs

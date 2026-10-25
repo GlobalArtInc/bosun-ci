@@ -7,10 +7,11 @@ use bosun_types::key::JobKey;
 use bosun_types::status::{ExecutionStatus, JobStatus};
 use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult, TransactionTrait};
+use serde_json::Value;
 
 use crate::periodic::{self, Task};
 use crate::row::statement;
-use crate::runs::{self, Locked, RUN_STATE};
+use crate::runs::{self, Evaluated, Locked, RUN_STATE};
 use crate::{Error, row};
 
 pub(crate) const CHANNEL: &str = "bosun_queue";
@@ -41,6 +42,8 @@ pub struct ClaimedJob {
     pub project: String,
     pub env: BTreeMap<String, Template>,
     pub job: JobTemplate,
+    pub evaluated: Evaluated,
+    pub continue_on_error: bool,
 }
 
 const CLAIMABLE: &str = "j.status = $1 AND j.labels <@ $2 AND $3 = ANY (j.pool_ids) \
@@ -128,10 +131,11 @@ async fn assign(
     let execution_id = run.assign_job(job_id, agent, lease).await?;
     let found = transaction
         .query_one(statement(
-            "SELECT r.ir, o.slug AS organisation, p.slug AS project FROM run r \
-             JOIN project p ON p.id = r.project_id \
-             JOIN organisation o ON o.id = p.organisation_id WHERE r.id = $1",
-            [Uuid::from(run_id).into()],
+            "SELECT r.ir, o.slug AS organisation, p.slug AS project, j.evaluated, \
+             j.continue_on_error FROM run r JOIN project p ON p.id = r.project_id \
+             JOIN organisation o ON o.id = p.organisation_id JOIN job j ON j.id = $2 \
+             WHERE r.id = $1",
+            [Uuid::from(run_id).into(), Uuid::from(job_id).into()],
         ))
         .await?
         .ok_or_else(|| Error::Vanished(format!("run {run_id}")))?;
@@ -144,6 +148,12 @@ async fn assign(
             table: "run",
             message: format!("the IR of the run has no job `{key}`"),
         })?;
+    let evaluated = found
+        .try_get::<Option<Value>>("", "evaluated")?
+        .ok_or_else(|| Error::Row {
+            table: "job",
+            message: format!("job {job_id} was queued without the values its assignment carries"),
+        })?;
     Ok(ClaimedJob {
         run_id,
         attempt_id: run.state().attempt_id,
@@ -155,6 +165,8 @@ async fn assign(
         project: found.try_get("", "project")?,
         env: workflow.env,
         job,
+        evaluated: row::json("job", evaluated)?,
+        continue_on_error: found.try_get("", "continue_on_error")?,
     })
 }
 

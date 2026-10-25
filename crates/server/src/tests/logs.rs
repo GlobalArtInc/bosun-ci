@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 use std::time::Duration;
@@ -166,6 +167,7 @@ fn end(index: u32) -> StepEnd {
         at: None,
         outcome: Conclusion::Success,
         conclusion: Conclusion::Success,
+        outputs: BTreeMap::new(),
     }
 }
 

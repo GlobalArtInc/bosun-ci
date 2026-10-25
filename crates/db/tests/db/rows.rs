@@ -276,6 +276,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         outcome: ActiveValue::Set(Some("success".to_owned())),
         conclusion: ActiveValue::Set(Some("success".to_owned())),
         conclusion_source: ActiveValue::Set(Some("natural".to_owned())),
+        outputs: ActiveValue::Set(json!({ "digest": "sha256:0f1e" })),
         started_at: ActiveValue::Set(Some(at("2026-10-24T18:34:51Z"))),
         completed_at: ActiveValue::Set(Some(at("2026-10-24T18:35:07.512Z"))),
     }

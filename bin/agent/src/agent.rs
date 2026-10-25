@@ -7,8 +7,8 @@ use std::time::Duration;
 use bosun_proto::agent::v1::agent_message::Message;
 use bosun_proto::agent::v1::server_message::Message as Incoming;
 use bosun_proto::agent::v1::{
-    Accept, Assignment, Capability, Control, ControlAck, ControlKind, Hello, Idle, Log, LogAck,
-    PROTOCOL, Reject, RunningExecution,
+    ASSIGNMENT_REVISION, Accept, Assignment, Capability, Control, ControlAck, ControlKind, Hello,
+    Idle, Log, LogAck, PROTOCOL, Reject, RunningExecution,
 };
 use bosun_runner::Tracking;
 use bosun_types::id::ExecutionId;
@@ -167,6 +167,7 @@ impl Agent {
                     last_log_seq: self.spool.last(execution),
                 })
                 .collect(),
+            assignment_revision: ASSIGNMENT_REVISION,
         }
     }
 
@@ -341,7 +342,7 @@ impl Agent {
                 job.execution
             ))
         } else {
-            job::prepare(assignment, &self.config)
+            job::prepare(assignment, &self.config, &connection.welcome.agent_name)
         };
         let prepared = match prepared {
             Ok(prepared) => prepared,

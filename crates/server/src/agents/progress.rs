@@ -38,6 +38,7 @@ pub(crate) struct StepEnd {
     pub(crate) at: Option<DateTime<Utc>>,
     pub(crate) outcome: Conclusion,
     pub(crate) conclusion: Conclusion,
+    pub(crate) outputs: BTreeMap<String, String>,
 }
 
 pub(crate) struct JobEnd {
@@ -125,9 +126,12 @@ pub(crate) async fn step_finished(
         .finish_step(
             execution,
             end.index,
-            end.at,
-            end.outcome,
-            end.conclusion,
+            bosun_db::runs::StepEnd {
+                outcome: end.outcome,
+                conclusion: end.conclusion,
+                at: end.at,
+                outputs: end.outputs,
+            },
             &agent.actor(),
         )
         .await;

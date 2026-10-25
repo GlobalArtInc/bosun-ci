@@ -3,15 +3,17 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use bosun_db::Error;
 use bosun_db::runs::{Evaluated, JobState, Locked, NewRun, RunFacts};
 use bosun_expr::{Context, Scope, Status, Value};
+use bosun_proto::assignment;
 use bosun_types::actor::Actor;
 use bosun_types::api::Run;
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
+use bosun_types::id::ExecutionId;
 use bosun_types::ir::{self, Evaluable, JobTemplate, Segment, Shell, Span, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason};
 use bosun_workflow::github::{self, Account, Facts, WorkflowFile};
 use sea_orm::DatabaseTransaction;
-use serde_json::json;
+use serde_json::{Map, json};
 
 use crate::site::Site;
 
@@ -104,12 +106,80 @@ fn uses_an_action(job: &ir::JobTemplate) -> bool {
         .any(|step| matches!(step.action, ir::Action::Uses(_)))
 }
 
+pub(crate) struct Assigned {
+    pub(crate) contexts: assignment::Contexts,
+    pub(crate) env: BTreeMap<String, String>,
+}
+
+pub(crate) async fn assign(
+    run: &mut Locked<'_>,
+    site: &Site,
+    execution: ExecutionId,
+    job_key: &JobKey,
+    workflow_env: &BTreeMap<String, Template>,
+) -> Result<Option<Assigned>, Error> {
+    let world = World::load(run, site).await?;
+    let jobs = run.jobs().await?;
+    let job = jobs
+        .iter()
+        .find(|job| &job.key == job_key)
+        .ok_or_else(|| Error::Row {
+            table: "run",
+            message: format!("the current attempt of the run has no job `{job_key}`"),
+        })?;
+    let github = world.github_context(job_key.as_str());
+    let contexts = Contexts {
+        github: value(serde_json::Value::Object(github.clone()))?,
+        needs: Value::Null,
+        inputs: world.inputs.clone(),
+        bosun: world.bosun.clone(),
+        env: Value::Null,
+        statuses: None,
+    };
+    let mut env = BTreeMap::new();
+    for (variable, template) in workflow_env {
+        match bosun_expr::render(template, &contexts) {
+            Ok(text) => {
+                env.insert(variable.clone(), text);
+            }
+            Err(error) => {
+                let what = format!("`env.{variable}` of the workflow");
+                let fault = Fault::expression(error, &what, vec![key("env"), key(variable)]);
+                run.notice(Some(job.id), &world.diagnostic(fault)).await?;
+                run.finish_execution(
+                    execution,
+                    Conclusion::Failure,
+                    Some(StatusReason::EvaluationFailed),
+                    &Actor::System,
+                )
+                .await?;
+                planned(run, site, Some(world)).await?;
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(Assigned {
+        contexts: assignment::Contexts {
+            github,
+            needs: needs_context(&jobs, job),
+            strategy: serde_json::Value::Null,
+            matrix: serde_json::Value::Null,
+            inputs: serde_json::from_value(world.facts.inputs.clone())?,
+            vars: Map::new(),
+            secrets: Map::new(),
+            bosun: world.bosun_context.clone(),
+        },
+        env,
+    }))
+}
+
 struct World {
     ir: ir::Workflow,
     facts: RunFacts,
     attempt: u32,
     inputs: Value,
     bosun: Value,
+    bosun_context: Map<String, serde_json::Value>,
 }
 
 impl World {
@@ -117,18 +187,28 @@ impl World {
         let ir = run.ir().await?;
         let facts = run.facts().await?;
         let state = run.state();
-        let bosun = json!({
-            "url": site.url(),
-            "run_url": site.run_url(state.id),
-            "run_id": state.id.to_string(),
-            "attempt": state.attempt,
-            "draft": false,
-            "project": format!("{}/{}", facts.organisation, facts.project),
-            "trigger": { "kind": kind(&facts.actor), "login": login(&facts.actor) },
-        });
+        let bosun_context: Map<String, serde_json::Value> = [
+            ("url", json!(site.url())),
+            ("run_url", json!(site.run_url(state.id))),
+            ("run_id", json!(state.id.to_string())),
+            ("attempt", json!(state.attempt)),
+            ("draft", json!(false)),
+            (
+                "project",
+                json!(format!("{}/{}", facts.organisation, facts.project)),
+            ),
+            (
+                "trigger",
+                json!({ "kind": kind(&facts.actor), "login": login(&facts.actor) }),
+            ),
+        ]
+        .into_iter()
+        .map(|(property, value)| (property.to_owned(), value))
+        .collect();
         Ok(World {
-            inputs: serde_json::from_value(facts.inputs.clone())?,
-            bosun: serde_json::from_value(bosun)?,
+            inputs: value(facts.inputs.clone())?,
+            bosun: value(serde_json::Value::Object(bosun_context.clone()))?,
+            bosun_context,
             attempt: state.attempt,
             ir,
             facts,
@@ -136,6 +216,10 @@ impl World {
     }
 
     fn github(&self, job: &str) -> Result<Value, Error> {
+        value(serde_json::Value::Object(self.github_context(job)))
+    }
+
+    fn github_context(&self, job: &str) -> Map<String, serde_json::Value> {
         let facts = Facts {
             repository: None,
             forge: None,
@@ -162,8 +246,7 @@ impl World {
             job: job.to_owned(),
             workspace: String::new(),
         };
-        let context = github::context(&self.facts.event, &self.facts.payload, &facts);
-        Ok(serde_json::from_value(serde_json::Value::Object(context))?)
+        github::context(&self.facts.event, &self.facts.payload, &facts)
     }
 
     fn template(&self, key: &JobKey) -> Result<&JobTemplate, Error> {
@@ -187,6 +270,10 @@ impl World {
             path: fault.path,
         }
     }
+}
+
+fn value(json: serde_json::Value) -> Result<Value, Error> {
+    Ok(serde_json::from_value(json)?)
 }
 
 fn kind(actor: &Actor) -> &'static str {
@@ -289,7 +376,7 @@ async fn decide(
     let cancelling = run.state().cancel_requested;
     let mut contexts = Contexts {
         github: world.github(job.key.as_str())?,
-        needs: needs(jobs, job)?,
+        needs: value(serde_json::Value::Object(needs_context(jobs, job)))?,
         inputs: world.inputs.clone(),
         bosun: world.bosun.clone(),
         env: Value::Null,
@@ -412,9 +499,9 @@ fn ancestry(jobs: &[JobState], index: usize) -> (bool, bool) {
     (succeeded, failed)
 }
 
-fn needs(jobs: &[JobState], job: &JobState) -> Result<Value, Error> {
+fn needs_context(jobs: &[JobState], job: &JobState) -> Map<String, serde_json::Value> {
     let by_key: HashMap<&JobKey, &JobState> = jobs.iter().map(|job| (&job.key, job)).collect();
-    let mut needs = serde_json::Map::new();
+    let mut needs = Map::new();
     for key in &job.needs {
         let Some(need) = by_key.get(key) else {
             continue;
@@ -431,7 +518,7 @@ fn needs(jobs: &[JobState], job: &JobState) -> Result<Value, Error> {
             json!({ "result": result, "outputs": need.outputs }),
         );
     }
-    Ok(serde_json::from_value(serde_json::Value::Object(needs))?)
+    needs
 }
 
 struct Fault {

@@ -336,6 +336,7 @@ async fn a_cancel_reaches_the_agent_running_the_job_and_the_run_ends_cancelled_w
         completed_at: None,
         outcome: Conclusion::Cancelled.into(),
         conclusion: Conclusion::Cancelled.into(),
+        outputs: Default::default(),
     }));
     connection.send(Report::JobFinished(JobFinished {
         execution_id: execution.clone(),
