@@ -1,0 +1,97 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: globalartltd/bosun for linux/amd64 and linux/arm64
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Name the tags
+        id: tags
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            workspace="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+            if [ "$version" != "$workspace" ]; then
+              echo "the tag $GITHUB_REF_NAME does not name the workspace version $workspace" >&2
+              exit 1
+            fi
+            tags="$version latest"
+          else
+            tags="$(date -u +%Y%m%d%H%M%S)-$(git rev-parse --short=7 HEAD) edge"
+          fi
+          echo "the image gets the tags $tags"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the Docker configuration of this job apart
+        run: |
+          config="$RUNNER_TEMP/docker-config"
+          mkdir -p "$config"
+          if [ -d "$HOME/.docker/cli-plugins" ]; then
+            ln -sfn "$HOME/.docker/cli-plugins" "$config/cli-plugins"
+          fi
+          echo "DOCKER_CONFIG=$config" >> "$GITHUB_ENV"
+
+      - name: Show the container tooling of the runner
+        run: |
+          docker version --format 'docker client {{.Client.Version}}, server {{.Server.Version}}'
+          docker buildx version
+          docker buildx ls
+
+      - name: Sign in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Build and push both architectures
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          builder="bosun-publish-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker buildx create --name "$builder" --driver docker-container \
+            --driver-opt image=docker.io/moby/buildkit:v0.34.0 --bootstrap
+          trap 'docker buildx rm --force "$builder"' EXIT
+          names=()
+          for tag in $TAGS; do
+            names+=(--tag "docker.io/globalartltd/bosun:$tag")
+          done
+          docker buildx build --builder "$builder" --platform linux/amd64,linux/arm64 \
+            --build-arg "REVISION=$GITHUB_SHA" "${names[@]}" --push .
+
+      - name: Check that every tag holds both architectures
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          for tag in $TAGS; do
+            manifest="$(docker buildx imagetools inspect "docker.io/globalartltd/bosun:$tag")"
+            for platform in linux/amd64 linux/arm64; do
+              if ! grep -qE "Platform:[[:space:]]+$platform\$" <<<"$manifest"; then
+                echo "docker.io/globalartltd/bosun:$tag holds no $platform: $manifest" >&2
+                exit 1
+              fi
+            done
+            echo "docker.io/globalartltd/bosun:$tag holds linux/amd64 and linux/arm64"
+          done
+
+      - name: Sign out of Docker Hub
+        if: always()
+        run: |
+          docker logout docker.io || true
+          rm -rf "$RUNNER_TEMP/docker-config"

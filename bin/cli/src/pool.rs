@@ -78,10 +78,16 @@ pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode,
                     "the token registers {uses} in the pool {pool} until {}; it is shown only once",
                     created.expires_at.to_rfc3339()
                 );
+                eprintln!("to install an agent with it on a Linux host, run there:");
+                eprintln!("{}", install_command(client.server(), &created.token));
             }
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+fn install_command(server: &str, token: &str) -> String {
+    format!("curl -fsSL {server}/install-agent.sh | sudo sh -s -- --token {token}")
 }
 
 fn lifetime(text: &str) -> Option<TimeDelta> {
@@ -103,7 +109,15 @@ fn lifetime(text: &str) -> Option<TimeDelta> {
 mod tests {
     use chrono::TimeDelta;
 
-    use super::lifetime;
+    use super::{install_command, lifetime};
+
+    #[test]
+    fn the_install_command_fetches_the_script_from_the_server_and_passes_the_token() {
+        assert_eq!(
+            install_command("https://ci.example.org", "brt_x"),
+            "curl -fsSL https://ci.example.org/install-agent.sh | sudo sh -s -- --token brt_x"
+        );
+    }
 
     #[test]
     fn a_lifetime_is_a_whole_number_of_minutes_hours_or_days() {

@@ -118,8 +118,9 @@ fails when the generated document differs from the committed one ([below](#the-o
 
 Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming webhooks,
 `/twirp/` and `/_runtime/` for the services jobs call ([06-runtime-services.md](06-runtime-services.md)), `/mcp`,
-`/healthz`, `/readyz`, `/metrics`, and the gRPC services `bosun.agent.v1.Agent` and
-`bosun.plugin.v1.*` on the same listener.
+`/healthz`, `/readyz`, `/metrics`, `/install-agent.sh` and the agent binaries at
+`/_runtime/agent/linux-<arch>` without a token ([12-operations.md](12-operations.md#agents)), and
+the gRPC services `bosun.agent.v1.Agent` and `bosun.plugin.v1.*` on the same listener.
 
 ### Projects and server-side workflows
 
@@ -350,8 +351,10 @@ What M0 settles of these commands:
   the API serves them, with their time. `--step <n>` prints only step `n`, counted from 1, without a
   heading; `--follow` waits for the job to reach an agent and prints the lines as they arrive until
   every step has ended.
-- `bosun pool token create <pool>` prints the token alone on standard output, and its pool and
-  expiry on standard error. `--expires` takes a whole number of minutes, hours or days (`30m`,
+- `bosun pool token create <pool>` prints the token alone on standard output, and on standard
+  error its pool and expiry followed by the one-line command that installs an agent with it,
+  `curl -fsSL <server>/install-agent.sh | sudo sh -s -- --token <token>`, where `<server>` is the
+  server of the profile. `--expires` takes a whole number of minutes, hours or days (`30m`,
   `12h`, `7d`); without it the server's default of 24 hours applies. `--reusable` lets the token
   register any number of agents rather than one.
 - `--watch` and `--follow` outlive a restart of the replica they talk to: a request that gets no

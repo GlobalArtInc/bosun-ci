@@ -153,9 +153,10 @@ proto/       .proto files of the agent and plugin protocols
 web/         the frontend (from M1)
 contracts/   golden fixtures, the workflow JSON Schema, generated openapi.json
 compat/      the compatibility corpus: workflows with their expected results
-deploy/      Dockerfile, systemd units, install-agent.sh, sample configs
-docs/        design and plan
+deploy/      install-agent.sh, the compose file and the quadlet
+docs/        design, plan and the install guide
 hack/        scripts CI runs
+Dockerfile   the image, with a target that builds the CLI
 ```
 
 ## Versions

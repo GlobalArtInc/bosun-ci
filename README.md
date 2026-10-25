@@ -34,9 +34,10 @@ proto/       agent and plugin protocols (from M0)
 web/         the web interface (from M1)
 contracts/   golden fixtures, the workflow JSON Schema, openapi.json
 compat/      the compatibility corpus (from M1)
-deploy/      image, systemd units, install-agent.sh, sample configs
-docs/        design and plan
+deploy/      install-agent.sh, the compose file and the quadlet
+docs/        design, plan and the install guide
 hack/        scripts CI runs
+Dockerfile   the image globalartltd/bosun
 ```
 
 ## Documents
@@ -55,3 +56,4 @@ hack/        scripts CI runs
 - `docs/design/12-operations.md`: deployment, configuration, scaling, observability, upgrades
 - `docs/design/13-decisions.md`: decisions, risks, open questions
 - `docs/plan.md`: milestones and the M0 work breakdown
+- `docs/install/`: installing the server from the image and adding agents

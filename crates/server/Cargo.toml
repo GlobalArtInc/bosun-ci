@@ -18,15 +18,18 @@ crc.workspace = true
 getrandom.workspace = true
 http-body.workspace = true
 prost-types.workspace = true
+reqwest = { workspace = true, features = ["json"] }
 ruzstd.workspace = true
 schemars.workspace = true
 sea-orm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "net", "rt", "sync", "time"] }
 tokio-stream.workspace = true
+tokio-util = { workspace = true, features = ["io"] }
 toml.workspace = true
 tonic = { workspace = true, features = ["router"] }
 tower = { workspace = true, features = ["util"] }
@@ -37,5 +40,4 @@ uuid = { workspace = true, features = ["v7"] }
 bosun-testkit.workspace = true
 jsonschema.workspace = true
 proptest.workspace = true
-tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }

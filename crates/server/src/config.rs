@@ -26,7 +26,15 @@ const DEFAULT_ASSIGNMENT_LEASE: Duration = Duration::from_secs(30);
 
 const DEFAULT_MAX_QUEUE_TIME: Duration = Duration::from_secs(24 * 3600);
 
-const DEFAULT_STORE_PATH: &str = "/var/lib/bosun/store";
+const DEFAULT_DATA_DIR: &str = "/var/lib/bosun";
+
+const DEFAULT_AGENT_BINARIES: &str = "/usr/lib/bosun/agent";
+
+const SYSTEM_FILE: &str = "/etc/bosun/server.toml";
+
+const DATA_FILE: &str = "etc/bosun.toml";
+
+const STORE: &str = "store";
 
 const DIRECTORY: &str = "directory";
 
@@ -42,12 +50,14 @@ const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m o
 
 pub struct Config {
     pub(crate) listen: SocketAddr,
+    pub(crate) data_dir: PathBuf,
     pub(crate) database: Database,
     pub(crate) keys: Keys,
     pub(crate) bootstrap_admin: Option<String>,
     pub(crate) agents: Agents,
     pub(crate) queue: Queue,
     pub(crate) store: Store,
+    pub(crate) agent_binaries: PathBuf,
 }
 
 pub(crate) enum Store {
@@ -94,6 +104,7 @@ struct File {
 #[serde(default, deny_unknown_fields)]
 struct ServerFile {
     listen: Option<String>,
+    data_dir: Option<PathBuf>,
 }
 
 #[derive(Default, Deserialize)]
@@ -122,6 +133,7 @@ struct AgentsFile {
     heartbeat_interval: Option<String>,
     offline_after: Option<String>,
     assignment_lease: Option<String>,
+    binary_dir: Option<PathBuf>,
 }
 
 #[derive(Default, Deserialize)]
@@ -145,6 +157,18 @@ struct LimitsFile {
 }
 
 impl Config {
+    pub fn default_file() -> Option<PathBuf> {
+        let system = PathBuf::from(SYSTEM_FILE);
+        if system.is_file() {
+            return Some(system);
+        }
+        let data = env::var_os(name("server", "data_dir"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_DIR))
+            .join(DATA_FILE);
+        data.is_file().then_some(data)
+    }
+
     pub fn load(file: Option<&Path>) -> Result<Config, Error> {
         let file = match file {
             Some(path) => read(path)?,
@@ -160,6 +184,8 @@ impl Config {
             })?,
             None => DEFAULT_LISTEN,
         };
+        let data_dir = path("server", "data_dir", file.server.data_dir)?
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_DIR));
         let url = variable("database", "url")?
             .or(file.database.url)
             .ok_or_else(|| invalid("database", "url", "is not set".to_owned()))?;
@@ -188,9 +214,7 @@ impl Config {
         }
         let keys = Keys {
             kek: variable("keys", "kek")?.or(file.keys.kek),
-            kek_file: variable("keys", "kek_file")?
-                .map(PathBuf::from)
-                .or(file.keys.kek_file),
+            kek_file: path("keys", "kek_file", file.keys.kek_file)?,
         };
         let bootstrap_admin = variable("bootstrap", "admin")?.or(file.bootstrap.admin);
         if let Some(login) = bootstrap_admin
@@ -243,9 +267,12 @@ impl Config {
             file.limits.max_queue_time,
             DEFAULT_MAX_QUEUE_TIME,
         )?;
-        let store = store(file.store)?;
+        let store = store(file.store, &data_dir)?;
+        let agent_binaries = path("agents", "binary_dir", file.agents.binary_dir)?
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_AGENT_BINARIES));
         Ok(Config {
             listen,
+            data_dir,
             database: Database {
                 url,
                 max_connections,
@@ -262,15 +289,16 @@ impl Config {
                 max_queue_time,
             },
             store,
+            agent_binaries,
         })
     }
 }
 
-fn store(file: StoreFile) -> Result<Store, Error> {
+fn store(file: StoreFile, data_dir: &Path) -> Result<Store, Error> {
     let kind = variable("store", "kind")?
         .or(file.kind)
         .unwrap_or_else(|| DIRECTORY.to_owned());
-    let path = variable("store", "path")?.map(PathBuf::from).or(file.path);
+    let path = path("store", "path", file.path)?;
     let endpoint = variable("store", "endpoint")?.or(file.endpoint);
     let bucket = variable("store", "bucket")?.or(file.bucket);
     let region = variable("store", "region")?.or(file.region);
@@ -294,7 +322,7 @@ fn store(file: StoreFile) -> Result<Store, Error> {
                 return Err(misplaced(key, S3, DIRECTORY));
             }
             Ok(Store::Directory(
-                path.unwrap_or_else(|| PathBuf::from(DEFAULT_STORE_PATH)),
+                path.unwrap_or_else(|| data_dir.join(STORE)),
             ))
         }
         S3 => {
@@ -395,6 +423,15 @@ fn boolean(section: &str, key: &str, text: &str) -> Result<bool, Error> {
             key,
             format!("is `{text}`, which is neither `true` nor `false`"),
         )),
+    }
+}
+
+fn path(section: &str, key: &str, file: Option<PathBuf>) -> Result<Option<PathBuf>, Error> {
+    match variable(section, key)?.map(PathBuf::from).or(file) {
+        Some(path) if path.as_os_str().is_empty() => {
+            Err(invalid(section, key, "is empty".to_owned()))
+        }
+        path => Ok(path),
     }
 }
 

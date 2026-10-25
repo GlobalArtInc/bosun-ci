@@ -37,7 +37,11 @@ for the owner, so the CLI works before any sign-in method is configured.
 - Without `bootstrap.admin`, `serve` on a start against a database without users creates the
   owner `admin` the same way and writes its token to `admin.token` in the data directory, readable
   only by the server's user, instead of logging it. This is how a fresh installation on any host
-  is entered: `podman exec bosun cat /bosun-data/admin.token`. From M1, when local passwords exist,
+  is entered: `podman exec bosun cat /bosun-data/admin.token`. The file holds the token and a
+  newline, has mode `0600` and is renamed into place; a start against a database with users
+  leaves it alone. When the file cannot be written after the owner was created, `serve` exits
+  with an error that says so, and `admin create` makes another owner. From M1, when local
+  passwords exist,
   the server also writes `admin.password`, and the first sign-in with it asks for a new password
   and deletes both files.
 

@@ -1,0 +1,34 @@
+name: bosun
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bosun
+      POSTGRES_PASSWORD: ${BOSUN_DATABASE_PASSWORD:?set BOSUN_DATABASE_PASSWORD to the password of the database}
+      POSTGRES_DB: bosun
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=bosun", "--dbname=bosun"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  bosun:
+    image: ${BOSUN_IMAGE:-docker.io/globalartltd/bosun:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BOSUN_DATABASE_URL: postgres://bosun:${BOSUN_DATABASE_PASSWORD}@postgres:5432/bosun
+    ports:
+      - ${BOSUN_PUBLISH:-8080}:8080
+    volumes:
+      - data:/bosun-data
+
+volumes:
+  postgres:
+  data:

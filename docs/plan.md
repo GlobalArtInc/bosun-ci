@@ -3252,15 +3252,16 @@ the volumes with their keys as values.
 This step settles that on an agent of an untrusted pool the volumes are not mounted and the job gets
 a warning annotation, and records it in `design/02-workflows.md`. `bosun-agent gc` evicts the least
 recently used volumes beyond `cache_max_bytes`, skipping locked ones, and prunes images and build
-cache beyond the agent's image limit. `cache-volumes` leaves the pending list.
+cache beyond the agent's image limit. `cache-volumes` leaves the pending list. `install-agent.sh`
+gains the timer that runs `bosun-agent gc` for each instance; M0 left it out, because a timer for a
+command the agent did not have yet would only fail.
 
 **Touches.** `crates/runner/`, `bin/agent/`, `proto/`, `crates/proto/`, `crates/server/`,
-`crates/workflow/` (the pending list), `docs/design/02-workflows.md`.
+`crates/workflow/` (the pending list), `deploy/install-agent.sh`, `docs/design/02-workflows.md`.
 
 **Depends on.** 1, 10.
 
-**Out of scope.** The `actions/cache` service (step 7), the timer unit (installed by M0's
-`install-agent.sh`).
+**Out of scope.** The `actions/cache` service (step 7).
 
 **Acceptance.**
 
@@ -5319,8 +5320,9 @@ and discards are recorded in the audit trail of step 4.
   and is not split across branches.
 - Verify with the commands CI runs before pushing: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` against Postgres,
-  the WebAssembly build of the pure crates, `hack/check-deps.sh`, and from M0 step 14
-  `hack/e2e.sh`. Once `web/` exists, `pnpm lint && pnpm test && pnpm build` join the list.
+  the WebAssembly build of the pure crates, `hack/check-deps.sh`, from M0 step 14 `hack/e2e.sh`,
+  and from M0 step 15 `hack/test-image.sh` on a host with docker. Once `web/` exists,
+  `pnpm lint && pnpm test && pnpm build` join the list.
 - CI runs on the self-hosted runners only; hosted runners are used only by the public
   compatibility repository, whose minutes are free.
 - English everywhere in the repository: code, documentation, tests, CI, commit messages.

@@ -14,8 +14,6 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, fmt};
 
-const DEFAULT_CONFIG: &str = "/etc/bosun/server.toml";
-
 #[derive(Parser)]
 #[command(name = "bosun-server", version, about = "The Bosun CI/CD server")]
 struct Arguments {
@@ -23,7 +21,8 @@ struct Arguments {
         long,
         global = true,
         value_name = "FILE",
-        help = "The configuration file [default: /etc/bosun/server.toml when it exists]"
+        help = "The configuration file [default: /etc/bosun/server.toml or etc/bosun.toml in the \
+                data directory, the first that exists]"
     )]
     config: Option<PathBuf>,
     #[command(subcommand)]
@@ -36,6 +35,8 @@ enum Command {
     Serve,
     #[command(about = "Bring the schema up to date and exit")]
     Migrate,
+    #[command(about = "Exit with 0 when the server this configuration describes is ready")]
+    Check,
     #[command(subcommand, about = "Administer the installation")]
     Admin(Admin),
     #[command(about = "Print the OpenAPI document of the REST API")]
@@ -57,7 +58,7 @@ enum Admin {
 async fn main() -> ExitCode {
     let arguments = Arguments::parse();
     logs(match arguments.command {
-        Command::Admin(_) | Command::Openapi => BoxMakeWriter::new(io::stderr),
+        Command::Admin(_) | Command::Check | Command::Openapi => BoxMakeWriter::new(io::stderr),
         Command::Serve | Command::Migrate => BoxMakeWriter::new(io::stdout),
     });
     match run(arguments).await {
@@ -74,6 +75,10 @@ async fn run(arguments: Arguments) -> Result<(), Box<dyn Error>> {
     match command {
         Command::Serve => bosun_server::serve(load(config)?, stop()?).await?,
         Command::Migrate => bosun_server::migrate(&load(config)?).await?,
+        Command::Check => {
+            let address = bosun_server::check(&load(config)?).await?;
+            println!("the server at {address} is ready");
+        }
         Command::Admin(Admin::Create { login }) => {
             let token = bosun_server::create_owner(&load(config)?, &login).await?;
             println!("{token}");
@@ -86,8 +91,7 @@ async fn run(arguments: Arguments) -> Result<(), Box<dyn Error>> {
 }
 
 fn load(file: Option<PathBuf>) -> Result<Config, bosun_server::Error> {
-    let file = file.or_else(|| Some(PathBuf::from(DEFAULT_CONFIG)).filter(|path| path.exists()));
-    Config::load(file.as_deref())
+    Config::load(file.or_else(Config::default_file).as_deref())
 }
 
 fn stop() -> io::Result<impl Future<Output = String> + Send + 'static> {

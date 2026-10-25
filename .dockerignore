@@ -1,0 +1,9 @@
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!bin/
+!crates/
+!proto/
+!deploy/install-agent.sh
+**/.DS_Store

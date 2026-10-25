@@ -1,0 +1,18 @@
+[Unit]
+Description=Bosun CI/CD server
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=bosun
+Image=docker.io/globalartltd/bosun:latest
+PublishPort=8080:8080
+Volume=bosun-data:/bosun-data
+Secret=bosun-database-url,type=env,target=BOSUN_DATABASE_URL
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

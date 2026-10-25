@@ -9,6 +9,9 @@ rust-version = "1.98"
 publish = false
 repository = "https://github.com/GlobalArtInc/bosun-ci"
 
+[profile.release]
+strip = true
+
 [workspace.dependencies]
 bosun-blob = { path = "crates/blob" }
 bosun-db = { path = "crates/db" }

@@ -1,6 +1,12 @@
+use std::fs::DirBuilder;
+use std::io::{self, Write};
+use std::os::unix::fs::DirBuilderExt;
+use std::path::Path;
+
 use bosun_db::tokens::NewToken;
 use chrono::{TimeDelta, Utc};
 use sea_orm::DatabaseConnection;
+use tempfile::NamedTempFile;
 use tracing::info;
 
 use crate::token::{PERSONAL, Token};
@@ -12,6 +18,10 @@ pub(crate) const LOGIN_RULE: &str = "a login is 1 to 64 lowercase letters, digit
 const TOKEN_NAME: &str = "bootstrap";
 
 const TOKEN_LIFETIME: TimeDelta = TimeDelta::days(365);
+
+const FIRST_OWNER: &str = "admin";
+
+const TOKEN_FILE: &str = "admin.token";
 
 pub(crate) fn is_login(text: &str) -> bool {
     slug::is_slug(text)
@@ -50,6 +60,42 @@ pub(crate) async fn bootstrap(db: &DatabaseConnection, login: &str) -> Result<()
             "the database has users already, so bootstrap.admin creates no owner"
         ),
     }
+    Ok(())
+}
+
+pub(crate) async fn first_start(db: &DatabaseConnection, data_dir: &Path) -> Result<(), Error> {
+    let (token, first) = first_token()?;
+    let expires_at = first.expires_at;
+    if bosun_db::users::bootstrap_owner(db, FIRST_OWNER, first)
+        .await
+        .map_err(Error::FirstOwner)?
+        .is_none()
+    {
+        return Ok(());
+    }
+    let path = data_dir.join(TOKEN_FILE);
+    write_token(data_dir, &path, token).map_err(|source| Error::TokenFile {
+        path: path.clone(),
+        source,
+    })?;
+    info!(
+        login = FIRST_OWNER,
+        path = %path.display(),
+        %expires_at,
+        "created the owner admin on the first start and wrote its token to the data directory"
+    );
+    Ok(())
+}
+
+fn write_token(data_dir: &Path, path: &Path, token: Token) -> io::Result<()> {
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(data_dir)?;
+    let mut file = NamedTempFile::new_in(data_dir)?;
+    writeln!(file, "{}", token.into_string())?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|error| error.error)?;
     Ok(())
 }
 

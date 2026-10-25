@@ -89,10 +89,16 @@ async fn a_server_refuses_a_schema_of_a_newer_major_version_and_says_so() {
 
 #[tokio::test]
 async fn a_server_refuses_to_start_without_a_well_formed_kek_and_says_why() {
+    let generated =
+        Launch::serve("postgres://bosun@127.0.0.1:1/bosun").env_remove("BOSUN_KEYS_KEK");
+    let kek = generated.file("keys/kek", "a1b2\n");
     for (launch, expected) in [
         (
-            Launch::serve("postgres://bosun@127.0.0.1:1/bosun").env_remove("BOSUN_KEYS_KEK"),
-            "no KEK is configured".to_owned(),
+            generated,
+            format!(
+                "the KEK in {} is not 32 bytes written as 64 hexadecimal digits",
+                kek.display()
+            ),
         ),
         (
             Launch::serve("postgres://bosun@127.0.0.1:1/bosun").env("BOSUN_KEYS_KEK", "a1b2"),

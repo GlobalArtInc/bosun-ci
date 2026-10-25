@@ -1,5 +1,6 @@
 mod agents;
 mod auth;
+mod check;
 mod commands;
 mod config;
 mod dispatch;
@@ -8,6 +9,7 @@ mod error;
 mod grpc;
 mod health;
 mod idempotency;
+mod install;
 mod keys;
 mod logs;
 mod me;
@@ -30,6 +32,7 @@ mod trace;
 mod workflows;
 
 use std::future::Future;
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::Router;
@@ -43,6 +46,7 @@ use tonic::service::Routes;
 use tower::{ServiceExt, service_fn};
 use tracing::info;
 
+pub use check::check;
 pub use config::Config;
 pub use error::Error;
 
@@ -52,6 +56,7 @@ struct AppState {
     store: Arc<store::Backend>,
     followers: Arc<logs::Followers>,
     shutdown: shutdown::Shutdown,
+    agent_binaries: Arc<Path>,
 }
 
 pub async fn serve(
@@ -59,12 +64,13 @@ pub async fn serve(
     stop: impl Future<Output = String> + Send + 'static,
 ) -> Result<(), Error> {
     info!(version = env!("CARGO_PKG_VERSION"), "starting");
-    keys::verify(&config.keys)?;
+    keys::load(&config.keys, &config.data_dir)?;
     let store = Arc::new(store::open(&config.store).await?);
     let db = connect(&config).await?;
     bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
-    if let Some(login) = &config.bootstrap_admin {
-        owner::bootstrap(&db, login).await?;
+    match &config.bootstrap_admin {
+        Some(login) => owner::bootstrap(&db, login).await?,
+        None => owner::first_start(&db, &config.data_dir).await?,
     }
     let replica = agents::Replica::new();
     let notifications = bosun_db::notify::Listener::connect(&config.database.url, replica.id())
@@ -102,6 +108,7 @@ pub async fn serve(
         store,
         followers,
         shutdown: shutdown.clone(),
+        agent_binaries: Arc::from(config.agent_binaries.as_path()),
     };
     axum::serve(listener, app(state, connector, shutdown))
         .with_graceful_shutdown(async move {
@@ -155,6 +162,7 @@ fn app(state: AppState, connector: agents::Connector, shutdown: shutdown::Shutdo
         .route("/healthz", get(health::alive))
         .route("/readyz", get(health::ready))
         .merge(api().into_router(&state))
+        .merge(install::routes())
         .fallback(envelope::no_route)
         .method_not_allowed_fallback(envelope::no_route)
         .with_state(state);

@@ -24,25 +24,49 @@ itself with `bosun-server check`, which is also the image's health check.
 
 A release also attaches the binaries to its GitHub release, for hosts without a container runtime.
 
+The `Dockerfile` at the root of the repository builds the image. Its build stage runs on the
+builder's own platform and cross-compiles static musl binaries of `bosun-server` and `bosun-agent`
+for `x86_64` and `aarch64` with `cargo-zigbuild`, whose Zig toolchain also compiles the C code of
+the TLS crates for either target. The image of each architecture is Alpine with the user `bosun`
+and only copies files in: its own `bosun-server` to `/usr/local/bin/`, both agents to
+`/usr/lib/bosun/agent/linux-x86_64` and `linux-aarch64`, and the empty `/bosun-data`; no step runs
+on the target architecture, so building the `arm64` image needs no emulation. `install-agent.sh` is
+built into the server binary. The Dockerfile's target `cli` leaves a static `bosun` for the
+builder's architecture (`docker build --target cli --output type=local,dest=. .`).
+
+CI builds the image on every commit and tests it with `hack/test-image.sh`: started against a
+Postgres container with nothing but the database address and a volume, an agent installed by the
+served script inside a second container with systemd, the two-job workflow, a restart on the same
+volume, and `deploy/compose.yaml`. `.github/workflows/publish.yml` publishes: on every push to
+`main` the timestamp tag and `edge`, on a tag `v<version>` that names the workspace version the
+version and `latest`, both architectures in one manifest list, built by a BuildKit builder in a
+container that the job creates and removes.
+
 **What a host needs.** A container runtime (podman, docker, or Kubernetes), Postgres 15 or newer,
 and a reverse proxy that terminates TLS (nginx, Caddy, HAProxy, Envoy, or a Kubernetes gateway). The
 proxy must speak HTTP/2 to Bosun for the agent and plugin streams: `grpc_pass` for
 `/bosun.agent.v1.` and `/bosun.plugin.v1.` paths in nginx, an `h2c://` upstream in Caddy. It needs
-no request timeout on those paths and an idle timeout above the keepalive interval of 30 seconds.
-`docs/install/` in the repository has the examples.
+no request timeout on those paths and an idle timeout above the keepalive interval of 30 seconds,
+and it passes the request's `Host` and sets `X-Forwarded-Proto`, from which the server tells an
+agent host its own address ([Agents](#agents)). `docs/install/` in the repository has the
+examples.
 
 **The data directory.** `server.data_dir` (`/bosun-data` in the image, `/var/lib/bosun` for a
 binary on a host) holds what a single host needs and nothing else:
 
 | Path | Content |
 |------|---------|
-| `etc/bosun.toml` | the configuration file, read when no `--config` is given |
+| `etc/bosun.toml` | the configuration file, read when no `--config` is given and `/etc/bosun/server.toml` does not exist |
 | `keys/kek` | the KEK, generated on the first start when the configuration names none ([07-storage.md](07-storage.md)) |
 | `store/` | the directory backend of the object store, used when no S3 store is configured |
 | `admin.token` | the first owner's token, written on the first start ([08-access.md](08-access.md)) |
 
 So a single host needs exactly two settings to start, the database address and the data directory,
-and a mounted volume to keep its state.
+and a mounted volume to keep its state. The key and the token are written to a temporary file in
+their directory and renamed into place, with mode `0600`, so a crash leaves either the whole file or
+none; the directory `keys/`, and the data directory when the server creates it, get mode `0700`.
+Starts after the first reuse both and write nothing. A KEK that the configuration names, in either
+form, means nothing is generated, and `bootstrap.admin` means no `admin.token`.
 
 **Quick start on one host:**
 
@@ -83,7 +107,8 @@ brings the schema up to date the same way, creates an owner and prints its first
 ([08-access.md](08-access.md)); neither command needs the KEK. `bosun-server serve` loads the KEK,
 or generates it into the data directory when the configuration names none,
 connects to the database, brings the schema up to date ([07-storage.md](07-storage.md)), creates the
-owner of `bootstrap.admin` when the database holds no user, and then serves the REST API, the health
+owner of `bootstrap.admin`, or without it the owner `admin` with its token in `admin.token`, when
+the database holds no user ([08-access.md](08-access.md)), and then serves the REST API, the health
 endpoints and gRPC on one listener, which speaks HTTP/1.1 and HTTP/2 without TLS (the gateway
 terminates TLS); requests whose content type is `application/grpc` go to the gRPC services, which
 answer `UNIMPLEMENTED` for a service they do not have. It refuses to start when the schema belongs
@@ -92,6 +117,12 @@ store cannot be used: before it connects to the database, it opens the store, wr
 object `probes/start` and deletes it again, so an S3 endpoint that does not answer, a bucket that
 does not exist and credentials the store refuses all stop it. It says which in an error line of its
 log before it exits with status 1.
+
+`bosun-server check` reads the configuration as `serve` does, asks `GET /readyz` of the address
+of `server.listen` (the loopback address when that is every address) with a timeout of five
+seconds, and exits with 0 and the line `the server at <address> is ready` when the answer is `200`,
+or with 1 and an error line that says why: no answer, or the `reason` of the `503`. It logs to
+standard error and is the health check of the image.
 
 On `SIGTERM` or `SIGINT` the server logs the signal, stops accepting connections, ends every gRPC
 stream with the status `UNAVAILABLE` and the message `the server is shutting down: received
@@ -110,15 +141,32 @@ curl -fsSL https://bosun.example.org/install-agent.sh | sudo sh -s -- --token br
 
 The server serves `install-agent.sh` and the agent binaries of its own version at
 `/_runtime/agent/linux-<arch>`, so the host downloads nothing from anywhere else, and the agent always
-matches the server. On a Debian or Ubuntu host the script:
+matches the server. Neither needs a token. The binaries are the files `linux-x86_64` and
+`linux-aarch64` of `agents.binary_dir`; one that is missing answers `404` with the path it looked
+for. The served script names the server and its version: the address is the one the host fetched
+the script from, the `Host` of the request (or the authority of an HTTP/2 request) with `https`
+when `X-Forwarded-Proto` says so and `http` otherwise, and a host with characters other than
+letters, digits, `-`, `.`, `:`, `[` and `]` is refused with `422`, so the address is safe inside
+the script. `bosun pool token create` builds the command from the server address of its profile.
 
+On a Debian or Ubuntu host with systemd, run as root, the script:
+
+- downloads the agent for the host's architecture, refuses it unless `bosun-agent --version`
+  names the server's version, and installs it to `/usr/local/bin/bosun-agent` by a rename;
 - creates `bosun-agent-<n>` users with subordinate id ranges and lingering, the group
-  `bosun-cache`, and the directories;
+  `bosun-cache`, and the directories `/etc/bosun`, `/var/lib/bosun/agents/<n>` (mode `0700`, of the
+  instance's user) and `/var/lib/bosun/cache` (group `bosun-cache`, mode `2775`);
 - checks the prerequisites for the `podman` capability (podman 4.4 or newer, cgroups v2,
   `netavark`) and leaves the capability out with a message when they are missing;
-- installs the binary to `/usr/local/bin/bosun-agent`, the template unit `bosun-agent@.service`
-  with `Delegate=yes`, and the timer for `bosun-agent gc`;
-- registers each instance and starts it.
+- installs the template unit `bosun-agent@.service`, which runs instance `<n>` as
+  `bosun-agent-<n>` with `Delegate=yes` and `KillMode=mixed`, so the agent gets its cgroup for the
+  jobs and its `SIGTERM` alone on a stop, and, from M2 when `bosun-agent gc` exists, the timer for
+  it;
+- registers each instance whose `/etc/bosun/agent-<n>.toml` does not exist yet, named
+  `<host name>-<n>`, gives the file to the instance's user, and enables and restarts its unit.
+
+Everything the script does is in functions that run after the whole script has arrived, so a
+download cut short runs nothing.
 
 Upgrading an agent is running the same command again, which replaces the binary with the server's
 version and restarts the instances; an instance that is running a job finishes it first when it
@@ -131,6 +179,7 @@ receives `Drain`.
 ```toml
 [server]
 listen = "0.0.0.0:8080"
+data_dir = "/var/lib/bosun"
 public_url = "https://ci.example.org"
 trusted_proxies = ["10.0.0.0/8"]
 
@@ -165,6 +214,7 @@ client_secret_file = "/etc/bosun/oidc-secret"
 groups_claim = "groups"
 
 [agents]
+binary_dir = "/usr/lib/bosun/agent"
 heartbeat_interval = "30s"
 offline_after = "60s"
 assignment_lease = "30s"
@@ -176,10 +226,11 @@ max_hold = "2h"
 agent_grace = "10m"
 ```
 
-The file is `--config <file>`, or `/etc/bosun/server.toml` when that exists; without either the
-server takes its configuration from the environment alone. A key of the file that the server does
-not know is refused, together with the file's name and the line. The variable of a key is its
-section and its name in capitals, so `[database] max_connections` is
+The file is `--config <file>`, or `/etc/bosun/server.toml` when that exists, or `etc/bosun.toml` in
+the data directory that `BOSUN_SERVER_DATA_DIR` or the default names, when that exists; without any
+of them the server takes its configuration from the environment alone. A key of the file that the
+server does not know is refused, together with the file's name and the line. The variable of a key
+is its section and its name in capitals, so `[database] max_connections` is
 `BOSUN_DATABASE_MAX_CONNECTIONS`, and a variable wins over the file. Variables under `BOSUN_` that
 name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
 
@@ -191,7 +242,10 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   directly in `keys.kek`, which is meant for `BOSUN_KEYS_KEK`. At most one of them is set; with
   neither, the server uses `keys/kek` in the data directory and generates it on the first start.
   Surrounding whitespace, such as the newline at the end of a file, does not count.
-- `server.data_dir` defaults to `/var/lib/bosun`; the image sets `/bosun-data`.
+- `server.data_dir` defaults to `/var/lib/bosun`; the image sets `/bosun-data`. A path setting
+  that is empty is refused.
+- `agents.binary_dir` is the directory of the agent binaries the server hands out,
+  `/usr/lib/bosun/agent` by default, where the image puts them.
 - `store.kind` is `directory`, the default, or `s3`. `store.path` is the root of the directory
   backend, `store/` in the data directory by default, so `/var/lib/bosun/store` on a host.
 - For `s3`, `store.endpoint` is the address of the S3 API, http or https with a host and maybe a

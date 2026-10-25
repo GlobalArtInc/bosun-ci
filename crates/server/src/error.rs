@@ -24,11 +24,6 @@ pub enum Error {
         variable: String,
         problem: String,
     },
-    #[error(
-        "no KEK is configured, and the server keeps every secret under it: set keys.kek_file \
-         in server.toml, BOSUN_KEYS_KEK_FILE or BOSUN_KEYS_KEK"
-    )]
-    NoKek,
     #[error("both keys.kek and keys.kek_file are set, and the KEK comes from exactly one of them")]
     TwoKeks,
     #[error("could not read the KEK from {}: {source}", path.display())]
@@ -39,6 +34,12 @@ pub enum Error {
     },
     #[error("the KEK in {origin} is not 32 bytes written as 64 hexadecimal digits")]
     MalformedKek { origin: String },
+    #[error("could not generate the KEK in {}: {source}", path.display())]
+    GenerateKek {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("the object store {location} cannot be used: {problem}")]
     Store { location: String, problem: String },
     #[error("could not connect to the database: {0}")]
@@ -61,6 +62,24 @@ pub enum Error {
     CreateOwner(#[source] bosun_db::Error),
     #[error("could not create the owner of bootstrap.admin (BOSUN_BOOTSTRAP_ADMIN): {0}")]
     Bootstrap(#[source] bosun_db::Error),
-    #[error("the operating system gave no random bytes for a token: {0}")]
+    #[error("could not create the first owner admin: {0}")]
+    FirstOwner(#[source] bosun_db::Error),
+    #[error(
+        "created the owner admin, but could not write its token to {}: {source}; create another \
+         owner with bosun-server admin create <login>",
+        path.display()
+    )]
+    TokenFile {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("server.listen names port 0, so there is no port at which to check the server")]
+    CheckAnyPort,
+    #[error("the server at {address} does not answer: {reason}")]
+    Unanswered { address: SocketAddr, reason: String },
+    #[error("the server at {address} is not ready: {reason}")]
+    Unready { address: SocketAddr, reason: String },
+    #[error("the operating system gave no random bytes: {0}")]
     Random(#[source] getrandom::Error),
 }

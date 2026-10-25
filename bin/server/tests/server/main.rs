@@ -1,10 +1,13 @@
 mod agents;
 mod api;
 mod auth;
+mod check;
 mod commands;
 mod config;
+mod data;
 mod health;
 mod http;
+mod install;
 mod logs;
 mod openapi;
 mod owner;
@@ -48,6 +51,10 @@ impl Launch {
         Launch::new(&["serve"], database)
     }
 
+    pub fn check(database: &str) -> Launch {
+        Launch::new(&["check"], database)
+    }
+
     pub fn migrate(database: &str) -> Launch {
         Launch::new(&["migrate"], database)
     }
@@ -56,28 +63,39 @@ impl Launch {
         Launch::new(&["admin", "create", login], database)
     }
 
+    pub fn without_config_file(database: &str, arguments: &[&str]) -> Launch {
+        Launch::with(arguments, database, false)
+    }
+
     fn new(arguments: &[&str], database: &str) -> Launch {
+        Launch::with(arguments, database, true)
+    }
+
+    fn with(arguments: &[&str], database: &str, config: bool) -> Launch {
         let directory = tempfile::tempdir().expect("a directory for the configuration");
-        let launch = Launch {
+        let mut launch = Launch {
             command: Command::new(env!("CARGO_BIN_EXE_bosun-server")),
             directory,
         };
-        let mut launch = launch.config(CONFIG);
         for (name, _) in env::vars_os() {
             let text = name.to_string_lossy();
             if text.starts_with("BOSUN_") || text.starts_with("AWS_") {
                 launch.command.env_remove(name);
             }
         }
-        let config = launch.config_path();
-        let store = launch.directory.path().join("store");
+        if config {
+            launch = launch.config(CONFIG);
+            let path = launch.config_path();
+            launch.command.arg("--config").arg(path);
+        }
+        let data = launch.data_dir();
+        let store = data.join("store");
         launch
             .command
-            .arg("--config")
-            .arg(config)
             .args(arguments)
             .env("BOSUN_DATABASE_URL", database)
             .env("BOSUN_KEYS_KEK", KEK)
+            .env("BOSUN_SERVER_DATA_DIR", data)
             .env("BOSUN_STORE_PATH", store)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -90,8 +108,16 @@ impl Launch {
         self.directory.path().join("server.toml")
     }
 
+    pub fn data_dir(&self) -> PathBuf {
+        self.directory.path().to_owned()
+    }
+
     pub fn file(&self, name: &str, text: &str) -> PathBuf {
         let path = self.directory.path().join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .unwrap_or_else(|error| panic!("{}: {error}", parent.display()));
+        }
         fs::write(&path, text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         path
     }
