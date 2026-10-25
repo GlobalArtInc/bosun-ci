@@ -124,6 +124,73 @@ including negation with `!` and the order-sensitive evaluation of mixed lists.
 Pull requests from forks are subject to the project's fork policy before any run is created
 ([08-access.md](08-access.md)).
 
+#### Lowering `on`
+
+`on` is an event name, a list of event names, or a mapping from event names to their filters, where
+an empty value or `{}` means no filters. `schedule` takes a list of entries and so exists only in
+the mapping form. Filters are literal text; no key under `on` takes an expression.
+
+- `branches`, `tags` and `paths` take a pattern or a list of patterns, and each has an `-ignore`
+  form. A key together with its `-ignore` form is `invalid_value` at the `-ignore` value, as are an
+  empty list, an empty pattern and a pattern the syntax below refuses.
+- `types` takes an activity type or a list of them. The names are not checked against the types the
+  forge defines: a name the forge never sends never matches. Every event without a row of its own
+  in the table accepts `types`, matched against the payload's `action`.
+- A `schedule` entry has `cron`, which is required, and `timezone`. A cron has the five fields of
+  the target: minute (0-59), hour (0-23), day of the month (1-31), month (1-12 or `JAN` to `DEC`)
+  and day of the week (0-6 or `SUN` to `SAT`, with 7 for Sunday as well); names ignore case. A
+  field is a list of items separated by `,`, each `*`, a value or a range `a-b`, with an optional
+  step `/n`, where `a/n` runs from `a` to the end of the field. Shortcuts such as `@daily` and the
+  extensions `?`, `L`, `W` and `#` are `invalid_value`. The IR keeps the expression as written,
+  which `github.event.schedule` reports, the sorted values each field selects, and `days`: when
+  either day field starts with `*`, a day must match both fields (`both`); otherwise it must match
+  either (`either`). This is the rule of cron on Linux, and the scheduler evaluates the form without
+  looking at the expression again.
+- `timezone` is an exact name of the IANA time zone database that `bosun-workflow` compiles in
+  through `chrono-tz` (database 2025b), so the browser's parser knows the same names as the
+  server. A name in the wrong case is refused with a suggestion. Without `timezone` a schedule runs
+  in UTC.
+- `workflow_dispatch` `inputs` keep the order of the source. An input has `description`,
+  `required` (a boolean, `false` when absent), `type` (`string` when absent), `default`, and
+  `options`, which `choice` requires, non-empty, and no other type accepts. An input's name follows
+  the rule of job ids. A `boolean` default is a YAML boolean and a `number` default a finite YAML
+  number, so a quoted `'true'` or `'5'` is `invalid_type`; a `string` or `environment` default is
+  converted like every string value, and a `choice` default must be one of the options.
+
+`bosun_workflow::triggers` lowers a file as `parse` does and returns its triggers together with
+every diagnostic of the file. The triggers are present only when `on` itself has no diagnostic:
+a file whose jobs are broken still has triggers to match for its `startup_failure` run, and a file
+whose `on` is broken has none.
+
+#### Matching events
+
+`bosun_workflow::matches` decides whether an event matches a workflow's triggers. The event is its
+name, its action, its ref and its base ref as full refs (`refs/heads/main`), and its changed files
+or their absence. The cases are in `contracts/fixtures/triggers/`.
+
+- **Patterns.** `*` matches any characters but `/`, `**` any characters, and `**/` any number of
+  leading directories, none included, so `docs/**/*.md` matches `docs/README.md`. `?` makes the
+  character or bracket expression before it optional, and `+` repeats it once or more; at the start
+  of a pattern both are literal. `[...]` lists letters, digits and ranges within `a-z`, `A-Z` or
+  `0-9`. `\` makes the next character literal. Every other character, `.` included, is literal, and
+  matching is case-sensitive.
+- **Lists.** A leading `!` negates a pattern. A name is selected when the last pattern of the list
+  that matches it is not negated, so `['**', '!docs/**', 'docs/keep.md']` selects `docs/keep.md` and
+  `src/a.rs`, and not `docs/guide.md`. An `-ignore` list is read the same way and ignores what it
+  selects, so a negation there takes a name back out of the ignored ones.
+- **Refs.** `branches` match the branch of a push's ref, and the base ref of a pull request or of a
+  merge group's queue. `tags` match the tag of a push. A push with only branch filters does not run
+  for tags, one with only tag filters does not run for branches, and one with neither runs for both.
+- **Paths.** A path filter is met when at least one changed file is selected, or for `paths-ignore`
+  not ignored; a change of no files meets neither. Path filters are not evaluated for a tag push,
+  as in the target, nor for an event that carries no list of changed files, which the server passes
+  when it has none to give.
+- **Types.** `pull_request` and `pull_request_target` default to `opened`, `synchronize` and
+  `reopened`, `merge_group` to `checks_requested`, and every other event to every action. An event
+  without an action meets no `types`, written or default.
+
+Every filter of a trigger must be met, and a workflow matches when one of its triggers does.
+
 ### Jobs
 
 `name`, `needs`, `if`, `runs-on`, `environment`, `concurrency`, `outputs`, `env`, `defaults`,
@@ -372,6 +439,16 @@ JobTemplate{ key, name: Template?, needs: [JobKey], if: Condition?, kind: Steps 
 Step       { key: StepKey?, name: Template?, if: Condition?, action: Run | Uses, shell,
              working_directory, with: Map<Template>, env: Map<Template>,
              continue_on_error: Evaluable<bool>, timeout_minutes: Evaluable<u32>?, retry, pause, span }
+Trigger    = Push { branches: Filter?, tags: Filter?, paths: Filter? }
+           | PullRequest | PullRequestTarget { types: [String]?, branches: Filter?, paths: Filter? }
+           | MergeGroup { types: [String]?, branches: Filter? }
+           | Schedule [{ cron: Cron, timezone: String? }]
+           | WorkflowDispatch { inputs: [Input] } | RepositoryDispatch { types: [String]? }
+           | Generic { name, types: [String]? }
+Filter     = Include [pattern] | Exclude [pattern]
+Cron       { expression, minutes, hours, days_of_month, months, days_of_week: [u8], days: Both | Either }
+Input      { name, description: String?, required: bool,
+             kind: String | Boolean | Choice { options } | Number | Environment, each with its default? }
 ```
 
 `JobKey` and `StepKey` are the ids a workflow gives its jobs and steps (`jobs.<key>`,

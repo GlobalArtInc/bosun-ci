@@ -1,0 +1,74 @@
+{
+  "name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": {
+          "exclude": [
+            "dependabot/**"
+          ]
+        },
+        "tags": {
+          "exclude": [
+            "*-rc*"
+          ]
+        },
+        "paths": {
+          "exclude": [
+            "**.md",
+            ".github/CODEOWNERS"
+          ]
+        }
+      }
+    }
+  ],
+  "env": {},
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "shell"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 12,
+              "column": 9,
+              "end_line": 12,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 9,
+        "column": 3,
+        "end_line": 12,
+        "end_column": 18
+      }
+    }
+  ]
+}

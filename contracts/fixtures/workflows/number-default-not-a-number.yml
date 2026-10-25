@@ -1,0 +1,11 @@
+on:
+  workflow_dispatch:
+    inputs:
+      replicas:
+        type: number
+        default: ten
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

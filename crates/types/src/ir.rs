@@ -223,7 +223,7 @@ pub enum Evaluable<T> {
     Template(Template),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workflow {
     pub name: Option<String>,
@@ -232,15 +232,123 @@ pub struct Workflow {
     pub jobs: Vec<JobTemplate>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Trigger {
+    Push(Push),
+    PullRequest(PullRequest),
+    PullRequestTarget(PullRequest),
+    MergeGroup(MergeGroup),
+    Schedule(Vec<Schedule>),
     WorkflowDispatch(WorkflowDispatch),
+    RepositoryDispatch(Activity),
+    Generic(GenericEvent),
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Filter {
+    Include(Vec<String>),
+    Exclude(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct WorkflowDispatch {}
+pub struct Push {
+    pub branches: Option<Filter>,
+    pub tags: Option<Filter>,
+    pub paths: Option<Filter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PullRequest {
+    pub types: Option<Vec<String>>,
+    pub branches: Option<Filter>,
+    pub paths: Option<Filter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MergeGroup {
+    pub types: Option<Vec<String>>,
+    pub branches: Option<Filter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Activity {
+    pub types: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenericEvent {
+    pub name: String,
+    pub types: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Schedule {
+    pub cron: Cron,
+    pub timezone: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cron {
+    pub expression: String,
+    pub minutes: Vec<u8>,
+    pub hours: Vec<u8>,
+    pub days_of_month: Vec<u8>,
+    pub months: Vec<u8>,
+    pub days_of_week: Vec<u8>,
+    pub days: CronDays,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CronDays {
+    Both,
+    Either,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowDispatch {
+    pub inputs: Vec<Input>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Input {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+    pub kind: InputKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum InputKind {
+    String {
+        default: Option<String>,
+    },
+    Boolean {
+        default: Option<bool>,
+    },
+    Choice {
+        options: Vec<String>,
+        default: Option<String>,
+    },
+    Number {
+        default: Option<f64>,
+    },
+    Environment {
+        default: Option<String>,
+    },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

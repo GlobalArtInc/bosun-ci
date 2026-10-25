@@ -46,7 +46,7 @@ fn closed_enums_refuse_unknown_values() {
     refuses::<TrustLevel>(json!("semi"));
     refuses::<Capability>(json!("kubernetes"));
     refuses::<WorkflowSource>(json!({ "kind": "repository" }));
-    refuses::<Trigger>(json!({ "push": {} }));
+    refuses::<Trigger>(json!({ "workflow_call": {} }));
     refuses::<Actor>(json!({ "kind": "plugin", "instance": "telegram" }));
     refuses::<Command>(json!({ "type": "run.pause" }));
 
@@ -85,7 +85,7 @@ fn the_ir_refuses_unknown_fields() {
     refuses::<ir::Workflow>(span);
 
     let mut trigger = workflow.clone();
-    trigger["triggers"][0]["workflow_dispatch"]["inputs"] = json!({});
+    trigger["triggers"][0]["workflow_dispatch"]["outputs"] = json!({});
     refuses::<ir::Workflow>(trigger);
 
     let mut segment = workflow.clone();

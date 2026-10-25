@@ -1,0 +1,28 @@
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy
+        required: true
+        type: environment
+        default: staging
+      version:
+        description: The version to release
+        default: 3.10
+      dry_run:
+        type: boolean
+        default: true
+      replicas:
+        type: number
+        default: 3
+      log_level:
+        description: How much to log
+        type: choice
+        options: [debug, info, warn]
+        default: info
+      notes: {}
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

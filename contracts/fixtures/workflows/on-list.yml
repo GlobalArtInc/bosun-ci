@@ -1,0 +1,6 @@
+on: [push, pull_request, pull_request_target, merge_group, workflow_dispatch, repository_dispatch, release, create]
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

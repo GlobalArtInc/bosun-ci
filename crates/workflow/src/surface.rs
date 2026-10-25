@@ -59,40 +59,42 @@ pub(crate) const WORKFLOW: Shape = Shape {
 
 pub(crate) const EVENTS: Shape = Shape {
     noun: "event",
-    now: &["workflow_dispatch"],
+    now: &[
+        "workflow_dispatch",
+        "push",
+        "pull_request",
+        "pull_request_target",
+        "schedule",
+        "merge_group",
+        "repository_dispatch",
+        "branch_protection_rule",
+        "check_run",
+        "check_suite",
+        "create",
+        "delete",
+        "deployment",
+        "deployment_status",
+        "discussion",
+        "discussion_comment",
+        "fork",
+        "gollum",
+        "issue_comment",
+        "issues",
+        "label",
+        "milestone",
+        "page_build",
+        "project",
+        "project_card",
+        "project_column",
+        "public",
+        "pull_request_review",
+        "pull_request_review_comment",
+        "registry_package",
+        "release",
+        "status",
+        "watch",
+    ],
     later: &[
-        ("push", "M1"),
-        ("pull_request", "M1"),
-        ("pull_request_target", "M1"),
-        ("schedule", "M1"),
-        ("merge_group", "M1"),
-        ("repository_dispatch", "M1"),
-        ("branch_protection_rule", "M1"),
-        ("check_run", "M1"),
-        ("check_suite", "M1"),
-        ("create", "M1"),
-        ("delete", "M1"),
-        ("deployment", "M1"),
-        ("deployment_status", "M1"),
-        ("discussion", "M1"),
-        ("discussion_comment", "M1"),
-        ("fork", "M1"),
-        ("gollum", "M1"),
-        ("issue_comment", "M1"),
-        ("issues", "M1"),
-        ("label", "M1"),
-        ("milestone", "M1"),
-        ("page_build", "M1"),
-        ("project", "M1"),
-        ("project_card", "M1"),
-        ("project_column", "M1"),
-        ("public", "M1"),
-        ("pull_request_review", "M1"),
-        ("pull_request_review_comment", "M1"),
-        ("registry_package", "M1"),
-        ("release", "M1"),
-        ("status", "M1"),
-        ("watch", "M1"),
         ("workflow_call", "M2"),
         ("workflow_run", "M2"),
         ("upstream", "M2"),
@@ -101,10 +103,65 @@ pub(crate) const EVENTS: Shape = Shape {
     required: &[],
 };
 
+pub(crate) const PUSH: Shape = Shape {
+    noun: "key",
+    now: &[
+        "branches",
+        "branches-ignore",
+        "tags",
+        "tags-ignore",
+        "paths",
+        "paths-ignore",
+    ],
+    later: &[],
+    required: &[],
+};
+
+pub(crate) const PULL_REQUEST: Shape = Shape {
+    noun: "key",
+    now: &[
+        "types",
+        "branches",
+        "branches-ignore",
+        "paths",
+        "paths-ignore",
+    ],
+    later: &[],
+    required: &[],
+};
+
+pub(crate) const MERGE_GROUP: Shape = Shape {
+    noun: "key",
+    now: &["types", "branches", "branches-ignore"],
+    later: &[],
+    required: &[],
+};
+
+pub(crate) const ACTIVITY: Shape = Shape {
+    noun: "key",
+    now: &["types"],
+    later: &[],
+    required: &[],
+};
+
+pub(crate) const SCHEDULE: Shape = Shape {
+    noun: "key",
+    now: &["cron", "timezone"],
+    later: &[],
+    required: &["cron"],
+};
+
 pub(crate) const WORKFLOW_DISPATCH: Shape = Shape {
     noun: "key",
-    now: &[],
-    later: &[("inputs", "M1")],
+    now: &["inputs"],
+    later: &[],
+    required: &[],
+};
+
+pub(crate) const INPUT: Shape = Shape {
+    noun: "key",
+    now: &["description", "required", "default", "type", "options"],
+    later: &[],
     required: &[],
 };
 

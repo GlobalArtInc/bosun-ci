@@ -1,0 +1,9 @@
+on:
+  repository_dispatch:
+    types: [deploy, rollback]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

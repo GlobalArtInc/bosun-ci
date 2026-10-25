@@ -1,0 +1,12 @@
+on:
+  workflow_dispatch:
+    inputs:
+      log_level:
+        type: choice
+        options: [debug, info]
+        default: trace
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

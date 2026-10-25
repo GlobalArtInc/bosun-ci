@@ -1,0 +1,11 @@
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+    - cron: 30 2 * * MON-FRI
+      timezone: Europe/Belgrade
+    - cron: '0 0 1,15 JAN,JUL 0'
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

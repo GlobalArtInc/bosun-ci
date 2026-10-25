@@ -1,0 +1,9 @@
+on:
+  schedule:
+    - cron: '30 2 * * *'
+      timezone: Europe/Belgade
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

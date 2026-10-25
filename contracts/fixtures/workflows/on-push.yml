@@ -1,0 +1,16 @@
+on:
+  push:
+    branches:
+      - main
+      - 'releases/**'
+      - '!releases/**-alpha'
+    tags: v*
+    paths:
+      - '**'
+      - '!docs/**'
+      - docs/keep.md
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

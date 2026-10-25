@@ -1,0 +1,300 @@
+[
+  {
+    "description": "a later pattern brings back a file that an earlier negation excluded",
+    "on": {
+      "push": {
+        "paths": ["**", "!docs/**", "docs/keep.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/keep.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "a negation excludes the files an earlier pattern included",
+    "on": {
+      "push": {
+        "paths": ["**", "!docs/**", "docs/keep.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/guide.md"]
+    },
+    "matches": false
+  },
+  {
+    "description": "a file outside the negation stays included",
+    "on": {
+      "push": {
+        "paths": ["**", "!docs/**", "docs/keep.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["src/a.rs"]
+    },
+    "matches": true
+  },
+  {
+    "description": "one selected file is enough",
+    "on": {
+      "push": {
+        "paths": ["**", "!docs/**", "docs/keep.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/guide.md", "src/a.rs"]
+    },
+    "matches": true
+  },
+  {
+    "description": "a push that changes no file runs no path-filtered workflow",
+    "on": {
+      "push": {
+        "paths": ["**", "!docs/**", "docs/keep.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "without a list of changed files the path filter does not restrict",
+    "on": {
+      "push": {
+        "paths": ["**", "!docs/**", "docs/keep.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "paths-ignore skips a push whose every file is ignored",
+    "on": {
+      "push": {
+        "paths-ignore": ["docs/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a.md"]
+    },
+    "matches": false
+  },
+  {
+    "description": "paths-ignore runs when one file is not ignored",
+    "on": {
+      "push": {
+        "paths-ignore": ["docs/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a.md", "README.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "a negation in paths-ignore takes a file back out of the ignored ones",
+    "on": {
+      "push": {
+        "paths-ignore": ["docs/**", "!docs/api/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/api/index.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`*` matches files at the root only",
+    "on": {
+      "push": {
+        "paths": ["*.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a.md"]
+    },
+    "matches": false
+  },
+  {
+    "description": "`*` matches a file at the root",
+    "on": {
+      "push": {
+        "paths": ["*.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["README.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`**` matches across directories",
+    "on": {
+      "push": {
+        "paths": ["**.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a/b.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`**/` matches no directory at all",
+    "on": {
+      "push": {
+        "paths": ["docs/**/*.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/README.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`**/` matches nested directories",
+    "on": {
+      "push": {
+        "paths": ["docs/**/*.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a/markdown/file.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "a leading `**/` matches a file at the root",
+    "on": {
+      "push": {
+        "paths": ["**/README.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["README.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "a leading `**/` matches a file in a directory",
+    "on": {
+      "push": {
+        "paths": ["**/README.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["js/README.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request paths match the files of the pull request",
+    "on": {
+      "pull_request": {
+        "paths": ["src/**"]
+      }
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "opened",
+      "base_ref": "refs/heads/main",
+      "changed_files": ["src/a.rs"]
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request paths skip a pull request that touches none of them",
+    "on": {
+      "pull_request": {
+        "paths": ["src/**"]
+      }
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "opened",
+      "base_ref": "refs/heads/main",
+      "changed_files": ["docs/a.md"]
+    },
+    "matches": false
+  },
+  {
+    "description": "branches and paths must both match: the branch fails",
+    "on": {
+      "push": {
+        "branches": ["main"],
+        "paths": ["src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/dev",
+      "changed_files": ["src/a.rs"]
+    },
+    "matches": false
+  },
+  {
+    "description": "branches and paths must both match: the paths fail",
+    "on": {
+      "push": {
+        "branches": ["main"],
+        "paths": ["src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a.md"]
+    },
+    "matches": false
+  },
+  {
+    "description": "branches and paths must both match: both hold",
+    "on": {
+      "push": {
+        "branches": ["main"],
+        "paths": ["src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["src/a.rs"]
+    },
+    "matches": true
+  }
+]

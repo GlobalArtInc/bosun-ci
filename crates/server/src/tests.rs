@@ -634,7 +634,7 @@ fn template(name: &str, needs: &[&str], steps: usize) -> JobTemplate {
 fn workflow(jobs: Vec<JobTemplate>) -> ir::Workflow {
     ir::Workflow {
         name: Some("ci".to_owned()),
-        triggers: vec![Trigger::WorkflowDispatch(WorkflowDispatch {})],
+        triggers: vec![Trigger::WorkflowDispatch(WorkflowDispatch::default())],
         env: BTreeMap::new(),
         jobs,
     }

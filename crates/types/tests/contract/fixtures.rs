@@ -21,7 +21,7 @@ use crate::{fixture, repository};
 
 type Check = fn(&Value) -> Result<Value, String>;
 
-const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github"];
+const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github", "triggers"];
 
 fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, String> {
     let typed: T = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
@@ -81,7 +81,16 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         ("api/workflow.json", round_trip::<Workflow>),
         ("diagnostics/alias-bomb.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/branches-and-branches-ignore.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/choice-default-outside-options.json",
+            round_trip::<Diagnostic>,
+        ),
         ("diagnostics/duplicate-key.json", round_trip::<Diagnostic>),
+        ("diagnostics/invalid-cron.json", round_trip::<Diagnostic>),
         ("diagnostics/invalid-job-key.json", round_trip::<Diagnostic>),
         (
             "diagnostics/invalid-step-key.json",
@@ -93,6 +102,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("diagnostics/needs-cycle.json", round_trip::<Diagnostic>),
         ("diagnostics/needs-mapping.json", round_trip::<Diagnostic>),
         (
+            "diagnostics/number-default-not-a-number.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
             "diagnostics/repeated-step-key.json",
             round_trip::<Diagnostic>,
         ),
@@ -102,6 +115,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         ("diagnostics/unknown-key.json", round_trip::<Diagnostic>),
         ("diagnostics/unknown-needs.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/unknown-time-zone.json",
+            round_trip::<Diagnostic>,
+        ),
         ("diagnostics/yaml-syntax.json", round_trip::<Diagnostic>),
         ("events/attempt-created.json", round_trip::<RunEvent>),
         ("events/command-accepted.json", round_trip::<RunEvent>),
@@ -116,6 +133,16 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/step-status.json", round_trip::<RunEvent>),
         ("ir/aliases.json", round_trip::<ir::Workflow>),
         ("ir/flow-style.json", round_trip::<ir::Workflow>),
+        ("ir/on-generic-events.json", round_trip::<ir::Workflow>),
+        ("ir/on-list.json", round_trip::<ir::Workflow>),
+        ("ir/on-merge-group.json", round_trip::<ir::Workflow>),
+        ("ir/on-pull-request.json", round_trip::<ir::Workflow>),
+        ("ir/on-push-ignore.json", round_trip::<ir::Workflow>),
+        ("ir/on-push.json", round_trip::<ir::Workflow>),
+        ("ir/on-repository-dispatch.json", round_trip::<ir::Workflow>),
+        ("ir/on-schedule.json", round_trip::<ir::Workflow>),
+        ("ir/on-string.json", round_trip::<ir::Workflow>),
+        ("ir/on-workflow-dispatch.json", round_trip::<ir::Workflow>),
         ("ir/scalars.json", round_trip::<ir::Workflow>),
         ("ir/two-jobs.json", round_trip::<ir::Workflow>),
     ]

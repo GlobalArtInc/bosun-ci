@@ -22,6 +22,7 @@ bosun-workflow = { path = "crates/workflow" }
 
 axum = { version = "0.8", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
+chrono-tz = { version = "0.10", default-features = false }
 clap = { version = "4", features = ["derive"] }
 crc = "3"
 getrandom = "0.4"

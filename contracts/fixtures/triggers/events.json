@@ -1,0 +1,79 @@
+[
+  {
+    "description": "workflow_dispatch matches a dispatch",
+    "on": "workflow_dispatch",
+    "event": {
+      "name": "workflow_dispatch"
+    },
+    "matches": true
+  },
+  {
+    "description": "workflow_dispatch does not match a push",
+    "on": "workflow_dispatch",
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "schedule matches a scheduled event",
+    "on": {
+      "schedule": [
+        {
+          "cron": "0 3 * * *"
+        }
+      ]
+    },
+    "event": {
+      "name": "schedule"
+    },
+    "matches": true
+  },
+  {
+    "description": "a list of events matches each of them",
+    "on": ["push", "pull_request"],
+    "event": {
+      "name": "pull_request",
+      "action": "opened",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "a list of events applies the default types",
+    "on": ["push", "pull_request"],
+    "event": {
+      "name": "pull_request",
+      "action": "closed",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "a list of events matches no other event",
+    "on": ["push", "pull_request"],
+    "event": {
+      "name": "issues",
+      "action": "opened"
+    },
+    "matches": false
+  },
+  {
+    "description": "a generic event matches by its name",
+    "on": ["create"],
+    "event": {
+      "name": "create"
+    },
+    "matches": true
+  },
+  {
+    "description": "a generic event does not match another event",
+    "on": ["create"],
+    "event": {
+      "name": "delete"
+    },
+    "matches": false
+  }
+]

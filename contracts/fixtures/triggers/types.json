@@ -1,0 +1,234 @@
+[
+  {
+    "description": "pull_request without types runs for `opened`",
+    "on": {
+      "pull_request": null
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "opened",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request without types runs for `synchronize`",
+    "on": {
+      "pull_request": null
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "synchronize",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request without types runs for `reopened`",
+    "on": {
+      "pull_request": null
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "reopened",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request without types does not run for `closed`",
+    "on": {
+      "pull_request": null
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "closed",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "pull_request without types does not run for `labeled`",
+    "on": {
+      "pull_request": null
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "labeled",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "pull_request with types runs for a listed type",
+    "on": {
+      "pull_request": {
+        "types": ["closed"]
+      }
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "closed",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request with types does not run for a default type it does not list",
+    "on": {
+      "pull_request": {
+        "types": ["closed"]
+      }
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "opened",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "pull_request_target without types runs for `opened`",
+    "on": {
+      "pull_request_target": null
+    },
+    "event": {
+      "name": "pull_request_target",
+      "action": "opened",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request_target without types does not run for `closed`",
+    "on": {
+      "pull_request_target": null
+    },
+    "event": {
+      "name": "pull_request_target",
+      "action": "closed",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "issues with types runs for a listed type",
+    "on": {
+      "issues": {
+        "types": ["opened"]
+      }
+    },
+    "event": {
+      "name": "issues",
+      "action": "opened"
+    },
+    "matches": true
+  },
+  {
+    "description": "issues with types does not run for another type",
+    "on": {
+      "issues": {
+        "types": ["opened"]
+      }
+    },
+    "event": {
+      "name": "issues",
+      "action": "closed"
+    },
+    "matches": false
+  },
+  {
+    "description": "issues with types does not run for an event without an action",
+    "on": {
+      "issues": {
+        "types": ["opened"]
+      }
+    },
+    "event": {
+      "name": "issues"
+    },
+    "matches": false
+  },
+  {
+    "description": "release without types runs for every type",
+    "on": {
+      "release": null
+    },
+    "event": {
+      "name": "release",
+      "action": "deleted"
+    },
+    "matches": true
+  },
+  {
+    "description": "create without types runs for an event without an action",
+    "on": {
+      "create": null
+    },
+    "event": {
+      "name": "create"
+    },
+    "matches": true
+  },
+  {
+    "description": "repository_dispatch with types runs for a listed event type",
+    "on": {
+      "repository_dispatch": {
+        "types": ["deploy"]
+      }
+    },
+    "event": {
+      "name": "repository_dispatch",
+      "action": "deploy"
+    },
+    "matches": true
+  },
+  {
+    "description": "repository_dispatch with types does not run for another event type",
+    "on": {
+      "repository_dispatch": {
+        "types": ["deploy"]
+      }
+    },
+    "event": {
+      "name": "repository_dispatch",
+      "action": "rollback"
+    },
+    "matches": false
+  },
+  {
+    "description": "repository_dispatch without types runs for every event type",
+    "on": {
+      "repository_dispatch": null
+    },
+    "event": {
+      "name": "repository_dispatch",
+      "action": "rollback"
+    },
+    "matches": true
+  },
+  {
+    "description": "merge_group without types runs for `checks_requested`",
+    "on": {
+      "merge_group": null
+    },
+    "event": {
+      "name": "merge_group",
+      "action": "checks_requested",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "merge_group without types does not run for another type",
+    "on": {
+      "merge_group": null
+    },
+    "event": {
+      "name": "merge_group",
+      "action": "destroyed",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": false
+  }
+]

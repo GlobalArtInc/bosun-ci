@@ -1,0 +1,183 @@
+[
+  {
+    "description": "a tag filter matches a tag push",
+    "on": {
+      "push": {
+        "tags": ["v*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1.2",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "with only a tag filter a branch push does not run",
+    "on": {
+      "push": {
+        "tags": ["v*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "with only a branch filter a tag push does not run",
+    "on": {
+      "push": {
+        "branches": ["main"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "without ref filters a tag push runs",
+    "on": {
+      "push": null
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "without ref filters a branch push runs",
+    "on": {
+      "push": null
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/topic",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "a tag push is not held to the path filter",
+    "on": {
+      "push": {
+        "paths": ["src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1",
+      "changed_files": ["docs/a.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "a branch push is held to the path filter",
+    "on": {
+      "push": {
+        "paths": ["src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a.md"]
+    },
+    "matches": false
+  },
+  {
+    "description": "tags-ignore skips an ignored tag",
+    "on": {
+      "push": {
+        "tags-ignore": ["*-rc*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1-rc1",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "tags-ignore runs for another tag",
+    "on": {
+      "push": {
+        "tags-ignore": ["*-rc*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "with only tags-ignore a branch push does not run",
+    "on": {
+      "push": {
+        "tags-ignore": ["*-rc*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "with both filters a branch push follows branches",
+    "on": {
+      "push": {
+        "branches": ["main"],
+        "tags": ["v*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "with both filters a tag push follows tags",
+    "on": {
+      "push": {
+        "branches": ["main"],
+        "tags": ["v*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "with both filters a tag outside tags does not run",
+    "on": {
+      "push": {
+        "branches": ["main"],
+        "tags": ["v*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/x1",
+      "changed_files": []
+    },
+    "matches": false
+  }
+]

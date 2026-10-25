@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "invalid_type",
+  "message": "`default` of input `replicas` of `workflow_dispatch` must be a number",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 6,
+    "column": 18,
+    "end_line": 6,
+    "end_column": 21
+  },
+  "path": [
+    "on",
+    "workflow_dispatch",
+    "inputs",
+    "replicas",
+    "default"
+  ]
+}

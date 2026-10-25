@@ -1,0 +1,93 @@
+{
+  "name": null,
+  "triggers": [
+    {
+      "pull_request": {
+        "types": [
+          "opened",
+          "synchronize",
+          "reopened",
+          "ready_for_review"
+        ],
+        "branches": {
+          "include": [
+            "main",
+            "release/*"
+          ]
+        },
+        "paths": {
+          "include": [
+            "src/**",
+            "Cargo.lock"
+          ]
+        }
+      }
+    },
+    {
+      "pull_request_target": {
+        "types": [
+          "labeled"
+        ],
+        "branches": {
+          "exclude": [
+            "gh-pages"
+          ]
+        },
+        "paths": {
+          "exclude": [
+            "docs/**"
+          ]
+        }
+      }
+    }
+  ],
+  "env": {},
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "shell"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 14,
+              "column": 9,
+              "end_line": 14,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 11,
+        "column": 3,
+        "end_line": 14,
+        "end_column": 18
+      }
+    }
+  ]
+}

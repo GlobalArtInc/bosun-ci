@@ -2,7 +2,9 @@
   "name": "ci",
   "triggers": [
     {
-      "workflow_dispatch": {}
+      "workflow_dispatch": {
+        "inputs": []
+      }
     }
   ],
   "env": {

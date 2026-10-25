@@ -1,0 +1,198 @@
+[
+  {
+    "description": "`?` makes the character before it optional: absent",
+    "on": {
+      "push": {
+        "paths": ["*.jsx?"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["app.js"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`?` makes the character before it optional: present",
+    "on": {
+      "push": {
+        "paths": ["*.jsx?"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["app.jsx"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`?` allows the character once at most",
+    "on": {
+      "push": {
+        "paths": ["*.jsx?"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["app.jsxx"]
+    },
+    "matches": false
+  },
+  {
+    "description": "`+` repeats a bracket expression",
+    "on": {
+      "push": {
+        "tags": ["v[12].[0-9]+.[0-9]+"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1.10.1",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "a bracket expression lists the characters it accepts",
+    "on": {
+      "push": {
+        "tags": ["v[12].[0-9]+.[0-9]+"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v3.0.0",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "`.` is a literal dot",
+    "on": {
+      "push": {
+        "tags": ["v[12].[0-9]+.[0-9]+"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/tags/v1x10x1",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "a bracket expression with letters",
+    "on": {
+      "push": {
+        "branches": ["[CB]at"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/Bat",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "a bracket expression refuses a letter it does not list",
+    "on": {
+      "push": {
+        "branches": ["[CB]at"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/Rat",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "`**/*src/**` matches a src directory anywhere",
+    "on": {
+      "push": {
+        "paths": ["**/*src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["a/src/app.js"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`**/*src/**` matches a directory ending in src",
+    "on": {
+      "push": {
+        "paths": ["**/*src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["my-src/code/js/app.js"]
+    },
+    "matches": true
+  },
+  {
+    "description": "`**/*src/**` does not match a file named like the directory",
+    "on": {
+      "push": {
+        "paths": ["**/*src/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["src.txt"]
+    },
+    "matches": false
+  },
+  {
+    "description": "`\\` makes the next character literal",
+    "on": {
+      "push": {
+        "paths": ["docs/\\*.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/*.md"]
+    },
+    "matches": true
+  },
+  {
+    "description": "an escaped `*` matches no other name",
+    "on": {
+      "push": {
+        "paths": ["docs/\\*.md"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": ["docs/a.md"]
+    },
+    "matches": false
+  },
+  {
+    "description": "`!` after the start is a literal character",
+    "on": {
+      "push": {
+        "branches": ["wip!"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/wip!",
+      "changed_files": []
+    },
+    "matches": true
+  }
+]

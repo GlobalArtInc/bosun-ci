@@ -1,0 +1,125 @@
+{
+  "name": null,
+  "triggers": [
+    {
+      "workflow_dispatch": {
+        "inputs": [
+          {
+            "name": "target",
+            "description": "Where to deploy",
+            "required": true,
+            "kind": {
+              "environment": {
+                "default": "staging"
+              }
+            }
+          },
+          {
+            "name": "version",
+            "description": "The version to release",
+            "required": false,
+            "kind": {
+              "string": {
+                "default": "3.1"
+              }
+            }
+          },
+          {
+            "name": "dry_run",
+            "description": null,
+            "required": false,
+            "kind": {
+              "boolean": {
+                "default": true
+              }
+            }
+          },
+          {
+            "name": "replicas",
+            "description": null,
+            "required": false,
+            "kind": {
+              "number": {
+                "default": 3.0
+              }
+            }
+          },
+          {
+            "name": "log_level",
+            "description": "How much to log",
+            "required": false,
+            "kind": {
+              "choice": {
+                "options": [
+                  "debug",
+                  "info",
+                  "warn"
+                ],
+                "default": "info"
+              }
+            }
+          },
+          {
+            "name": "notes",
+            "description": null,
+            "required": false,
+            "kind": {
+              "string": {
+                "default": null
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "env": {},
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "shell"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 28,
+              "column": 9,
+              "end_line": 28,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 25,
+        "column": 3,
+        "end_line": 28,
+        "end_column": 18
+      }
+    }
+  ]
+}

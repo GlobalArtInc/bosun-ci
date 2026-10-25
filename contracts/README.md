@@ -20,6 +20,9 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   documented webhook examples, the `payload-examples` of `octokit/webhooks`: `push-branch` is the
   example of a push that creates a branch turned into an ordinary push, `push-tag` the example of a
   tag deletion turned into a tag push, and the produced payloads keep the documented objects.
+- `fixtures/triggers/`: event matching, from step 5 of M1. Each file is a list of cases, each with a
+  `description`, an `on` block written as JSON, an `event` (`name`, `action`, `ref`, `base_ref` and
+  `changed_files`, each optional but the name) and whether it `matches`. `bosun-workflow` runs them.
 - `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from M1.
 - `openapi.json`: the description of the REST API generated from the handlers, from M1.
 

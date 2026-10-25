@@ -1,0 +1,235 @@
+{
+  "name": null,
+  "triggers": [
+    {
+      "generic": {
+        "name": "branch_protection_rule",
+        "types": [
+          "created",
+          "deleted"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "check_run",
+        "types": [
+          "rerequested"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "check_suite",
+        "types": [
+          "completed"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "create",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "delete",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "deployment",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "deployment_status",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "discussion",
+        "types": [
+          "created",
+          "answered"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "discussion_comment",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "fork",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "gollum",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "issue_comment",
+        "types": [
+          "created"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "issues",
+        "types": [
+          "opened",
+          "labeled"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "label",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "milestone",
+        "types": [
+          "closed"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "page_build",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "project",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "project_card",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "project_column",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "public",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "pull_request_review",
+        "types": [
+          "submitted"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "pull_request_review_comment",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "registry_package",
+        "types": [
+          "published"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "release",
+        "types": [
+          "published"
+        ]
+      }
+    },
+    {
+      "generic": {
+        "name": "status",
+        "types": null
+      }
+    },
+    {
+      "generic": {
+        "name": "watch",
+        "types": [
+          "started"
+        ]
+      }
+    }
+  ],
+  "env": {},
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            "shell"
+          ]
+        }
+      },
+      "env": {},
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "env": {},
+            "span": {
+              "line": 43,
+              "column": 9,
+              "end_line": 43,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 40,
+        "column": 3,
+        "end_line": 43,
+        "end_column": 18
+      }
+    }
+  ]
+}

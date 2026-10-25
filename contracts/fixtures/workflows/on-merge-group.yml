@@ -1,0 +1,10 @@
+on:
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

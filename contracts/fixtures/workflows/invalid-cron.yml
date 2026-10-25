@@ -1,0 +1,8 @@
+on:
+  schedule:
+    - cron: '61 * * * *'
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

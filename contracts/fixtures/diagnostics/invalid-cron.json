@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`cron` of entry 1 of `schedule` is `61 * * * *`, which is not a valid cron: `61` is outside the range of the minute, 0-59",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 3,
+    "column": 13,
+    "end_line": 3,
+    "end_column": 25
+  },
+  "path": [
+    "on",
+    "schedule",
+    0,
+    "cron"
+  ]
+}

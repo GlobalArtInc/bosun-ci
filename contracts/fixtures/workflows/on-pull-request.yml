@@ -1,0 +1,14 @@
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, 'release/*']
+    paths: ['src/**', Cargo.lock]
+  pull_request_target:
+    types: labeled
+    branches-ignore: [gh-pages]
+    paths-ignore: ['docs/**']
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

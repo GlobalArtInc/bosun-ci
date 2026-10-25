@@ -1,0 +1,12 @@
+on:
+  push:
+    branches-ignore: ['dependabot/**']
+    tags-ignore: ['*-rc*']
+    paths-ignore:
+      - '**.md'
+      - .github/CODEOWNERS
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

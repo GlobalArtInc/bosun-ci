@@ -2,7 +2,9 @@
   "name": null,
   "triggers": [
     {
-      "workflow_dispatch": {}
+      "workflow_dispatch": {
+        "inputs": []
+      }
     }
   ],
   "env": {},

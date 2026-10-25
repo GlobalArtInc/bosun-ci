@@ -1,0 +1,184 @@
+[
+  {
+    "description": "`*` matches a branch without a slash",
+    "on": {
+      "push": {
+        "branches": ["*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "`*` does not cross `/`",
+    "on": {
+      "push": {
+        "branches": ["*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/feature/login",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "`**` crosses `/`",
+    "on": {
+      "push": {
+        "branches": ["**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/feature/login",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "`feature/*` matches one level below",
+    "on": {
+      "push": {
+        "branches": ["feature/*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/feature/a",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "`feature/*` does not match two levels below",
+    "on": {
+      "push": {
+        "branches": ["feature/*"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/feature/a/b",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "branches-ignore skips an ignored branch",
+    "on": {
+      "push": {
+        "branches-ignore": ["release/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/release/1.0",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "branches-ignore runs for another branch",
+    "on": {
+      "push": {
+        "branches-ignore": ["release/**"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "a branch included by a pattern",
+    "on": {
+      "push": {
+        "branches": ["releases/**", "!releases/**-alpha"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/releases/10",
+      "changed_files": []
+    },
+    "matches": true
+  },
+  {
+    "description": "a branch excluded by a later negation",
+    "on": {
+      "push": {
+        "branches": ["releases/**", "!releases/**-alpha"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/releases/10-alpha",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "branch names match case-sensitively",
+    "on": {
+      "push": {
+        "branches": ["main"]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/Main",
+      "changed_files": []
+    },
+    "matches": false
+  },
+  {
+    "description": "pull_request branches match the base ref",
+    "on": {
+      "pull_request": {
+        "branches": ["main"]
+      }
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "opened",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "pull_request branches skip another base ref",
+    "on": {
+      "pull_request": {
+        "branches": ["main"]
+      }
+    },
+    "event": {
+      "name": "pull_request",
+      "action": "opened",
+      "base_ref": "refs/heads/dev"
+    },
+    "matches": false
+  },
+  {
+    "description": "pull_request_target branches-ignore skips an ignored base ref",
+    "on": {
+      "pull_request_target": {
+        "branches-ignore": ["gh-pages"]
+      }
+    },
+    "event": {
+      "name": "pull_request_target",
+      "action": "opened",
+      "base_ref": "refs/heads/gh-pages"
+    },
+    "matches": false
+  }
+]

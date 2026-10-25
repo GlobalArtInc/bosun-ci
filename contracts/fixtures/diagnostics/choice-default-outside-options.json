@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`default` of input `log_level` of `workflow_dispatch` is `trace`, which is not one of its options",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 18,
+    "end_line": 7,
+    "end_column": 23
+  },
+  "path": [
+    "on",
+    "workflow_dispatch",
+    "inputs",
+    "log_level",
+    "default"
+  ]
+}

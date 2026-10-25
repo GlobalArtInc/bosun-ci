@@ -3,46 +3,46 @@ use std::str::FromStr;
 
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
 use bosun_types::ir::{
-    Action, Evaluable, JobKind, JobTemplate, RunsOn, Shell, Span, Step, Template, Trigger,
-    Workflow, WorkflowDispatch,
+    Action, Evaluable, JobKind, JobTemplate, RunsOn, Shell, Span, Step, Template, Trigger, Workflow,
 };
 use bosun_types::key::{JobKey, StepKey};
 
 use crate::Code;
 use crate::graph::{GraphJob, Need};
-use crate::surface::{EVENTS, JOB, Known, RUNS_ON, STEP, Shape, WORKFLOW, WORKFLOW_DISPATCH};
+use crate::surface::{JOB, Known, RUNS_ON, STEP, Shape, WORKFLOW};
 use crate::yaml::{Node, Value};
 
 pub(crate) struct Lowering<'f> {
     file: &'f str,
     diagnostics: Vec<Diagnostic>,
+    triggers: Option<Vec<Trigger>>,
 }
 
-struct Entry<'n> {
-    name: &'n str,
-    key: &'n Node,
-    value: &'n Node,
-    path: Vec<PathSegment>,
+pub(crate) struct Entry<'n> {
+    pub(crate) name: &'n str,
+    pub(crate) key: &'n Node,
+    pub(crate) value: &'n Node,
+    pub(crate) path: Vec<PathSegment>,
 }
 
-struct Fields<'n> {
-    entries: Vec<Entry<'n>>,
-    complete: bool,
+pub(crate) struct Fields<'n> {
+    pub(crate) entries: Vec<Entry<'n>>,
+    pub(crate) complete: bool,
 }
 
 impl<'n> Fields<'n> {
-    fn get(&self, name: &str) -> Option<&Entry<'n>> {
+    pub(crate) fn get(&self, name: &str) -> Option<&Entry<'n>> {
         self.entries.iter().find(|entry| entry.name == name)
     }
 }
 
-struct Item<'n> {
-    text: String,
-    node: &'n Node,
-    path: Vec<PathSegment>,
+pub(crate) struct Item<'n> {
+    pub(crate) text: String,
+    pub(crate) node: &'n Node,
+    pub(crate) path: Vec<PathSegment>,
 }
 
-fn optional<'n, T>(
+pub(crate) fn optional<'n, T>(
     entry: Option<&Entry<'n>>,
     read: impl FnOnce(&Entry<'n>) -> Option<T>,
 ) -> Option<Option<T>> {
@@ -58,7 +58,7 @@ fn child(path: &[PathSegment], key: &str) -> Vec<PathSegment> {
     path
 }
 
-fn index(path: &[PathSegment], index: usize) -> Vec<PathSegment> {
+pub(crate) fn index(path: &[PathSegment], index: usize) -> Vec<PathSegment> {
     let mut path = path.to_vec();
     path.push(PathSegment::Index(u64::try_from(index).unwrap_or(u64::MAX)));
     path
@@ -73,7 +73,7 @@ fn cover(start: Span, end: Span) -> Span {
     }
 }
 
-fn scalar_text(value: &Value) -> Option<String> {
+pub(crate) fn scalar_text(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => Some(text.clone()),
         Value::Bool(value) => Some(value.to_string()),
@@ -130,6 +130,7 @@ impl<'f> Lowering<'f> {
         Lowering {
             file,
             diagnostics: Vec::new(),
+            triggers: None,
         }
     }
 
@@ -156,7 +157,20 @@ impl<'f> Lowering<'f> {
         }
     }
 
-    fn not_implemented(
+    pub(crate) fn finish_triggers(mut self) -> (Option<Vec<Trigger>>, Vec<Diagnostic>) {
+        self.diagnostics
+            .sort_by_key(|diagnostic| (diagnostic.span.line, diagnostic.span.column));
+        let on = PathSegment::Key("on".to_string());
+        let triggers = self.triggers.filter(|_| {
+            !self
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.path.first() == Some(&on))
+        });
+        (triggers, self.diagnostics)
+    }
+
+    pub(crate) fn not_implemented(
         &mut self,
         noun: &str,
         name: &str,
@@ -173,7 +187,7 @@ impl<'f> Lowering<'f> {
         );
     }
 
-    fn unknown(
+    pub(crate) fn unknown(
         &mut self,
         noun: &str,
         name: &str,
@@ -193,7 +207,7 @@ impl<'f> Lowering<'f> {
         );
     }
 
-    fn entries<'n>(
+    pub(crate) fn entries<'n>(
         &mut self,
         node: &'n Node,
         path: &[PathSegment],
@@ -253,7 +267,7 @@ impl<'f> Lowering<'f> {
         Some(fields)
     }
 
-    fn fields<'n>(
+    pub(crate) fn fields<'n>(
         &mut self,
         node: &'n Node,
         shape: &Shape,
@@ -308,7 +322,12 @@ impl<'f> Lowering<'f> {
         Some(fields)
     }
 
-    fn string(&mut self, node: &Node, path: &[PathSegment], what: &str) -> Option<String> {
+    pub(crate) fn string(
+        &mut self,
+        node: &Node,
+        path: &[PathSegment],
+        what: &str,
+    ) -> Option<String> {
         let text = scalar_text(&node.value);
         if text.is_none() {
             self.error(
@@ -339,7 +358,7 @@ impl<'f> Lowering<'f> {
         self.literal(text, node, path).map(Template::text)
     }
 
-    fn strings<'n>(
+    pub(crate) fn strings<'n>(
         &mut self,
         node: &'n Node,
         path: &[PathSegment],
@@ -426,7 +445,8 @@ impl<'f> Lowering<'f> {
         let name = optional(fields.get("name"), |entry| {
             self.string(entry.value, &entry.path, "`name` of the workflow")
         });
-        let triggers = fields.get("on").and_then(|entry| self.triggers(entry));
+        let triggers = fields.get("on").and_then(|entry| self.on(entry));
+        self.triggers.clone_from(&triggers);
         let env = optional(fields.get("env"), |entry| {
             self.env(entry.value, &entry.path, "the workflow")
         });
@@ -437,99 +457,6 @@ impl<'f> Lowering<'f> {
             env: env?.unwrap_or_default(),
             jobs: jobs?,
         })
-    }
-
-    fn triggers(&mut self, entry: &Entry<'_>) -> Option<Vec<Trigger>> {
-        let mut triggers = Vec::new();
-        let mut complete = true;
-        if let Value::Mapping(_) = entry.value.value {
-            let fields = self.fields(entry.value, &EVENTS, "`on`", &entry.path, entry.key.span)?;
-            complete = fields.complete;
-            for event in &fields.entries {
-                match self.dispatch(event) {
-                    Some(trigger) => triggers.push(trigger),
-                    None => complete = false,
-                }
-            }
-        } else {
-            let mut seen = BTreeSet::new();
-            for item in self.strings(entry.value, &entry.path, "`on`")? {
-                match EVENTS.find(&item.text, &item.node.value) {
-                    Known::Now if !seen.insert(item.text.clone()) => {
-                        complete = false;
-                        self.error(
-                            Code::DuplicateKey,
-                            item.node.span,
-                            &item.path,
-                            format!("event `{}` appears twice in `on`", item.text),
-                        );
-                    }
-                    Known::Now => {
-                        triggers.push(Trigger::WorkflowDispatch(WorkflowDispatch::default()))
-                    }
-                    Known::Later(milestone) => {
-                        complete = false;
-                        self.not_implemented(
-                            "event",
-                            &item.text,
-                            "`on`",
-                            milestone,
-                            item.node.span,
-                            &item.path,
-                        );
-                    }
-                    Known::Unknown(suggestion) => {
-                        complete = false;
-                        self.unknown(
-                            "event",
-                            &item.text,
-                            "`on`",
-                            suggestion,
-                            item.node.span,
-                            &item.path,
-                        );
-                    }
-                }
-            }
-        }
-        if complete && triggers.is_empty() {
-            self.error(
-                Code::InvalidValue,
-                entry.value.span,
-                &entry.path,
-                "`on` names no events".to_string(),
-            );
-            return None;
-        }
-        complete.then_some(triggers)
-    }
-
-    fn dispatch(&mut self, event: &Entry<'_>) -> Option<Trigger> {
-        match event.value.value {
-            Value::Null => {}
-            Value::Mapping(_) => {
-                let fields = self.fields(
-                    event.value,
-                    &WORKFLOW_DISPATCH,
-                    "`workflow_dispatch`",
-                    &event.path,
-                    event.key.span,
-                )?;
-                if !fields.complete {
-                    return None;
-                }
-            }
-            _ => {
-                self.error(
-                    Code::InvalidType,
-                    event.value.span,
-                    &event.path,
-                    "`workflow_dispatch` must be empty or a mapping".to_string(),
-                );
-                return None;
-            }
-        }
-        Some(Trigger::WorkflowDispatch(WorkflowDispatch::default()))
     }
 
     fn jobs(&mut self, entry: &Entry<'_>) -> Option<Vec<JobTemplate>> {

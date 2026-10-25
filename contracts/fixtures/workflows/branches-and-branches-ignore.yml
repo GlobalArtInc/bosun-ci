@@ -1,0 +1,9 @@
+on:
+  push:
+    branches: [main]
+    branches-ignore: ['release/**']
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

@@ -4,7 +4,7 @@ use std::fs;
 use bosun_types::diagnostic::PathSegment;
 use serde_json::Value;
 
-use crate::{invalid, read, repository};
+use crate::{FILE, invalid, read, repository};
 
 fn workflows_document() -> String {
     read(&repository().join("docs/design/02-workflows.md"))
@@ -57,7 +57,7 @@ fn workflow_with(place: &str, key: &str) -> String {
     }
 }
 
-fn arrivals() -> Vec<(String, String, String)> {
+pub(crate) fn arrivals() -> Vec<(String, String, String)> {
     let document = workflows_document();
     let mut arrivals = Vec::new();
     for row in table(&document, "| Where | Keys | From |") {
@@ -78,6 +78,10 @@ fn arrivals() -> Vec<(String, String, String)> {
     arrivals
 }
 
+fn implemented(place: &str, milestone: &str) -> bool {
+    milestone == "M1" && matches!(place, "on" | "workflow_dispatch")
+}
+
 #[test]
 fn keys_of_later_milestones_are_refused_naming_their_milestone() {
     let arrivals = arrivals();
@@ -94,7 +98,21 @@ fn keys_of_later_milestones_are_refused_naming_their_milestone() {
         if milestone == "M0" {
             continue;
         }
-        let diagnostics = invalid(&workflow_with(&place, &key));
+        let source = workflow_with(&place, &key);
+        if implemented(&place, &milestone) {
+            let diagnostics = bosun_workflow::parse(FILE, &source)
+                .err()
+                .unwrap_or_default();
+            assert!(
+                !diagnostics.iter().any(|diagnostic| {
+                    ["not_implemented", "unknown_key"].contains(&diagnostic.code.as_str())
+                        && diagnostic.path.last() == Some(&PathSegment::Key(key.clone()))
+                }),
+                "`{key}` of {place} arrives in {milestone} and should be known: {diagnostics:#?}"
+            );
+            continue;
+        }
+        let diagnostics = invalid(&source);
         let expected = format!("it arrives in {milestone}");
         assert!(
             diagnostics.iter().any(|diagnostic| {

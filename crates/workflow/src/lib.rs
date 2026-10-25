@@ -1,13 +1,19 @@
 pub mod github;
 mod graph;
 mod lower;
+mod matching;
+mod on;
+mod pattern;
+mod schedule;
 mod surface;
 mod yaml;
 
 use bosun_types::diagnostic::Diagnostic;
-use bosun_types::ir::Workflow;
+use bosun_types::ir::{Trigger, Workflow};
 
 use crate::lower::Lowering;
+
+pub use crate::matching::{Event, matches};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Code {
@@ -48,7 +54,7 @@ impl Code {
     }
 }
 
-pub fn parse(file: &str, source: &str) -> Result<Workflow, Vec<Diagnostic>> {
+fn lower<'f>(file: &'f str, source: &str) -> (Lowering<'f>, Option<Workflow>) {
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     let mut lowering = Lowering::new(file);
     let workflow = match yaml::load(source) {
@@ -58,5 +64,15 @@ pub fn parse(file: &str, source: &str) -> Result<Workflow, Vec<Diagnostic>> {
             None
         }
     };
+    (lowering, workflow)
+}
+
+pub fn parse(file: &str, source: &str) -> Result<Workflow, Vec<Diagnostic>> {
+    let (lowering, workflow) = lower(file, source);
     lowering.finish(workflow)
+}
+
+pub fn triggers(file: &str, source: &str) -> (Option<Vec<Trigger>>, Vec<Diagnostic>) {
+    let (lowering, _) = lower(file, source);
+    lowering.finish_triggers()
 }

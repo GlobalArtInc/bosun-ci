@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`timezone` of entry 1 of `schedule` is `Europe/Belgade`, which is not a time zone of the IANA database; did you mean `Europe/Belgrade`?",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 4,
+    "column": 17,
+    "end_line": 4,
+    "end_column": 31
+  },
+  "path": [
+    "on",
+    "schedule",
+    0,
+    "timezone"
+  ]
+}

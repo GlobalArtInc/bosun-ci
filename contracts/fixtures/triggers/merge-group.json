@@ -1,0 +1,58 @@
+[
+  {
+    "description": "merge_group branches match the base ref of the queue",
+    "on": {
+      "merge_group": {
+        "branches": ["main"]
+      }
+    },
+    "event": {
+      "name": "merge_group",
+      "action": "checks_requested",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "merge_group branches skip a queue into another branch",
+    "on": {
+      "merge_group": {
+        "branches": ["main"]
+      }
+    },
+    "event": {
+      "name": "merge_group",
+      "action": "checks_requested",
+      "base_ref": "refs/heads/release"
+    },
+    "matches": false
+  },
+  {
+    "description": "merge_group branches-ignore skips an ignored base ref",
+    "on": {
+      "merge_group": {
+        "branches-ignore": ["release"]
+      }
+    },
+    "event": {
+      "name": "merge_group",
+      "action": "checks_requested",
+      "base_ref": "refs/heads/release"
+    },
+    "matches": false
+  },
+  {
+    "description": "merge_group branches-ignore runs for another base ref",
+    "on": {
+      "merge_group": {
+        "branches-ignore": ["release"]
+      }
+    },
+    "event": {
+      "name": "merge_group",
+      "action": "checks_requested",
+      "base_ref": "refs/heads/main"
+    },
+    "matches": true
+  }
+]
