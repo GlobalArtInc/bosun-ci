@@ -1,0 +1,7 @@
+{
+  "label": "ubuntu-latest",
+  "organisation": null,
+  "pool": "linux",
+  "capability": "shell",
+  "image": null
+}

@@ -28,6 +28,7 @@ pub struct FakeAgent {
     id: AgentId,
     name: String,
     labels: Vec<String>,
+    capabilities: Vec<Capability>,
     credential: String,
 }
 
@@ -72,7 +73,15 @@ impl FakeAgent {
             id: registered.agent_id,
             name: name.to_owned(),
             labels,
+            capabilities: vec![Capability::Shell],
             credential: registered.credential,
+        }
+    }
+
+    pub fn with_capabilities(&self, capabilities: &[Capability]) -> FakeAgent {
+        FakeAgent {
+            capabilities: capabilities.to_vec(),
+            ..self.clone()
         }
     }
 
@@ -95,7 +104,11 @@ impl FakeAgent {
         Hello {
             version: VERSION.to_owned(),
             protocol: PROTOCOL.to_owned(),
-            capabilities: vec![Capability::Shell.into()],
+            capabilities: self
+                .capabilities
+                .iter()
+                .map(|capability| (*capability).into())
+                .collect(),
             labels: self.labels.clone(),
             os: "Linux".to_owned(),
             arch: "X64".to_owned(),

@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment step-outputs journal-replay project-settings interface"
+scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -437,7 +437,7 @@ EOF
   done
   sleep 3
   cli --profile a --json agent list >"$work/out/labels-agents.json" || fail "bosun agent list failed"
-  idle='[.[] | select(.online and .execution_id == null)] | length'
+  idle='[.[] | select(.online and .execution_id == null and (.name == "e2e-alpha" or .name == "e2e-beta"))] | length'
   [ "$(jq "$idle" "$work/out/labels-agents.json")" -eq 2 ] ||
     fail "an agent took the job no agent's labels satisfy: $(cat "$work/out/labels-agents.json")"
   state="$(api GET "/api/v1/jobs/$both" | jq -r '.status + " " + (.execution_id // "none")')"
@@ -661,6 +661,54 @@ scenario_project_settings() {
   fi
   expect_line "$refused" "error: the settings are not valid" "the refusal did not say why"
   grep -q '^  fork_policy: ' "$refused" || fail "the refusal does not name fork_policy: $(cat "$refused")"
+  passed
+}
+
+scenario_pools() {
+  begin pools \
+    "bosun pool create, bosun pool list and bosun alias set send ubuntu-latest to the agent of a new pool"
+  local token deadline
+  cli --profile a pool create e2e-gamma --project e2e/m0 >"$work/out/pool-create.txt" 2>&1 ||
+    fail "bosun pool create failed: $(cat "$work/out/pool-create.txt")"
+  grep -qE '^created the trusted pool e2e-gamma [0-9a-f-]+, open to e2e/m0$' "$work/out/pool-create.txt" ||
+    fail "bosun pool create printed: $(cat "$work/out/pool-create.txt")"
+  cli --profile b pool list >"$work/out/pool-list.txt" 2>&1 ||
+    fail "bosun pool list failed: $(cat "$work/out/pool-list.txt")"
+  grep -qE '^default +trusted +all projects +[0-9a-f-]+$' "$work/out/pool-list.txt" ||
+    fail "bosun pool list does not show the pool default open to all projects: $(cat "$work/out/pool-list.txt")"
+  grep -qE '^e2e-gamma +trusted +e2e/m0 +[0-9a-f-]+$' "$work/out/pool-list.txt" ||
+    fail "bosun pool list does not show the new pool: $(cat "$work/out/pool-list.txt")"
+  token="$(cli --profile a --json pool token create e2e-gamma | jq -r .token)" ||
+    fail "bosun pool token create e2e-gamma failed"
+  "$bin/bosun-agent" register --config "$work/agents/gamma.toml" --url "http://$address_a" \
+    --token "$token" --name e2e-gamma --dir "$work/agents/gamma" >"$work/logs/register-gamma.log" 2>&1 ||
+    fail "bosun-agent register of gamma failed: $(cat "$work/logs/register-gamma.log")"
+  spawn agent-gamma "$work/logs/agent-gamma.log" "$bin/bosun-agent" run --config "$work/agents/gamma.toml"
+  deadline=$((SECONDS + 60))
+  until [ "$(cli --profile a --json agent list | jq '[.[] | select(.name == "e2e-gamma" and .online)] | length')" -eq 1 ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the agent of e2e-gamma did not come online"
+    sleep 0.2
+  done
+  cli --profile a alias set ubuntu-latest --pool e2e-gamma >"$work/out/alias.txt" 2>&1 ||
+    fail "bosun alias set failed: $(cat "$work/out/alias.txt")"
+  expect_line "$work/out/alias.txt" \
+    "the label ubuntu-latest of the installation goes to the pool e2e-gamma with either capability" \
+    "bosun alias set did not print the alias"
+  push hosted <<'EOF'
+name: hosted
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "workspace $GITHUB_WORKSPACE"
+EOF
+  watch a hosted
+  watch_ended 60 hosted
+  [ "$reaped" -eq 0 ] ||
+    fail "bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
+  grep -qE "^build \| workspace $work/agents/gamma/" "$watched" ||
+    fail "the job of ubuntu-latest did not run on the agent of the pool e2e-gamma: $(cat "$watched")"
   passed
 }
 

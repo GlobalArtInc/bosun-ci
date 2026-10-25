@@ -1,0 +1,10 @@
+{
+  "id": "0192f3a4-5b6c-7d8e-9f01-000000000017",
+  "label": "ubuntu-latest",
+  "organisation_id": "0192f3a4-5b6c-7d8e-9f01-000000000001",
+  "pool_id": "0192f3a4-5b6c-7d8e-9f01-00000000000d",
+  "capability": "podman",
+  "image": "docker.io/library/ubuntu:24.04",
+  "created_at": "2026-10-24T18:34:50.078Z",
+  "updated_at": "2026-10-25T09:12:03.441Z"
+}

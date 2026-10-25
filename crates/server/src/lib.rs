@@ -1,6 +1,7 @@
 mod access;
 mod address;
 mod agents;
+mod aliases;
 mod auth;
 mod check;
 mod clock;
@@ -22,6 +23,7 @@ mod organisations;
 mod owner;
 mod password;
 mod planner;
+mod pools;
 mod projects;
 mod queue;
 mod reply;
@@ -196,6 +198,8 @@ fn api() -> openapi::Api {
         .merge(runs::routes())
         .merge(logs::routes())
         .merge(agents::routes())
+        .merge(pools::routes())
+        .merge(aliases::routes())
 }
 
 fn app(

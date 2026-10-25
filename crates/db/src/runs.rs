@@ -7,7 +7,9 @@ use bosun_types::diagnostic::Diagnostic;
 use bosun_types::event::{
     AttemptCreated, Event, JobCreated, RunCreated, RunEvent, RunStatusChanged,
 };
-use bosun_types::id::{AgentId, AttemptId, ExecutionId, JobId, RevisionId, RunId, StepId};
+use bosun_types::id::{
+    AgentId, AttemptId, ExecutionId, JobId, OrganisationId, ProjectId, RevisionId, RunId, StepId,
+};
 use bosun_types::ir::{self, Shell, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{
@@ -111,6 +113,8 @@ pub struct RunFacts {
     pub workflow: String,
     pub organisation: String,
     pub project: String,
+    pub organisation_id: OrganisationId,
+    pub project_id: ProjectId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,6 +266,7 @@ impl<'a> Locked<'a> {
             .query_one(statement(
                 "SELECT r.number, r.global_number, r.event, r.trigger, r.inputs, \
                  w.name AS workflow, o.slug AS organisation, p.slug AS project, \
+                 o.id AS organisation_id, p.id AS project_id, \
                  a.actor AS triggering_actor FROM run r \
                  JOIN workflow w ON w.id = r.workflow_id JOIN project p ON p.id = r.project_id \
                  JOIN organisation o ON o.id = p.organisation_id JOIN attempt a ON a.id = $2 \
@@ -294,6 +299,8 @@ impl<'a> Locked<'a> {
             workflow: found.try_get("", "workflow")?,
             organisation: found.try_get("", "organisation")?,
             project: found.try_get("", "project")?,
+            organisation_id: row::id("organisation", found.try_get("", "organisation_id")?)?,
+            project_id: row::id("project", found.try_get("", "project_id")?)?,
         })
     }
 
@@ -521,6 +528,7 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         started_at: ActiveValue::Set(None),
         completed_at: ActiveValue::Set(None),
         cancel_requested_at: ActiveValue::Set(None),
+        trusted: ActiveValue::Set(true),
     }
     .insert(db)
     .await?;

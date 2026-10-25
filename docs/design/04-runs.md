@@ -270,8 +270,9 @@ has no `continue-on-error`, so it fails the run.
 
 The scheduler matches queued jobs to idle agents. A job may go to an agent when the agent's pool
 allows the job's project and trust level ([08-access.md](08-access.md)), when the agent's labels
-include every label of `runs-on` (case-insensitively), and when the agent has the executor the job
-needs (`podman` for `container`, `services` and container actions).
+include every label of `runs-on` (case-insensitively) that no label alias replaced, and when the
+agent has the executor the job needs (`podman` for `container`, `services` and container actions,
+and the capability its label aliases name, [05-execution.md](05-execution.md#pools-and-label-aliases)).
 
 Among the jobs an idle agent may take, it gets the first in this order: higher `priority` first;
 then the project with the lowest ratio of running jobs to its weight (default weight 1), so one

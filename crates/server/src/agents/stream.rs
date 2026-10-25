@@ -9,7 +9,7 @@ use bosun_proto::agent::v1::{
     ASSIGNMENT_REVISION, AgentMessage, Capability as Offered, Conclusion as Reported, Hello, Log,
     LogAck, ServerMessage, Settings, Welcome,
 };
-use bosun_types::api::{self, Capability};
+use bosun_types::api::{self, Capability, TrustLevel};
 use bosun_types::id::ExecutionId;
 use bosun_types::status::Conclusion;
 use chrono::{DateTime, Utc};
@@ -33,6 +33,8 @@ use crate::queue::Dispatcher;
 use crate::token::{AGENT, Token};
 
 const AUTOMATIC: &str = "self-hosted";
+
+const SHELL: &str = "shell";
 
 enum Ending {
     Breach(String),
@@ -142,6 +144,24 @@ impl Agent for Connector {
                 "`{label}` is not a label: {LABEL_RULE}"
             )));
         }
+        let pool = bosun_db::pools::find(&self.db, agent.pool_id)
+            .await
+            .map_err(|failure| {
+                error!(agent_id = %agent.id, error = %failure, "the pool of an agent could not be read");
+                Status::internal("the pool of the agent could not be read")
+            })?
+            .ok_or_else(|| Status::internal("the agent belongs to no pool"))?;
+        if pool.trust == TrustLevel::Untrusted && announces_shell(&hello) {
+            warn!(
+                agent_id = %agent.id,
+                name = agent.name,
+                pool = pool.name,
+                "the agent announced shell in an untrusted pool, whose agents hold podman only, \
+                 so the server dropped the capability and its label"
+            );
+        }
+        let capabilities = capabilities(&hello, pool.trust);
+        let labels = labels(&hello, &capabilities, pool.trust);
         let (outbound, receiver) = mpsc::unbounded_channel();
         let _ = outbound.send(Ok(self.welcome(&agent)));
         let number = self.replica.attach(agent.id, outbound.clone());
@@ -151,8 +171,8 @@ impl Agent for Connector {
             Connection {
                 replica_id: self.replica.id(),
                 version: hello.version.clone(),
-                labels: labels(&hello),
-                capabilities: capabilities(&hello),
+                labels,
+                capabilities,
             },
         )
         .await;
@@ -534,10 +554,21 @@ fn running(hello: &Hello) -> Result<Vec<ExecutionId>, Status> {
         .collect()
 }
 
-fn capabilities(hello: &Hello) -> Vec<Capability> {
+fn announces_shell(hello: &Hello) -> bool {
+    hello
+        .capabilities()
+        .any(|offered| offered == Offered::Shell)
+        || hello
+            .labels
+            .iter()
+            .any(|label| label.to_lowercase() == SHELL)
+}
+
+fn capabilities(hello: &Hello, trust: TrustLevel) -> Vec<Capability> {
     let mut capabilities = Vec::new();
     for offered in hello.capabilities() {
         let capability = match offered {
+            Offered::Shell if trust == TrustLevel::Untrusted => continue,
             Offered::Shell => Capability::Shell,
             Offered::Podman => Capability::Podman,
             Offered::Unspecified => continue,
@@ -549,10 +580,9 @@ fn capabilities(hello: &Hello) -> Vec<Capability> {
     capabilities
 }
 
-fn labels(hello: &Hello) -> Vec<String> {
-    let capabilities = capabilities(hello);
+fn labels(hello: &Hello, capabilities: &[Capability], trust: TrustLevel) -> Vec<String> {
     let names = capabilities.iter().map(|capability| match capability {
-        Capability::Shell => "shell",
+        Capability::Shell => SHELL,
         Capability::Podman => "podman",
     });
     let mut labels = Vec::new();
@@ -562,7 +592,8 @@ fn labels(hello: &Hello) -> Vec<String> {
         .chain(hello.labels.iter().map(String::as_str))
     {
         let label = label.to_lowercase();
-        if !label.is_empty() && !labels.contains(&label) {
+        let dropped = trust == TrustLevel::Untrusted && label == SHELL;
+        if !label.is_empty() && !dropped && !labels.contains(&label) {
             labels.push(label);
         }
     }

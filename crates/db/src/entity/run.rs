@@ -27,6 +27,7 @@ pub struct Model {
     pub started_at: Option<DateTimeUtc>,
     pub completed_at: Option<DateTimeUtc>,
     pub cancel_requested_at: Option<DateTimeUtc>,
+    pub trusted: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

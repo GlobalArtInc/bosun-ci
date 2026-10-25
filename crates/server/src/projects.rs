@@ -121,12 +121,32 @@ impl ProjectPath {
                 format!("{organisation}/{project}"),
             ),
         };
-        let missing =
-            || ApiError::new(ErrorCode::NotFound, format!("there is no project `{name}`"));
+        let missing = || ApiError::new(ErrorCode::NotFound, missing(&name));
         let project = found.map_err(database)?.ok_or_else(missing)?;
         caller.project(&project, missing)?;
         Ok(project)
     }
+}
+
+pub(crate) async fn find<C: ConnectionTrait>(
+    db: &C,
+    reference: &str,
+) -> Result<Option<Project>, ApiError> {
+    if let Ok(id) = reference.parse::<ProjectId>() {
+        return bosun_db::projects::find(db, id).await.map_err(database);
+    }
+    match reference.split_once('/') {
+        Some((organisation, project)) => {
+            bosun_db::projects::find_by_slugs(db, organisation, project)
+                .await
+                .map_err(database)
+        }
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn missing(reference: &str) -> String {
+    format!("there is no project `{reference}`")
 }
 
 async fn list(

@@ -6,7 +6,7 @@ use bosun_types::event::{
     Event, ExecutionCreated, ExecutionStatusChanged, JobCreated, JobStatusChanged, StepCreated,
     StepStatusChanged,
 };
-use bosun_types::id::{AgentId, ExecutionId, JobId, PoolId, StepId};
+use bosun_types::id::{AgentId, ExecutionId, JobId, StepId};
 use bosun_types::ir::{self, Action, JobKind, Segment, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{
@@ -17,6 +17,7 @@ use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait};
 
 use crate::entity::job as entity;
+use crate::pools::Placement;
 use crate::row::statement;
 use crate::runs::{Evaluated, JobState, Locked, NewMember, StepEnd, Strategy, refuse};
 use crate::{Error, queue, row};
@@ -119,24 +120,18 @@ impl Locked<'_> {
         Ok(())
     }
 
-    pub async fn queue_job(
-        &self,
-        job: JobId,
-        labels: &[String],
-        pools: &[PoolId],
-    ) -> Result<(), Error> {
-        self.place(job, labels, pools, None).await?;
+    pub async fn queue_job(&self, job: JobId, placement: &Placement) -> Result<(), Error> {
+        self.place(job, placement, None).await?;
         queue::announce(self.transaction(), job).await
     }
 
     pub async fn hold_job(
         &self,
         job: JobId,
-        labels: &[String],
-        pools: &[PoolId],
+        placement: &Placement,
         reason: WaitingReason,
     ) -> Result<(), Error> {
-        self.place(job, labels, pools, Some(reason)).await
+        self.place(job, placement, Some(reason)).await
     }
 
     pub async fn release_job(&self, job: JobId) -> Result<(), Error> {
@@ -191,8 +186,7 @@ impl Locked<'_> {
     async fn place(
         &self,
         job: JobId,
-        labels: &[String],
-        pools: &[PoolId],
+        placement: &Placement,
         waiting: Option<WaitingReason>,
     ) -> Result<(), Error> {
         let to = match waiting {
@@ -203,18 +197,23 @@ impl Locked<'_> {
         if !from.can_transition(to) {
             return Err(refuse("job", job, from, to));
         }
-        let mut lowered: Vec<String> = Vec::with_capacity(labels.len());
-        for label in labels {
+        let mut lowered: Vec<String> = Vec::with_capacity(placement.labels.len());
+        for label in &placement.labels {
             let label = label.to_lowercase();
             if !lowered.contains(&label) {
                 lowered.push(label);
             }
         }
-        let pools: Vec<Uuid> = pools.iter().copied().map(Uuid::from).collect();
+        let pools: Vec<Uuid> = placement.pools.iter().copied().map(Uuid::from).collect();
+        let capabilities = placement
+            .capabilities
+            .iter()
+            .map(|capability| row::text(JOBS, capability))
+            .collect::<Result<Vec<String>, Error>>()?;
         self.transaction()
             .execute(statement(
                 "UPDATE job SET status = $2, waiting_reason = $3, labels = $4, pool_ids = $5, \
-                 queued_at = CASE WHEN $3 IS NULL THEN now() END WHERE id = $1",
+                 capabilities = $6, queued_at = CASE WHEN $3 IS NULL THEN now() END WHERE id = $1",
                 [
                     Uuid::from(job).into(),
                     row::text(JOBS, to)?.into(),
@@ -224,6 +223,7 @@ impl Locked<'_> {
                         .into(),
                     lowered.into(),
                     pools.into(),
+                    capabilities.into(),
                 ],
             ))
             .await?;

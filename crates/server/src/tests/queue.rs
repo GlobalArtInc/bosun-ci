@@ -3,16 +3,17 @@ use std::time::Duration;
 
 use bosun_db::agents::{Connection, NewAgent, NewRegistrationToken, Registration};
 use bosun_db::notify::{Listener, Notification};
+use bosun_db::pools::{Access, NewPool};
 use bosun_db::queue::{Claim, Claimed, ClaimedJob};
 use bosun_db::runs::Evaluated as Stored;
 use bosun_proto::agent::v1::Assignment;
 use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::assignment::{Documents, Evaluated};
 use bosun_types::actor::Actor;
-use bosun_types::api::Capability;
+use bosun_types::api::{Capability, TrustLevel};
 use bosun_types::diagnostic::{PathSegment, Severity};
 use bosun_types::event::{Event, JobStatusChanged, RunEvent};
-use bosun_types::id::{AgentId, JobId};
+use bosun_types::id::{AgentId, JobId, PoolId};
 use bosun_types::ir::{
     self, Action, ActionReference, Evaluable, JobKind, JobTemplate, RunsOn, Template,
 };
@@ -43,15 +44,26 @@ fn runs_on(mut job: JobTemplate, group: Option<&str>, labels: &[&str]) -> JobTem
 }
 
 async fn connected(world: &World, name: &str, labels: &[&str], replica: Uuid) -> Reporter {
-    let db = world.db();
-    let pool = bosun_db::pools::default_pool(db)
+    let pool = bosun_db::pools::default_pool(world.db())
         .await
         .expect("the default pool");
+    connected_in(world, pool.id, name, labels, &[Capability::Shell], replica).await
+}
+
+async fn connected_in(
+    world: &World,
+    pool: PoolId,
+    name: &str,
+    labels: &[&str],
+    capabilities: &[Capability],
+    replica: Uuid,
+) -> Reporter {
+    let db = world.db();
     let sha256 = Uuid::now_v7().as_bytes().repeat(2);
     bosun_db::agents::create_registration_token(
         db,
         NewRegistrationToken {
-            pool_id: pool.id,
+            pool_id: pool,
             sha256: sha256.clone(),
             reusable: false,
             expires_at: Utc::now() + TimeDelta::hours(1),
@@ -81,7 +93,7 @@ async fn connected(world: &World, name: &str, labels: &[&str], replica: Uuid) ->
             replica_id: replica,
             version: "0.1.0".to_owned(),
             labels: labels.iter().map(|label| (*label).to_owned()).collect(),
-            capabilities: vec![Capability::Shell],
+            capabilities: capabilities.to_vec(),
         },
     )
     .await
@@ -956,4 +968,223 @@ async fn a_job_that_becomes_queued_is_announced_on_the_queue_channel() {
         .expect("a notification")
         .expect("a notification without a reconnect");
     assert_eq!(heard, Notification::Queued(build));
+}
+
+async fn pool(world: &World, name: &str, trust: TrustLevel, access: &[Access]) -> PoolId {
+    bosun_db::pools::create(
+        world.db(),
+        NewPool {
+            name,
+            trust,
+            access,
+        },
+    )
+    .await
+    .expect("a pool")
+    .id
+}
+
+async fn execute(db: &DatabaseConnection, sql: &str) {
+    db.execute_unprepared(sql)
+        .await
+        .unwrap_or_else(|error| panic!("{sql}: {error}"));
+}
+
+#[tokio::test]
+async fn the_claim_checks_the_access_list_of_the_agents_pool_whatever_the_job_lists() {
+    let world = World::new().await;
+    let db = world.db();
+    let replica = Uuid::now_v7();
+    let project = bosun_db::projects::find(db, world.workflow.project_id)
+        .await
+        .expect("a project")
+        .expect("the project of the world");
+    let other = bosun_db::projects::create(db, project.organisation_id, "other", "Other")
+        .await
+        .expect("another project");
+    let narrow = pool(
+        &world,
+        "narrow",
+        TrustLevel::Trusted,
+        &[Access::Project(other.organisation_id, other.id)],
+    )
+    .await;
+    let agent = connected_in(
+        &world,
+        narrow,
+        "runner9-1",
+        &LABELS,
+        &[Capability::Shell],
+        replica,
+    )
+    .await;
+    let run = world
+        .dispatch(&workflow(vec![template("build", &[], 1)]))
+        .await;
+    let (build, _) = world.project(run).await.job("build");
+    execute(
+        db,
+        &format!(
+            "UPDATE bosun.job SET pool_ids = pool_ids || '{narrow}'::uuid WHERE id = '{build}'"
+        ),
+    )
+    .await;
+    assert_eq!(
+        claim(db, agent.id, replica, LEASE, &[]).await,
+        None,
+        "a pool closed to the project took its job"
+    );
+    execute(
+        db,
+        &format!(
+            "INSERT INTO bosun.pool_access (id, pool_id, organisation_id) \
+             VALUES ('{}', '{narrow}', '{}')",
+            Uuid::now_v7(),
+            project.organisation_id
+        ),
+    )
+    .await;
+    let claimed = claim(db, agent.id, replica, LEASE, &[])
+        .await
+        .expect("the job of a project of an organisation the pool is open to");
+    assert_eq!(claimed.job_id, build);
+}
+
+#[tokio::test]
+async fn the_claim_offers_a_job_only_to_an_agent_that_holds_the_capabilities_it_needs() {
+    let world = World::new().await;
+    let db = world.db();
+    let replica = Uuid::now_v7();
+    let default = bosun_db::pools::default_pool(db)
+        .await
+        .expect("the default pool")
+        .id;
+    let run = world
+        .dispatch(&workflow(vec![
+            runs_on(template("container", &[], 1), None, &["self-hosted"]),
+            runs_on(template("anything", &[], 1), None, &["self-hosted"]),
+        ]))
+        .await;
+    let projection = world.project(run).await;
+    let (container, _) = projection.job("container");
+    let (anything, _) = projection.job("anything");
+    execute(
+        db,
+        &format!("UPDATE bosun.job SET capabilities = '{{podman}}' WHERE id = '{container}'"),
+    )
+    .await;
+    let bare = connected_in(&world, default, "runner0-1", &LABELS, &[], replica).await;
+    assert_eq!(
+        claim(db, bare.id, replica, LEASE, &[]).await,
+        None,
+        "an agent without a capability took a job"
+    );
+    let host = connected_in(
+        &world,
+        default,
+        "runner1-1",
+        &LABELS,
+        &[Capability::Shell],
+        replica,
+    )
+    .await;
+    let taken = claim(db, host.id, replica, LEASE, &[])
+        .await
+        .expect("the job that needs either capability");
+    assert_eq!(taken.job_id, anything);
+    let other = connected_in(
+        &world,
+        default,
+        "runner2-1",
+        &LABELS,
+        &[Capability::Shell],
+        replica,
+    )
+    .await;
+    assert_eq!(
+        claim(db, other.id, replica, LEASE, &[]).await,
+        None,
+        "an agent without podman took the job that needs it"
+    );
+    let both = connected_in(
+        &world,
+        default,
+        "runner3-1",
+        &LABELS,
+        &[Capability::Shell, Capability::Podman],
+        replica,
+    )
+    .await;
+    let taken = claim(db, both.id, replica, LEASE, &[])
+        .await
+        .expect("the job that needs podman");
+    assert_eq!(taken.job_id, container);
+}
+
+#[tokio::test]
+async fn the_claim_keeps_the_jobs_of_trusted_and_untrusted_runs_to_pools_of_their_trust() {
+    let world = World::new().await;
+    let db = world.db();
+    let replica = Uuid::now_v7();
+    let forks = pool(
+        &world,
+        "forks",
+        TrustLevel::Untrusted,
+        &[Access::AllProjects],
+    )
+    .await;
+    let trusted_run = world
+        .dispatch(&workflow(vec![template("build", &[], 1)]))
+        .await;
+    let untrusted_run = world
+        .dispatch(&workflow(vec![template("build", &[], 1)]))
+        .await;
+    execute(
+        db,
+        &format!("UPDATE bosun.run SET trusted = false WHERE id = '{untrusted_run}'"),
+    )
+    .await;
+    let (trusted_job, _) = world.project(trusted_run).await.job("build");
+    let (untrusted_job, _) = world.project(untrusted_run).await.job("build");
+    execute(
+        db,
+        &format!("UPDATE bosun.job SET pool_ids = pool_ids || '{forks}'::uuid"),
+    )
+    .await;
+    let outside = connected_in(
+        &world,
+        forks,
+        "runner2-1",
+        &LABELS,
+        &[Capability::Podman],
+        replica,
+    )
+    .await;
+    let taken = claim(db, outside.id, replica, LEASE, &[])
+        .await
+        .expect("the job of the untrusted run");
+    assert_eq!(taken.job_id, untrusted_job);
+    let more = world
+        .dispatch(&workflow(vec![template("build", &[], 1)]))
+        .await;
+    execute(
+        db,
+        &format!(
+            "UPDATE bosun.run SET trusted = false WHERE id = '{more}'; \
+             UPDATE bosun.job SET pool_ids = pool_ids || '{forks}'::uuid \
+             WHERE NOT ('{forks}' = ANY (pool_ids))"
+        ),
+    )
+    .await;
+    let inside = connected(&world, "runner1-1", &LABELS, replica).await;
+    let taken = claim(db, inside.id, replica, LEASE, &[])
+        .await
+        .expect("the job of the trusted run");
+    assert_eq!(taken.job_id, trusted_job);
+    let again = connected(&world, "runner1-2", &LABELS, replica).await;
+    assert_eq!(
+        claim(db, again.id, replica, LEASE, &[]).await,
+        None,
+        "a trusted pool took the job of an untrusted run"
+    );
 }

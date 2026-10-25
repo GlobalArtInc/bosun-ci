@@ -339,6 +339,25 @@
         ],
         "type": "object"
       },
+      "CreatePoolRequest": {
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/PoolAccessRequest"
+          },
+          "name": {
+            "type": "string"
+          },
+          "trust": {
+            "$ref": "#/components/schemas/TrustLevel"
+          }
+        },
+        "required": [
+          "name",
+          "trust",
+          "access"
+        ],
+        "type": "object"
+      },
       "CreateProjectRequest": {
         "properties": {
           "name": {
@@ -902,6 +921,66 @@
         ],
         "type": "object"
       },
+      "LabelAlias": {
+        "properties": {
+          "capability": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Capability"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pool_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "organisation_id",
+          "pool_id",
+          "capability",
+          "image",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "LogEnd": {
         "properties": {
           "lines": {
@@ -1134,6 +1213,122 @@
           "installation",
           "organisations",
           "projects"
+        ],
+        "type": "object"
+      },
+      "Pool": {
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/PoolAccess"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "trust": {
+            "$ref": "#/components/schemas/TrustLevel"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "trust",
+          "access",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PoolAccess": {
+        "properties": {
+          "all_projects": {
+            "type": "boolean"
+          },
+          "organisations": {
+            "items": {
+              "$ref": "#/components/schemas/PoolOrganisation"
+            },
+            "type": "array"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/PoolProject"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "all_projects",
+          "organisations",
+          "projects"
+        ],
+        "type": "object"
+      },
+      "PoolAccessRequest": {
+        "properties": {
+          "all_projects": {
+            "type": "boolean"
+          },
+          "organisations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "all_projects",
+          "organisations",
+          "projects"
+        ],
+        "type": "object"
+      },
+      "PoolOrganisation": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug"
+        ],
+        "type": "object"
+      },
+      "PoolProject": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organisation_id",
+          "path"
         ],
         "type": "object"
       },
@@ -1799,6 +1994,49 @@
         ],
         "type": "object"
       },
+      "SetLabelAliasRequest": {
+        "properties": {
+          "capability": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Capability"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "organisation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "label",
+          "organisation",
+          "pool",
+          "capability",
+          "image"
+        ],
+        "type": "object"
+      },
       "Severity": {
         "enum": [
           "error",
@@ -2082,6 +2320,13 @@
           "step"
         ],
         "type": "object"
+      },
+      "TrustLevel": {
+        "enum": [
+          "trusted",
+          "untrusted"
+        ],
+        "type": "string"
       },
       "UpdateSourceRequest": {
         "properties": {
@@ -2606,6 +2851,100 @@
         }
       }
     },
+    "/api/v1/label-aliases": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/LabelAlias"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "agent.manage",
+          "on": "installation"
+        }
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetLabelAliasRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelAlias"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelAlias"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "agent.manage",
+          "on": "installation"
+        }
+      }
+    },
     "/api/v1/me": {
       "get": {
         "responses": {
@@ -2706,6 +3045,95 @@
         "x-bosun-permission": {
           "key": "project.view",
           "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/pools": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Pool"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "agent.manage",
+          "on": "installation"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePoolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pool"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "agent.manage",
+          "on": "installation"
         }
       }
     },

@@ -1,4 +1,5 @@
 mod agent;
+mod alias;
 mod client;
 mod config;
 mod follow;
@@ -57,8 +58,16 @@ enum Command {
     Job(job::Command),
     #[command(subcommand, about = "List agents")]
     Agent(agent::Command),
-    #[command(subcommand, about = "Create registration tokens of pools")]
+    #[command(
+        subcommand,
+        about = "List and create pools and their registration tokens"
+    )]
     Pool(pool::Command),
+    #[command(
+        subcommand,
+        about = "Map labels of runs-on to pools, capabilities and images"
+    )]
+    Alias(alias::Command),
 }
 
 pub(crate) struct Context {
@@ -92,6 +101,7 @@ async fn main() -> ExitCode {
         Command::Job(command) => job::run(&context, command).await,
         Command::Agent(command) => agent::run(&context, command).await,
         Command::Pool(command) => pool::run(&context, command).await,
+        Command::Alias(command) => alias::run(&context, command).await,
     };
     match outcome {
         Ok(code) => code,

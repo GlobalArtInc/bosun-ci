@@ -32,6 +32,54 @@ every project.
 An agent started with `--ephemeral` takes exactly one job and then unregisters and exits. This is
 the building block for executors that provide a fresh machine per job ([10-plugins.md](10-plugins.md)).
 
+## Pools and label aliases
+
+Step 18 of M1 ([../plan.md](../plan.md)) settled the parts of pools that M1 uses, their name, trust
+level and access list, and the label aliases; the endpoints are in
+[11-api.md](11-api.md#pools-and-label-aliases).
+
+**Access lists.** A pool's access list is its rows of `pool_access`. A row opens the pool to one
+project, to every project of one organisation, or, naming neither, to every project of the
+installation, which is the row the migrations give the pool `default`. A pool is created with at
+least one row. When the planner evaluates `runs-on`, it writes into the job's `pool_ids` only the
+pools open to the job's project ([07-storage.md](07-storage.md#tables)), and the claim checks the
+access list of the agent's pool again ([07-storage.md](07-storage.md#the-queue)), so an access list
+that is narrowed later keeps the queued jobs of a project it no longer admits from that pool's
+agents at once.
+
+**Trust.** A run is trusted or not (`run.trusted`); every run is trusted until step 29 of
+[../plan.md](../plan.md) marks the runs from forks. The claim matches the trust of a job's run with
+the trust level of the agent's pool in both directions, whatever the labels say: a job of a trusted
+run, which carries secrets, never reaches an untrusted pool, and a job of an untrusted run never
+reaches a trusted one ([08-access.md](08-access.md#code-from-outside-the-team)).
+
+**Capabilities.** A job needs the capabilities its label aliases name, stored in the job's
+`capabilities`. The claim offers a job only to an agent that holds each of them, and a job that
+needs none to an agent that holds either; an agent that holds no capability is offered no job.
+
+**The `shell` of an untrusted pool.** An agent of an untrusted pool never holds `shell`. When its
+`Hello` announces the capability, or the label `shell` among its configured labels, the server drops
+both, records the agent without them, and logs a warning that names the agent and its pool, so the
+agent is offered no job that needs `shell`, whether by an alias or by the label. In M1 the agent has
+no `podman` yet ([../plan.md](../plan.md)), so only scripted fake agents claim from an untrusted
+pool.
+
+**Label aliases** are rows of `label_alias`: a label, stored lowercased, and either an organisation
+or none for the installation, each pair once, with an optional pool, capability and default image.
+An image makes the capability `podman`. When the planner evaluates `runs-on`
+([04-runs.md](04-runs.md#planning)), it looks each label up among the aliases of the job's
+organisation and of the installation, and the organisation's alias wins. An aliased label leaves the
+job's labels; the alias's pool, when it names one, restricts the job's pools to that pool, and its
+capability joins the job's capabilities. With several aliased labels the job may run only in a pool
+that every one of them names and needs every capability they name, so aliases that name two pools,
+or a pool that `runs-on.group` does not name or that is not open to the project, leave the job no
+pool, and it is cancelled with `no_agent` after `max_queue_time` like a label no agent offers. An
+alias that names no pool and no capability only removes its label, so `ubuntu-latest` can mean any
+agent. Aliases are read once, when the job becomes ready; changing an alias does not move jobs that
+are already queued. An alias that names `podman` or an image is stored for M2: its jobs need
+`podman`, which no agent of M1 holds, so they wait for one, and the image is not used before job
+containers arrive in M2.
+
 ## Registration and identity
 
 1. An administrator creates a registration token `brt_…` for a pool, with an expiry and either
@@ -502,7 +550,8 @@ signals ends within 10 seconds; the step and the job conclude `cancelled`. The a
 values as `http_proxy`, `https_proxy` and `no_proxy`, since many tools read only those.
 
 The `shell` capability offers no isolation beyond the unix user, so it is only allowed in pools of
-trust level `trusted` ([08-access.md](08-access.md)).
+trust level `trusted` ([08-access.md](08-access.md)), and the server drops it from the agents of
+untrusted pools ([Pools and label aliases](#pools-and-label-aliases)).
 
 ### `podman`
 

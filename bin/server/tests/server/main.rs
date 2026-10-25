@@ -11,6 +11,7 @@ mod install;
 mod logs;
 mod openapi;
 mod owner;
+mod pools;
 mod projects;
 mod proxy;
 mod queue;

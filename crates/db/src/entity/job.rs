@@ -29,6 +29,7 @@ pub struct Model {
     pub queued_at: Option<DateTimeUtc>,
     pub started_at: Option<DateTimeUtc>,
     pub completed_at: Option<DateTimeUtc>,
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

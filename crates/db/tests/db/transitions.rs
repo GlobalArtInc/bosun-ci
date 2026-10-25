@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use bosun_db::pools::Placement;
 use bosun_db::runs::{self, JobState, StepEnd};
 use bosun_db::{Error, journal};
 use bosun_testkit::TestDatabase;
 use bosun_types::actor::Actor;
+use bosun_types::api::Capability;
 use bosun_types::event::{AttemptCreated, Event, RunEvent};
 use bosun_types::id::{AgentId, ExecutionId, JobId, PoolId, RunId};
 use bosun_types::status::{Conclusion, ExecutionStatus, JobStatus, StatusReason};
@@ -144,12 +146,15 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
 
     run.queue_job(
         job(TEST),
-        &[
-            "Self-Hosted".to_owned(),
-            "self-hosted".to_owned(),
-            "X64".to_owned(),
-        ],
-        &[pool],
+        &Placement {
+            labels: vec![
+                "Self-Hosted".to_owned(),
+                "self-hosted".to_owned(),
+                "X64".to_owned(),
+            ],
+            pools: vec![pool],
+            capabilities: vec![Capability::Podman],
+        },
     )
     .await
     .expect("the test job queued");
@@ -209,13 +214,14 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
             db,
             &format!(
                 "SELECT concat_ws(' ', key, status, conclusion, conclusion_source, \
-                 array_to_string(labels, ','), queued_at IS NOT NULL, started_at IS NOT NULL, \
-                 completed_at IS NOT NULL) AS value FROM bosun.job WHERE id = '{}'",
+                 array_to_string(labels, ','), array_to_string(capabilities, ','), \
+                 queued_at IS NOT NULL, started_at IS NOT NULL, completed_at IS NOT NULL) AS value \
+                 FROM bosun.job WHERE id = '{}'",
                 rows::id(TEST)
             ),
         )
         .await,
-        ["test completed failure natural self-hosted,x64 t t t"]
+        ["test completed failure natural self-hosted,x64 podman t t t"]
     );
     assert_eq!(
         strings(

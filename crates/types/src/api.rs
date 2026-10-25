@@ -9,8 +9,8 @@ use serde_json::Value;
 use crate::actor::Actor;
 use crate::diagnostic::Diagnostic;
 use crate::id::{
-    AgentId, AttemptId, ExecutionId, JobId, OrganisationId, PoolId, ProjectId, RegistrationTokenId,
-    RevisionId, RunId, StepId, UserId, WorkflowId,
+    AgentId, AttemptId, ExecutionId, JobId, LabelAliasId, OrganisationId, PoolId, ProjectId,
+    RegistrationTokenId, RevisionId, RunId, StepId, UserId, WorkflowId,
 };
 use crate::key::JobKey;
 use crate::permission::Permission;
@@ -376,7 +376,63 @@ pub struct Pool {
     pub id: PoolId,
     pub name: String,
     pub trust: TrustLevel,
+    pub access: PoolAccess,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PoolAccess {
+    pub all_projects: bool,
+    pub organisations: Vec<PoolOrganisation>,
+    pub projects: Vec<PoolProject>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PoolOrganisation {
+    pub id: OrganisationId,
+    pub slug: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PoolProject {
+    pub id: ProjectId,
+    pub organisation_id: OrganisationId,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CreatePoolRequest {
+    pub name: String,
+    pub trust: TrustLevel,
+    pub access: PoolAccessRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PoolAccessRequest {
+    pub all_projects: bool,
+    pub organisations: Vec<String>,
+    pub projects: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LabelAlias {
+    pub id: LabelAliasId,
+    pub label: String,
+    pub organisation_id: Option<OrganisationId>,
+    pub pool_id: Option<PoolId>,
+    pub capability: Option<Capability>,
+    pub image: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SetLabelAliasRequest {
+    pub label: String,
+    pub organisation: Option<String>,
+    pub pool: Option<String>,
+    pub capability: Option<Capability>,
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

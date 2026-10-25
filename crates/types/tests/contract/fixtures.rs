@@ -3,11 +3,12 @@ use std::fs;
 use std::path::Path;
 
 use bosun_types::api::{
-    Agent, CreateOrganisationRequest, CreateProjectRequest, CreateWorkflowRequest, DispatchRequest,
-    Execution, Job, LogEnd, LogLine, Me, Organisation, Page, PasswordChangeRequest, Project,
-    ProjectSettings, RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
-    RegistrationTokenRequest, Revision, Run, SignInMethods, SignInRequest, Step,
-    UpdateSourceRequest, Workflow,
+    Agent, CreateOrganisationRequest, CreatePoolRequest, CreateProjectRequest,
+    CreateWorkflowRequest, DispatchRequest, Execution, Job, LabelAlias, LogEnd, LogLine, Me,
+    Organisation, Page, PasswordChangeRequest, Pool, Project, ProjectSettings,
+    RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
+    RegistrationTokenRequest, Revision, Run, SetLabelAliasRequest, SignInMethods, SignInRequest,
+    Step, UpdateSourceRequest, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -99,6 +100,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<CreateOrganisationRequest>,
         ),
         (
+            "api/create-pool-request.json",
+            round_trip::<CreatePoolRequest>,
+        ),
+        (
             "api/create-project-request.json",
             round_trip::<CreateProjectRequest>,
         ),
@@ -111,6 +116,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/error-invalid-state.json", round_trip::<ErrorEnvelope>),
         ("api/execution.json", round_trip::<Execution>),
         ("api/job.json", round_trip::<Job>),
+        ("api/label-alias.json", round_trip::<LabelAlias>),
         ("api/log-end.json", round_trip::<LogEnd>),
         ("api/log-line.json", round_trip::<LogLine>),
         ("api/me.json", round_trip::<Me>),
@@ -120,6 +126,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "api/password-change-request.json",
             round_trip::<PasswordChangeRequest>,
         ),
+        ("api/pool.json", round_trip::<Pool>),
         ("api/project.json", round_trip::<Project>),
         ("api/project-settings.json", round_trip::<ProjectSettings>),
         (
@@ -140,6 +147,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         ("api/revision.json", round_trip::<Revision>),
         ("api/run.json", round_trip::<Run>),
+        (
+            "api/set-label-alias-request.json",
+            round_trip::<SetLabelAliasRequest>,
+        ),
         ("api/sign-in-methods.json", round_trip::<SignInMethods>),
         ("api/sign-in-request.json", round_trip::<SignInRequest>),
         ("api/step.json", round_trip::<Step>),

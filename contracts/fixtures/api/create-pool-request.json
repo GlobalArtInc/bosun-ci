@@ -1,0 +1,11 @@
+{
+  "name": "forks",
+  "trust": "untrusted",
+  "access": {
+    "all_projects": false,
+    "organisations": [],
+    "projects": [
+      "globalart/keel"
+    ]
+  }
+}

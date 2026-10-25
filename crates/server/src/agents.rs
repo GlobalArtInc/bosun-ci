@@ -22,7 +22,7 @@ pub(crate) use stream::Connector;
 
 const NAME_RULE: &str = "an agent name is 1 to 64 characters without spaces or control characters";
 
-const LABEL_RULE: &str =
+pub(crate) const LABEL_RULE: &str =
     "a label is 1 to 64 characters without spaces, commas or control characters";
 
 const LONGEST: usize = 64;
@@ -66,7 +66,7 @@ fn valid_name(name: &str) -> bool {
             .all(|character| !character.is_whitespace() && !character.is_control())
 }
 
-fn valid_label(label: &str) -> bool {
+pub(crate) fn valid_label(label: &str) -> bool {
     valid_name(label) && !label.contains(',')
 }
 

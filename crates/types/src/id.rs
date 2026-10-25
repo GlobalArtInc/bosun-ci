@@ -111,4 +111,5 @@ ids!(
     TeamId,
     RoleId,
     RoleBindingId,
+    LabelAliasId,
 );

@@ -31,7 +31,8 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
 - Writes that create something accept an `Idempotency-Key` header; a repeated request with the same
   key and body returns the first response. The three whose answer holds a secret that is shown
   once, `POST /registration-tokens`, `POST /agents/register` and `POST /auth/login`, take no key,
-  since keeping their answer would show it again. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
+  since keeping their answer would show it again, and neither does `POST /label-aliases`, which
+  sets an alias rather than adds one, so that repeating it changes nothing. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
   it. The request it stands for is its method, its path with the query and the bytes of its body;
   the same key with another request within 24 hours is `409 conflict`. The response is kept in the
   transaction of the write, and only when the write created something, so a request that failed can
@@ -251,6 +252,10 @@ with the answers each built-in role gets:
 | `GET /agents` | `agent.manage` | `installation` |
 | `POST /registration-tokens` | `agent.manage` | `installation` |
 | `POST /agents/register` | — | `anyone` |
+| `GET /pools` | `agent.manage` | `installation` |
+| `POST /pools` | `agent.manage` | `installation` |
+| `GET /label-aliases` | `agent.manage` | `installation` |
+| `POST /label-aliases` | `agent.manage` | `installation` |
 
 A step that adds an endpoint adds its row here.
 
@@ -354,6 +359,40 @@ projects returns, or the requests that create one.
 - `{run}`, `{job}` and `{execution}` are ids. Any other segment, and an id of nothing, are
   `404 not_found` with the message ``there is no run `<run>` `` (or `job`, `execution`); an attempt
   the run does not have is ``there is no attempt `<n>` of run `<run>` ``.
+
+### Pools and label aliases
+
+Step 18 of M1 ([../plan.md](../plan.md)) settled these endpoints; what pools and aliases do is in
+[05-execution.md](05-execution.md#pools-and-label-aliases).
+
+- `GET /pools` lists the pools oldest first, as a cursor page without filters. A pool is
+  `{"id", "name", "trust", "access", "created_at"}`, and its `access` is
+  `{"all_projects", "organisations", "projects"}`: whether every project of the installation may use
+  it, the organisations whose projects may, each `{"id", "slug"}`, and the single projects that may,
+  each `{"id", "organisation_id", "path"}` with `path` written `<organisation>/<project>`.
+- `POST /pools` takes `name`, `trust` (`trusted` or `untrusted`) and `access` in the same shape,
+  with each organisation named by its id or slug and each project by its id or
+  `<organisation>/<project>`, and answers `201` with the pool. A name follows the rule of slugs
+  ([08-access.md](08-access.md#organisations-projects-and-teams)) and is unique, so a name that is
+  taken is `409 conflict`. An organisation or a project that does not exist is `invalid_input`
+  naming `access.organisations.<n>` or `access.projects.<n>`, and an access list that opens the pool
+  to no project is `invalid_input` naming `access`, since no endpoint changes an access list yet and
+  such a pool could never take a job.
+- `GET /label-aliases` lists the aliases oldest first, as a cursor page without filters. An alias is
+  `{"id", "label", "organisation_id", "pool_id", "capability", "image", "created_at",
+  "updated_at"}`, whose `organisation_id` is `null` for an alias of the installation.
+- `POST /label-aliases` takes `label`, `organisation` (an id or a slug, or `null` for the
+  installation), `pool` (a pool's name, or `null` for any pool open to the project), `capability`
+  (`shell`, `podman`, or `null` for either) and `image` (or `null`), and sets the alias of the label
+  in that scope. It answers `201` with the alias when the scope had none for the label, and `200`
+  when it replaced the one the scope had. The label follows the rule of labels
+  ([05-execution.md](05-execution.md#registration-and-identity)) and is stored lowercased. An image
+  is 1 to 255 characters without white space or control characters; it makes a missing capability
+  `podman`, and next to `shell` it is `invalid_input` naming `capability`, since a job with an image
+  runs in a container. An organisation or a pool that does not exist is `invalid_input` naming the
+  field.
+- All four are checked on the installation, an organisation's aliases too: an alias sends jobs to a
+  pool, and pools belong to the installation ([08-access.md](08-access.md#roles-and-bindings)).
 
 ### Logs
 
@@ -519,6 +558,7 @@ bosun hold retry-step | continue [--as success] | release | extend <job> [<durat
 bosun approval list | approve <id> [--input k=v]... | reject <id> --comment <text> | bypass <id>
 bosun agent list | drain <agent> | delete <agent>
 bosun pool list | token create <pool> [--expires <d>] [--reusable]
+bosun pool create <name> [--untrusted] [--all-projects] [--organisation <o>]... [--project <p>]...
 bosun alias set <label> [--pool <p>] [--capability <c>] [--image <i>] [--organisation <o>]
 bosun secret set <name> [--project <p> | --organisation <o> | --environment <e>] < value
 bosun var set <name> <value> [scope]
@@ -563,6 +603,15 @@ What M1 settles of these commands:
   as that JSON (`--set github_workflows=true`, `--set 'token_permissions={"contents": "write"}'`),
   and any other value as a string (`--set fork_policy=approval`). A key given twice fails before
   any request; a change that raced with another fails with the server's `412`.
+- `bosun pool list` prints one line per pool with its name, its trust level, what it is open to
+  (`all projects`, or the slugs of its organisations and the paths of its projects) and its id.
+- `bosun pool create <name>` creates a pool, trusted unless `--untrusted` is given, open to every
+  project with `--all-projects` and to the organisations and projects that `--organisation` and
+  `--project` name, each as often as needed, and prints the pool. A pool needs at least one of the
+  three.
+- `bosun alias set <label>` sets the alias of the label for the installation, or for the
+  organisation `--organisation` names, to the pool, the capability (`shell` or `podman`) and the
+  image its options give, replacing what the label had in that scope, and prints the alias.
 - `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
   and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
   `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the

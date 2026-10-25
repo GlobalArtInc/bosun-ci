@@ -825,6 +825,18 @@ async fn calls(
             "reusable": false,
             "expires_at": null
         })),
+        ("POST", "/api/v1/pools") => Some(json!({
+            "name": format!("pool-{name}"),
+            "trust": "trusted",
+            "access": { "all_projects": false, "organisations": ["globalart"], "projects": [] }
+        })),
+        ("POST", "/api/v1/label-aliases") => Some(json!({
+            "label": format!("label-{name}"),
+            "organisation": "globalart",
+            "pool": "default",
+            "capability": null,
+            "image": null
+        })),
         ("POST", "/api/v1/agents/register") => Some(json!({
             "token": site.registration_token().await,
             "name": format!("agent-{name}"),
@@ -1212,5 +1224,62 @@ async fn me_lists_the_permissions_in_the_shape_of_the_fixture() {
             "organisations": {},
             "projects": {}
         })
+    );
+}
+
+#[tokio::test]
+async fn neither_a_developer_nor_an_administrator_of_an_organisation_creates_a_pool_or_an_alias() {
+    let site = Site::new().await;
+    let project = site.project().await;
+    for (login, role) in [("dana", "developer"), ("ada", "admin")] {
+        let (user, credentials) = site.user(login).await;
+        site.bind(role, Subject::User(user), project.organisation_id, None)
+            .await;
+        let refusal = format!(
+            "`{login}` does not hold `agent.manage` on this installation, which only its owners do"
+        );
+        let pool = site
+            .send(
+                Method::POST,
+                "/api/v1/pools",
+                &credentials,
+                Some(json!({
+                    "name": "linux",
+                    "trust": "trusted",
+                    "access": { "all_projects": true, "organisations": [], "projects": [] }
+                })),
+            )
+            .await;
+        forbidden(&pool, &format!("a pool created by the {role}"));
+        assert_eq!(pool.body["error"]["message"], refusal);
+        let alias = site
+            .send(
+                Method::POST,
+                "/api/v1/label-aliases",
+                &credentials,
+                Some(json!({
+                    "label": "ubuntu-latest",
+                    "organisation": "globalart",
+                    "pool": "default",
+                    "capability": null,
+                    "image": null
+                })),
+            )
+            .await;
+        forbidden(&alias, &format!("an alias set by the {role}"));
+        assert_eq!(alias.body["error"]["message"], refusal);
+    }
+    let owner = owner_credentials(&site).await;
+    let pools = site.get("/api/v1/pools", &owner).await;
+    assert_eq!(
+        pools.body["items"].as_array().map(|items| items
+            .iter()
+            .map(|pool| pool["name"].clone())
+            .collect::<Vec<_>>()),
+        Some(vec![json!("default")])
+    );
+    assert_eq!(
+        site.get("/api/v1/label-aliases", &owner).await.body["items"],
+        json!([])
     );
 }

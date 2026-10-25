@@ -1,17 +1,49 @@
 use std::process::ExitCode;
 
-use bosun_types::api::{RegistrationTokenCreated, RegistrationTokenRequest};
+use bosun_types::api::{
+    CreatePoolRequest, Pool, PoolAccess, PoolAccessRequest, RegistrationTokenCreated,
+    RegistrationTokenRequest, TrustLevel,
+};
 use chrono::{TimeDelta, Utc};
 use clap::Subcommand;
 
 use crate::Context;
 use crate::client::Failure;
-use crate::output;
+use crate::output::{self, name};
 
 const DURATION_RULE: &str = "a duration is a whole number followed by m, h or d, such as 12h";
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    #[command(about = "List the pools with their trust levels and the projects they are open to")]
+    List,
+    #[command(
+        about = "Create a pool, trusted unless --untrusted, open to the projects its options name"
+    )]
+    Create {
+        #[arg(help = "The name of the pool")]
+        name: String,
+        #[arg(
+            long,
+            help = "Make the pool untrusted: its agents hold podman only and take only the jobs of \
+                    untrusted runs"
+        )]
+        untrusted: bool,
+        #[arg(long, help = "Open the pool to every project of the installation")]
+        all_projects: bool,
+        #[arg(
+            long = "organisation",
+            value_name = "ORGANISATION",
+            help = "Open the pool to the projects of an organisation, named by slug or id; repeatable"
+        )]
+        organisations: Vec<String>,
+        #[arg(
+            long = "project",
+            value_name = "ORGANISATION/PROJECT",
+            help = "Open the pool to one project, named by its slugs or id; repeatable"
+        )]
+        projects: Vec<String>,
+    },
     #[command(
         subcommand,
         about = "Registration tokens, with which agents join a pool"
@@ -39,6 +71,65 @@ pub(crate) enum Token {
 pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode, Failure> {
     let client = context.client()?;
     match command {
+        Command::List => {
+            let pools: Vec<Pool> = client.all("/api/v1/pools").await?;
+            if context.json() {
+                output::json(&pools)?;
+                return Ok(ExitCode::SUCCESS);
+            }
+            let rows: Vec<Vec<String>> = pools
+                .iter()
+                .map(|pool| {
+                    vec![
+                        pool.name.clone(),
+                        name(&pool.trust),
+                        open_to(&pool.access),
+                        pool.id.to_string(),
+                    ]
+                })
+                .collect();
+            output::table(&["NAME", "TRUST", "OPEN TO", "ID"], &rows);
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Create {
+            name: pool,
+            untrusted,
+            all_projects,
+            organisations,
+            projects,
+        } => {
+            let trust = if untrusted {
+                TrustLevel::Untrusted
+            } else {
+                TrustLevel::Trusted
+            };
+            let created: Pool = client
+                .post(
+                    "/api/v1/pools",
+                    &CreatePoolRequest {
+                        name: pool,
+                        trust,
+                        access: PoolAccessRequest {
+                            all_projects,
+                            organisations,
+                            projects,
+                        },
+                    },
+                )
+                .await?;
+            if context.json() {
+                output::json(&created)?;
+            } else {
+                println!(
+                    "created the {} pool {} {}, open to {}",
+                    name(&created.trust),
+                    created.name,
+                    created.id,
+                    open_to(&created.access)
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Token(Token::Create {
             pool,
             expires,
@@ -83,6 +174,23 @@ pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode,
             }
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+fn open_to(access: &PoolAccess) -> String {
+    if access.all_projects {
+        return "all projects".to_owned();
+    }
+    let named: Vec<String> = access
+        .organisations
+        .iter()
+        .map(|organisation| organisation.slug.clone())
+        .chain(access.projects.iter().map(|project| project.path.clone()))
+        .collect();
+    if named.is_empty() {
+        "no project".to_owned()
+    } else {
+        named.join(", ")
     }
 }
 

@@ -622,7 +622,14 @@ async fn decide(
         Ok(prepared) => prepared,
         Err(fault) => return fail(run, world, job, fault).await.map(Some),
     };
-    let pools = bosun_db::pools::eligible(run.transaction(), prepared.group.as_deref()).await?;
+    let placement = bosun_db::pools::place(
+        run.transaction(),
+        world.facts.organisation_id,
+        world.facts.project_id,
+        prepared.group.as_deref(),
+        &prepared.labels,
+    )
+    .await?;
     run.prepare_job(
         job.id,
         &prepared.name,
@@ -639,11 +646,11 @@ async fn decide(
         active(&members) >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
     });
     let waiting_reason = if full {
-        run.hold_job(job.id, &prepared.labels, &pools, WaitingReason::MaxParallel)
+        run.hold_job(job.id, &placement, WaitingReason::MaxParallel)
             .await?;
         Some(WaitingReason::MaxParallel)
     } else {
-        run.queue_job(job.id, &prepared.labels, &pools).await?;
+        run.queue_job(job.id, &placement).await?;
         None
     };
     Ok(Some(Decided {

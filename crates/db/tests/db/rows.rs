@@ -1,7 +1,8 @@
 use bosun_db::entity::{
-    agent, api_token, attempt, control_message, execution, idempotency_key, job, log_chunk,
-    log_object, organisation, project, registration_token, role, role_binding, run, run_event,
-    session, sign_in_failure, step, team, team_member, user, workflow, workflow_revision,
+    agent, api_token, attempt, control_message, execution, idempotency_key, job, label_alias,
+    log_chunk, log_object, organisation, pool_access, project, registration_token, role,
+    role_binding, run, run_event, session, sign_in_failure, step, team, team_member, user,
+    workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -32,6 +33,8 @@ pub const SESSION: u8 = 0x12;
 pub const TEAM: u8 = 0x13;
 pub const ROLE: u8 = 0x14;
 pub const BINDING: u8 = 0x15;
+pub const ACCESS: u8 = 0x16;
+pub const ALIAS: u8 = 0x17;
 
 pub fn id(number: u8) -> Uuid {
     Uuid::from_bytes([
@@ -73,6 +76,8 @@ pub struct Rows {
     pub team_member: team_member::Model,
     pub role: role::Model,
     pub role_binding: role_binding::Model,
+    pub pool_access: pool_access::Model,
+    pub label_alias: label_alias::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -173,6 +178,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         conclusion: ActiveValue::Set(None),
         started_at: ActiveValue::Set(Some(at("2026-10-24T18:34:51Z"))),
         completed_at: ActiveValue::Set(None),
+        trusted: ActiveValue::Set(false),
         ..Default::default()
     }
     .insert(db)
@@ -214,6 +220,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
             priority: ActiveValue::Set(0),
             labels: ActiveValue::Set(vec!["shell".to_owned()]),
             pool_ids: ActiveValue::Set(vec![pool_id]),
+            capabilities: ActiveValue::Set(vec!["podman".to_owned()]),
             queued_at: ActiveValue::Set(Some(at("2026-10-24T18:34:50.078Z"))),
             started_at: ActiveValue::Set(None),
             completed_at: ActiveValue::Set(None),
@@ -429,6 +436,30 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a role binding");
 
+    let pool_access = pool_access::ActiveModel {
+        id: ActiveValue::Set(id(ACCESS)),
+        pool_id: ActiveValue::Set(pool_id),
+        organisation_id: ActiveValue::Set(Some(id(ORGANISATION))),
+        project_id: ActiveValue::Set(Some(id(PROJECT))),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("an entry of an access list");
+
+    let label_alias = label_alias::ActiveModel {
+        id: ActiveValue::Set(id(ALIAS)),
+        organisation_id: ActiveValue::Set(Some(id(ORGANISATION))),
+        label: ActiveValue::Set(format!("ubuntu-{label}")),
+        pool_id: ActiveValue::Set(Some(pool_id)),
+        capability: ActiveValue::Set(Some("podman".to_owned())),
+        image: ActiveValue::Set(Some("docker.io/library/debian:13".to_owned())),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a label alias");
+
     Rows {
         organisation,
         project,
@@ -454,6 +485,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         team_member,
         role,
         role_binding,
+        pool_access,
+        label_alias,
     }
 }
 
@@ -516,5 +549,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         team_member: one::<_, team_member::Entity>(db, (id(TEAM), id(USER))).await,
         role: one::<_, role::Entity>(db, id(ROLE)).await,
         role_binding: one::<_, role_binding::Entity>(db, id(BINDING)).await,
+        pool_access: one::<_, pool_access::Entity>(db, id(ACCESS)).await,
+        label_alias: one::<_, label_alias::Entity>(db, id(ALIAS)).await,
     }
 }

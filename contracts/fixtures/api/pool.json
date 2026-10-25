@@ -1,0 +1,22 @@
+{
+  "id": "0192f3a4-5b6c-7d8e-9f01-00000000000d",
+  "name": "linux",
+  "trust": "trusted",
+  "access": {
+    "all_projects": false,
+    "organisations": [
+      {
+        "id": "0192f3a4-5b6c-7d8e-9f01-000000000001",
+        "slug": "globalart"
+      }
+    ],
+    "projects": [
+      {
+        "id": "0192f3a4-5b6c-7d8e-9f01-000000000018",
+        "organisation_id": "0192f3a4-5b6c-7d8e-9f01-000000000019",
+        "path": "ownlate/platform"
+      }
+    ]
+  },
+  "created_at": "2026-10-24T18:34:50.078Z"
+}

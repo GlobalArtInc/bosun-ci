@@ -7,7 +7,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::strings;
 
-const TABLES: [&str; 26] = [
+const TABLES: [&str; 28] = [
     "organisation",
     "project",
     "user",
@@ -34,6 +34,8 @@ const TABLES: [&str; 26] = [
     "team_member",
     "role",
     "role_binding",
+    "pool_access",
+    "label_alias",
 ];
 
 const LEDGER: [&str; 2] = ["migrations", "migrations_checksum"];
@@ -80,6 +82,8 @@ async fn snapshot<C: ConnectionTrait>(db: &C) -> Vec<String> {
          FROM pg_constraint WHERE connamespace = 'bosun'::regnamespace ORDER BY 1",
         "SELECT name::text AS value FROM bosun.migrations ORDER BY id",
         "SELECT concat_ws(' ', id, name, trust) AS value FROM bosun.pool ORDER BY id",
+        "SELECT concat_ws(' ', pool_id, organisation_id, project_id) AS value \
+         FROM bosun.pool_access ORDER BY id",
     ] {
         snapshot.extend(strings(db, sql).await);
     }

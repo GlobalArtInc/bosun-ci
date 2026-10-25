@@ -80,12 +80,13 @@ The central columns:
 workflow     id, project_id, name, source_kind, enabled, revision_id, last_run_number, created_at
 run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_number,
              display_name, event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
-             status, conclusion, cancel_requested_at, created_at, started_at, completed_at
+             trusted, status, conclusion, cancel_requested_at, created_at, started_at,
+             completed_at
 attempt      id, run_id, number, reason, actor jsonb, created_at
 job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, needs text[], kind,
              status, waiting_reason, conclusion, conclusion_source, continue_on_error,
              evaluated jsonb, outputs jsonb, priority, labels text[], pool_ids uuid[],
-             pinned_agent_id, carried_from,
+             capabilities text[], pinned_agent_id, carried_from,
              queued_at, started_at, completed_at
 execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
              completed_at, log_bytes, log_compacted_at
@@ -101,18 +102,23 @@ A run's `trigger` holds the actor and the payload of the event, `{"actor": …, 
 `workflow_dispatch` the payload is the one [06-runtime-services.md](06-runtime-services.md)
 describes, which `github.event` shows. A run's `display_name` is its rendered `run-name` or its
 default name ([04-runs.md](04-runs.md#planning)); runs created before the column existed got the
-workflow's name. A run's `cancel_requested_at` is the time an accepted `run.cancel` reached it. A
-job is created with its key, display name and `needs`; its `labels` and `pool_ids` are written when
-the planner evaluates `runs-on` as the job becomes ready ([04-runs.md](04-runs.md)), together with
-its rendered `name`, its `continue-on-error`, which the conclusion of the run reads, and in
-`evaluated` the values its assignment carries: `{"timeout_minutes", "env", "shell",
-"working_directory"}`, where `env` maps names to rendered values and the other two are `null` when
-`defaults.run` does not set them. `labels` are lowercased; `pool_ids` are the pools the job may run
-in: the pool `runs-on.group` names, none when no pool has that name, and without a group every pool
-open to the project, which until pool access lists arrive in M1 is every pool. A job's `outputs` are
-the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then; a
-job group's are those of its members combined when it completes ([04-runs.md](04-runs.md#matrices)).
-A step's `outputs` are the outputs its agent reported in `StepFinished`, `{}` until then.
+workflow's name. A run's `cancel_requested_at` is the time an accepted `run.cancel` reached it, and
+`trusted` whether its jobs may go to trusted pools only or to untrusted pools only
+([05-execution.md](05-execution.md#pools-and-label-aliases)). A job is created with its key, display
+name and `needs`; its `labels`, `pool_ids` and `capabilities` are written when the planner evaluates
+`runs-on` as the job becomes ready ([04-runs.md](04-runs.md)), together with its rendered `name`,
+its `continue-on-error`, which the conclusion of the run reads, and in `evaluated` the values its
+assignment carries: `{"timeout_minutes", "env", "shell", "working_directory"}`, where `env` maps
+names to rendered values and the other two are `null` when `defaults.run` does not set them.
+`labels` are lowercased, without the labels a label alias replaced. `pool_ids` are the pools the job
+may run in, among those whose access list admits its project: the pool `runs-on.group` names, none
+when no such pool has that name, and without a group every one of them, each narrowed to the pool
+its label aliases name. `capabilities` are those its label aliases name, empty when either
+capability will do ([05-execution.md](05-execution.md#pools-and-label-aliases)). A job's `outputs`
+are the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then;
+a job group's are those of its members combined when it completes
+([04-runs.md](04-runs.md#matrices)). A step's `outputs` are the outputs its agent reported in
+`StepFinished`, `{}` until then.
 
 A member of a job group is a row of its own with the template's key: `group_id` is the job of its
 group, which carries no foreign key since it is a reference inside one run, and `matrix` its
@@ -128,7 +134,8 @@ A milestone creates the columns it uses. The columns above that M0 does not use 
 `parent_step_id` of steps) arrive with their milestones as additive migrations; the display name of
 runs and the evaluated values and outputs of jobs arrived with the planner's expressions (step 15 of
 [../plan.md](../plan.md)), `group_id`, `matrix` and `strategy` of jobs with matrices (step 16), and
-the outputs of steps with the assignment of M1 (step 20). The indexes of the queue arrived with the
+the outputs of steps with the assignment of M1 (step 20), and the trust of runs and the
+capabilities of jobs with pools (step 18). The indexes of the queue arrived with the
 claim (step 11 of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
 'assigned'` that the lease expiry reads. The partial index on `execution (completed_at) where status =
 'completed' and log_compacted_at is null` that the compaction of logs reads arrived with the logs
@@ -156,13 +163,14 @@ A row that another row owns references its owner with `ON DELETE CASCADE`: a pro
 organisation, a workflow its project, a revision its workflow, a run its project and its workflow,
 an attempt its run, a job its attempt, an execution its job, a step its execution, a journal event
 its run, a log chunk its execution, a log object its step, a control message its execution, a
-personal token its user and a registration token its pool. Deleting a run under `run_retention`
+personal token its user, a registration token its pool, an entry of an access list its pool and
+the organisation and project it names, and a label alias its organisation. Deleting a run under `run_retention`
 therefore removes everything it owns in one statement. The other references inside one run (the
 attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a
 log object) carry no foreign key, because the owner already bounds them and a cascade would have
 to check each of them.
 References to rows that are not owners (the current revision of a workflow, the revision of a
-run, the pool of an agent, the agent of an execution) are plain foreign keys, which refuse to delete what is still referenced. Every
+run, the pool of an agent, the agent of an execution, the pool of a label alias) are plain foreign keys, which refuse to delete what is still referenced. Every
 foreign key column leads an index, which a test asserts.
 
 `idempotency_key` keeps, for 24 hours, the principal (`user:<id>`), the key, a hash of the request
@@ -170,7 +178,8 @@ and the status and body of the response of every write that created something wi
 `Idempotency-Key` ([11-api.md](11-api.md)). The row is written in the transaction of the write; a
 row older than 24 hours is ignored and replaced when its key comes again. `label_alias`
 maps a label such as `ubuntu-latest` to a pool, a capability and a default image, per installation
-or per organisation.
+or per organisation, and `pool_access` holds the access lists of pools
+([05-execution.md](05-execution.md#pools-and-label-aliases)).
 
 ### The journal
 
@@ -211,15 +220,17 @@ The queue is the set of `job` rows in status `queued`. A partial index on
 on the same condition, filters them; labels are stored lowercased.
 
 An idle agent claims a job in one transaction: select the candidates whose labels are contained
-in the agent's labels, whose pools include the agent's pool, and whose trust matches the pool's
+in the agent's labels, whose pools include the agent's pool, whose project the access list of the
+agent's pool admits, whose capabilities the agent holds, and whose trust matches the pool's
 (jobs of untrusted runs only in untrusted pools, jobs of trusted runs only in trusted pools),
 order them by priority, by the
 project's ratio of running jobs to its weight, and by `queued_at`, take the first with
 `FOR UPDATE SKIP LOCKED`, together with the lock of its run ([The journal](#the-journal)), create
 its execution with `lease_until` 30 seconds ahead (`agents.assignment_lease`), and set the job
 to `assigned`. Two replicas claiming for two agents at the same moment never take the same job and
-never wait on each other. The trust condition arrives with trust levels in M1 and the ratio with
-fair share in M2; until then the order is priority, then `queued_at`, then the job's id.
+never wait on each other. The conditions of access, capabilities and trust arrived with pools (step
+18 of [../plan.md](../plan.md)); an agent that holds no capability claims nothing. The ratio arrives
+with fair share in M2; until then the order is priority, then `queued_at`, then the job's id.
 
 An agent is idle from the `Idle` it sends until the replica that holds its stream sends it an
 assignment ([05-execution.md](05-execution.md)). That replica keeps the state in memory, for its

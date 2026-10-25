@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use bosun_types::api::TrustLevel;
 use bosun_types::id::{AgentId, AttemptId, ExecutionId, JobId, PoolId, RunId};
 use bosun_types::ir::{self, JobTemplate, Template};
 use bosun_types::key::JobKey;
@@ -12,7 +13,7 @@ use serde_json::Value;
 use crate::periodic::{self, Task};
 use crate::row::statement;
 use crate::runs::{self, Evaluated, Locked, RUN_STATE};
-use crate::{Error, row};
+use crate::{Error, pools, row};
 
 pub(crate) const CHANNEL: &str = "bosun_queue";
 
@@ -46,21 +47,35 @@ pub struct ClaimedJob {
     pub continue_on_error: bool,
 }
 
-const CLAIMABLE: &str = "j.status = $1 AND j.labels <@ $2 AND $3 = ANY (j.pool_ids) \
-     AND NOT (j.id = ANY ($4))";
+const CANDIDATES: &str = "FROM job j JOIN attempt a ON a.id = j.attempt_id \
+     JOIN run r ON r.id = a.run_id JOIN project pr ON pr.id = r.project_id";
+
+fn claimable() -> String {
+    format!(
+        "j.status = $1 AND j.labels <@ $2 AND $3 = ANY (j.pool_ids) AND NOT (j.id = ANY ($4)) \
+         AND j.capabilities <@ $5 AND r.trusted = $6 AND {}",
+        pools::admits("$3", "r.project_id", "pr.organisation_id")
+    )
+}
 
 pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Claimed, Error> {
     let transaction = db.begin().await?;
     let Some(agent) = transaction
         .query_one(statement(
-            "SELECT pool_id, labels FROM agent WHERE id = $1 AND replica_id = $2 \
-             FOR NO KEY UPDATE",
+            "SELECT a.pool_id, a.labels, a.capabilities, p.trust FROM agent a \
+             JOIN pool p ON p.id = a.pool_id WHERE a.id = $1 AND a.replica_id = $2 \
+             FOR NO KEY UPDATE OF a",
             [Uuid::from(claim.agent).into(), claim.replica_id.into()],
         ))
         .await?
     else {
         return Ok(Claimed::Nothing);
     };
+    let capabilities: Vec<String> = agent.try_get("", "capabilities")?;
+    if capabilities.is_empty() {
+        return Ok(Claimed::Nothing);
+    }
+    let trust: TrustLevel = row::name("pool", agent.try_get("", "trust")?)?;
     let busy = transaction
         .query_one(statement(
             "SELECT EXISTS (SELECT 1 FROM execution WHERE agent_id = $1 AND status <> $2) \
@@ -85,13 +100,15 @@ pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Clai
         labels.into(),
         Uuid::from(pool).into(),
         passed_over.into(),
+        capabilities.into(),
+        (trust == TrustLevel::Trusted).into(),
     ];
+    let claimable = claimable();
     let Some(candidate) = transaction
         .query_one(statement(
             &format!(
-                "SELECT j.id AS job_id, j.key, j.name, a.run_id, {RUN_STATE} FROM job j \
-                 JOIN attempt a ON a.id = j.attempt_id JOIN run r ON r.id = a.run_id \
-                 WHERE {CLAIMABLE} ORDER BY j.priority DESC, j.queued_at, j.id LIMIT 1 \
+                "SELECT j.id AS job_id, j.key, j.name, a.run_id, {RUN_STATE} {CANDIDATES} \
+                 WHERE {claimable} ORDER BY j.priority DESC, j.queued_at, j.id LIMIT 1 \
                  FOR UPDATE OF j SKIP LOCKED FOR NO KEY UPDATE OF r SKIP LOCKED"
             ),
             filter.clone(),
@@ -100,7 +117,7 @@ pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Clai
     else {
         let contended = transaction
             .query_one(statement(
-                &format!("SELECT EXISTS (SELECT 1 FROM job j WHERE {CLAIMABLE}) AS contended"),
+                &format!("SELECT EXISTS (SELECT 1 {CANDIDATES} WHERE {claimable}) AS contended"),
                 filter,
             ))
             .await?

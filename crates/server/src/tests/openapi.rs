@@ -41,6 +41,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Request,
     ),
     (
+        "create-pool-request.json",
+        "post",
+        "/api/v1/pools",
+        Part::Request,
+    ),
+    (
         "create-project-request.json",
         "post",
         "/api/v1/projects",
@@ -83,6 +89,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Response("200"),
     ),
     (
+        "label-alias.json",
+        "post",
+        "/api/v1/label-aliases",
+        Part::Response("201"),
+    ),
+    (
         "log-end.json",
         "get",
         "/api/v1/executions/{execution}/steps/{step}/log",
@@ -113,6 +125,7 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "/api/v1/runs/{run}/attempts/{attempt}/jobs",
         Part::Response("200"),
     ),
+    ("pool.json", "post", "/api/v1/pools", Part::Response("201")),
     (
         "project.json",
         "get",
@@ -160,6 +173,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "get",
         "/api/v1/runs/{run}",
         Part::Response("200"),
+    ),
+    (
+        "set-label-alias-request.json",
+        "post",
+        "/api/v1/label-aliases",
+        Part::Request,
     ),
     (
         "sign-in-methods.json",

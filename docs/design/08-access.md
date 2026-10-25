@@ -221,7 +221,10 @@ API answers is in [11-api.md](11-api.md#permissions).
   tokens to the keys and the scopes they carry.
 - **The installation.** Bindings exist only on organisations and projects, so what is checked on
   the installation is held by owners alone: creating organisations (`organisation.manage`), and the
-  pools, agents and registration tokens, which belong to the installation (`agent.manage`).
+  pools, agents and registration tokens, which belong to the installation (`agent.manage`). So do
+  the label aliases, an organisation's too (step 18 of [../plan.md](../plan.md)): an alias chooses
+  the pool that receives a project's jobs, and with them its secrets, and pools are the secret
+  boundary the owners draw ([What a stolen credential gets](#what-a-stolen-credential-gets)).
 
 ## Code from outside the team
 

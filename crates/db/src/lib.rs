@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod aliases;
 pub mod control;
 pub mod entity;
 mod error;
