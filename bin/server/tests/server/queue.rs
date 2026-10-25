@@ -16,15 +16,15 @@ use crate::{Launch, Server, WAIT, client, message, owner, strings};
 
 const SERVER: &str = "[server]\nlisten = \"127.0.0.1:0\"\n\n[database]\nmax_connections = 4\n";
 
-struct Cluster {
+pub(crate) struct Cluster {
     database: TestDatabase,
-    owner: String,
+    pub(crate) owner: String,
     servers: Vec<Server>,
-    addresses: Vec<SocketAddr>,
+    pub(crate) addresses: Vec<SocketAddr>,
 }
 
 impl Cluster {
-    async fn start(replicas: usize, settings: &str) -> Cluster {
+    pub(crate) async fn start(replicas: usize, settings: &str) -> Cluster {
         let database = TestDatabase::migrated().await;
         let owner = owner(&database.url(), "roman").await;
         let mut servers = Vec::new();
@@ -44,7 +44,7 @@ impl Cluster {
         }
     }
 
-    async fn post(&self, path: &str, body: &Value) -> Value {
+    pub(crate) async fn post(&self, path: &str, body: &Value) -> Value {
         let response = client()
             .post(format!("http://{}{path}", self.addresses[0]))
             .bearer_auth(&self.owner)
@@ -58,7 +58,7 @@ impl Cluster {
         body
     }
 
-    async fn agent(&self, name: &str, labels: &[&str]) -> FakeAgent {
+    pub(crate) async fn agent(&self, name: &str, labels: &[&str]) -> FakeAgent {
         let token = self
             .post(
                 "/api/v1/registration-tokens",
@@ -99,11 +99,11 @@ impl Cluster {
         text(&run["id"]).to_owned()
     }
 
-    async fn values(&self, sql: &str) -> Vec<String> {
+    pub(crate) async fn values(&self, sql: &str) -> Vec<String> {
         strings(self.database.connection(), sql).await
     }
 
-    async fn until(&self, sql: &str, expected: &[&str]) {
+    pub(crate) async fn until(&self, sql: &str, expected: &[&str]) {
         let deadline = Instant::now() + WAIT;
         loop {
             let found = self.values(sql).await;

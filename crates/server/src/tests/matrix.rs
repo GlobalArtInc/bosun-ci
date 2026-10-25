@@ -139,7 +139,7 @@ fn quoted(text: &str) -> String {
     serde_json::to_string(text).expect("a JSON string")
 }
 
-fn flow(value: &bosun_expr::Value) -> String {
+pub(super) fn flow(value: &bosun_expr::Value) -> String {
     match value {
         bosun_expr::Value::Null => "null".to_owned(),
         bosun_expr::Value::Boolean(flag) => flag.to_string(),

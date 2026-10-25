@@ -1,0 +1,123 @@
+{
+  "description": "with cancel-in-progress an arrival cancels the running run as run.cancel does, so a job with if: always() still runs, and waits until that run has completed",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": {
+        "group": "deploy",
+        "cancel-in-progress": true
+      },
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "test": {
+          "runs-on": "self-hosted",
+          "needs": "build",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "report": {
+          "runs-on": "self-hosted",
+          "needs": "build",
+          "if": "always()",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "start": {
+        "run": "first",
+        "job": "build"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "in_progress",
+          "build": "in_progress",
+          "test": "completed cancelled concurrency",
+          "report": "pending"
+        },
+        "second": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "test": "pending",
+          "report": "pending"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "build",
+        "conclusion": "cancelled"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "in_progress",
+          "build": "completed cancelled",
+          "test": "completed cancelled concurrency",
+          "report": "queued"
+        },
+        "second": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "test": "pending",
+          "report": "pending"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "report",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed cancelled",
+          "build": "completed cancelled",
+          "test": "completed cancelled concurrency",
+          "report": "completed success"
+        },
+        "second": {
+          "run": "queued",
+          "build": "queued",
+          "test": "pending",
+          "report": "pending"
+        }
+      }
+    }
+  ]
+}

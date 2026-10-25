@@ -1,0 +1,87 @@
+{
+  "description": "a pending job whose if calls a status function outlives the cancellation of its run by cancel-in-progress, and when it is ready and its if is false it completes cancelled with the reason concurrency, not command",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": {
+        "group": "deploy",
+        "cancel-in-progress": true
+      },
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "notify": {
+          "runs-on": "self-hosted",
+          "needs": "build",
+          "if": "success()",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "start": {
+        "run": "first",
+        "job": "build"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "in_progress",
+          "build": "in_progress",
+          "notify": "pending"
+        },
+        "second": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "notify": "pending"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed cancelled",
+          "build": "completed success",
+          "notify": "completed cancelled concurrency"
+        },
+        "second": {
+          "run": "queued",
+          "build": "queued",
+          "notify": "pending"
+        }
+      }
+    }
+  ]
+}

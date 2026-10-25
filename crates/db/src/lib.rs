@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod agents;
 pub mod aliases;
+pub mod concurrency;
 pub mod control;
 pub mod deliveries;
 pub mod entity;

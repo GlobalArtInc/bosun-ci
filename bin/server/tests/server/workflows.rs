@@ -502,33 +502,6 @@ async fn a_dispatch_that_cannot_start_a_run_is_refused_and_starts_none() {
         assert_eq!(body["error"]["code"], "not_found");
     }
 
-    for (keys, what) in [(
-        "    runs-on: [self-hosted]\n    concurrency: deploy\n",
-        "`concurrency` of job `build`, which the planner applies from M1 step 17",
-    )] {
-        let source = format!(
-            "name: ci\non: workflow_dispatch\njobs:\n  build:\n{keys}    steps:\n      - run: make\n"
-        );
-        let (status, saved) = api
-            .put(
-                &format!("/api/v1/workflows/{id}/source"),
-                &json!({ "source": source }),
-            )
-            .await;
-        assert_eq!(status, 201, "{saved}");
-        let (status, refused) = api
-            .post(&dispatch, &json!({ "ref": null, "inputs": {} }))
-            .await;
-        assert_eq!(status, 409, "{refused}");
-        assert_eq!(refused["error"]["code"], "invalid_state");
-        assert_eq!(
-            refused["error"]["message"],
-            format!(
-                "the current revision of workflow `ci` uses {what}, so it cannot be dispatched yet"
-            )
-        );
-    }
-
     database
         .connection()
         .execute_unprepared(&format!(

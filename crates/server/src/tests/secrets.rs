@@ -340,6 +340,7 @@ jobs:
             shell: None,
             working_directory: None,
             deferred: true,
+            concurrency: None,
         }
     );
     let (computed, _) = projection.job("computed");

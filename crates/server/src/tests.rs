@@ -2,6 +2,7 @@ mod access;
 mod actions;
 mod admission;
 mod cancel;
+mod concurrency;
 mod dispatch;
 mod evaluation;
 mod events;
@@ -728,6 +729,15 @@ fn apply(projection: &mut Projection, event: &RunEvent) -> Result<(), String> {
                 RunStatus::InProgress => row.started = true,
                 RunStatus::Completed => row.completed = true,
                 _ => {}
+            }
+        }
+        Event::ConcurrencyCancelled(_) => {
+            if event.job_id.is_none() {
+                let row = projection
+                    .run
+                    .as_mut()
+                    .ok_or("concurrency.cancelled before run.created")?;
+                row.cancel_requested = true;
             }
         }
         Event::CommandAccepted(accepted) => {

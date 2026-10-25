@@ -1,0 +1,100 @@
+{
+  "description": "under queue: max members wait in their order of arrival, none is cancelled, and each starts when the one before it completes",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": {
+        "group": "deploy",
+        "queue": "max"
+      },
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "third"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "queued",
+          "build": "queued"
+        },
+        "second": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        },
+        "third": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed success",
+          "build": "completed success"
+        },
+        "second": {
+          "run": "queued",
+          "build": "queued"
+        },
+        "third": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "second",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "second": {
+          "run": "completed success",
+          "build": "completed success"
+        },
+        "third": {
+          "run": "queued",
+          "build": "queued"
+        }
+      }
+    }
+  ]
+}

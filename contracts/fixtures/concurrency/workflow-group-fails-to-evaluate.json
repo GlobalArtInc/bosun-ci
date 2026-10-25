@@ -1,0 +1,67 @@
+{
+  "description": "a workflow-level group that fails to evaluate ends the run with startup_failure before it has jobs",
+  "workflows": {
+    "broken": {
+      "on": "workflow_dispatch",
+      "concurrency": "${{ fromJSON('x') }}",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    },
+    "both": {
+      "on": "workflow_dispatch",
+      "concurrency": {
+        "group": "deploy",
+        "queue": "max",
+        "cancel-in-progress": "${{ true }}"
+      },
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "broken",
+        "run": "broken"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "both",
+        "run": "both"
+      }
+    },
+    {
+      "expect": {
+        "broken": {
+          "run": "completed startup_failure",
+          "notices": [
+            "function_failed"
+          ]
+        },
+        "both": {
+          "run": "completed startup_failure",
+          "notices": [
+            "invalid_value"
+          ]
+        }
+      }
+    }
+  ]
+}

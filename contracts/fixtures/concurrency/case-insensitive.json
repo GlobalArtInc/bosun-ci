@@ -1,0 +1,80 @@
+{
+  "description": "group names compare without regard to case, so `Deploy` and `deploy` are one group",
+  "workflows": {
+    "upper": {
+      "on": "workflow_dispatch",
+      "concurrency": "Deploy",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    },
+    "lower": {
+      "on": "workflow_dispatch",
+      "concurrency": {
+        "group": "deploy"
+      },
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "upper",
+        "run": "first"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "lower",
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "queued",
+          "build": "queued"
+        },
+        "second": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed success",
+          "build": "completed success"
+        },
+        "second": {
+          "run": "queued",
+          "build": "queued"
+        }
+      }
+    }
+  ]
+}

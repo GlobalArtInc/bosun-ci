@@ -400,13 +400,11 @@ A step that adds an endpoint adds its row here.
   planning left it, whose actor is the token of the request. In the same transaction it creates
   attempt 1, one `pending` job per job template and their journal events, stores the IR of the
   current revision as lowered by this server, records the revision's warnings as notices, renders
-  the display name, and plans the run, so the jobs that need no other job are `queued`, or
+  the display name, enters the run's concurrency group, and plans the run, so the jobs that need no
+  other job are `queued`, `waiting` when a concurrency group or `max-parallel` holds them, or
   completed when their `if` or an evaluation decided so, when the response leaves
   ([04-runs.md](04-runs.md)). A disabled workflow, and a current revision that this server's parser
-  refuses, are `409 invalid_state`, the latter with its diagnostics. So is, until the planner
-  applies it, a revision that uses a key the planner would otherwise ignore, so that a run never
-  quietly differs from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md). The
-  message names the key and the step that brings it.
+  refuses, are `409 invalid_state`, the latter with its diagnostics.
   Step 30 of M1 ([../plan.md](../plan.md)) settled `ref` and `inputs`:
   - A project without a repository has no refs, so `ref` must be `null`.
   - A project bound to a repository takes `ref`, a branch or a tag: `refs/heads/<branch>`,

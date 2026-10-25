@@ -1,3 +1,4 @@
+mod concurrency;
 mod matrix;
 
 use std::cell::Cell;
@@ -5,14 +6,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bosun_db::Error;
 use bosun_db::control::{self, Kind};
+use bosun_db::pools::Placement;
 use bosun_db::queue::ClaimedJob;
-use bosun_db::runs::{Evaluated, JobState, Locked, NewRun, RunFacts, Strategy};
+use bosun_db::runs::{Evaluated, Grouped, JobState, Locked, NewRun, RunFacts, Strategy};
 use bosun_expr::{Context, Scope, Status, Value};
 use bosun_proto::assignment;
 use bosun_types::actor::Actor;
 use bosun_types::api::Run;
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
-use bosun_types::id::{ExecutionId, JobId};
+use bosun_types::id::{ExecutionId, JobId, RunId};
 use bosun_types::ir::{self, Evaluable, JobTemplate, Segment, Shell, Span, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{
@@ -26,6 +28,7 @@ use crate::actions;
 use crate::keys::Keyring;
 use crate::secrets;
 use crate::site::{ForgeSite, Site};
+use concurrency::{Entered, Later, Owner, Reconciled};
 use matrix::Expansion;
 
 const LOG_RETENTION_DAYS: u32 = 90;
@@ -33,8 +36,6 @@ const LOG_RETENTION_DAYS: u32 = 90;
 const INVALID_TYPE: &str = "invalid_type";
 
 const INVALID_VALUE: &str = "invalid_value";
-
-const NOT_IMPLEMENTED: &str = "not_implemented";
 
 const START: Span = Span {
     line: 1,
@@ -58,26 +59,115 @@ pub(crate) async fn dispatch(
     warnings: &[Diagnostic],
     site: &Site,
 ) -> Result<Run, Error> {
-    let run_name = new.ir.run_name.clone();
-    let created = bosun_db::runs::dispatch(transaction, new).await?;
+    let created = bosun_db::runs::create(transaction, &new).await?;
     let mut run = bosun_db::runs::lock(transaction, created.id)
         .await?
         .ok_or_else(|| Error::Vanished(format!("run {}", created.id)))?;
+    let mut world = None;
+    let mut grouped = None;
+    if let Some(concurrency) = &new.ir.concurrency {
+        let loaded = World::load(&run, site).await?;
+        match concurrency::evaluate(concurrency, &Owner::Workflow, &loaded.run_contexts()?) {
+            Ok(evaluated) => grouped = Some((concurrency, evaluated)),
+            Err(fault) => {
+                for warning in warnings {
+                    run.notice(None, warning).await?;
+                }
+                run.notice(None, &loaded.diagnostic(fault)).await?;
+                run.set_status(RunStatus::Completed, Some(RunConclusion::StartupFailure))
+                    .await?;
+                return view(transaction, created.id).await;
+            }
+        }
+        world = Some(loaded);
+    }
+    run.create_jobs(new.ir, new.actor).await?;
     for warning in warnings {
         run.notice(None, warning).await?;
     }
-    let world = match &run_name {
-        Some(template) => {
-            let world = World::load(&run, site).await?;
-            name(&run, &world, template).await?;
-            Some(world)
+    if let Some(template) = &new.ir.run_name {
+        let loaded = match world.take() {
+            Some(loaded) => loaded,
+            None => World::load(&run, site).await?,
+        };
+        name(&run, &loaded, template).await?;
+        world = Some(loaded);
+    }
+    let mut later = Later::default();
+    if let Some((concurrency, grouped)) = &grouped
+        && !run.state().awaiting_admission
+    {
+        enter_group(&mut run, concurrency, grouped, &mut later).await?;
+    }
+    planned(&mut run, site, world, &mut later).await?;
+    follow(&mut run, site, later).await?;
+    view(transaction, created.id).await
+}
+
+async fn enter_group(
+    run: &mut Locked<'_>,
+    concurrency: &ir::Concurrency,
+    grouped: &Grouped,
+    later: &mut Later,
+) -> Result<(), Error> {
+    let entered = concurrency::enter(run, None, grouped, later).await?;
+    if let Some(fault) = concurrency::refusal(entered, concurrency, &Owner::Workflow, grouped) {
+        let file = run.facts().await?.workflow;
+        run.notice(None, &diagnostic(&file, fault)).await?;
+        let jobs = run.jobs().await?;
+        cancel_jobs(run, &jobs, StatusReason::Concurrency, &Actor::System, true).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn admitted(
+    run: &mut Locked<'_>,
+    site: &Site,
+    actor: &Actor,
+) -> Result<(), Error> {
+    let mut later = Later::default();
+    let workflow = run.ir().await?;
+    if let Some(concurrency) = &workflow.concurrency {
+        let world = World::load(run, site).await?;
+        match concurrency::evaluate(concurrency, &Owner::Workflow, &world.run_contexts()?) {
+            Ok(grouped) => enter_group(run, concurrency, &grouped, &mut later).await?,
+            Err(fault) => {
+                run.notice(None, &world.diagnostic(fault)).await?;
+                let jobs = run.jobs().await?;
+                cancel_jobs(
+                    run,
+                    &jobs,
+                    StatusReason::EvaluationFailed,
+                    &Actor::System,
+                    true,
+                )
+                .await?;
+            }
         }
-        None => None,
-    };
-    planned(&mut run, site, world).await?;
-    bosun_db::views::run(transaction, created.id)
+    }
+    for job in run.jobs().await? {
+        if job.status == JobStatus::Waiting && job.waiting_reason == Some(WaitingReason::Untrusted)
+        {
+            admit(
+                run,
+                &job,
+                None,
+                job.concurrency.as_ref(),
+                false,
+                actor,
+                &mut later,
+            )
+            .await?;
+        }
+    }
+    planned(run, site, None, &mut later).await?;
+    follow(run, site, later).await
+}
+
+async fn view(transaction: &DatabaseTransaction, run: RunId) -> Result<Run, Error> {
+    bosun_db::views::run(transaction, run)
         .await?
-        .ok_or_else(|| Error::Vanished(format!("run {}", created.id)))
+        .ok_or_else(|| Error::Vanished(format!("run {run}")))
 }
 
 pub(crate) async fn fail_startup(
@@ -94,19 +184,65 @@ pub(crate) async fn fail_startup(
     }
     run.set_status(RunStatus::Completed, Some(RunConclusion::StartupFailure))
         .await?;
-    bosun_db::views::run(transaction, created.id)
-        .await?
-        .ok_or_else(|| Error::Vanished(format!("run {}", created.id)))
+    view(transaction, created.id).await
 }
 
 pub(crate) async fn plan(run: &mut Locked<'_>, site: &Site) -> Result<(), Error> {
-    planned(run, site, None).await
+    let mut later = Later::default();
+    planned(run, site, None, &mut later).await?;
+    follow(run, site, later).await
 }
 
-async fn planned(run: &mut Locked<'_>, site: &Site, mut world: Option<World>) -> Result<(), Error> {
+async fn follow(run: &mut Locked<'_>, site: &Site, mut later: Later) -> Result<(), Error> {
+    while let Some(next) = later.next() {
+        if next == run.state().id {
+            run.refresh().await?;
+            planned(run, site, None, &mut later).await?;
+        } else {
+            let mut other = bosun_db::runs::lock(run.transaction(), next)
+                .await?
+                .ok_or_else(|| Error::Vanished(format!("run {next}")))?;
+            planned(&mut other, site, None, &mut later).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn planned(
+    run: &mut Locked<'_>,
+    site: &Site,
+    mut world: Option<World>,
+    later: &mut Later,
+) -> Result<(), Error> {
     let mut jobs = run.jobs().await?;
     loop {
-        if advance(run, &jobs).await? {
+        if run.state().concurrency {
+            match concurrency::reconcile(run, &jobs, later).await? {
+                Reconciled::Unchanged => {}
+                Reconciled::Changed => {
+                    jobs = run.jobs().await?;
+                    continue;
+                }
+                Reconciled::Admit(job) => {
+                    if let Some(state) = jobs.iter().find(|state| state.id == job) {
+                        let grouped = state.concurrency.clone();
+                        admit(
+                            run,
+                            state,
+                            None,
+                            grouped.as_ref(),
+                            false,
+                            &Actor::System,
+                            later,
+                        )
+                        .await?;
+                    }
+                    jobs = run.jobs().await?;
+                    continue;
+                }
+            }
+        }
+        if advance(run, &jobs, later).await? {
             jobs = run.jobs().await?;
             continue;
         }
@@ -117,21 +253,46 @@ async fn planned(run: &mut Locked<'_>, site: &Site, mut world: Option<World>) ->
             Some(world) => world,
             None => world.insert(World::load(run, site).await?),
         };
-        match decide(run, world, &jobs, index).await? {
-            Some(decided) => {
+        match decide(run, world, &jobs, index, later).await? {
+            Some(decided) if !run.state().concurrency => {
                 let job = &mut jobs[index];
                 job.status = decided.status;
                 job.waiting_reason = decided.waiting_reason;
                 job.conclusion = decided.conclusion;
                 job.continue_on_error = decided.continue_on_error;
             }
-            None => jobs = run.jobs().await?,
+            _ => jobs = run.jobs().await?,
         }
     }
-    settle(run, &jobs).await
+    settle(run, &jobs).await?;
+    if run.state().concurrency && run.state().status == RunStatus::Completed {
+        concurrency::depart(run, later).await?;
+    }
+    Ok(())
 }
 
-pub(crate) fn expanded(jobs: &[JobState]) -> HashSet<JobId> {
+pub(crate) async fn cancel_jobs(
+    run: &Locked<'_>,
+    jobs: &[JobState],
+    reason: StatusReason,
+    actor: &Actor,
+    everything: bool,
+) -> Result<(), Error> {
+    let workflow = run.ir().await?;
+    let expanded = expanded(jobs);
+    for job in jobs {
+        if job.status == JobStatus::Pending
+            && (expanded.contains(&job.id)
+                || (!everything && admits_cancellation(&workflow, &job.key)))
+        {
+            continue;
+        }
+        stop(run, job, reason, actor).await?;
+    }
+    Ok(())
+}
+
+fn expanded(jobs: &[JobState]) -> HashSet<JobId> {
     jobs.iter().filter_map(|job| job.group).collect()
 }
 
@@ -168,7 +329,11 @@ pub(crate) async fn stop(
     }
 }
 
-async fn advance(run: &Locked<'_>, jobs: &[JobState]) -> Result<bool, Error> {
+async fn advance(
+    run: &mut Locked<'_>,
+    jobs: &[JobState],
+    later: &mut Later,
+) -> Result<bool, Error> {
     let mut groups: BTreeMap<JobId, Vec<&JobState>> = BTreeMap::new();
     for job in jobs {
         if let Some(group) = job.group {
@@ -209,18 +374,27 @@ async fn advance(run: &Locked<'_>, jobs: &[JobState]) -> Result<bool, Error> {
         }
         let room = usize::try_from(strategy.max_parallel)
             .unwrap_or(usize::MAX)
-            .saturating_sub(active(&members));
-        let held: Vec<JobId> = members
+            .saturating_sub(occupied(&members));
+        let held: Vec<&JobState> = members
             .iter()
+            .copied()
             .filter(|member| {
                 member.status == JobStatus::Waiting
                     && member.waiting_reason == Some(WaitingReason::MaxParallel)
             })
             .take(room)
-            .map(|member| member.id)
             .collect();
         for member in &held {
-            run.release_job(*member, &Actor::System).await?;
+            admit(
+                run,
+                member,
+                None,
+                member.concurrency.as_ref(),
+                false,
+                &Actor::System,
+                later,
+            )
+            .await?;
         }
         if !held.is_empty() {
             return Ok(true);
@@ -251,7 +425,10 @@ fn occupied(members: &[&JobState]) -> usize {
             .iter()
             .filter(|member| {
                 member.status == JobStatus::Waiting
-                    && member.waiting_reason == Some(WaitingReason::Untrusted)
+                    && matches!(
+                        member.waiting_reason,
+                        Some(WaitingReason::Untrusted | WaitingReason::Concurrency)
+                    )
             })
             .count()
 }
@@ -292,65 +469,13 @@ fn concluded(members: &[&JobState]) -> (Conclusion, BTreeMap<String, String>) {
     (conclusion, outputs)
 }
 
-pub(crate) fn admits_cancellation(workflow: &ir::Workflow, key: &JobKey) -> bool {
+fn admits_cancellation(workflow: &ir::Workflow, key: &JobKey) -> bool {
     workflow
         .jobs
         .iter()
         .find(|template| &template.key == key)
         .and_then(|template| template.r#if.as_ref())
         .is_some_and(bosun_expr::calls_status)
-}
-
-pub(crate) struct Unapplied {
-    pub(crate) message: String,
-    span: Span,
-    path: Vec<PathSegment>,
-}
-
-impl Unapplied {
-    pub(crate) fn notice(&self, file: &str) -> Diagnostic {
-        Diagnostic {
-            severity: Severity::Error,
-            code: NOT_IMPLEMENTED.to_owned(),
-            message: format!(
-                "the workflow uses {}, so a run of it cannot start yet",
-                self.message
-            ),
-            file: file.to_owned(),
-            span: self.span,
-            path: self.path.clone(),
-        }
-    }
-}
-
-pub(crate) fn unapplied(workflow: &ir::Workflow) -> Option<String> {
-    unapplied_at(workflow).map(|unapplied| unapplied.message)
-}
-
-pub(crate) fn unapplied_at(workflow: &ir::Workflow) -> Option<Unapplied> {
-    let (what, step, span, path) = match &workflow.concurrency {
-        Some(_) => (
-            "`concurrency` of the workflow".to_owned(),
-            17,
-            START,
-            vec![key("concurrency")],
-        ),
-        None => workflow.jobs.iter().find_map(|job| {
-            job.concurrency.as_ref().map(|_| {
-                (
-                    format!("`concurrency` of job `{}`", job.key),
-                    17,
-                    job.span,
-                    at(&job.key, &["concurrency"]),
-                )
-            })
-        })?,
-    };
-    Some(Unapplied {
-        message: format!("{what}, which the planner applies from M1 step {step}"),
-        span,
-        path,
-    })
 }
 
 pub(crate) struct Assigned {
@@ -540,7 +665,9 @@ async fn fail_assigned(
 ) -> Result<Outcome, Error> {
     run.finish_execution(execution, Conclusion::Failure, Some(reason), &Actor::System)
         .await?;
-    planned(run, site, Some(world)).await?;
+    let mut later = Later::default();
+    planned(run, site, Some(world), &mut later).await?;
+    follow(run, site, later).await?;
     Ok(Outcome::Failed(reason))
 }
 
@@ -678,14 +805,34 @@ impl World {
     }
 
     fn diagnostic(&self, fault: Fault) -> Diagnostic {
-        Diagnostic {
-            severity: Severity::Error,
-            code: fault.code.to_owned(),
-            message: fault.message,
-            file: self.facts.workflow.clone(),
-            span: fault.span,
-            path: fault.path,
-        }
+        diagnostic(&self.facts.workflow, fault)
+    }
+
+    fn run_contexts(&self) -> Result<Contexts, Error> {
+        Ok(Contexts {
+            github: self.github("")?,
+            needs: Value::Null,
+            inputs: self.inputs.clone(),
+            bosun: self.bosun.clone(),
+            env: Value::Null,
+            strategy: Value::Null,
+            matrix: Value::Null,
+            vars: self.vars.clone(),
+            secrets: Value::Object(Vec::new().into()),
+            secrets_read: Cell::new(false),
+            statuses: None,
+        })
+    }
+}
+
+fn diagnostic(file: &str, fault: Fault) -> Diagnostic {
+    Diagnostic {
+        severity: Severity::Error,
+        code: fault.code.to_owned(),
+        message: fault.message,
+        file: file.to_owned(),
+        span: fault.span,
+        path: fault.path,
     }
 }
 
@@ -765,19 +912,7 @@ impl Scope for Contexts {
 }
 
 async fn name(run: &Locked<'_>, world: &World, template: &Template) -> Result<(), Error> {
-    let contexts = Contexts {
-        github: world.github("")?,
-        needs: Value::Null,
-        inputs: world.inputs.clone(),
-        bosun: world.bosun.clone(),
-        env: Value::Null,
-        strategy: Value::Null,
-        matrix: Value::Null,
-        vars: world.vars.clone(),
-        secrets: Value::Object(Vec::new().into()),
-        secrets_read: Cell::new(false),
-        statuses: None,
-    };
+    let contexts = world.run_contexts()?;
     match bosun_expr::render(template, &contexts) {
         Ok(name) if !name.trim().is_empty() => run.set_display_name(&name).await,
         Ok(_) => Ok(()),
@@ -808,10 +943,11 @@ impl Decided {
 }
 
 async fn decide(
-    run: &Locked<'_>,
+    run: &mut Locked<'_>,
     world: &World,
     jobs: &[JobState],
     index: usize,
+    later: &mut Later,
 ) -> Result<Option<Decided>, Error> {
     let job = &jobs[index];
     let template = world.template(&job.key)?;
@@ -853,7 +989,12 @@ async fn decide(
         };
         if !admitted {
             let (conclusion, reason) = if cancelling {
-                (Conclusion::Cancelled, StatusReason::Command)
+                let reason = if run.cancelled_by_group().await? {
+                    StatusReason::Concurrency
+                } else {
+                    StatusReason::Command
+                };
+                (Conclusion::Cancelled, reason)
             } else {
                 (Conclusion::Skipped, StatusReason::IfFalse)
             };
@@ -902,27 +1043,110 @@ async fn decide(
             .collect();
         occupied(&members) >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
     });
-    let waiting_reason = if full {
-        Some(WaitingReason::MaxParallel)
-    } else if run.state().awaiting_admission {
-        Some(WaitingReason::Untrusted)
-    } else {
-        None
-    };
-    match waiting_reason {
-        Some(reason) => run.hold_job(job.id, &placement, reason).await?,
-        None => run.queue_job(job.id, &placement).await?,
-    }
+    let grouped = prepared.evaluated.concurrency.as_ref();
+    let decided = admit(
+        run,
+        job,
+        Some(&placement),
+        grouped,
+        full,
+        &Actor::System,
+        later,
+    )
+    .await?;
     Ok(Some(Decided {
-        status: if waiting_reason.is_some() {
-            JobStatus::Waiting
-        } else {
-            JobStatus::Queued
-        },
-        waiting_reason,
-        conclusion: None,
         continue_on_error: prepared.continue_on_error,
+        ..decided
     }))
+}
+
+enum Admission {
+    Queue,
+    Hold(WaitingReason),
+    Refuse(Entered, Grouped),
+}
+
+async fn admit(
+    run: &mut Locked<'_>,
+    job: &JobState,
+    placement: Option<&Placement>,
+    grouped: Option<&Grouped>,
+    full: bool,
+    actor: &Actor,
+    later: &mut Later,
+) -> Result<Decided, Error> {
+    let admission = if full {
+        Admission::Hold(WaitingReason::MaxParallel)
+    } else if run.state().awaiting_admission {
+        Admission::Hold(WaitingReason::Untrusted)
+    } else if concurrency::held(run).await? {
+        Admission::Hold(WaitingReason::Concurrency)
+    } else if let Some(grouped) = grouped {
+        match concurrency::enter(run, Some(job.id), grouped, later).await? {
+            Entered::Running => Admission::Queue,
+            Entered::Waiting => Admission::Hold(WaitingReason::Concurrency),
+            refused => Admission::Refuse(refused, grouped.clone()),
+        }
+    } else {
+        Admission::Queue
+    };
+    let placed = || {
+        placement.ok_or_else(|| Error::Row {
+            table: "job",
+            message: format!("job {} leaves `pending` without its placement", job.id),
+        })
+    };
+    match admission {
+        Admission::Queue => {
+            if job.status == JobStatus::Pending {
+                run.queue_job(job.id, placed()?).await?;
+            } else {
+                run.release_job(job.id, actor).await?;
+            }
+            Ok(Decided {
+                status: JobStatus::Queued,
+                waiting_reason: None,
+                conclusion: None,
+                continue_on_error: job.continue_on_error,
+            })
+        }
+        Admission::Hold(reason) => {
+            if job.status == JobStatus::Pending {
+                run.hold_job(job.id, placed()?, reason).await?;
+            } else if job.waiting_reason != Some(reason) {
+                run.rehold_job(job.id, reason, actor).await?;
+            }
+            Ok(Decided {
+                status: JobStatus::Waiting,
+                waiting_reason: Some(reason),
+                conclusion: None,
+                continue_on_error: job.continue_on_error,
+            })
+        }
+        Admission::Refuse(entered, grouped) => {
+            let workflow = run.ir().await?;
+            let fault = workflow
+                .jobs
+                .iter()
+                .find(|template| template.key == job.key)
+                .and_then(|template| {
+                    let concurrency = template.concurrency.as_ref()?;
+                    concurrency::refusal(entered, concurrency, &Owner::Job(template), &grouped)
+                });
+            if let Some(fault) = fault {
+                let file = run.facts().await?.workflow;
+                run.notice(Some(job.id), &diagnostic(&file, fault)).await?;
+            }
+            run.complete_job(
+                job.id,
+                Conclusion::Cancelled,
+                Some(StatusReason::Concurrency),
+                &Actor::System,
+            )
+            .await?;
+            Ok(Decided::completed(Conclusion::Cancelled))
+        }
+    }
 }
 
 async fn fail(
@@ -1112,6 +1336,14 @@ fn prepare(
         job.key.to_string()
     };
     let (labels, group) = placement(job, contexts)?;
+    let grouped = match &job.concurrency {
+        Some(concurrency) => Some(concurrency::evaluate(
+            concurrency,
+            &Owner::Job(job),
+            contexts,
+        )?),
+        None => None,
+    };
     let timeout_minutes = match &job.timeout_minutes {
         Evaluable::Literal(minutes) => *minutes,
         Evaluable::Template(template) => {
@@ -1177,6 +1409,7 @@ fn prepare(
             shell: environment.shell,
             working_directory: environment.working_directory,
             deferred,
+            concurrency: grouped,
         },
     })
 }

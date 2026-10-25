@@ -409,6 +409,13 @@ async fn repository_runs(
     target
         .list_files(forge, &repository, occurrence.event, &files)
         .await?;
+    if occurrence.starts_runs {
+        let candidates: Vec<Candidate<'_>> = files
+            .iter()
+            .map(|file| Candidate::of(file, Some(&target)))
+            .collect();
+        group(transaction, binding, occurrence, Some(&target), &candidates).await?;
+    }
     let mut runs = Vec::new();
     for file in &files {
         let candidate = Candidate::of(file, Some(&target));
@@ -525,7 +532,7 @@ async fn server_runs(
     binding: &Binding,
     occurrence: &Occurrence<'_>,
 ) -> Result<Vec<Run>, bosun_db::Error> {
-    let mut runs = Vec::new();
+    let mut current = Vec::new();
     for workflow in bosun_db::workflows::server_side(transaction, binding.project.id).await? {
         let Some(revision_id) = workflow.revision_id else {
             continue;
@@ -534,12 +541,20 @@ async fn server_runs(
             continue;
         };
         let lowered = Lowered::new(&workflow.name, &revision.source);
-        let candidate = Candidate {
-            workflow: &workflow,
-            revision_id,
-            lowered: &lowered,
+        current.push((workflow, revision_id, lowered));
+    }
+    let candidates: Vec<Candidate<'_>> = current
+        .iter()
+        .map(|(workflow, revision_id, lowered)| Candidate {
+            workflow,
+            revision_id: *revision_id,
+            lowered,
             touched: false,
-        };
+        })
+        .collect();
+    group(transaction, binding, occurrence, None, &candidates).await?;
+    let mut runs = Vec::new();
+    for candidate in candidates {
         if let Some(run) = plan(
             transaction,
             site,
@@ -554,6 +569,28 @@ async fn server_runs(
         }
     }
     Ok(runs)
+}
+
+async fn group(
+    transaction: &DatabaseTransaction,
+    binding: &Binding,
+    occurrence: &Occurrence<'_>,
+    target: Option<&Target>,
+    candidates: &[Candidate<'_>],
+) -> Result<(), bosun_db::Error> {
+    let grouped = candidates.iter().any(|candidate| {
+        candidate.workflow.enabled
+            && matched(occurrence, target, candidate)
+            && candidate
+                .lowered
+                .workflow
+                .as_ref()
+                .is_some_and(bosun_db::runs::uses_concurrency)
+    });
+    if grouped {
+        bosun_db::runs::lock_concurrency(transaction, binding.project.id).await?;
+    }
+    Ok(())
 }
 
 pub(crate) async fn scheduled(
@@ -926,30 +963,22 @@ async fn plan(
         actor: occurrence.actor,
         trust,
     };
-    let mut notices = lowered.diagnostics.clone();
-    let name = match &lowered.workflow {
-        Some(workflow) => match planner::unapplied_at(workflow) {
-            None => {
-                return planner::dispatch(transaction, new(workflow), &lowered.warnings(), site)
-                    .await
-                    .map(Some);
-            }
-            Some(unapplied) => {
-                notices.push(unapplied.notice(&candidate.workflow.name));
-                workflow.name.clone()
-            }
-        },
-        None => None,
-    };
-    let failed = bare(name, lowered.triggers.as_deref());
-    planner::fail_startup(transaction, new(&failed), &notices)
-        .await
-        .map(Some)
+    match &lowered.workflow {
+        Some(workflow) => planner::dispatch(transaction, new(workflow), &lowered.warnings(), site)
+            .await
+            .map(Some),
+        None => {
+            let failed = bare(lowered.triggers.as_deref());
+            planner::fail_startup(transaction, new(&failed), &lowered.diagnostics)
+                .await
+                .map(Some)
+        }
+    }
 }
 
-fn bare(name: Option<String>, triggers: Option<&[Trigger]>) -> ir::Workflow {
+fn bare(triggers: Option<&[Trigger]>) -> ir::Workflow {
     ir::Workflow {
-        name,
+        name: None,
         run_name: None,
         triggers: triggers.map(<[Trigger]>::to_vec).unwrap_or_default(),
         permissions: None,

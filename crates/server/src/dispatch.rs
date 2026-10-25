@@ -38,7 +38,6 @@ struct Checkout<'a> {
 }
 
 struct Source {
-    described: String,
     revision_id: RevisionId,
     ir: ir::Workflow,
     warnings: Vec<Diagnostic>,
@@ -143,15 +142,6 @@ pub(crate) async fn dispatch(
         .unwrap_or_default();
     let inputs = inputs::check(declared, &request.inputs, &mut faults);
     faults.finish(REFUSED)?;
-    if let Some(unapplied) = planner::unapplied(&source.ir) {
-        return Err(ApiError::new(
-            ErrorCode::InvalidState,
-            format!(
-                "{} uses {unapplied}, so it cannot be dispatched yet",
-                source.described
-            ),
-        ));
-    }
     let payload = github::dispatch_payload(&Dispatch {
         inputs: inputs.texts,
         git_ref: checkout.as_ref().map(|checkout| checkout.git_ref.clone()),
@@ -258,7 +248,6 @@ async fn server_side(
             )
         })?;
     Ok(Source {
-        described: format!("the current revision of workflow `{}`", workflow.name),
         revision_id,
         ir: parsed.workflow,
         warnings: parsed.warnings,
@@ -302,7 +291,6 @@ async fn repository_file(
         ));
     };
     Ok(Source {
-        described,
         revision_id,
         ir,
         warnings: lowered.warnings(),

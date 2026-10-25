@@ -1,0 +1,67 @@
+{
+  "description": "a job-level group that evaluates to nothing, a cancel-in-progress that is not a boolean, or one that gives true next to queue: max fails the job",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "jobs": {
+        "empty": {
+          "runs-on": "self-hosted",
+          "concurrency": "${{ github.head_ref }}",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "typed": {
+          "runs-on": "self-hosted",
+          "concurrency": {
+            "group": "deploy",
+            "cancel-in-progress": "${{ 'yes' }}"
+          },
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "both": {
+          "runs-on": "self-hosted",
+          "concurrency": {
+            "group": "x",
+            "queue": "max",
+            "cancel-in-progress": "${{ true }}"
+          },
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "run"
+      }
+    },
+    {
+      "expect": {
+        "run": {
+          "run": "completed failure",
+          "empty": "completed failure evaluation_failed",
+          "typed": "completed failure evaluation_failed",
+          "notices": [
+            "invalid_value",
+            "invalid_type",
+            "invalid_value"
+          ],
+          "both": "completed failure evaluation_failed"
+        }
+      }
+    }
+  ]
+}

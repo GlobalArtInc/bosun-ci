@@ -323,6 +323,26 @@
         ],
         "type": "string"
       },
+      "Arrival": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "job_id"
+        ],
+        "type": "object"
+      },
       "AttemptCreated": {
         "properties": {
           "number": {
@@ -493,6 +513,21 @@
           "operator"
         ],
         "type": "string"
+      },
+      "ConcurrencyCancelled": {
+        "properties": {
+          "arrival": {
+            "$ref": "#/components/schemas/Arrival"
+          },
+          "group": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group",
+          "arrival"
+        ],
+        "type": "object"
       },
       "CreateOrganisationRequest": {
         "properties": {
@@ -2624,6 +2659,22 @@
               "data"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ConcurrencyCancelled"
+              },
+              "kind": {
+                "const": "concurrency.cancelled",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
           }
         ],
         "properties": {
@@ -2927,7 +2978,8 @@
           "no_agent",
           "agent_lost",
           "agent_removed",
-          "action_unavailable"
+          "action_unavailable",
+          "concurrency"
         ],
         "type": "string"
       },
@@ -3970,6 +4022,7 @@
                   "command.accepted",
                   "command.refused",
                   "run.notice",
+                  "concurrency.cancelled",
                   "agent.status",
                   "queue.job"
                 ],

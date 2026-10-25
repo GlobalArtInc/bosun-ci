@@ -1,0 +1,67 @@
+{
+  "description": "a job whose group is the workflow-level group of its own run would wait for itself, so that job alone is cancelled, the other jobs of the run go on, and the run ends cancelled",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": "production",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "ship": {
+          "runs-on": "self-hosted",
+          "concurrency": "PRODUCTION",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "deploy"
+      }
+    },
+    {
+      "expect": {
+        "deploy": {
+          "run": "queued",
+          "build": "queued",
+          "ship": "completed cancelled concurrency",
+          "notices": [
+            "concurrency_deadlock"
+          ]
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "deploy",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "deploy": {
+          "run": "completed cancelled",
+          "build": "completed success",
+          "ship": "completed cancelled concurrency",
+          "notices": [
+            "concurrency_deadlock"
+          ]
+        }
+      }
+    }
+  ]
+}

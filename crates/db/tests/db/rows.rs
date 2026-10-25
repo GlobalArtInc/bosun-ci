@@ -1,10 +1,10 @@
 use bosun_db::entity::{
-    action_ref, agent, annotation, api_token, api_token_scope, attempt, control_message, execution,
-    forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
-    log_chunk, log_object, oidc_state, organisation, outbox, pool_access, project,
-    registration_token, role, role_binding, run, run_event, schedule, secret, session,
-    sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object, user,
-    user_identity, variable, webhook_delivery, workflow, workflow_revision,
+    action_ref, agent, annotation, api_token, api_token_scope, attempt, concurrency_member,
+    control_message, execution, forge_check_run, forge_installation, forge_repository,
+    idempotency_key, job, label_alias, log_chunk, log_object, oidc_state, organisation, outbox,
+    pool_access, project, registration_token, role, role_binding, run, run_event, schedule, secret,
+    session, sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object,
+    user, user_identity, variable, webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -47,6 +47,7 @@ pub const IDENTITY: u8 = 0x1e;
 pub const SCHEDULE: u8 = 0x1f;
 
 pub const OUTBOX: i64 = 41;
+pub const MEMBER: i64 = 17;
 pub const CHECK_RUN: i64 = 7_301_115_026;
 
 pub const INSTALLATION: i64 = 52_814_339;
@@ -105,6 +106,7 @@ pub struct Rows {
     pub variable: variable::Model,
     pub outbox: outbox::Model,
     pub forge_check_run: forge_check_run::Model,
+    pub concurrency_member: concurrency_member::Model,
     pub action_ref: action_ref::Model,
     pub tool_object: tool_object::Model,
     pub user_identity: user_identity::Model,
@@ -263,6 +265,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         started_at: ActiveValue::Set(Some(at("2026-10-24T18:34:51Z"))),
         completed_at: ActiveValue::Set(None),
         trusted: ActiveValue::Set(false),
+        concurrency: ActiveValue::Set(true),
         ..Default::default()
     }
     .insert(db)
@@ -669,6 +672,19 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a check run");
 
+    let concurrency_member = concurrency_member::ActiveModel {
+        id: ActiveValue::Set(MEMBER),
+        project_id: ActiveValue::Set(id(PROJECT)),
+        key: ActiveValue::Set(format!("deploy-{label}")),
+        run_id: ActiveValue::Set(id(RUN)),
+        job_id: ActiveValue::Set(Some(id(BUILD))),
+        running: ActiveValue::Set(true),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:51.5Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a member of a concurrency group");
+
     let action_ref = action_ref::ActiveModel {
         id: ActiveValue::Set(id(ACTION)),
         owner: ActiveValue::Set("actions".to_owned()),
@@ -753,6 +769,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         variable,
         outbox,
         forge_check_run,
+        concurrency_member,
         action_ref,
         tool_object,
         user_identity,
@@ -838,6 +855,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         variable: one::<_, variable::Entity>(db, id(VARIABLE)).await,
         outbox: one::<_, outbox::Entity>(db, OUTBOX).await,
         forge_check_run: one::<_, forge_check_run::Entity>(db, id(BUILD)).await,
+        concurrency_member: one::<_, concurrency_member::Entity>(db, MEMBER).await,
         action_ref: one::<_, action_ref::Entity>(db, id(ACTION)).await,
         tool_object: one::<_, tool_object::Entity>(db, id(TOOL)).await,
         user_identity: one::<_, user_identity::Entity>(db, id(IDENTITY)).await,

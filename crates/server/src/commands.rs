@@ -6,7 +6,7 @@ use bosun_types::command::{Command, CommandRequest};
 use bosun_types::error::ErrorCode;
 use bosun_types::event::{CommandAccepted, CommandRefused, Event, RunEvent};
 use bosun_types::id::RunId;
-use bosun_types::status::{JobStatus, RunStatus, StatusReason, WaitingReason};
+use bosun_types::status::{JobStatus, RunStatus, StatusReason};
 use sea_orm::TransactionTrait;
 
 use crate::access::{ByCommand, Caller};
@@ -107,14 +107,9 @@ pub(crate) async fn apply(
             }
             let accepted = accept(run, None, actor, request).await?;
             run.admit().await.map_err(database)?;
-            for job in &jobs {
-                if job.status == JobStatus::Waiting
-                    && job.waiting_reason == Some(WaitingReason::Untrusted)
-                {
-                    run.release_job(job.id, actor).await.map_err(database)?;
-                }
-            }
-            planner::plan(run, site).await.map_err(database)?;
+            planner::admitted(run, site, actor)
+                .await
+                .map_err(database)?;
             Ok(Applied::Accepted(Box::new(accepted)))
         }
         Target::Run => {
@@ -133,17 +128,9 @@ pub(crate) async fn apply(
             }
             let accepted = accept(run, None, actor, request).await?;
             run.request_cancel().await.map_err(database)?;
-            let workflow = run.ir().await.map_err(database)?;
-            let expanded = planner::expanded(&jobs);
-            for job in &jobs {
-                if job.status == JobStatus::Pending
-                    && (expanded.contains(&job.id)
-                        || planner::admits_cancellation(&workflow, &job.key))
-                {
-                    continue;
-                }
-                cancel(run, job, actor).await.map_err(database)?;
-            }
+            planner::cancel_jobs(run, &jobs, StatusReason::Command, actor, false)
+                .await
+                .map_err(database)?;
             planner::plan(run, site).await.map_err(database)?;
             Ok(Applied::Accepted(Box::new(accepted)))
         }

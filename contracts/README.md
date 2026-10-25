@@ -88,6 +88,17 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   and its `strategy` context, or the `error` that fails the group: its `code`, `message` and
   `path`. A strategy without a matrix expects the job itself with `matrix` `null`. The server's
   tests dispatch each case and compare the stored jobs.
+- `fixtures/concurrency/`: concurrency groups, from step 17 of M1. Each case has a `description`,
+  its `workflows` by name, each written as JSON in the order of the file, and the `steps` the
+  server's tests take in order against one project and one agent: `dispatch` a `workflow` as the
+  `run` of that name, with the `ref` of `github.ref` or none, or `times` times as the runs named
+  `<run>-1` to `<run>-<times>`; `start` a `job` of a `run` on the agent; `finish` it with a
+  `conclusion`, starting it first when it is queued; `cancel` a `run` with `run.cancel`; and
+  `expect` the state of runs. A run's state maps `run` to its status and conclusion, each job by its
+  display name to its status, then its waiting reason or its conclusion, then the reason of its
+  completion, all joined by spaces, and `notices` to the codes of its notices when it has any; every
+  job of the run is listed. After every step the tests also check each run's status columns against
+  a replay of its journal.
 - `fixtures/names/`: `cases.json`, from step 24 of M1, the names of secrets and variables, each case
   with a `description`, the `name` given, and the name it is `stored` as, or `null` when the name
   breaks the target's rules. The server's tests send every case to `POST /api/v1/secrets` and

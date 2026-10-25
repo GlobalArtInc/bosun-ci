@@ -64,7 +64,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 | identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `api_token_scope`, `session`, `sign_in_failure`, `oidc_state` |
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `forge_repository`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
-| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
+| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `concurrency_member`, `approval`, `annotation`, `step_summary`, `terminal_session` |
 | agents | `pool`, `pool_access`, `agent`, `registration_token`, `control_message`, `label_alias` |
 | logs | `log_chunk`, `log_object` |
 | artifacts and caches | `artifact`, `artifact_block`, `cache_entry` |
@@ -80,8 +80,8 @@ The central columns:
 workflow     id, project_id, name, source_kind, enabled, revision_id, last_run_number, created_at
 run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_number,
              display_name, event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
-             trusted, admitted_at, status, conclusion, cancel_requested_at, created_at,
-             started_at, completed_at
+             trusted, admitted_at, concurrency, status, conclusion, cancel_requested_at,
+             created_at, started_at, completed_at
 attempt      id, run_id, number, reason, actor jsonb, created_at
 job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, needs text[], kind,
              status, waiting_reason, conclusion, conclusion_source, continue_on_error,
@@ -102,24 +102,29 @@ run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, k
 stream_event seq bigserial, xact, subject, project_id, run_id, kind, data jsonb, at
 schedule     id, workflow_id, revision_id, expression, timezone, cron jsonb, git_ref, sha,
              actor jsonb, next_at, created_at
+concurrency_member id bigserial, project_id, key, run_id, job_id, running, created_at
 ```
 
 A run's `trigger` holds the actor and the payload of the event, `{"actor": …, "payload": …}`; for
 `workflow_dispatch` the payload is the one [06-runtime-services.md](06-runtime-services.md)
 describes, which `github.event` shows. A run's `display_name` is its rendered `run-name` or its
 default name ([04-runs.md](04-runs.md#planning)); runs created before the column existed got the
-workflow's name. A run's `cancel_requested_at` is the time an accepted `run.cancel` reached it, and
-`trusted` whether its jobs may go to trusted pools only or to untrusted pools only
-([05-execution.md](05-execution.md#pools-and-label-aliases)). An untrusted run's `admitted_at` is
-the time it was admitted: its creation under the fork policy `automatic`, an accepted `run.admit`
-under `approval`, and `null` while it waits; a trusted run's is `null`
+workflow's name. A run's `cancel_requested_at` is the time an accepted `run.cancel` or its
+concurrency group first cancelled it, and `trusted` whether its jobs may go to trusted pools only or
+to untrusted pools only ([05-execution.md](05-execution.md#pools-and-label-aliases)). An untrusted
+run's `admitted_at` is the time it was admitted: its creation under the fork policy `automatic`, an
+accepted `run.admit` under `approval`, and `null` while it waits; a trusted run's is `null`
 ([08-access.md](08-access.md#code-from-outside-the-team)). The column arrived with step 29 of
-[../plan.md](../plan.md). A job is created with its key, display
-name and `needs`; its `labels`, `pool_ids` and `capabilities` are written when the planner evaluates
-`runs-on` as the job becomes ready ([04-runs.md](04-runs.md)), together with its rendered `name`,
-its `continue-on-error`, which the conclusion of the run reads, and in `evaluated` the values its
-assignment carries: `{"timeout_minutes", "env", "shell", "working_directory"}`, where `env` maps
-names to rendered values and the other two are `null` when `defaults.run` does not set them.
+[../plan.md](../plan.md). A job is created with its key, display name and `needs`; its `labels`,
+`pool_ids` and `capabilities` are written when the planner evaluates `runs-on` as the job becomes
+ready ([04-runs.md](04-runs.md)), together with its rendered `name`, its `continue-on-error`, which
+the conclusion of the run reads, and in `evaluated` the values its assignment carries:
+`{"timeout_minutes", "env", "shell", "working_directory"}`, where `env` maps names to rendered
+values and the other two are `null` when `defaults.run` does not set them. A job with a
+`concurrency` also keeps there what its admission reads,
+`"concurrency": {"group", "cancel_in_progress", "queue"}` as step 3 evaluated it, since
+`max-parallel` or its run's group can hold the job back before it enters its own group
+([04-runs.md](04-runs.md#concurrency-groups)).
 `labels` are lowercased, without the labels a label alias replaced. `pool_ids` are the pools the job
 may run in, among those whose access list admits its project: the pool `runs-on.group` names, none
 when no such pool has that name, and without a group every one of them, each narrowed to the pool
@@ -162,7 +167,8 @@ A milestone creates the columns it uses. The columns above that M0 does not use 
 runs and the evaluated values and outputs of jobs arrived with the planner's expressions (step 15 of
 [../plan.md](../plan.md)), `group_id`, `matrix` and `strategy` of jobs with matrices (step 16), and
 the outputs of steps with the assignment of M1 (step 20), and the trust of runs and the
-capabilities of jobs with pools (step 18). The indexes of the queue arrived with the
+capabilities of jobs with pools (step 18), and the `concurrency` of runs with concurrency groups
+(step 17). The indexes of the queue arrived with the
 claim (step 11 of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
 'assigned'` that the lease expiry reads. The partial index on `execution (completed_at) where status =
 'completed' and log_compacted_at is null` that the compaction of logs reads arrived with the logs
@@ -248,8 +254,8 @@ its run, a stream event its project and its run, a log chunk its execution, a lo
 annotation and a step summary their step, a control message its execution, a personal token its
 user, an entry of a token's restriction its token and the organisation and project it names, a
 registration token its pool, an entry of an access list its pool and the organisation and project
-it names, a label alias its organisation, and a secret or a variable its organisation and
-project. Deleting a run under `run_retention`
+it names, a label alias its organisation, a secret or a variable its organisation and project, and
+a member of a concurrency group its run and its project. Deleting a run under `run_retention`
 therefore removes everything it owns in one statement. The other references inside one run (the
 attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a
 log object) carry no foreign key, because the owner already bounds them and a cascade would have
@@ -283,12 +289,22 @@ inserts of rows that reference the run free, because their foreign key check tak
 `FOR KEY SHARE`. Creating a run needs no lock, since no other transaction sees the run before the
 creating one commits.
 
-Rows are locked in one order to rule out deadlocks: the run, then its jobs, executions and steps,
-then agents, whose row a control message takes `FOR SHARE`. A transaction that holds an agent's row,
-such as the sweep that marks agents offline, takes no run's lock; the sweep fails abandoned
-executions afterwards, one transaction each. The claim of the queue takes the job and its run's
-lock with `SKIP LOCKED`, so it never waits for a run that another transaction is changing; it takes
-the agent's row first, and never waits after that, so it closes no cycle.
+Rows are locked in one order to rule out deadlocks: the concurrency lock of the project when the
+transaction may create or lock a run that uses concurrency groups
+([Concurrency groups](#concurrency-groups)), then the rows of workflows, whose `last_run_number`
+the creation of a run counts up and whose `revision_id` a push to the default branch moves, in the
+order in which the planning of an event reads them (the files of a repository by path, the
+server-side workflows of a project by id), then the run, then its jobs, executions and steps, then agents, whose row a control
+message takes `FOR SHARE`; under the concurrency lock, the rows of other runs of the project that
+use concurrency groups may follow. The planning of an event creates the runs of several workflows in
+one transaction, each after its workflow's row, and goes on to the row of the next workflow after
+it; a run it created is new, so no other transaction waits for it, and the other runs it may have
+locked under the concurrency lock are ones that no holder of a workflow's row without that lock
+waits for. A transaction that holds an agent's row, such as the sweep that marks agents offline,
+takes no run's lock; the sweep fails abandoned executions afterwards, one transaction each. The
+claim of the queue takes the job and its run's lock with `SKIP LOCKED`, so it never waits for a run
+that another transaction is changing; it takes the agent's row first, and never waits after that, so
+it closes no cycle.
 
 The lock orders the journal of one run, not the journal of all runs. A reader across runs, such as
 the event stream filtered by project ([11-api.md](11-api.md#the-event-stream)), arrives with a
@@ -328,6 +344,44 @@ longer gap reads `GET /agents` again. Each sequence is read up to the horizon of
 reads it, and a reader that reaches an event above it stops there and tries again shortly
 ([11-api.md](11-api.md#the-event-stream)). The horizon counts the transactions of every database of
 the Postgres server, so a long transaction anywhere on it delays the stream.
+
+### Concurrency groups
+
+Step 17 of M1 ([../plan.md](../plan.md)) settled where the members of the concurrency groups of
+[04-runs.md](04-runs.md#concurrency-groups) live and how they are locked. A member is a row of
+`concurrency_member`: `id bigserial, project_id, key, run_id, job_id, running, created_at`, where
+`key` is the rendered group in lower case, so names compare without regard to case and runs and
+jobs share them, `job_id` the member job or `null` for a run, and `running` whether the group has
+admitted it. A member is inserted when it arrives, set `running` when the group admits it, and
+deleted when it completes or is cancelled while it waits, so the order of `id` among the members
+of a group is their order of arrival. The row belongs to its run and to its project, both with
+`ON DELETE CASCADE`; the job carries no foreign key, as references inside one run do not. An
+index on `(project_id, key, id)` reads a group in order, and one on `run_id` the members of a run.
+
+A run whose workflow has a `concurrency` at either level has `run.concurrency` set when it is
+created, and it never changes. Every transaction that creates or locks such a run takes the
+concurrency lock of its project first. A dispatch takes it before it counts the run's number on its
+workflow's row. The planning of an event, which may create the runs of several workflows in one
+transaction, takes it once before it plans the first of them when any workflow the event matches
+uses concurrency groups, since a workflow without them may come first, and its row would otherwise
+be held while the transaction waits for the lock. The lock is `pg_advisory_xact_lock` on two keys,
+`conc` spelled in four bytes and `hashtext` of the project's id, whose key space never meets that of
+the one-key locks of the periodic tasks and the compaction. Two projects whose ids hash alike share
+a lock, which only orders their transactions. Because the arrival, the admission and the departure
+of members are all decided under the lock, two replicas never admit two members of one group. A
+transaction holding the lock may lock other runs of the project that use concurrency groups, to
+cancel a member, admit the next one or release its jobs, and plans each of them after its own run in
+the same transaction, so the next member is released in the transaction that completes the running
+one, and the planning of an event goes on to the rows of further workflows. It waits there for two
+kinds of holders. One holds such a run's lock without the concurrency lock, and the only one is the
+claim of the queue, which takes the run's lock with `SKIP LOCKED`, changes no membership, since a
+member that is `queued` and one that is `assigned` both run, and waits for nothing after it. The
+other holds a workflow's row without the concurrency lock, which only a transaction that creates no
+run using concurrency groups does; it never waits for the concurrency lock or for the lock of a run
+another transaction created, and waits only for the rows of further workflows, in the one order
+above. Every other locker of such a run, or of a workflow's row on the way to creating one, waits
+for the concurrency lock first, so no cycle forms. The price is that the transactions of the runs of
+one project that use concurrency groups, the reports of their steps included, run one after another.
 
 ## The queue
 

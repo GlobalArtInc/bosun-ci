@@ -445,6 +445,7 @@ jobs:
             shell: Some(Shell::Bash),
             working_directory: Some("globalart/keel/".to_owned()),
             deferred: false,
+            concurrency: None,
         }
     );
 }
@@ -607,6 +608,12 @@ async fn every_runtime_notice_code_is_in_the_table_of_the_design() {
                 .to_owned(),
             "function_failed",
         ),
+        (
+            "on: workflow_dispatch\nconcurrency: deploy\njobs:\n  build:\n    \
+             runs-on: self-hosted\n    concurrency: Deploy\n    steps:\n      - run: make\n"
+                .to_owned(),
+            "concurrency_deadlock",
+        ),
     ];
     let mut produced = BTreeSet::new();
     for (source, code) in cases {
@@ -622,6 +629,7 @@ async fn every_runtime_notice_code_is_in_the_table_of_the_design() {
         produced.extend(codes);
     }
     produced.extend(super::secrets::unreadable_secret_notices().await);
+    produced.extend(super::concurrency::full_queue_notices().await);
     assert_eq!(produced, runtime_codes());
 }
 

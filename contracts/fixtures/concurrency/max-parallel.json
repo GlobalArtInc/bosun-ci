@@ -1,0 +1,108 @@
+{
+  "description": "a member that waits for its group counts against max-parallel, and a member that max-parallel releases goes on to its group",
+  "workflows": {
+    "release": {
+      "on": "workflow_dispatch",
+      "concurrency": "production",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    },
+    "deploy": {
+      "on": "workflow_dispatch",
+      "jobs": {
+        "deploy": {
+          "runs-on": "self-hosted",
+          "concurrency": "production",
+          "strategy": {
+            "max-parallel": 1,
+            "matrix": {
+              "shard": [
+                1,
+                2
+              ]
+            }
+          },
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "release",
+        "run": "release"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "deploy"
+      }
+    },
+    {
+      "expect": {
+        "release": {
+          "run": "queued",
+          "build": "queued"
+        },
+        "deploy": {
+          "run": "waiting",
+          "deploy": "pending",
+          "deploy (1)": "waiting concurrency",
+          "deploy (2)": "waiting max_parallel"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "release",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "release": {
+          "run": "completed success",
+          "build": "completed success"
+        },
+        "deploy": {
+          "run": "queued",
+          "deploy": "pending",
+          "deploy (1)": "queued",
+          "deploy (2)": "waiting max_parallel"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "deploy",
+        "job": "deploy (1)",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "deploy": {
+          "run": "in_progress",
+          "deploy": "pending",
+          "deploy (1)": "completed success",
+          "deploy (2)": "queued"
+        }
+      }
+    }
+  ]
+}

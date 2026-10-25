@@ -43,7 +43,7 @@ who may give which command is in [08-access.md](08-access.md).
 |--------|--------|---------|
 | run | `queued` | created, no job has started |
 | | `in_progress` | at least one job has started and not all are complete |
-| | `waiting` | no job is queued or on an agent, and at least one waits, for admission, an approval, a timer or a policy; the others are pending behind it |
+| | `waiting` | no job is queued or on an agent, and at least one waits, for admission, an approval, a timer, a policy or a concurrency group; the others are pending behind it |
 | | `paused` | an operator paused the run |
 | | `completed` | every job is complete; the conclusion is set |
 | job | `pending` | its `needs` are not complete |
@@ -58,7 +58,8 @@ who may give which command is in [08-access.md](08-access.md).
 | step | `pending`, `in_progress`, `paused`, `completed` | as for jobs |
 
 Conclusions are `success`, `failure`, `cancelled`, `skipped` and `timed_out`; a run can also end
-with `startup_failure` when its workflow is invalid. A step has an `outcome` (the result before
+with `startup_failure` when its workflow is invalid or its workflow-level `concurrency` cannot be
+evaluated ([Concurrency groups](#concurrency-groups)). A step has an `outcome` (the result before
 `continue-on-error`) and a `conclusion` (after it), as in the target syntax. Every conclusion has a
 **source**: `natural`, or `operator` when a command chose it (`job.skip`, `job.mark-success`,
 `step.skip`, `hold.continue`); the source is shown everywhere the conclusion is, and is part of the
@@ -82,6 +83,7 @@ The transitions of a job, exhaustively:
 | `pending` | `queued` | `needs` complete, `if` true, nothing holds the job back |
 | `pending` | `completed` | `if` false (`skipped`), `job.skip`, `job.mark-success`, cancellation, the members of its group completed |
 | `waiting` | `queued` | every admission rule is satisfied |
+| `waiting` | `waiting` | the admission rule that held the job back is satisfied and a later one holds it, such as `max_parallel` giving way to `concurrency` |
 | `waiting` | `completed` | rejection, gate timeout, branch policy, policy denial, `job.skip`, `job.mark-success`, cancellation |
 | `queued` | `waiting` | `job.pause`, `run.pause` |
 | `queued` | `assigned` | claimed by an agent |
@@ -144,9 +146,11 @@ When a trigger is accepted, the server finds the workflows whose `on` matches it
 transaction per workflow, creates the run, attempt 1, and one job per template in status
 `pending`; the runs of an event the forge delivered share the transaction of its delivery
 ([02-workflows.md](02-workflows.md#repository-workflows)). It evaluates `run-name` and the
-workflow-level `concurrency` at that moment. A reusable workflow named by a job is fetched and
-validated now, so a missing or invalid callee ends the run with `startup_failure` before anything
-executes. The planner then runs in the same transaction, so
+workflow-level `concurrency` at that moment, the `concurrency` before the jobs are created, so a
+group that cannot be evaluated ends the run with `startup_failure` and no jobs, and the run then
+enters its group ([Concurrency groups](#concurrency-groups)). A reusable workflow named by a job
+is fetched and validated now, so a missing or invalid callee ends the run with `startup_failure`
+before anything executes. The planner then runs in the same transaction, so
 the jobs that need no other job leave it `queued`.
 
 The warnings of the revision become the run's first notices ([Run notices](#run-notices)). The
@@ -194,9 +198,14 @@ in this order:
    `timeout-minutes` a whole number of at least 0; `continue-on-error` a boolean; and a shell in
    `defaults.run` one of the shells of [02-workflows.md](02-workflows.md).
 4. The admission rules: the environment's protection rules, the admission policies of plugins,
-   the concurrency group, and a pause of the run or the job. While any of them holds the job back,
+   the concurrency groups, and a pause of the run or the job. While any of them holds the job back,
    it is `waiting` with the reason recorded. A branch policy that excludes the ref, or a policy that
-   denies, completes the job as `failure` with the reason.
+   denies, completes the job as `failure` with the reason. The rules of M1 apply in this order:
+   the `max-parallel` of the job's group ([Matrices](#matrices)), the run's own concurrency group,
+   which holds every job of a run that waits in it, and the job's concurrency group
+   ([Concurrency groups](#concurrency-groups)). When a rule gives way, the job goes on with the rules
+   after it, so a member that `max-parallel` releases may go on to wait for its concurrency group,
+   which a `job.status` event from `waiting` to `waiting` with the new reason records.
 5. Otherwise the job becomes `queued`.
 
 A gate skips steps 2, 3 and the queue: once its admission rules pass, it waits for approvals.
@@ -261,9 +270,12 @@ The planner keeps the group going in every transaction it runs in:
   when it is not on an agent, through a `cancel` control message when it is. Waiting members are
   not released after that.
 - Otherwise, when fewer members than `max-parallel` are `queued`, `assigned`, `in_progress`,
-  `paused` or `held`, the waiting members are released to `queued` in the order of creation until
-  the limit is reached again. A member that becomes ready while the limit is reached goes to
-  `waiting` with the reason `max_parallel` after step 3.
+  `paused` or `held`, or wait with the reason `concurrency`, the members waiting with the reason
+  `max_parallel` are released in the order of creation until the limit is reached again, each to
+  the admission rules after `max-parallel`, which queue it unless a concurrency group holds it. A
+  member that becomes ready while the limit is reached goes to `waiting` with the reason
+  `max_parallel` after step 3. A member that waits for a concurrency group counts against the
+  limit, so admitting it never exceeds `max-parallel`.
 - When every member is complete, the group completes with the conclusion above, from `pending`,
   and with the outputs of its members: the members are taken in the order they completed, and a
   value that is not empty replaces what an earlier member gave for that name, so the last member
@@ -309,6 +321,68 @@ with `cancel-in-progress` the running one too. With `queue: max` up to 100 membe
 arrival and none is cancelled; it cannot be combined with `cancel-in-progress`. The workflow-level
 group applies to runs, the job-level one to jobs.
 
+### Concurrency groups
+
+The `concurrency` of the workflow makes its run a member of a group, and the `concurrency` of a job
+makes the job one. The workflow's group is evaluated when the run is created, with the contexts of
+its key (`github`, `inputs`, `vars` and `bosun`, [03-expressions.md](03-expressions.md)), and a
+job's at step 3 of [Planning](#planning), with the contexts of a job; `cancel-in-progress` is
+evaluated together with its group, and a key that is one `${{ }}` takes the type of its value, as in
+step 3. The cases of `contracts/fixtures/concurrency/` pin the rules:
+
+- A group is named by its rendered `group`, compared without regard to case within the project, and
+  runs and jobs share the names, as in the target: a job whose group is the workflow-level group of
+  another run waits for that run. A job whose group is the workflow-level group of its own run
+  would wait for itself; it completes `cancelled` with the reason `concurrency` and an error notice
+  `concurrency_deadlock`. Only that job is cancelled: the other jobs of the run go on, and the run
+  ends `cancelled` because one of its jobs did, where the target cancels the whole run.
+- A group has at most one running member and admits members in their order of arrival. A run is
+  running from its admission until it completes, and a job from its admission, which queues it,
+  until it completes. A member that arrives while the group has a running member or waiting
+  members waits: a run keeps every job it makes ready `waiting` with the reason `concurrency`, so
+  the run itself is `waiting`, and a job waits with the reason `concurrency`.
+- With `queue: single`, the default, an arrival cancels every member that waits in the group, so the
+  newest waits alone. With `queue: max`, members wait in their order of arrival and none is
+  cancelled; when 100 members wait already, the arrival itself is cancelled, a run with every job
+  and a job alone, with the reason `concurrency` and an error notice `concurrency_queue_full`, so
+  a group holds at most 101 members and the ones that wait keep their places.
+- With `cancel-in-progress` evaluated to `true`, an arrival also cancels the running member, and
+  waits until that member has completed. An expression that gives `true` there together with
+  `queue: max` is `invalid_value`, as the literal is when the file is validated.
+- An arrival cancels a member with the reason `concurrency`, after a `concurrency.cancelled` event in
+  the member's run that names the group and the arrival. A job is cancelled as `job.cancel` cancels
+  it. A running run is cancelled as `run.cancel` cancels it: its cancellation is requested, so
+  `cancelled()` holds for its remaining jobs and a pending job whose `if` admits cancellation still
+  runs, as in the target. When such a job's `if` gives false once it is ready, it completes
+  `cancelled` with the reason `concurrency`, since the first event that requested the run's
+  cancellation is the `concurrency.cancelled`; the reason is `command` when a `run.cancel` requested
+  it first. A waiting
+  run has started nothing, so every job of it that is not complete is cancelled at once, such
+  pending jobs included.
+- A `run.cancel` of a run that waits in its group has the command's usual effect and leaves the run
+  in its place in the group: its jobs are cancelled but for a pending job whose `if` admits
+  cancellation, which waits with the reason `concurrency` once it is ready and runs when the group
+  admits the run. A run with such a job therefore completes only after its admission; one without
+  completes `cancelled` at once and leaves the group.
+- When the running member completes, the group admits its first waiting member in the same
+  transaction. An admitted run releases the jobs it kept waiting, each to the admission rules after
+  its run's group; an admitted job is queued.
+- A run from a fork that waits for admission ([08-access.md](08-access.md#code-from-outside-the-team))
+  is a member of no group, so that a pull request nobody has reviewed cancels nothing and holds no
+  place. Its workflow's group is evaluated when the run is created, to refuse a faulty one at once,
+  and again when `run.admit` admits the run, which then enters the group like a new arrival; a group
+  that fails to evaluate by then cancels the run's jobs with the reason `evaluation_failed` and an
+  error notice. Its jobs wait with the reason `untrusted` until then, and `run.admit` releases each
+  one to the admission rules of its run's group and of its own.
+- An expression in the workflow's `concurrency` that fails to evaluate, gives an empty group or a
+  `cancel-in-progress` that is not a boolean ends the run with `startup_failure` before it has
+  jobs, with an error notice at the expression, since the run cannot know whether it may start. In a
+  job's `concurrency` it fails the job with the reason `evaluation_failed`, as any key of step 3
+  does.
+
+Where the members are stored and how two replicas never admit two of them is in
+[07-storage.md](07-storage.md#concurrency-groups).
+
 Timeouts: `timeout-minutes` of a job (default 360) counts only the time spent `in_progress`, so
 pauses and holds do not consume it. The agent enforces it, as it does a step's `timeout-minutes`: a
 job that runs out of time concludes `timed_out`, and a step that does concludes `timed_out` and
@@ -328,14 +402,15 @@ its forge id and login), a JSON payload, and the time. The status columns of run
 and steps are a projection of the journal, written in the same transaction as the event, so reading
 a status never requires replaying events and the journal never disagrees with it; a run's
 `cancel_requested_at` belongs to the projection too, set by the `command.accepted` of a
-`run.cancel`. A run's `admitted_at` does not, any more than its `trusted`: both are facts of the
-run's creation under the project's fork policy, which `run.created` does not record, so a replay
-cannot tell a run admitted at its creation under `automatic` from a trusted one. An accepted
-`run.admit` sets `admitted_at` in the transaction of its `command.accepted`, so the change is in
-the journal all the same, and the projection holds its effect: the jobs that wait with the reason
-`untrusted` and the `job.status` events that release them. A property test drives random job graphs with random step results, commands, lost
-agents, expired leases, rejected assignments and queue timeouts, and checks after every transaction
-that the columns equal a replay of the journal.
+`run.cancel` or by a `concurrency.cancelled` without a job. A run's `admitted_at` does not, any more
+than its `trusted`: both are facts of the run's creation under the project's fork policy, which
+`run.created` does not record, so a replay cannot tell a run admitted at its creation under
+`automatic` from a trusted one. An accepted `run.admit` sets `admitted_at` in the transaction of its
+`command.accepted`, so the change is in the journal all the same, and the projection holds its
+effect: the jobs that wait with the reason `untrusted` and the `job.status` events that release
+them. A property test drives random job graphs with random step results, commands, lost agents,
+expired leases, rejected assignments and queue timeouts, and checks after every transaction that the
+columns equal a replay of the journal.
 
 An event has this shape, the same in the database, in the API and in the event stream:
 
@@ -377,6 +452,7 @@ The kinds of M0, and those M1 adds:
 | `command.accepted` | the command as it was given |
 | `command.refused` | the command, the error code and message |
 | `run.notice` | from M1: a diagnostic of [02-workflows.md](02-workflows.md) with the severity `error`, `warning` or `notice`; the event's `job_id` names the job it concerns, or is `null` ([Run notices](#run-notices)) |
+| `concurrency.cancelled` | from M1: an arrival cancelled a member of a concurrency group: `group`, as the arrival rendered it, and `arrival`, its `run_id` and its `job_id` or `null`; the event's `job_id` names the cancelled job, or is `null` for a run, whose cancellation it requests as the `command.accepted` of a `run.cancel` does ([Concurrency groups](#concurrency-groups)) |
 
 Later milestones add kinds for approvals, holds, terminals and the rest of the commands' effects.
 A status event always names both ends of the transition, so a replay can check that each event
@@ -395,6 +471,7 @@ that is not self-explanatory:
 | `agent_lost` | the agent did not come back within the grace period |
 | `agent_removed` | the agent was deleted while it held the job: a job it ran fails, and one it had not accepted yet returns to the queue ([05-execution.md](05-execution.md#draining-and-deleting-agents)) |
 | `action_unavailable` | an action a step uses could not be resolved, downloaded or read, or is of a kind the server does not run yet; the run's notices name the action ([05-execution.md](05-execution.md#actions-and-tools)) |
+| `concurrency` | its concurrency group cancelled it: a newer member arrived under `queue: single` or with `cancel-in-progress`, which a `concurrency.cancelled` event names, or the group refused it, which the run's notices say ([Concurrency groups](#concurrency-groups)) |
 
 ### Run notices
 
@@ -406,6 +483,8 @@ that is not a status. Notices are `run.notice` events, so they keep the order of
   [02-workflows.md](02-workflows.md) and without a job;
 - when the server evaluates an expression for the run or one of its jobs and the evaluation fails,
   as an error at the expression's span;
+- when a concurrency group refuses a run or a job, as an error at its `concurrency`
+  ([Concurrency groups](#concurrency-groups));
 - when a file with errors yields a run that ends with `startup_failure`, from every diagnostic of
   the file, and from a key the planner does not apply yet as `not_implemented`, with their codes
   from [02-workflows.md](02-workflows.md#repository-workflows) and without a job;
@@ -423,6 +502,8 @@ The codes of runtime notices:
 | `invalid_type` | error | the value of an expression has a type its key cannot use, such as a string for `timeout-minutes` |
 | `invalid_value` | error | the value has the right type but the key cannot use it, such as `timeout-minutes: 1.5`, an empty label, a shell that does not exist or an empty vector of a matrix |
 | `limit_exceeded` | error | a matrix expands to more jobs than the installation's limit ([Matrices](#matrices)) |
+| `concurrency_queue_full` | error | the member arrived at a group where 100 members wait under `queue: max`, so it was cancelled |
+| `concurrency_deadlock` | error | a job named the workflow-level group of its own run, so it was cancelled |
 | `secret_unreadable` | error | a secret the job reads does not decrypt when the job is assigned: the configuration lacks the KEK of its data key, or its ciphertext or data key is not the one written for its scope and name ([07-storage.md](07-storage.md#secrets-at-rest)) |
 
 The codes of the notices about actions:
@@ -467,8 +548,10 @@ current one. M0 serves `run.cancel` and `job.cancel`, step 29 of M1 ([../plan.md
 ([08-access.md](08-access.md#code-from-outside-the-team)): untrusted, not admitted and not
 completed. It takes no job. Any other run refuses it with ``the run does not wait for admission``,
 or ``the run is completed``, followed by ``; `run.admit` needs a run from a fork that waits for
-it``. An accepted admission sets the run's `admitted_at` and queues every job that waits with the
-reason `untrusted`, each `job.status` event carrying the command's actor. Until then a member of a
+it``. An accepted admission sets the run's `admitted_at` and releases every job that waits with the
+reason `untrusted`: it is queued, or waits on with the reason `concurrency` when a
+[concurrency group](#concurrency-groups) holds it, each `job.status` event carrying the command's
+actor. Until then a member of a
 job group that `max-parallel` would hold back waits with `max_parallel` rather than `untrusted`,
 and no member is released for room, so the members that wait with `untrusted` are at most
 `max-parallel` and the admission queues them all; the others follow as room frees.

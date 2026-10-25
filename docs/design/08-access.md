@@ -431,7 +431,9 @@ Step 29 of M1 ([../plan.md](../plan.md)) settled how the policy applies:
   job that becomes ready waits with reason `untrusted`, and the run is `waiting`
   ([04-runs.md](04-runs.md#states)). `run.admit` needs `run.override`, sets `admitted_at`, and
   queues the waiting jobs with the command's actor; jobs that become ready afterwards are queued as
-  in any run. The interface shows the command on the run page from step 42.
+  in any run. Until then the run is a member of no concurrency group
+  ([04-runs.md](04-runs.md#concurrency-groups)), and it enters its workflow's group when it is
+  admitted. The interface shows the command on the run page from step 42.
 - **`automatic`** creates the run untrusted and admitted at once, so its jobs are queued as they
   become ready.
 - **The untrusted run** goes to untrusted pools only

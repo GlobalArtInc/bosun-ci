@@ -1,0 +1,103 @@
+{
+  "description": "under queue: max the arrival that finds 100 members waiting is cancelled with concurrency_queue_full while the others keep their places, and the group takes arrivals again once a place frees",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": {
+        "group": "deploy",
+        "queue": "max"
+      },
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "waiting",
+        "times": 100
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "refused"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "queued",
+          "build": "queued"
+        },
+        "waiting-1": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        },
+        "waiting-100": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        },
+        "refused": {
+          "run": "completed cancelled",
+          "build": "completed cancelled concurrency",
+          "notices": [
+            "concurrency_queue_full"
+          ]
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "late"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed success",
+          "build": "completed success"
+        },
+        "waiting-1": {
+          "run": "queued",
+          "build": "queued"
+        },
+        "waiting-2": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        },
+        "waiting-100": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        },
+        "late": {
+          "run": "waiting",
+          "build": "waiting concurrency"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "description": "a waiting run cancelled by an operator stays in its group, so its job with if: always() waits for the group and runs once the run is admitted",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": "deploy",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "report": {
+          "runs-on": "self-hosted",
+          "needs": "build",
+          "if": "always()",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "cancel": {
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "queued",
+          "build": "queued",
+          "report": "pending"
+        },
+        "second": {
+          "run": "waiting",
+          "build": "completed cancelled command",
+          "report": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "report",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed success",
+          "build": "completed success",
+          "report": "completed success"
+        },
+        "second": {
+          "run": "queued",
+          "build": "completed cancelled command",
+          "report": "queued"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "second",
+        "job": "report",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "second": {
+          "run": "completed cancelled",
+          "build": "completed cancelled command",
+          "report": "completed success"
+        }
+      }
+    }
+  ]
+}

@@ -332,18 +332,11 @@ async fn a_broken_file_whose_on_matches_ends_its_run_as_a_startup_failure_with_i
     scene
         .push(
             "main",
-            &[
-                (
-                    ".bosun/workflows/uses.yml",
-                    "name: uses\non: push\njobs:\n  build:\n    runs-on: shell\n    steps:\n      \
+            &[(
+                ".bosun/workflows/uses.yml",
+                "name: uses\non: push\njobs:\n  build:\n    runs-on: shell\n    steps:\n      \
                      - uses: actions/checkout@v4\n",
-                ),
-                (
-                    ".bosun/workflows/concurrency.yml",
-                    "name: concurrency\non: push\njobs:\n  build:\n    runs-on: shell\n    \
-                     concurrency: deploy\n    steps:\n      - run: make\n",
-                ),
-            ],
+            )],
         )
         .await;
     let runs = scene.runs().await;
@@ -353,16 +346,6 @@ async fn a_broken_file_whose_on_matches_ends_its_run_as_a_startup_failure_with_i
         .expect("the run of the workflow with a `uses` step");
     assert_eq!(uses["status"], "queued", "{uses}");
     assert_eq!(uses["notices"], json!([]));
-    let concurrency = runs
-        .iter()
-        .find(|run| run["display_name"] == "concurrency")
-        .expect("the run of the workflow with a `concurrency`");
-    assert_eq!(concurrency["conclusion"], "startup_failure");
-    assert_eq!(concurrency["notices"][0]["code"], "not_implemented");
-    assert_eq!(
-        concurrency["notices"][0]["path"],
-        json!(["jobs", "build", "concurrency"])
-    );
 }
 
 #[tokio::test]

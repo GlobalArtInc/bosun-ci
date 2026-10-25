@@ -3,6 +3,7 @@ mod api;
 mod auth;
 mod check;
 mod commands;
+mod concurrency;
 mod config;
 mod data;
 mod events;

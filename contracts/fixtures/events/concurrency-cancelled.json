@@ -1,0 +1,20 @@
+{
+  "seq": 31,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "attempt_id": null,
+  "job_id": null,
+  "execution_id": null,
+  "step_id": null,
+  "actor": {
+    "kind": "system"
+  },
+  "at": "2026-10-24T18:36:12.204Z",
+  "kind": "concurrency.cancelled",
+  "data": {
+    "group": "deploy-refs/heads/feature",
+    "arrival": {
+      "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000011",
+      "job_id": null
+    }
+  }
+}

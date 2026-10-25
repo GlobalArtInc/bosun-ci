@@ -262,6 +262,7 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
                 shell: None,
                 working_directory: None,
                 deferred: false,
+                concurrency: None,
             },
             false
         )

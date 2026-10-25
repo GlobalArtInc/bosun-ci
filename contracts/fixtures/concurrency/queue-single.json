@@ -1,0 +1,123 @@
+{
+  "description": "under queue: single a second run waits with its ready jobs, a third cancels the waiting second, and the third starts when the first completes",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": "deploy",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "test": {
+          "runs-on": "self-hosted",
+          "needs": "build",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "queued",
+          "build": "queued",
+          "test": "pending"
+        },
+        "second": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "test": "pending"
+        }
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "third"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "queued",
+          "build": "queued",
+          "test": "pending"
+        },
+        "second": {
+          "run": "completed cancelled",
+          "build": "completed cancelled concurrency",
+          "test": "completed cancelled concurrency"
+        },
+        "third": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "test": "pending"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "in_progress",
+          "build": "completed success",
+          "test": "queued"
+        },
+        "third": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "test": "pending"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "test",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed success",
+          "build": "completed success",
+          "test": "completed success"
+        },
+        "third": {
+          "run": "queued",
+          "build": "queued",
+          "test": "pending"
+        }
+      }
+    }
+  ]
+}

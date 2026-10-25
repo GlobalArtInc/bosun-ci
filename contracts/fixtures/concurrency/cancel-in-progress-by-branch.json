@@ -1,0 +1,146 @@
+{
+  "description": "cancel-in-progress from an expression cancels the running run of a branch on a new arrival, so its remaining job is cancelled and the run ends cancelled though its running job succeeds, and leaves the running run of main",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "concurrency": {
+        "group": "deploy-${{ github.ref }}",
+        "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}"
+      },
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "ship": {
+          "runs-on": "self-hosted",
+          "needs": "build",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "main-1",
+        "ref": "refs/heads/main"
+      }
+    },
+    {
+      "start": {
+        "run": "main-1",
+        "job": "build"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "feature-1",
+        "ref": "refs/heads/feature"
+      }
+    },
+    {
+      "start": {
+        "run": "feature-1",
+        "job": "build"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "main-2",
+        "ref": "refs/heads/main"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "feature-2",
+        "ref": "refs/heads/feature"
+      }
+    },
+    {
+      "expect": {
+        "main-1": {
+          "run": "in_progress",
+          "build": "in_progress",
+          "ship": "pending"
+        },
+        "main-2": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "ship": "pending"
+        },
+        "feature-1": {
+          "run": "in_progress",
+          "build": "in_progress",
+          "ship": "completed cancelled concurrency"
+        },
+        "feature-2": {
+          "run": "waiting",
+          "build": "waiting concurrency",
+          "ship": "pending"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "feature-1",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "feature-1": {
+          "run": "completed cancelled",
+          "build": "completed success",
+          "ship": "completed cancelled concurrency"
+        },
+        "feature-2": {
+          "run": "queued",
+          "build": "queued",
+          "ship": "pending"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "main-1",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "finish": {
+        "run": "main-1",
+        "job": "ship",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "main-1": {
+          "run": "completed success",
+          "build": "completed success",
+          "ship": "completed success"
+        },
+        "main-2": {
+          "run": "queued",
+          "build": "queued",
+          "ship": "pending"
+        }
+      }
+    }
+  ]
+}

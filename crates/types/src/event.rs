@@ -60,10 +60,12 @@ pub enum Event {
     CommandRefused(CommandRefused),
     #[serde(rename = "run.notice")]
     RunNotice(Diagnostic),
+    #[serde(rename = "concurrency.cancelled")]
+    ConcurrencyCancelled(ConcurrencyCancelled),
 }
 
 impl Event {
-    pub const KINDS: [&'static str; 12] = [
+    pub const KINDS: [&'static str; 13] = [
         "run.created",
         "attempt.created",
         "job.created",
@@ -76,6 +78,7 @@ impl Event {
         "command.accepted",
         "command.refused",
         "run.notice",
+        "concurrency.cancelled",
     ];
 
     pub fn kind(&self) -> &'static str {
@@ -92,6 +95,7 @@ impl Event {
             Event::CommandAccepted(_) => "command.accepted",
             Event::CommandRefused(_) => "command.refused",
             Event::RunNotice(_) => "run.notice",
+            Event::ConcurrencyCancelled(_) => "concurrency.cancelled",
         }
     }
 }
@@ -198,6 +202,18 @@ pub struct StepStatusChanged {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandAccepted {
     pub command: CommandRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ConcurrencyCancelled {
+    pub group: String,
+    pub arrival: Arrival,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Arrival {
+    pub run_id: RunId,
+    pub job_id: Option<JobId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

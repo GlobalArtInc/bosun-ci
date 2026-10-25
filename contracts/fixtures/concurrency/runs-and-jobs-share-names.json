@@ -1,0 +1,88 @@
+{
+  "description": "a job whose group is the workflow-level group of another run waits for that run, and the other jobs of its run go on",
+  "workflows": {
+    "release": {
+      "on": "workflow_dispatch",
+      "concurrency": "production",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    },
+    "deploy": {
+      "on": "workflow_dispatch",
+      "jobs": {
+        "build": {
+          "runs-on": "self-hosted",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        },
+        "ship": {
+          "runs-on": "self-hosted",
+          "concurrency": "production",
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "release",
+        "run": "release"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "deploy"
+      }
+    },
+    {
+      "expect": {
+        "release": {
+          "run": "queued",
+          "build": "queued"
+        },
+        "deploy": {
+          "run": "queued",
+          "build": "queued",
+          "ship": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "release",
+        "job": "build",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "release": {
+          "run": "completed success",
+          "build": "completed success"
+        },
+        "deploy": {
+          "run": "queued",
+          "build": "queued",
+          "ship": "queued"
+        }
+      }
+    }
+  ]
+}

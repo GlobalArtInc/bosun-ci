@@ -1,0 +1,73 @@
+{
+  "description": "a job that arrives with cancel-in-progress cancels the running job of another run and waits until it has completed",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "jobs": {
+        "ship": {
+          "runs-on": "self-hosted",
+          "concurrency": {
+            "group": "ship",
+            "cancel-in-progress": true
+          },
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "start": {
+        "run": "first",
+        "job": "ship"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "in_progress",
+          "ship": "in_progress"
+        },
+        "second": {
+          "run": "waiting",
+          "ship": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "first",
+        "job": "ship",
+        "conclusion": "cancelled"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed cancelled",
+          "ship": "completed cancelled"
+        },
+        "second": {
+          "run": "queued",
+          "ship": "queued"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "description": "a job-level group from the matrix serialises only the members with equal values",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "jobs": {
+        "deploy": {
+          "runs-on": "self-hosted",
+          "concurrency": {
+            "group": "deploy-${{ matrix.target }}",
+            "queue": "max"
+          },
+          "strategy": {
+            "matrix": {
+              "target": [
+                "staging",
+                "production"
+              ],
+              "shard": [
+                1,
+                2
+              ]
+            }
+          },
+          "steps": [
+            {
+              "run": "make"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "run"
+      }
+    },
+    {
+      "expect": {
+        "run": {
+          "run": "queued",
+          "deploy": "pending",
+          "deploy (staging, 1)": "queued",
+          "deploy (staging, 2)": "waiting concurrency",
+          "deploy (production, 1)": "queued",
+          "deploy (production, 2)": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "finish": {
+        "run": "run",
+        "job": "deploy (staging, 1)",
+        "conclusion": "success"
+      }
+    },
+    {
+      "expect": {
+        "run": {
+          "run": "in_progress",
+          "deploy": "pending",
+          "deploy (staging, 1)": "completed success",
+          "deploy (staging, 2)": "queued",
+          "deploy (production, 1)": "queued",
+          "deploy (production, 2)": "waiting concurrency"
+        }
+      }
+    }
+  ]
+}

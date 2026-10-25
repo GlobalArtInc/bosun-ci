@@ -161,6 +161,40 @@ impl Locked<'_> {
         queue::announce(self.transaction(), job).await
     }
 
+    pub async fn rehold_job(
+        &self,
+        job: JobId,
+        reason: WaitingReason,
+        actor: &Actor,
+    ) -> Result<(), Error> {
+        let (from, _) = self.job(job).await?;
+        if from != JobStatus::Waiting {
+            return Err(refuse("job", job, from, JobStatus::Waiting));
+        }
+        self.transaction()
+            .execute(statement(
+                "UPDATE job SET waiting_reason = $2 WHERE id = $1",
+                [Uuid::from(job).into(), row::text(JOBS, reason)?.into()],
+            ))
+            .await?;
+        self.append(
+            Some(job),
+            None,
+            None,
+            actor,
+            Event::JobStatusChanged(JobStatusChanged {
+                from,
+                to: JobStatus::Waiting,
+                waiting_reason: Some(reason),
+                conclusion: None,
+                conclusion_source: None,
+                reason: None,
+            }),
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn complete_group(
         &self,
         group: JobId,

@@ -10,7 +10,7 @@ use bosun_types::event::{
 use bosun_types::id::{
     AgentId, AttemptId, ExecutionId, JobId, OrganisationId, ProjectId, RevisionId, RunId, StepId,
 };
-use bosun_types::ir::{self, Shell, Template};
+use bosun_types::ir::{self, Queue, Shell, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{
     Conclusion, ExecutionStatus, JobStatus, RunConclusion, RunStatus, WaitingReason,
@@ -34,6 +34,8 @@ const RUNS: &str = "run";
 
 const FIRST_ATTEMPT: u8 = 1;
 
+const CONCURRENCY_LOCK: i32 = i32::from_be_bytes(*b"conc");
+
 pub struct Locked<'a> {
     transaction: &'a DatabaseTransaction,
     state: RunState,
@@ -42,6 +44,8 @@ pub struct Locked<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunState {
     pub id: RunId,
+    pub project_id: ProjectId,
+    pub concurrency: bool,
     pub attempt_id: AttemptId,
     pub attempt: u32,
     pub status: RunStatus,
@@ -64,6 +68,7 @@ pub struct JobState {
     pub waiting_reason: Option<WaitingReason>,
     pub conclusion: Option<Conclusion>,
     pub continue_on_error: bool,
+    pub concurrency: Option<Grouped>,
     pub outputs: BTreeMap<String, String>,
     pub started: bool,
     pub completed_at: Option<DateTimeUtc>,
@@ -94,6 +99,16 @@ pub struct Evaluated {
     pub working_directory: Option<String>,
     #[serde(default)]
     pub deferred: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<Grouped>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Grouped {
+    pub group: String,
+    pub cancel_in_progress: bool,
+    pub queue: Queue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,7 +156,7 @@ pub struct ExecutionState {
     pub status: ExecutionStatus,
 }
 
-pub(crate) const RUN_STATE: &str = "r.status, r.conclusion, \
+pub(crate) const RUN_STATE: &str = "r.project_id, r.concurrency, r.status, r.conclusion, \
      r.cancel_requested_at IS NOT NULL AS cancel_requested, r.trusted, \
      NOT r.trusted AND r.admitted_at IS NULL AS awaiting_admission, a.id AS attempt_id, \
      a.number AS attempt";
@@ -150,7 +165,24 @@ pub async fn lock(
     transaction: &DatabaseTransaction,
     run: RunId,
 ) -> Result<Option<Locked<'_>>, Error> {
-    let Some(found) = transaction
+    transaction
+        .execute(statement(
+            "SELECT pg_advisory_xact_lock($2, hashtext(project_id::text)) FROM run \
+             WHERE id = $1 AND concurrency",
+            [Uuid::from(run).into(), CONCURRENCY_LOCK.into()],
+        ))
+        .await?;
+    let Some(state) = locked_state(transaction, run).await? else {
+        return Ok(None);
+    };
+    Ok(Some(Locked { transaction, state }))
+}
+
+async fn locked_state(
+    transaction: &DatabaseTransaction,
+    run: RunId,
+) -> Result<Option<RunState>, Error> {
+    transaction
         .query_one(statement(
             &format!(
                 "SELECT {RUN_STATE} FROM run r JOIN attempt a ON a.run_id = r.id \
@@ -159,11 +191,8 @@ pub async fn lock(
             [Uuid::from(run).into()],
         ))
         .await?
-    else {
-        return Ok(None);
-    };
-    let state = decode_state(run, &found)?;
-    Ok(Some(Locked { transaction, state }))
+        .map(|found| decode_state(run, &found))
+        .transpose()
 }
 
 pub async fn lock_job(
@@ -187,6 +216,8 @@ pub(crate) fn decode_state(run: RunId, found: &QueryResult) -> Result<RunState, 
     let attempt: i32 = found.try_get("", "attempt")?;
     Ok(RunState {
         id: run,
+        project_id: row::id("project", found.try_get::<Uuid>("", "project_id")?)?,
+        concurrency: found.try_get("", "concurrency")?,
         attempt_id: row::id("attempt", found.try_get::<Uuid>("", "attempt_id")?)?,
         attempt: u32::try_from(attempt).map_err(|error| Error::Row {
             table: "attempt",
@@ -244,6 +275,23 @@ impl<'a> Locked<'a> {
         &self.state
     }
 
+    pub async fn refresh(&mut self) -> Result<(), Error> {
+        self.state = locked_state(self.transaction, self.state.id)
+            .await?
+            .ok_or_else(|| Error::Vanished(format!("run {}", self.state.id)))?;
+        Ok(())
+    }
+
+    pub async fn create_jobs(&self, workflow: &ir::Workflow, actor: &Actor) -> Result<(), Error> {
+        insert_jobs(
+            self.transaction,
+            actor,
+            (self.state.id, self.state.attempt_id),
+            workflow,
+        )
+        .await
+    }
+
     pub fn transaction(&self) -> &'a DatabaseTransaction {
         self.transaction
     }
@@ -252,7 +300,8 @@ impl<'a> Locked<'a> {
         self.transaction
             .query_all(statement(
                 "SELECT j.id, j.key, j.name, j.needs, j.group_id, j.matrix, j.strategy, j.status, \
-                 j.waiting_reason, j.conclusion, j.continue_on_error, j.outputs, \
+                 j.waiting_reason, j.conclusion, j.continue_on_error, \
+                 j.evaluated -> 'concurrency' AS concurrency, j.outputs, \
                  j.started_at IS NOT NULL AS started, j.completed_at, e.id AS execution_id, e.agent_id, \
                  e.status AS execution_status, e.online AS agent_online FROM job j \
                  LEFT JOIN LATERAL (SELECT x.id, x.agent_id, x.status, g.online \
@@ -525,6 +574,10 @@ fn decode_job(found: &QueryResult) -> Result<JobState, Error> {
             .map(|conclusion| row::name("job", conclusion))
             .transpose()?,
         continue_on_error: found.try_get("", "continue_on_error")?,
+        concurrency: found
+            .try_get::<Option<Value>>("", "concurrency")?
+            .map(|grouped| row::json("job", grouped))
+            .transpose()?,
         outputs: row::json("job", found.try_get::<Value>("", "outputs")?)?,
         started: found.try_get("", "started")?,
         completed_at: found.try_get("", "completed_at")?,
@@ -561,6 +614,36 @@ pub struct NewRun<'a> {
 }
 
 pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run, Error> {
+    let (run, attempt_id) = insert(db, &new).await?;
+    insert_jobs(db, new.actor, (run.id, attempt_id), new.ir).await?;
+    Ok(run)
+}
+
+pub async fn create<C: ConnectionTrait>(db: &C, new: &NewRun<'_>) -> Result<Run, Error> {
+    insert(db, new).await.map(|(run, _)| run)
+}
+
+pub fn uses_concurrency(workflow: &ir::Workflow) -> bool {
+    workflow.concurrency.is_some()
+        || workflow
+            .jobs
+            .iter()
+            .any(|template| template.concurrency.is_some())
+}
+
+pub async fn lock_concurrency<C: ConnectionTrait>(db: &C, project: ProjectId) -> Result<(), Error> {
+    db.execute(statement(
+        "SELECT pg_advisory_xact_lock($1, hashtext($2::uuid::text))",
+        [CONCURRENCY_LOCK.into(), Uuid::from(project).into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn insert<C: ConnectionTrait>(db: &C, new: &NewRun<'_>) -> Result<(Run, AttemptId), Error> {
+    if uses_concurrency(new.ir) {
+        lock_concurrency(db, new.workflow.project_id).await?;
+    }
     let number = next_number(db, new.workflow).await?;
     let actor = serde_json::to_value(new.actor)?;
     let display_name = new
@@ -590,6 +673,7 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         cancel_requested_at: ActiveValue::Set(None),
         trusted: ActiveValue::Set(new.trust == Trust::Trusted),
         admitted_at: ActiveValue::Set(None),
+        concurrency: ActiveValue::Set(uses_concurrency(new.ir)),
     }
     .insert(db)
     .await?;
@@ -641,8 +725,39 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
     )
     .await?;
 
+    Ok((
+        Run {
+            id: run_id,
+            project_id: new.workflow.project_id,
+            workflow_id: new.workflow.id,
+            revision_id: new.revision_id,
+            number,
+            global_number,
+            display_name,
+            event: created.event,
+            r#ref: created.git_ref,
+            sha: created.sha,
+            status: RunStatus::Queued,
+            conclusion: None,
+            attempt: u32::from(FIRST_ATTEMPT),
+            actor: new.actor.clone(),
+            notices: Vec::new(),
+            created_at: created.created_at,
+            started_at: None,
+            completed_at: None,
+        },
+        attempt_id,
+    ))
+}
+
+async fn insert_jobs<C: ConnectionTrait>(
+    db: &C,
+    actor: &Actor,
+    (run_id, attempt_id): (RunId, AttemptId),
+    workflow: &ir::Workflow,
+) -> Result<(), Error> {
     let pending = row::text("job", JobStatus::Pending)?;
-    for template in &new.ir.jobs {
+    for template in &workflow.jobs {
         let name = template
             .name
             .as_ref()
@@ -650,7 +765,7 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
             .unwrap_or_else(|| template.key.to_string());
         let created = job::ActiveModel {
             id: ActiveValue::Set(Uuid::now_v7()),
-            attempt_id: ActiveValue::Set(attempt.id),
+            attempt_id: ActiveValue::Set(attempt_id.into()),
             key: ActiveValue::Set(template.key.to_string()),
             name: ActiveValue::Set(name.clone()),
             needs: ActiveValue::Set(template.needs.iter().map(ToString::to_string).collect()),
@@ -662,7 +777,7 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         let job_id: JobId = row::id("job", created.id)?;
         record(
             db,
-            new.actor,
+            actor,
             run_id,
             Some(attempt_id),
             Some(job_id),
@@ -676,27 +791,7 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         )
         .await?;
     }
-
-    Ok(Run {
-        id: run_id,
-        project_id: new.workflow.project_id,
-        workflow_id: new.workflow.id,
-        revision_id: new.revision_id,
-        number,
-        global_number,
-        display_name,
-        event: created.event,
-        r#ref: created.git_ref,
-        sha: created.sha,
-        status: RunStatus::Queued,
-        conclusion: None,
-        attempt: u32::from(FIRST_ATTEMPT),
-        actor: new.actor.clone(),
-        notices: Vec::new(),
-        created_at: created.created_at,
-        started_at: None,
-        completed_at: None,
-    })
+    Ok(())
 }
 
 async fn next_number<C: ConnectionTrait>(db: &C, workflow: &Workflow) -> Result<i64, Error> {

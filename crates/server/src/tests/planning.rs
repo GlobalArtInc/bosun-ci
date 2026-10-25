@@ -9,10 +9,9 @@ use sea_orm::{ConnectionTrait, Statement};
 
 use super::{World, finished, replay, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
-use crate::planner;
 use crate::site::Site;
 
-async fn strings(world: &World, sql: &str) -> Vec<String> {
+pub(super) async fn strings(world: &World, sql: &str) -> Vec<String> {
     world
         .db()
         .query_all(Statement::from_string(
@@ -256,7 +255,6 @@ async fn a_job_placed_by_an_expression_is_queued_with_the_labels_it_evaluates_to
         let ir = bosun_workflow::parse("ci", &source)
             .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
             .workflow;
-        assert_eq!(planner::unapplied(&ir), None, "{runs_on}");
         let run = world.dispatch(&ir).await;
         let projection = world.project(run).await;
         assert_eq!(
@@ -286,61 +284,6 @@ async fn a_job_placed_by_an_expression_is_queued_with_the_labels_it_evaluates_to
             "arm64 default",
             "linux-1 default",
         ]
-    );
-}
-
-#[test]
-fn keys_the_planner_does_not_apply_yet_are_named_with_the_step_that_brings_them() {
-    let job = |keys: &str| {
-        let source = format!(
-            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: self-hosted\n{keys}    \
-             steps:\n      - run: make\n"
-        );
-        let ir = bosun_workflow::parse("ci", &source)
-            .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
-            .workflow;
-        planner::unapplied(&ir)
-    };
-    let cases = [(
-        "    concurrency: deploy\n",
-        "`concurrency` of job `build`",
-        17,
-    )];
-    for (keys, what, step) in cases {
-        assert_eq!(
-            job(keys),
-            Some(format!(
-                "{what}, which the planner applies from M1 step {step}"
-            )),
-            "{keys}"
-        );
-    }
-    assert_eq!(
-        job(
-            "    if: github.ref == 'refs/heads/main'\n    continue-on-error: ${{ true }}\n    \
-             timeout-minutes: 10\n    env:\n      A: ${{ github.sha }}\n    strategy:\n      \
-             matrix:\n        os: [linux]\n"
-        ),
-        None
-    );
-    let uses = bosun_workflow::parse(
-        "ci",
-        "on: workflow_dispatch\njobs:\n  build:\n    runs-on: self-hosted\n    steps:\n      \
-         - run: make\n      - uses: actions/checkout@v4\n",
-    )
-    .expect("a valid workflow")
-    .workflow;
-    assert_eq!(planner::unapplied(&uses), None);
-    let workflow = bosun_workflow::parse(
-        "ci",
-        "on: workflow_dispatch\nconcurrency: ci\njobs:\n  build:\n    runs-on: self-hosted\n    \
-         steps:\n      - run: make\n",
-    )
-    .expect("a valid workflow")
-    .workflow;
-    assert_eq!(
-        planner::unapplied(&workflow).as_deref(),
-        Some("`concurrency` of the workflow, which the planner applies from M1 step 17")
     );
 }
 

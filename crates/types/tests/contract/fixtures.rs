@@ -35,6 +35,7 @@ struct ActionCase {
 }
 
 const RUN_BY_OTHER_SUITES: &[&str] = &[
+    "concurrency",
     "expr",
     "github",
     "hash-files",
@@ -380,6 +381,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/attempt-created.json", round_trip::<RunEvent>),
         ("events/command-accepted.json", round_trip::<RunEvent>),
         ("events/command-refused.json", round_trip::<RunEvent>),
+        ("events/concurrency-cancelled.json", round_trip::<RunEvent>),
         ("events/execution-created.json", round_trip::<RunEvent>),
         ("events/execution-status.json", round_trip::<RunEvent>),
         ("events/job-created.json", round_trip::<RunEvent>),

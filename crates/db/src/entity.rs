@@ -4,6 +4,7 @@ pub mod annotation;
 pub mod api_token;
 pub mod api_token_scope;
 pub mod attempt;
+pub mod concurrency_member;
 pub mod control_message;
 pub mod execution;
 pub mod forge_check_run;

@@ -62,7 +62,7 @@ impl JobStatus {
         matches!(
             (self, to),
             (Pending, Waiting | Queued | Completed)
-                | (Waiting, Queued | Completed)
+                | (Waiting, Waiting | Queued | Completed)
                 | (Queued, Waiting | Assigned | Completed)
                 | (Assigned, Queued | InProgress | Completed)
                 | (InProgress, Paused | Held | Queued | Completed)
@@ -219,10 +219,11 @@ pub enum StatusReason {
     AgentLost,
     AgentRemoved,
     ActionUnavailable,
+    Concurrency,
 }
 
 impl StatusReason {
-    pub const ALL: [StatusReason; 10] = [
+    pub const ALL: [StatusReason; 11] = [
         StatusReason::IfFalse,
         StatusReason::EvaluationFailed,
         StatusReason::Command,
@@ -233,5 +234,6 @@ impl StatusReason {
         StatusReason::AgentLost,
         StatusReason::AgentRemoved,
         StatusReason::ActionUnavailable,
+        StatusReason::Concurrency,
     ];
 }
