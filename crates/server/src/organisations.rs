@@ -1,6 +1,7 @@
 use axum::Json;
 use axum::extract::State;
-use bosun_types::api::{CreateOrganisationRequest, Organisation};
+use bosun_db::installations::Bound;
+use bosun_types::api::{CreateOrganisationRequest, Organisation, UpdateOrganisationRequest};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::OrganisationId;
 use sea_orm::{ConnectionTrait, TransactionTrait};
@@ -11,13 +12,14 @@ use crate::envelope::ApiError;
 use crate::idempotency;
 use crate::openapi::Api;
 use crate::reply::Created;
-use crate::request::{Faults, Idempotent, Segment, database};
+use crate::request::{Body, Faults, Idempotent, Segment, database};
 use crate::slug;
 
 pub(crate) fn routes() -> Api {
     Api::new()
         .post("/api/v1/organisations", create)
         .get("/api/v1/organisations/{organisation}", show)
+        .patch("/api/v1/organisations/{organisation}", update)
 }
 
 pub(crate) async fn find<C: ConnectionTrait>(
@@ -83,5 +85,56 @@ async fn show(
     let absent = || ApiError::new(ErrorCode::NotFound, missing(&reference));
     let organisation = find(&state.db, &reference).await?.ok_or_else(absent)?;
     caller.organisation(&organisation, absent)?;
+    Ok(Json(organisation))
+}
+
+async fn update(
+    State(state): State<AppState>,
+    caller: Caller<OnInstallation<OrganisationManage>>,
+    Segment(reference): Segment,
+    body: Result<Body<UpdateOrganisationRequest>, ApiError>,
+) -> Result<Json<Organisation>, ApiError> {
+    caller.installation()?;
+    let absent = || ApiError::new(ErrorCode::NotFound, missing(&reference));
+    let organisation = find(&state.db, &reference).await?.ok_or_else(absent)?;
+    let Body(UpdateOrganisationRequest { installation }) = body?;
+    let Some(installation) = installation else {
+        return Ok(Json(organisation));
+    };
+    let transaction = state.db.begin().await.map_err(database)?;
+    let bound = bosun_db::installations::bind(&transaction, organisation.id, installation)
+        .await
+        .map_err(database)?;
+    match bound {
+        Bound::Bound => {}
+        Bound::Unknown(installation) => {
+            let mut faults = Faults::default();
+            faults.add(
+                "installation",
+                format!(
+                    "there is no installation `{installation}` of the GitHub App; Bosun learns of \
+                     an installation from its webhooks"
+                ),
+            );
+            return Err(faults.refuse("the organisation is not valid"));
+        }
+        Bound::Taken {
+            installation,
+            organisation: other,
+        } => {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "the installation `{installation}` of the GitHub App belongs to the \
+                     organisation `{other}`"
+                ),
+            ));
+        }
+    }
+    let organisation = bosun_db::organisations::find(&transaction, organisation.id)
+        .await
+        .map_err(database)?
+        .ok_or_else(absent)?;
+    transaction.commit().await.map_err(database)?;
     Ok(Json(organisation))
 }

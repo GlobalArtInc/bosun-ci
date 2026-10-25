@@ -1,0 +1,133 @@
+use serde_json::{Value, json};
+
+use super::{APP_ID, APP_SLUG, FakeForge, Installation, Repository, Shared, State};
+
+impl FakeForge {
+    pub fn installation_event(&self, installation: u64, action: &str) -> Value {
+        let state = self.shared.lock();
+        let repositories: Vec<Value> = state
+            .repositories
+            .values()
+            .filter(|repository| repository.installation == installation)
+            .map(listed)
+            .collect();
+        json!({
+            "action": action,
+            "installation": described(installation, state.installation(installation)),
+            "repositories": repositories,
+            "sender": sender(state.installation(installation)),
+        })
+    }
+
+    pub fn installation_repositories_event(
+        &self,
+        installation: u64,
+        action: &str,
+        repositories: &[(u64, &str)],
+    ) -> Value {
+        let state = self.shared.lock();
+        let listed: Vec<Value> = repositories
+            .iter()
+            .map(|(id, full_name)| {
+                let name = full_name.rsplit('/').next().unwrap_or(full_name);
+                json!({
+                    "id": id,
+                    "node_id": node_id("R", *id),
+                    "name": name,
+                    "full_name": full_name,
+                    "private": true,
+                })
+            })
+            .collect();
+        let (added, removed) = match action {
+            "removed" => (Vec::new(), listed),
+            _ => (listed, Vec::new()),
+        };
+        json!({
+            "action": action,
+            "installation": described(installation, state.installation(installation)),
+            "repository_selection": "selected",
+            "repositories_added": added,
+            "repositories_removed": removed,
+            "requester": null,
+            "sender": sender(state.installation(installation)),
+        })
+    }
+
+    pub fn repository_event(&self, full_name: &str, action: &str) -> Value {
+        let state = self.shared.lock();
+        let repository = state
+            .repositories
+            .get(full_name)
+            .unwrap_or_else(|| panic!("the fake forge has no repository {full_name}"));
+        let installation = repository.installation;
+        json!({
+            "action": action,
+            "repository": self::repository(&self.shared, &state, repository),
+            "installation": { "id": installation, "node_id": node_id("I", installation) },
+            "sender": sender(state.installation(installation)),
+        })
+    }
+}
+
+pub(super) fn repository(shared: &Shared, state: &State, repository: &Repository) -> Value {
+    let account = state.installation(repository.installation);
+    let mut html = shared.api.clone();
+    if let Ok(mut segments) = html.path_segments_mut() {
+        segments
+            .clear()
+            .extend([repository.owner.as_str(), repository.name.as_str()]);
+    }
+    json!({
+        "id": repository.id,
+        "node_id": node_id("R", repository.id),
+        "name": repository.name,
+        "full_name": format!("{}/{}", repository.owner, repository.name),
+        "private": true,
+        "owner": {
+            "login": repository.owner,
+            "id": account.account_id,
+            "type": "Organization",
+        },
+        "html_url": html.as_str(),
+        "default_branch": repository.default_branch,
+    })
+}
+
+fn listed(repository: &Repository) -> Value {
+    json!({
+        "id": repository.id,
+        "node_id": node_id("R", repository.id),
+        "name": repository.name,
+        "full_name": format!("{}/{}", repository.owner, repository.name),
+        "private": true,
+    })
+}
+
+fn described(id: u64, installation: &Installation) -> Value {
+    json!({
+        "id": id,
+        "account": {
+            "login": installation.account,
+            "id": installation.account_id,
+            "type": "Organization",
+        },
+        "app_id": APP_ID,
+        "app_slug": APP_SLUG,
+        "repository_selection": "selected",
+        "permissions": installation.permissions,
+        "target_type": "Organization",
+    })
+}
+
+fn sender(installation: &Installation) -> Value {
+    json!({
+        "login": installation.account,
+        "id": installation.account_id,
+        "type": "Organization",
+    })
+}
+
+fn node_id(prefix: &str, id: u64) -> String {
+    format!("{prefix}_{id:010}")
+}

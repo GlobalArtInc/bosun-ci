@@ -40,6 +40,17 @@ pub enum Error {
         #[source]
         source: io::Error,
     },
+    #[error("could not read the {what} of the GitHub App from {}: {source}", path.display())]
+    ReadGitHubFile {
+        what: &'static str,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("the webhook secret of the GitHub App in {} is empty", path.display())]
+    EmptyWebhookSecret { path: PathBuf },
+    #[error("the GitHub App cannot be used: {0}")]
+    GitHub(#[source] bosun_forge::Error),
     #[error("the object store {location} cannot be used: {problem}")]
     Store { location: String, problem: String },
     #[error("could not connect to the database: {0}")]

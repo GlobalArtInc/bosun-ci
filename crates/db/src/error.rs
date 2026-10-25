@@ -28,6 +28,8 @@ pub enum Error {
     WorkflowTaken(String),
     #[error("a pool named `{0}` already exists")]
     PoolTaken(String),
+    #[error("the repository `{0}` is bound to another project")]
+    RepositoryBound(String),
     #[error("{0} was removed while the request used it")]
     Vanished(String),
     #[error("could not hold the migration lock: {0}")]

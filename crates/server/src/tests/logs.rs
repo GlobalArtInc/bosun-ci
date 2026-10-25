@@ -415,6 +415,7 @@ async fn a_stored_chunk_wakes_the_followers_of_its_execution_through_bosun_log()
         },
         dispatcher,
         Arc::clone(&followers),
+        Arc::new(Notify::new()),
     );
 
     assert_eq!(logged.ingest(0, 1, b"a\n").await, Ingested::Stored);

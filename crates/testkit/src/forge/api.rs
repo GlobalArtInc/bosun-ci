@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::http::header::{self, HeaderMap, HeaderName, HeaderValue};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use chrono::{SecondsFormat, Utc};
@@ -19,7 +20,7 @@ use uuid::Uuid;
 use super::git::{self, Node};
 use super::{
     APP_ID, APP_SLUG, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedCheckRun, RecordedStatus,
-    Repository, Shared, State as Model, jwt,
+    Repository, Shared, State as Model, events, jwt,
 };
 
 type Fake = State<Arc<Shared>>;
@@ -124,6 +125,10 @@ pub(super) fn router(shared: Arc<Shared>) -> Router {
         )
         .route("/api/v3/installation/token", delete(revoke))
         .route("/api/v3/users/{login}", get(user))
+        .route(
+            "/api/v3/installation/repositories",
+            get(installation_repositories),
+        )
         .route("/api/v3/repos/{owner}/{repo}/contents", get(contents_root))
         .route(
             "/api/v3/repos/{owner}/{repo}/contents/{*path}",
@@ -163,6 +168,7 @@ pub(super) fn router(shared: Arc<Shared>) -> Router {
             get(codeload),
         )
         .fallback(missing)
+        .layer(middleware::from_fn_with_state(Arc::clone(&shared), slow))
         .with_state(shared)
 }
 
@@ -263,6 +269,7 @@ async fn access_token(
     model.tokens.push(MintedToken {
         token,
         installation,
+        repository_selection: selection.to_owned(),
         repositories,
         permissions,
         expires_at,
@@ -501,44 +508,106 @@ async fn pull_request_files(
             else {
                 return Answer::not_found();
             };
-            let changes = git::diff(base, head);
-            let size = paging.per_page.unwrap_or(PAGE).clamp(1, LARGEST_PAGE);
-            let page = paging.page.unwrap_or(1).max(1);
-            let last = changes.len().div_ceil(size).max(1);
-            let files: Vec<Value> = changes
+            let files: Vec<Value> = git::diff(base, head)
                 .iter()
-                .skip((page - 1) * size)
-                .take(size)
                 .map(|(path, change)| json!({ "filename": path, "status": change.name() }))
                 .collect();
-            let link = |page: usize| {
-                let mut url = shared.api.clone();
-                let number = number.to_string();
-                if let Ok(mut segments) = url.path_segments_mut() {
-                    segments.extend(["repos", &owner, &repo, "pulls", &number, "files"]);
-                }
-                url.query_pairs_mut()
-                    .append_pair("per_page", &size.to_string())
-                    .append_pair("page", &page.to_string());
-                url
-            };
-            let mut links = Vec::new();
-            if page < last {
-                links.push(format!(r#"<{}>; rel="next""#, link(page + 1)));
-                links.push(format!(r#"<{}>; rel="last""#, link(last)));
-            }
-            if page > 1 {
-                links.push(format!(r#"<{}>; rel="first""#, link(1)));
-                links.push(format!(r#"<{}>; rel="prev""#, link(page - 1)));
-            }
-            let answer = Answer::json(StatusCode::OK, &Value::Array(files));
-            if links.is_empty() {
-                answer
-            } else {
-                answer.with(header::LINK, links.join(", "))
-            }
+            let number = number.to_string();
+            paginate(
+                shared,
+                &["repos", &owner, &repo, "pulls", &number, "files"],
+                &paging,
+                files,
+                Value::Array,
+            )
         },
     )
+}
+
+fn paginate(
+    shared: &Shared,
+    path: &[&str],
+    paging: &Paging,
+    items: Vec<Value>,
+    body: impl FnOnce(Vec<Value>) -> Value,
+) -> Answer {
+    let size = paging.per_page.unwrap_or(PAGE).clamp(1, LARGEST_PAGE);
+    let page = paging.page.unwrap_or(1).max(1);
+    let last = items.len().div_ceil(size).max(1);
+    let shown: Vec<Value> = items
+        .into_iter()
+        .skip((page - 1) * size)
+        .take(size)
+        .collect();
+    let link = |page: usize| {
+        let mut url = shared.api.clone();
+        if let Ok(mut segments) = url.path_segments_mut() {
+            segments.extend(path);
+        }
+        url.query_pairs_mut()
+            .append_pair("per_page", &size.to_string())
+            .append_pair("page", &page.to_string());
+        url
+    };
+    let mut links = Vec::new();
+    if page < last {
+        links.push(format!(r#"<{}>; rel="next""#, link(page + 1)));
+        links.push(format!(r#"<{}>; rel="last""#, link(last)));
+    }
+    if page > 1 {
+        links.push(format!(r#"<{}>; rel="first""#, link(1)));
+        links.push(format!(r#"<{}>; rel="prev""#, link(page - 1)));
+    }
+    let answer = Answer::json(StatusCode::OK, &body(shown));
+    if links.is_empty() {
+        answer
+    } else {
+        answer.with(header::LINK, links.join(", "))
+    }
+}
+
+async fn installation_repositories(
+    State(shared): Fake,
+    Query(paging): Query<Paging>,
+    headers: HeaderMap,
+) -> Response {
+    let mut model = shared.lock();
+    let (installation, selection, visible) = match model.live(&headers) {
+        Ok(minted) => (
+            minted.installation,
+            minted.repository_selection.clone(),
+            model
+                .repositories
+                .values()
+                .filter(|repository| minted.covers(repository))
+                .map(|repository| events::repository(&shared, &model, repository))
+                .collect::<Vec<Value>>(),
+        ),
+        Err(refused) => return refused.into_response(),
+    };
+    let total = visible.len();
+    let answer = paginate(
+        &shared,
+        &["installation", "repositories"],
+        &paging,
+        visible,
+        |repositories| {
+            json!({
+                "total_count": total,
+                "repository_selection": selection,
+                "repositories": repositories,
+            })
+        },
+    );
+    conditional(&mut model, &headers, installation, answer)
+}
+
+pub(super) async fn slow(State(shared): Fake, request: Request, next: Next) -> Response {
+    let delay = shared.lock().delay;
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+    next.run(request).await
 }
 
 #[derive(Deserialize)]
@@ -754,10 +823,19 @@ fn read(
         Ok(installation) => installation,
         Err(refused) => return refused.into_response(),
     };
-    let mut answer = match model.repositories.get(&full_name) {
+    let answer = match model.repositories.get(&full_name) {
         Some(repository) => produce(shared, repository),
         None => Answer::not_found(),
     };
+    conditional(&mut model, headers, installation, answer)
+}
+
+fn conditional(
+    model: &mut Model,
+    headers: &HeaderMap,
+    installation: u64,
+    mut answer: Answer,
+) -> Response {
     if answer.status == StatusCode::OK {
         let etag = format!(r#"W/"{}""#, git::hex(&Sha256::digest(&answer.body)));
         let matched = headers
@@ -802,6 +880,16 @@ fn write(
 }
 
 impl Model {
+    fn live(&self, headers: &HeaderMap) -> Result<&MintedToken, Answer> {
+        let now = Utc::now();
+        let secret = bearer(headers);
+        self.tokens
+            .iter()
+            .find(|minted| Some(minted.token.as_str()) == secret)
+            .filter(|minted| !minted.revoked && minted.expires_at > now)
+            .ok_or_else(|| Answer::message(StatusCode::UNAUTHORIZED, "Bad credentials"))
+    }
+
     fn authorize(
         &self,
         headers: &HeaderMap,
@@ -809,21 +897,11 @@ impl Model {
         permission: &str,
         needed: &str,
     ) -> Result<u64, Answer> {
-        let now = Utc::now();
-        let secret = bearer(headers);
-        let minted = self
-            .tokens
-            .iter()
-            .find(|minted| Some(minted.token.as_str()) == secret)
-            .filter(|minted| !minted.revoked && minted.expires_at > now)
-            .ok_or_else(|| Answer::message(StatusCode::UNAUTHORIZED, "Bad credentials"))?;
+        let minted = self.live(headers)?;
         let repository = self
             .repositories
             .get(full_name)
-            .filter(|repository| {
-                repository.installation == minted.installation
-                    && minted.repositories.contains(&repository.name)
-            })
+            .filter(|repository| minted.covers(repository))
             .ok_or_else(Answer::not_found)?;
         let granted = minted
             .permissions

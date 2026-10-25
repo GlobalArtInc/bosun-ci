@@ -1,7 +1,9 @@
 mod agents;
 mod control;
+mod deliveries;
 mod entities;
 mod idempotency;
+mod installations;
 mod journal;
 mod logs;
 mod migrations;

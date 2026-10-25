@@ -15,6 +15,7 @@ pub struct Model {
     pub token_permissions: Json,
     pub report: String,
     pub settings_version: i64,
+    pub repository_id: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

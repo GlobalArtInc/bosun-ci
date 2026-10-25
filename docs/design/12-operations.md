@@ -206,6 +206,8 @@ admin = "roman"
 app_id = 123456
 private_key_file = "/etc/bosun/github-app.pem"
 webhook_secret_file = "/etc/bosun/github-webhook-secret"
+server_url = "https://github.com"
+api_url = "https://api.github.com"
 
 [[oidc]]
 name = "keycloak"
@@ -281,6 +283,19 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   that is not a login is refused like any other setting the server cannot use.
 - Durations are a whole number followed by `ms`, `s`, `m` or `h`, such as `30s`, and are more than
   zero.
+- `[github]` configures the GitHub App ([06-runtime-services.md](06-runtime-services.md#the-forge)).
+  `github.app_id` is the App's number, `github.private_key_file` the file of its private key, in
+  PEM as the forge hands it out, and `github.webhook_secret_file` the file of the webhook secret
+  the App signs its deliveries with, whose surrounding whitespace does not count. The three are set
+  together or not at all, and a server without them has no forge: it takes no webhooks and its
+  organisations bind no repositories. `github.server_url` is the forge's own address,
+  `https://github.com` by default, and `github.api_url` the address of its REST API, which
+  defaults to `https://api.github.com` for GitHub and to `<server_url>/api/v3` for any other
+  server, the address at which an enterprise server serves it; both are http or https addresses
+  with a host and without a user, a query or a fragment, and setting either without the App is
+  refused. `serve` reads both files and builds the App's client before it connects to the
+  database, so an unreadable file, a key the client refuses and an empty secret stop it with an
+  error line that names the file.
 - `agents.heartbeat_interval` defaults to 30 seconds and `agents.offline_after` to 60 seconds,
   which must be longer than the interval; `limits.agent_grace` defaults to 10 minutes
   ([05-execution.md](05-execution.md)). `agents.assignment_lease`, the time an agent has to accept
@@ -332,6 +347,10 @@ database's limit.
   is 1 to 128 letters, digits, `-`, `_` or `.`, such as the one the gateway sets, and a fresh UUIDv7
   otherwise; the response carries it back in `X-Request-Id`. The level is `info`, except for the
   database driver, which logs every statement at `info` and is kept to `warn` and above.
+- Webhooks log `received a webhook delivery` with its `delivery`, `event` and whether it was
+  `stored`, `processed a webhook delivery` with its `duration_ms`, a warning for a delivery whose
+  signature is missing or wrong, and a warning for each failed processing with its `error`
+  ([06-runtime-services.md](06-runtime-services.md#deliveries)).
 - Alerts worth having from day one: jobs queued longer than 10 minutes, no online agent in a pool
   that has queued jobs, an outbox row dead, webhook verification failures, agents on a version the
   next server release will refuse.

@@ -49,6 +49,11 @@ pub trait Forge: Send + Sync {
         number: u64,
     ) -> impl Future<Output = Result<Vec<String>, Error>> + Send;
 
+    fn installation_repositories(
+        &self,
+        installation: u64,
+    ) -> impl Future<Output = Result<Vec<InstalledRepository>, Error>> + Send;
+
     fn mint_token(
         &self,
         installation: u64,
@@ -91,6 +96,14 @@ pub struct Repository {
     pub installation: u64,
     pub owner: String,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledRepository {
+    pub id: u64,
+    pub owner: String,
+    pub name: String,
+    pub default_branch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

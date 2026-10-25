@@ -1,4 +1,5 @@
 mod api;
+mod events;
 mod git;
 mod jwt;
 mod webhook;
@@ -34,6 +35,8 @@ pub const COMPARE_FILES: usize = 300;
 
 const DEFAULT_BRANCH: &str = "main";
 
+const ALL_REPOSITORIES: &str = "all";
+
 const TOKEN_LIFETIME: TimeDelta = TimeDelta::hours(1);
 
 pub struct FakeForge {
@@ -45,6 +48,7 @@ pub struct FakeForge {
 pub struct MintedToken {
     pub token: String,
     pub installation: u64,
+    pub repository_selection: String,
     pub repositories: Vec<String>,
     pub permissions: BTreeMap<String, String>,
     pub expires_at: DateTime<Utc>,
@@ -82,6 +86,7 @@ struct Shared {
 
 struct State {
     next_id: u64,
+    delay: Duration,
     token_lifetime: TimeDelta,
     installations: BTreeMap<u64, Installation>,
     repositories: BTreeMap<String, Repository>,
@@ -92,10 +97,13 @@ struct State {
 }
 
 struct Installation {
+    account_id: u64,
+    account: String,
     permissions: BTreeMap<String, String>,
 }
 
 struct Repository {
+    id: u64,
     installation: u64,
     owner: String,
     name: String,
@@ -138,6 +146,7 @@ impl FakeForge {
             http,
             state: Mutex::new(State {
                 next_id: 1,
+                delay: Duration::ZERO,
                 token_lifetime: TOKEN_LIFETIME,
                 installations: BTreeMap::new(),
                 repositories: BTreeMap::new(),
@@ -162,12 +171,15 @@ impl FakeForge {
         &self.shared.webhook_secret
     }
 
-    pub fn install(&self, permissions: &[(&str, &str)]) -> u64 {
+    pub fn install(&self, account: &str, permissions: &[(&str, &str)]) -> u64 {
         let mut state = self.shared.lock();
         let id = state.allocate();
+        let account_id = state.allocate();
         state.installations.insert(
             id,
             Installation {
+                account_id,
+                account: account.to_owned(),
                 permissions: permissions
                     .iter()
                     .map(|(name, access)| ((*name).to_owned(), (*access).to_owned()))
@@ -177,18 +189,25 @@ impl FakeForge {
         id
     }
 
-    pub fn create_repository(&self, installation: u64, full_name: &str) {
+    pub fn create_repository(&self, installation: u64, full_name: &str) -> u64 {
         let (owner, name) = full_name
             .split_once('/')
             .unwrap_or_else(|| panic!("`{full_name}` is not <owner>/<name>"));
         let mut state = self.shared.lock();
+        let account = &state
+            .installations
+            .get(&installation)
+            .unwrap_or_else(|| panic!("the fake forge has no installation {installation}"))
+            .account;
         assert!(
-            state.installations.contains_key(&installation),
-            "the fake forge has no installation {installation}"
+            account.eq_ignore_ascii_case(owner),
+            "installation {installation} belongs to `{account}`, which does not own {full_name}"
         );
+        let id = state.allocate();
         state.repositories.insert(
             full_name.to_owned(),
             Repository {
+                id,
                 installation,
                 owner: owner.to_owned(),
                 name: name.to_owned(),
@@ -199,6 +218,31 @@ impl FakeForge {
                 pulls: BTreeMap::new(),
             },
         );
+        id
+    }
+
+    pub fn rename_repository(&self, full_name: &str, name: &str) {
+        let mut state = self.shared.lock();
+        let mut repository = state
+            .repositories
+            .remove(full_name)
+            .unwrap_or_else(|| panic!("the fake forge has no repository {full_name}"));
+        let renamed = format!("{}/{name}", repository.owner);
+        assert!(
+            !state.repositories.contains_key(&renamed),
+            "the fake forge has a repository {renamed} already"
+        );
+        for token in &mut state.tokens {
+            if token.installation == repository.installation {
+                for listed in &mut token.repositories {
+                    if *listed == repository.name {
+                        name.clone_into(listed);
+                    }
+                }
+            }
+        }
+        name.clone_into(&mut repository.name);
+        state.repositories.insert(renamed, repository);
     }
 
     pub fn commit<P, C>(
@@ -276,6 +320,10 @@ impl FakeForge {
         );
     }
 
+    pub fn delay(&self, delay: Duration) {
+        self.shared.lock().delay = delay;
+    }
+
     pub fn set_token_lifetime(&self, lifetime: Duration) {
         self.shared.lock().token_lifetime = TimeDelta::from_std(lifetime)
             .unwrap_or_else(|error| panic!("{lifetime:?} is not a token lifetime: {error}"));
@@ -334,6 +382,20 @@ impl State {
             .filter(|repository| repository.installation == installation)
             .map(|repository| repository.name.clone())
             .collect()
+    }
+
+    fn installation(&self, installation: u64) -> &Installation {
+        self.installations
+            .get(&installation)
+            .unwrap_or_else(|| panic!("the fake forge has no installation {installation}"))
+    }
+}
+
+impl MintedToken {
+    fn covers(&self, repository: &Repository) -> bool {
+        repository.installation == self.installation
+            && (self.repository_selection == ALL_REPOSITORIES
+                || self.repositories.contains(&repository.name))
     }
 }
 

@@ -4,7 +4,7 @@ use std::str::FromStr;
 use bosun_types::actor::Actor;
 use bosun_types::api::{
     Capability, ForgeAccess, ForgePermission, ForkPolicy, ProjectSettings, Reporting, TrustLevel,
-    WorkflowSource,
+    UpdateOrganisationRequest, UpdateProjectRequest, WorkflowSource,
 };
 use bosun_types::command::{Command, CommandRequest};
 use bosun_types::diagnostic::Severity;
@@ -281,4 +281,33 @@ fn run_conclusions_include_every_job_conclusion() {
             crate::name(conclusion)
         );
     }
+}
+
+#[test]
+fn an_update_tells_a_field_left_out_from_a_field_set_to_null() {
+    let read = |value: Value| -> UpdateProjectRequest {
+        serde_json::from_value(value).unwrap_or_else(|error| panic!("an update: {error}"))
+    };
+    assert_eq!(read(json!({})).repository, None);
+    assert_eq!(read(json!({ "repository": null })).repository, Some(None));
+    assert_eq!(
+        read(json!({ "repository": "GlobalArtInc/ops" })).repository,
+        Some(Some("GlobalArtInc/ops".to_owned()))
+    );
+    assert_eq!(
+        serde_json::to_value(read(json!({}))).expect("JSON"),
+        json!({})
+    );
+    assert_eq!(
+        serde_json::to_value(read(json!({ "repository": null }))).expect("JSON"),
+        json!({ "repository": null })
+    );
+    refuses::<UpdateProjectRequest>(json!({ "name": "Operations" }));
+    refuses::<UpdateProjectRequest>(json!({ "repository": 7 }));
+
+    let installation: UpdateOrganisationRequest =
+        serde_json::from_value(json!({ "installation": null })).expect("an update");
+    assert_eq!(installation.installation, Some(None));
+    refuses::<UpdateOrganisationRequest>(json!({ "installation": "GlobalArtInc" }));
+    refuses::<UpdateOrganisationRequest>(json!({ "slug": "globalart" }));
 }

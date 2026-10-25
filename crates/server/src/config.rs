@@ -52,6 +52,12 @@ const AWS_ACCESS_KEY_ID: &str = "AWS_ACCESS_KEY_ID";
 
 const AWS_SECRET_ACCESS_KEY: &str = "AWS_SECRET_ACCESS_KEY";
 
+const GITHUB_HOST: &str = "github.com";
+
+const GITHUB_API: &str = "https://api.github.com";
+
+const ENTERPRISE_API: [&str; 2] = ["api", "v3"];
+
 const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m or h, such as 30s";
 
 pub struct Config {
@@ -67,6 +73,14 @@ pub struct Config {
     pub(crate) store: Store,
     pub(crate) agent_binaries: PathBuf,
     pub(crate) failed_sign_ins: u32,
+    pub(crate) github: Option<GitHub>,
+}
+
+pub(crate) struct GitHub {
+    pub(crate) app_id: u64,
+    pub(crate) private_key_file: PathBuf,
+    pub(crate) webhook_secret_file: PathBuf,
+    pub(crate) api_url: Url,
 }
 
 pub(crate) enum Store {
@@ -107,6 +121,7 @@ struct File {
     agents: AgentsFile,
     limits: LimitsFile,
     store: StoreFile,
+    github: GitHubFile,
 }
 
 #[derive(Default, Deserialize)]
@@ -158,6 +173,16 @@ struct StoreFile {
     path_style: Option<bool>,
     access_key_id: Option<String>,
     secret_access_key: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct GitHubFile {
+    app_id: Option<u64>,
+    private_key_file: Option<PathBuf>,
+    webhook_secret_file: Option<PathBuf>,
+    server_url: Option<String>,
+    api_url: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -307,6 +332,7 @@ impl Config {
             ));
         }
         let store = store(file.store, &data_dir)?;
+        let github = github(file.github)?;
         let agent_binaries = path("agents", "binary_dir", file.agents.binary_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_AGENT_BINARIES));
         Ok(Config {
@@ -332,6 +358,7 @@ impl Config {
             store,
             agent_binaries,
             failed_sign_ins,
+            github,
         })
     }
 }
@@ -363,14 +390,76 @@ fn trusted_proxies(file: Option<Vec<String>>) -> Result<Vec<IpNet>, Error> {
         .collect()
 }
 
-fn public_url(text: &str) -> Result<String, Error> {
-    let refused = |problem: &str| {
-        invalid(
-            "server",
-            "public_url",
-            format!("is `{text}`, which is not {problem}"),
-        )
+fn github(file: GitHubFile) -> Result<Option<GitHub>, Error> {
+    let app_id = match variable("github", "app_id")? {
+        Some(text) => Some(text.parse().map_err(|_| {
+            invalid(
+                "github",
+                "app_id",
+                format!("is `{text}`, which is not the number of a GitHub App"),
+            )
+        })?),
+        None => file.app_id,
     };
+    let private_key_file = path("github", "private_key_file", file.private_key_file)?;
+    let webhook_secret_file = path("github", "webhook_secret_file", file.webhook_secret_file)?;
+    let server_url = variable("github", "server_url")?
+        .or(file.server_url)
+        .map(|text| address("github", "server_url", &text))
+        .transpose()?;
+    let api_url = variable("github", "api_url")?
+        .or(file.api_url)
+        .map(|text| address("github", "api_url", &text))
+        .transpose()?;
+    let set = [
+        ("app_id", app_id.is_some()),
+        ("private_key_file", private_key_file.is_some()),
+        ("webhook_secret_file", webhook_secret_file.is_some()),
+        ("server_url", server_url.is_some()),
+        ("api_url", api_url.is_some()),
+    ];
+    let (Some(app_id), Some(private_key_file), Some(webhook_secret_file)) =
+        (app_id, private_key_file, webhook_secret_file)
+    else {
+        let Some((given, _)) = set.iter().find(|(_, set)| *set) else {
+            return Ok(None);
+        };
+        let missing = set[..3]
+            .iter()
+            .find(|(_, set)| !*set)
+            .map_or("app_id", |(key, _)| *key);
+        return Err(invalid(
+            "github",
+            missing,
+            format!(
+                "is not set, and github.{given} is: the GitHub App needs app_id, \
+                 private_key_file and webhook_secret_file together"
+            ),
+        ));
+    };
+    let api_url = match (api_url, server_url) {
+        (Some(api_url), _) => api_url,
+        (None, Some(server_url)) if server_url.host_str() != Some(GITHUB_HOST) => {
+            let mut api_url = server_url;
+            if let Ok(mut segments) = api_url.path_segments_mut() {
+                segments.pop_if_empty().extend(ENTERPRISE_API);
+            }
+            api_url
+        }
+        (None, _) => Url::parse(GITHUB_API)
+            .map_err(|error| invalid("github", "api_url", format!("has no default: {error}")))?,
+    };
+    Ok(Some(GitHub {
+        app_id,
+        private_key_file,
+        webhook_secret_file,
+        api_url,
+    }))
+}
+
+fn address(section: &str, key: &str, text: &str) -> Result<Url, Error> {
+    let refused =
+        |problem: &str| invalid(section, key, format!("is `{text}`, which is not {problem}"));
     let url = Url::parse(text).map_err(|_| refused("an address"))?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         return Err(refused("an http or https address with a host"));
@@ -378,7 +467,11 @@ fn public_url(text: &str) -> Result<String, Error> {
     if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
         return Err(refused("an address without a user, a query or a fragment"));
     }
-    Ok(text.to_owned())
+    Ok(url)
+}
+
+fn public_url(text: &str) -> Result<String, Error> {
+    address("server", "public_url", text).map(|_| text.to_owned())
 }
 
 fn store(file: StoreFile, data_dir: &Path) -> Result<Store, Error> {

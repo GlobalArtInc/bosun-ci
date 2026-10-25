@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use bosun_db::entity::{
-    agent, api_token, attempt, control_message, execution, idempotency_key, job, label_alias,
-    log_chunk, log_object, organisation, pool, pool_access, project, registration_token, role,
-    role_binding, run, run_event, schema_version, session, sign_in_failure, step, team,
-    team_member, user, workflow, workflow_revision,
+    agent, api_token, attempt, control_message, execution, forge_installation, forge_repository,
+    idempotency_key, job, label_alias, log_chunk, log_object, organisation, pool, pool_access,
+    project, registration_token, role, role_binding, run, run_event, schema_version, session,
+    sign_in_failure, step, team, team_member, user, webhook_delivery, workflow, workflow_revision,
 };
 use bosun_testkit::TestDatabase;
 use sea_orm::EntityName;
@@ -27,6 +27,8 @@ async fn every_table_has_an_entity() {
         attempt::Entity.table_name(),
         control_message::Entity.table_name(),
         execution::Entity.table_name(),
+        forge_installation::Entity.table_name(),
+        forge_repository::Entity.table_name(),
         idempotency_key::Entity.table_name(),
         job::Entity.table_name(),
         label_alias::Entity.table_name(),
@@ -48,6 +50,7 @@ async fn every_table_has_an_entity() {
         team::Entity.table_name(),
         team_member::Entity.table_name(),
         user::Entity.table_name(),
+        webhook_delivery::Entity.table_name(),
         workflow::Entity.table_name(),
         workflow_revision::Entity.table_name(),
     ]

@@ -9,6 +9,7 @@ use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::agent::v1::{self as proto, ControlKind, ServerMessage};
 use bosun_types::id::{AgentId, ExecutionId, JobId};
 use sea_orm::DatabaseConnection;
+use tokio::sync::Notify;
 use tokio::sync::mpsc::UnboundedSender;
 use tonic::Status;
 use tracing::{info, warn};
@@ -232,10 +233,12 @@ pub(crate) async fn forward(
     mut listener: Listener,
     dispatcher: Arc<Dispatcher>,
     followers: Arc<Followers>,
+    deliveries: Arc<Notify>,
 ) {
     loop {
         match listener.next().await {
             Ok(Some(Notification::Queued(_))) => dispatcher.wake_all(),
+            Ok(Some(Notification::Delivery)) => deliveries.notify_waiters(),
             Ok(Some(Notification::Log(notice))) => followers.announce(notice.execution_id),
             Ok(Some(Notification::Control(notice))) => {
                 if !replica.holds(notice.agent_id) {
@@ -256,6 +259,7 @@ pub(crate) async fn forward(
                 resend(&db, &replica).await;
                 dispatcher.wake_all();
                 followers.wake_all();
+                deliveries.notify_waiters();
             }
             Err(error) => {
                 warn!(%error, "the notification connection failed");
@@ -263,6 +267,7 @@ pub(crate) async fn forward(
                 resend(&db, &replica).await;
                 dispatcher.wake_all();
                 followers.wake_all();
+                deliveries.notify_waiters();
             }
         }
     }

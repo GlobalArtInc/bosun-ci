@@ -141,7 +141,9 @@ which `GET /api/v1/me` returns; bearer tokens do not need it ([Local sign-in](#l
 
 ## Organisations, projects and teams
 
-An **organisation** has a slug, a display name and optionally a forge installation. A **project**
+An **organisation** has a slug, a display name and optionally a forge installation
+([06-runtime-services.md](06-runtime-services.md#installations-and-repositories) says how an
+installation maps to one). A **project**
 belongs to one organisation, has a slug and optionally a repository, and carries the project
 settings this design names elsewhere (`github_workflows`, `workspace`, the fork policy, default
 token permissions, checks or statuses, dispatch weight and running cap, retention). A **team** is a

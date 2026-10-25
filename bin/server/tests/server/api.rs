@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use bosun_testkit::TestDatabase;
+use bosun_testkit::forge::FakeForge;
 use reqwest::{Method, RequestBuilder};
 use serde_json::{Value, json};
 
@@ -11,19 +12,50 @@ use crate::{Launch, Server, client, owner};
 pub struct Api {
     pub address: SocketAddr,
     token: String,
-    _server: Server,
+    server: Server,
 }
 
 impl Api {
     pub async fn start(database: &TestDatabase) -> Api {
         let token = owner(&database.url(), "roman").await;
-        let mut server = Launch::serve(&database.url()).spawn();
+        Api::serve(Launch::serve(&database.url()), token).await
+    }
+
+    pub async fn with_forge(database: &TestDatabase, forge: &FakeForge) -> Api {
+        let token = owner(&database.url(), "roman").await;
+        Api::serve(Launch::serve(&database.url()).github(forge), token).await
+    }
+
+    pub async fn replica(&self, database: &TestDatabase, forge: &FakeForge) -> Api {
+        Api::serve(
+            Launch::serve(&database.url()).github(forge),
+            self.token.clone(),
+        )
+        .await
+    }
+
+    async fn serve(launch: Launch, token: String) -> Api {
+        let mut server = launch.spawn();
         let address = server.listening().await;
         Api {
             address,
             token,
-            _server: server,
+            server,
         }
+    }
+
+    pub fn hooks(&self) -> String {
+        format!("http://{}/hooks/github", self.address)
+    }
+
+    pub async fn patch(&self, path: &str, body: &Value) -> (u16, Value) {
+        send(self.request(Method::PATCH, path).json(body)).await
+    }
+
+    pub async fn stop(self) -> Vec<Value> {
+        self.server.terminate();
+        let (_, lines) = self.server.exit().await;
+        lines
     }
 
     pub fn request(&self, method: Method, path: &str) -> RequestBuilder {

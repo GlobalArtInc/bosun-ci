@@ -94,6 +94,14 @@ impl Api {
         self.on(Method::POST, MethodFilter::POST, path, handler)
     }
 
+    pub(crate) fn patch<H, T>(self, path: &'static str, handler: H) -> Api
+    where
+        H: Handler<T, AppState> + Documented<T>,
+        T: 'static,
+    {
+        self.on(Method::PATCH, MethodFilter::PATCH, path, handler)
+    }
+
     pub(crate) fn put<H, T>(self, path: &'static str, handler: H) -> Api
     where
         H: Handler<T, AppState> + Documented<T>,

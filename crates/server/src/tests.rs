@@ -69,6 +69,7 @@ async fn state(
         clock,
         site: Site::default(),
         sign_in: Arc::new(settings),
+        forge: None,
     }
 }
 

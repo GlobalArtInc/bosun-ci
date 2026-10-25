@@ -366,6 +366,12 @@
           "organisation": {
             "type": "string"
           },
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "slug": {
             "type": "string"
           }
@@ -373,7 +379,8 @@
         "required": [
           "organisation",
           "slug",
-          "name"
+          "name",
+          "repository"
         ],
         "type": "object"
       },
@@ -670,6 +677,23 @@
           "automatic"
         ],
         "type": "string"
+      },
+      "Installation": {
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "account"
+        ],
+        "type": "object"
       },
       "Job": {
         "properties": {
@@ -1089,6 +1113,16 @@
             "format": "uuid",
             "type": "string"
           },
+          "installation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Installation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -1100,6 +1134,7 @@
           "id",
           "slug",
           "name",
+          "installation",
           "created_at"
         ],
         "type": "object"
@@ -1349,6 +1384,16 @@
             "format": "uuid",
             "type": "string"
           },
+          "repository": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Repository"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "slug": {
             "type": "string"
           }
@@ -1358,6 +1403,7 @@
           "organisation_id",
           "slug",
           "name",
+          "repository",
           "created_at"
         ],
         "type": "object"
@@ -1530,6 +1576,31 @@
           "statuses"
         ],
         "type": "string"
+      },
+      "Repository": {
+        "properties": {
+          "default_branch": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner",
+          "name",
+          "default_branch"
+        ],
+        "type": "object"
       },
       "Revision": {
         "properties": {
@@ -2328,6 +2399,32 @@
         ],
         "type": "string"
       },
+      "UpdateOrganisationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "UpdateProjectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "UpdateSourceRequest": {
         "properties": {
           "source": {
@@ -3046,6 +3143,57 @@
           "key": "project.view",
           "on": "organisation"
         }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "description": "the organisation's id or slug",
+            "in": "path",
+            "name": "organisation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganisationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organisation"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "installation"
+        }
       }
     },
     "/api/v1/pools": {
@@ -3256,6 +3404,57 @@
         },
         "x-bosun-permission": {
           "key": "project.view",
+          "on": "project"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "project.manage",
           "on": "project"
         }
       }

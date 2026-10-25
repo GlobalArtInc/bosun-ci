@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use bosun_db::notify::Listener;
 use sea_orm::DatabaseConnection;
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use crate::config::Agents;
@@ -77,6 +78,7 @@ pub(crate) fn start(
     settings: Agents,
     dispatcher: Arc<Dispatcher>,
     followers: Arc<Followers>,
+    deliveries: Arc<Notify>,
 ) -> Tasks {
     let site = dispatcher.site().clone();
     Tasks(vec![
@@ -86,6 +88,7 @@ pub(crate) fn start(
             listener,
             dispatcher,
             followers,
+            deliveries,
         )),
         tokio::spawn(sweep::run(db, settings, site)),
     ])

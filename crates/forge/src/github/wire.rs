@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use crate::{Entry, EntryKind};
+use crate::{Entry, EntryKind, InstalledRepository};
 
 #[derive(Deserialize)]
 pub(super) struct Failure {
@@ -94,6 +94,35 @@ pub(super) struct Changed {
 #[derive(Deserialize)]
 pub(super) struct Created {
     pub(super) id: u64,
+}
+
+#[derive(Deserialize)]
+pub(super) struct InstallationRepositories {
+    pub(super) repositories: Vec<Repository>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct Repository {
+    id: u64,
+    name: String,
+    owner: Owner,
+    default_branch: String,
+}
+
+#[derive(Deserialize)]
+struct Owner {
+    login: String,
+}
+
+impl From<Repository> for InstalledRepository {
+    fn from(repository: Repository) -> InstalledRepository {
+        InstalledRepository {
+            id: repository.id,
+            owner: repository.owner.login,
+            name: repository.name,
+            default_branch: repository.default_branch,
+        }
+    }
 }
 
 #[cfg(test)]

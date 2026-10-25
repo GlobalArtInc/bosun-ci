@@ -4,13 +4,14 @@ use sea_orm::sqlx::postgres::PgListener;
 
 use crate::control::{self, Notice};
 use crate::logs::{self, Notice as LogNotice};
-use crate::{Error, queue, sqlx_error};
+use crate::{Error, deliveries, queue, sqlx_error};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Notification {
     Control(Notice),
     Queued(JobId),
     Log(LogNotice),
+    Delivery,
 }
 
 pub struct Listener(PgListener);
@@ -20,7 +21,12 @@ impl Listener {
         let mut listener = PgListener::connect(url).await.map_err(sqlx_error)?;
         let replica = control::channel(replica_id);
         listener
-            .listen_all([replica.as_str(), queue::CHANNEL, logs::CHANNEL])
+            .listen_all([
+                replica.as_str(),
+                queue::CHANNEL,
+                logs::CHANNEL,
+                deliveries::CHANNEL,
+            ])
             .await
             .map_err(sqlx_error)?;
         Ok(Listener(listener))
@@ -35,6 +41,7 @@ impl Listener {
             let heard = match notification.channel() {
                 queue::CHANNEL => payload.parse().ok().map(Notification::Queued),
                 logs::CHANNEL => logs::notice(payload).map(Notification::Log),
+                deliveries::CHANNEL => Some(Notification::Delivery),
                 _ => control::notice(payload).map(Notification::Control),
             };
             if let Some(heard) = heard {

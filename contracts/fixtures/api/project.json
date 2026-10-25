@@ -3,5 +3,11 @@
   "organisation_id": "0192f3a4-5b6c-7d8e-9f01-000000000001",
   "slug": "ops",
   "name": "Operations",
+  "repository": {
+    "id": 871264503,
+    "owner": "GlobalArtInc",
+    "name": "ops",
+    "default_branch": "main"
+  },
   "created_at": "2026-10-24T18:34:50.078Z"
 }

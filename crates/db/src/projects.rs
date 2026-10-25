@@ -1,4 +1,6 @@
-use bosun_types::api::{Project, ProjectSettings};
+use std::collections::HashMap;
+
+use bosun_types::api::{Project, ProjectSettings, Repository};
 use bosun_types::id::{ExecutionId, JobId, OrganisationId, ProjectId, RunId, WorkflowId};
 use sea_orm::prelude::Uuid;
 use sea_orm::sea_query::{Expr, Query};
@@ -7,7 +9,7 @@ use sea_orm::{
     QueryFilter, QueryOrder, QuerySelect,
 };
 
-use crate::entity::{organisation, project};
+use crate::entity::{forge_repository, organisation, project};
 use crate::row::statement;
 use crate::{Error, row};
 
@@ -68,15 +70,37 @@ pub async fn create<C: ConnectionTrait>(
     .insert(db)
     .await
     .map_err(|error| row::taken(error, || Error::ProjectTaken(slug.to_owned())))?;
-    decode(created)
+    decode(created, None)
+}
+
+pub async fn bind<C: ConnectionTrait>(
+    db: &C,
+    id: ProjectId,
+    repository: Option<&Repository>,
+) -> Result<Option<Project>, Error> {
+    let repository_id = repository
+        .map(|repository| row::signed(TABLE, repository.id))
+        .transpose()?;
+    db.execute(statement(
+        "UPDATE project SET repository_id = $2 WHERE id = $1",
+        [Uuid::from(id).into(), repository_id.into()],
+    ))
+    .await
+    .map_err(|error| {
+        row::taken(error, || {
+            Error::RepositoryBound(
+                repository
+                    .map(|repository| format!("{}/{}", repository.owner, repository.name))
+                    .unwrap_or_default(),
+            )
+        })
+    })?;
+    find(db, id).await
 }
 
 pub async fn find<C: ConnectionTrait>(db: &C, id: ProjectId) -> Result<Option<Project>, Error> {
-    project::Entity::find_by_id(Uuid::from(id))
-        .one(db)
-        .await?
-        .map(decode)
-        .transpose()
+    let found = project::Entity::find_by_id(Uuid::from(id)).one(db).await?;
+    one(db, found).await
 }
 
 pub async fn find_by_slugs<C: ConnectionTrait>(
@@ -91,13 +115,12 @@ pub async fn find_by_slugs<C: ConnectionTrait>(
     else {
         return Ok(None);
     };
-    project::Entity::find()
+    let found = project::Entity::find()
         .filter(project::Column::OrganisationId.eq(owner.id))
         .filter(project::Column::Slug.eq(project))
         .one(db)
-        .await?
-        .map(decode)
-        .transpose()
+        .await?;
+    one(db, found).await
 }
 
 pub async fn list<C: ConnectionTrait>(
@@ -115,7 +138,8 @@ pub async fn list<C: ConnectionTrait>(
     if let Some(after) = after {
         query = query.filter(project::Column::Id.gt(after));
     }
-    query.all(db).await?.into_iter().map(decode).collect()
+    let found = query.all(db).await?;
+    present(db, found).await
 }
 
 pub async fn settings<C: ConnectionTrait>(
@@ -191,20 +215,68 @@ pub async fn holding<C: ConnectionTrait>(db: &C, holder: Holder) -> Result<Optio
             Uuid::from(id),
         ),
     };
-    project::Entity::find()
+    let found = project::Entity::find()
         .from_raw_sql(statement(sql, [id.into()]))
         .one(db)
-        .await?
-        .map(decode)
-        .transpose()
+        .await?;
+    one(db, found).await
 }
 
-fn decode(project: project::Model) -> Result<Project, Error> {
+async fn one<C: ConnectionTrait>(
+    db: &C,
+    found: Option<project::Model>,
+) -> Result<Option<Project>, Error> {
+    Ok(present(db, found.into_iter().collect()).await?.pop())
+}
+
+async fn present<C: ConnectionTrait>(
+    db: &C,
+    found: Vec<project::Model>,
+) -> Result<Vec<Project>, Error> {
+    let ids: Vec<i64> = found
+        .iter()
+        .filter_map(|project| project.repository_id)
+        .collect();
+    let mut repositories = HashMap::new();
+    if !ids.is_empty() {
+        for repository in forge_repository::Entity::find()
+            .filter(forge_repository::Column::Id.is_in(ids))
+            .all(db)
+            .await?
+        {
+            repositories.insert(repository.id, repository);
+        }
+    }
+    found
+        .into_iter()
+        .map(|project| {
+            let repository = project
+                .repository_id
+                .and_then(|id| repositories.remove(&id));
+            decode(project, repository)
+        })
+        .collect()
+}
+
+fn decode(
+    project: project::Model,
+    repository: Option<forge_repository::Model>,
+) -> Result<Project, Error> {
     Ok(Project {
         id: row::id(TABLE, project.id)?,
         organisation_id: row::id(TABLE, project.organisation_id)?,
         slug: project.slug,
         name: project.name,
+        repository: repository
+            .map(|repository| {
+                Ok::<_, Error>(Repository {
+                    id: row::unsigned("forge_repository", repository.id)?,
+                    owner: repository.owner,
+                    name: repository.name,
+                    default_branch: repository.default_branch,
+                })
+            })
+            .transpose()?,
         created_at: project.created_at,
     })
 }

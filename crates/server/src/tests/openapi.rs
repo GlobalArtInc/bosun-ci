@@ -199,6 +199,18 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Within("Step"),
     ),
     (
+        "update-organisation-request.json",
+        "patch",
+        "/api/v1/organisations/{organisation}",
+        Part::Request,
+    ),
+    (
+        "update-project-request.json",
+        "patch",
+        "/api/v1/projects/{project}",
+        Part::Request,
+    ),
+    (
         "update-source-request.json",
         "put",
         "/api/v1/workflows/{workflow}/source",
@@ -365,9 +377,14 @@ fn every_api_fixture_validates_against_the_schema_it_belongs_to() {
             errors.is_empty(),
             "{file} does not validate against its schema in {method} {path}: {errors:#?}"
         );
+        let vacuous = if *method == "patch" {
+            json!({ "a field no schema has": true })
+        } else {
+            json!({})
+        };
         assert!(
-            !validator.is_valid(&json!({})),
-            "{file}: the schema in {method} {path} takes an empty object"
+            !validator.is_valid(&vacuous),
+            "{file}: the schema in {method} {path} takes {vacuous}"
         );
     }
 }

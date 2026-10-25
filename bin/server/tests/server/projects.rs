@@ -208,8 +208,10 @@ async fn the_routes_of_projects_and_workflows_need_a_token_and_answer_unserved_p
     for (method, path) in [
         (Method::POST, "/api/v1/organisations".to_owned()),
         (Method::GET, "/api/v1/organisations/globalart".to_owned()),
+        (Method::PATCH, "/api/v1/organisations/globalart".to_owned()),
         (Method::POST, "/api/v1/projects".to_owned()),
         (Method::GET, "/api/v1/projects/globalart/ops".to_owned()),
+        (Method::PATCH, "/api/v1/projects/globalart/ops".to_owned()),
         (
             Method::GET,
             format!("/api/v1/projects/{project_id}/workflows"),
@@ -258,7 +260,11 @@ async fn the_routes_of_projects_and_workflows_need_a_token_and_answer_unserved_p
             "/api/v1/projects/globalart/ops/runs".to_owned(),
         ),
         (Method::GET, "/api/v1/projects/globalart/ops/".to_owned()),
-        (Method::PATCH, "/api/v1/organisations/globalart".to_owned()),
+        (
+            Method::PATCH,
+            format!("/api/v1/projects/{project_id}/workflows"),
+        ),
+        (Method::PUT, "/api/v1/organisations/globalart".to_owned()),
     ] {
         let (status, body) = send(api.request(method.clone(), &path).json(&json!({}))).await;
         assert_eq!(status, 404, "{method} {path}: {body}");

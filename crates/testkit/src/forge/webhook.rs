@@ -35,6 +35,18 @@ impl Webhook {
         &self.delivery
     }
 
+    pub fn event(&self) -> &str {
+        &self.event
+    }
+
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
+
+    pub fn signature(&self) -> &str {
+        &self.signature
+    }
+
     pub async fn send(&self, url: &str) -> u16 {
         self.http
             .post(url)

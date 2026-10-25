@@ -52,6 +52,13 @@ pub(crate) fn unsigned(table: &'static str, value: i64) -> Result<u64, Error> {
     })
 }
 
+pub(crate) fn signed(table: &'static str, value: u64) -> Result<i64, Error> {
+    i64::try_from(value).map_err(|error| Error::Row {
+        table,
+        message: error.to_string(),
+    })
+}
+
 pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

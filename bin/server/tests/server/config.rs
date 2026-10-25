@@ -28,7 +28,7 @@ async fn variables_override_the_configuration_file() {
 
 #[tokio::test]
 async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fault() {
-    let cases: [Refused; 28] = [
+    let cases: [Refused; 33] = [
         (
             "[database]\nurll = \"postgres://bosun@db/bosun\"\n",
             &[],
@@ -192,6 +192,36 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             )],
             "the setting server.trusted_proxies (BOSUN_SERVER_TRUSTED_PROXIES) holds \
              `10.0.0.0/33`, which is neither an address nor a network",
+        ),
+        (
+            "[github]\napp_id = 4242\n",
+            &[],
+            "the setting github.private_key_file (BOSUN_GITHUB_PRIVATE_KEY_FILE) is not set, and \
+             github.app_id is: the GitHub App needs app_id, private_key_file and \
+             webhook_secret_file together",
+        ),
+        (
+            "[github]\napi_url = \"https://api.github.com\"\n",
+            &[],
+            "the setting github.app_id (BOSUN_GITHUB_APP_ID) is not set, and github.api_url is",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            &[("BOSUN_GITHUB_APP_ID", Some("bosun"))],
+            "the setting github.app_id (BOSUN_GITHUB_APP_ID) is `bosun`, which is not the number \
+             of a GitHub App",
+        ),
+        (
+            "[github]\nserver_url = \"github.com\"\n",
+            &[],
+            "the setting github.server_url (BOSUN_GITHUB_SERVER_URL) is `github.com`, which is \
+             not an address",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            &[("BOSUN_GITHUB_API_URL", Some("ftp://api.github.com"))],
+            "the setting github.api_url (BOSUN_GITHUB_API_URL) is `ftp://api.github.com`, which \
+             is not an http or https address with a host",
         ),
         (
             "[limits]\nfailed_sign_ins = 0\n",

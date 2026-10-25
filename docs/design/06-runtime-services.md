@@ -42,12 +42,93 @@ workflow from triggering itself.
 
 The forge sits behind the trait `Forge` in `bosun-forge`. In M1 it reads a file and a directory at
 a commit with their blob hashes, resolves a ref to a commit, compares two commits and says whether
-the forge truncated the list of changed files, lists the files of a pull request, reads the App's
-own identity (its slug and the account of its bot), mints an installation token for given
-repositories and permissions and revokes a token, creates and updates a check run, creates a commit
-status, and downloads a repository's tarball at a commit. Creating a commit and a pull request join
+the forge truncated the list of changed files, lists the files of a pull request, lists the
+repositories an installation can see with their default branches, reads the App's own identity
+(its slug and the account of its bot), mints an installation token for given repositories and
+permissions and revokes a token, creates and updates a check run, creates a commit status, and
+downloads a repository's tarball at a commit. Creating a commit and a pull request join
 it with the editor in M4. A second forge implements the same trait
 ([13-decisions.md](13-decisions.md)).
+
+### Deliveries
+
+Step 26 of M1 ([../plan.md](../plan.md)) settled how a delivery is taken and processed.
+
+`POST /hooks/github` answers in this order, and stores nothing unless it answers `2xx`:
+
+1. Without a GitHub App in the configuration ([12-operations.md](12-operations.md#configuration))
+   it is `404 not_found`, since there is no secret to check a delivery against.
+2. It reads the body, of at most 25 MiB, the forge's own limit, and checks `X-Hub-Signature-256`
+   before it looks at anything else of the request: the header must be `sha256=` and 64
+   hexadecimal digits, and the digits must be the HMAC-SHA256 of the body under the webhook
+   secret, compared in constant time. A delivery without the header, or whose header is not that
+   HMAC, is `401 unauthenticated` with a message saying which, and the server logs a warning,
+   which is what the alert on webhook verification failures counts
+   ([12-operations.md](12-operations.md#observability)).
+3. `X-GitHub-Delivery` must be 1 to 64 letters, digits and `-`, `X-GitHub-Event` 1 to 64
+   lowercase letters and `_`, and the body a JSON object; otherwise the answer is
+   `422 invalid_input`.
+4. It inserts the delivery into `webhook_delivery` with its id, its event and its payload, unless
+   a row of that delivery id exists, and in the same transaction notifies `bosun_webhook`. A new
+   delivery is answered `202` with `{"delivery": "<id>", "stored": true}`, a redelivery `200` with
+   `"stored": false`; either way the forge sees it acknowledged, and a redelivery is not processed
+   again.
+
+Nothing else happens before the answer, so a slow forge or a slow plan never delays it.
+
+Every replica with a GitHub App runs one worker, woken by `bosun_webhook` and otherwise every
+5 seconds. It takes the oldest delivery that is not processed and is due, with
+`FOR UPDATE SKIP LOCKED`, in a transaction that holds it until its processing is done, and
+processes it inside a savepoint of that transaction:
+
+- when the processing succeeds, its changes and `processed_at` commit together, so a delivery is
+  processed exactly once whichever replicas stored and took it, and a replica that dies while it
+  processes leaves the delivery to the next worker;
+- when it fails for a reason that may pass (the database, the forge unreachable, a `5xx` or a rate
+  limit), the savepoint is rolled back and the delivery waits 1 second after its first attempt,
+  twice as long after each further one, up to an hour, and at least until a rate limit resets;
+  `attempts` and `last_error` record it;
+- when it cannot succeed (a payload without the fields its event has, a forge that refuses with
+  `4xx`), the savepoint is rolled back and the delivery is marked processed with its
+  `last_error`, and a warning names it.
+
+A worker holds one database connection while it processes. Each processed delivery is logged as
+`processed a webhook delivery` with its `delivery`, `event` and `duration_ms`.
+
+The worker handles `installation`, `installation_repositories` and `repository`. Every other
+event is processed as nothing until the steps that plan runs from it (27 and 29 of M1).
+
+### Installations and repositories
+
+An installation of the App is a row of `forge_installation`, keyed by the forge's installation id,
+with its account's id and login and the organisation it maps to. An installation maps to at most
+one organisation and an organisation has at most one installation:
+
+- an `installation` or `installation_repositories` event records the installation with the
+  account its payload names. When the installation maps to no organisation, the worker creates the
+  organisation whose slug is the account's login in lower case and whose name is the login, and
+  maps the installation to it. When an organisation with that slug exists, or the login does not
+  make a slug, the installation stays unmapped and a warning says so: an organisation the team made
+  by hand is never taken over by whoever installs the App on an account of that name. An owner
+  then maps it with `PATCH /organisations/{organisation}` ([11-api.md](11-api.md));
+- `installation` with `deleted` removes the row, which unmaps the organisation;
+- a mapping, once made, is kept until the installation is removed or an owner changes it.
+
+The repositories an installation can see are rows of `forge_repository`, keyed by the forge's
+repository id, with their owner, name and default branch and the installation that sees them,
+which is empty when none does. They are not taken from the payloads, which name no default branch
+and arrive in no particular order, but read from the forge: `installation` (except `deleted` and
+`suspend`), `installation_repositories` and `repository` events list every repository the
+installation can see, write each with its current owner, name and default branch, and mark the
+installation's other repositories as seen by none. The worker lists them while it holds the
+installation's row lock, so the reads of one installation run one after another and the last to
+commit is the last to have read the forge; an event that arrives late changes nothing a later one
+did. A `repository` event of an installation Bosun does not know changes nothing.
+
+A project names its repository by the repository's id, so it follows a rename or a transfer, and
+keeps it when the installation stops seeing it or is removed; it then receives nothing until the
+repository is seen again. A repository is bound to at most one project. Rows of `forge_repository`
+are never deleted, so a project's repository keeps its last known name.
 
 ### The GitHub App client
 
@@ -79,8 +160,9 @@ server or the fake below.
   sends it, `x-ratelimit-reset` when `x-ratelimit-remaining` is 0, and one minute for a `429` that
   says neither. The client does not wait or retry by itself; its callers do, the outbox among them.
 - **Pagination** follows the `next` link of the `Link` header, and only to an address under the
-  API's own origin and path, so a token is never sent anywhere else. A pull request's files are read
-  in pages of 100.
+  API's own origin and path, so a token is never sent anywhere else. A pull request's files and the
+  repositories of an installation (`/installation/repositories`, with the installation token) are
+  read in pages of 100.
 - **Files and directories.** The contents endpoint inlines a file up to 1 MiB as base64; above that
   it names the blob without its content, and the client reads the blob by its hash. A directory
   lists each entry's name, kind (file, directory, symlink or submodule) and hash; the forge lists at
@@ -107,14 +189,19 @@ in place of the forge, since no test reaches the forge or the internet. Its REST
 `/api/v3`, which keeps the root of its address free for serving git and exercises an API address
 with a path. It holds, in memory:
 
-- installations with their permissions; repositories with branches, tags, commits and pull
-  requests between two branches. A commit is the full tree of paths and blob hashes, the hashes
-  being git's own, and a commit to a new branch starts from the default branch;
+- installations with their account and permissions; repositories of an installation's account,
+  each with an id, branches, tags, commits and pull requests between two branches. A commit is the
+  full tree of paths and blob hashes, the hashes being git's own, and a commit to a new branch
+  starts from the default branch. A test renames a repository, which keeps its id;
 - the token endpoints. `/app` and the access token endpoint accept only a JWT that verifies against
   the public key of the App's fixture key and whose claims keep the forge's limits. A minted token
   is recorded with its installation, repositories and permissions; a request for a repository or a
   permission the installation lacks is refused with `422`, as the forge does; `DELETE
-  /installation/token` revokes. Tokens live an hour unless a test shortens it;
+  /installation/token` revokes. A token minted without repositories has the selection `all` and
+  covers every repository of its installation, those created or renamed after it included, as the
+  forge's does. Tokens live an hour unless a test shortens it;
+- `/installation/repositories`, the repositories a token covers, in pages of 30 by default and 100
+  at most with `Link` headers;
 - the repository endpoints the client uses. Each checks that the token is live, covers the
   repository and holds the permission the endpoint needs (`contents`, `pull_requests`, `checks` or
   `statuses`), and refuses with the forge's `401`, `404` and `403`;
@@ -127,7 +214,10 @@ with a path. It holds, in memory:
   `<owner>-<repo>-<short commit>/`;
 - a sender of webhooks, signed with `X-Hub-Signature-256` under a secret drawn for each fake, with
   `X-GitHub-Event` and a fresh `X-GitHub-Delivery`. Sending the same webhook twice is a
-  redelivery.
+  redelivery. The payloads of `installation`, `installation_repositories` and `repository` events
+  are built from the fake's state in the forge's shape;
+- a delay a test sets, by which every answer of the API is held back, so that tests make the
+  forge slow.
 
 The App's keys for tests are fixtures in `crates/testkit/keys/`: `app.pem`, in PKCS#1, is the
 fake App's key, and `foreign.pem`, in PKCS#8, is a key the fake does not know.

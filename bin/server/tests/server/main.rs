@@ -6,6 +6,7 @@ mod commands;
 mod config;
 mod data;
 mod health;
+mod hooks;
 mod http;
 mod install;
 mod logs;
@@ -29,6 +30,7 @@ use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
 use bosun_blob::S3Settings;
+use bosun_testkit::forge::{APP_ID, APP_KEY, FakeForge};
 use sea_orm::{ConnectionTrait, Statement};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -137,6 +139,23 @@ impl Launch {
     pub fn env_remove(mut self, name: &str) -> Launch {
         self.command.env_remove(name);
         self
+    }
+
+    pub fn github(self, forge: &FakeForge) -> Launch {
+        let key = self.file("github-app.pem", APP_KEY);
+        let secret = self.file(
+            "github-webhook-secret",
+            &format!("{}\n", forge.webhook_secret()),
+        );
+        let mut server = forge.api_url();
+        server.set_path("/");
+        self.env("BOSUN_GITHUB_APP_ID", &APP_ID.to_string())
+            .env("BOSUN_GITHUB_PRIVATE_KEY_FILE", &key.to_string_lossy())
+            .env(
+                "BOSUN_GITHUB_WEBHOOK_SECRET_FILE",
+                &secret.to_string_lossy(),
+            )
+            .env("BOSUN_GITHUB_SERVER_URL", server.as_str())
     }
 
     pub fn s3(self, settings: &S3Settings) -> Launch {

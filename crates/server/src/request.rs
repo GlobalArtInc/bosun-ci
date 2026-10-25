@@ -370,7 +370,10 @@ pub(crate) fn database(failure: impl Into<bosun_db::Error>) -> ApiError {
         bosun_db::Error::OrganisationTaken(_)
         | bosun_db::Error::ProjectTaken(_)
         | bosun_db::Error::WorkflowTaken(_)
-        | bosun_db::Error::PoolTaken(_) => ApiError::new(ErrorCode::Conflict, failure.to_string()),
+        | bosun_db::Error::PoolTaken(_)
+        | bosun_db::Error::RepositoryBound(_) => {
+            ApiError::new(ErrorCode::Conflict, failure.to_string())
+        }
         _ => failed(failure),
     }
 }

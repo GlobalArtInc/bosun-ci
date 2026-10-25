@@ -25,7 +25,7 @@ use self::cache::{Cache, Holder, Key, Stored};
 use self::key::AppKey;
 use crate::{
     Access, Account, App, CheckRun, CheckStatus, CommitStatus, Comparison, Download, Entry, Error,
-    File, Forge, InstallationToken, Permissions, Repository, StatusState,
+    File, Forge, InstallationToken, InstalledRepository, Permissions, Repository, StatusState,
 };
 
 const JSON: &str = "application/vnd.github+json";
@@ -470,6 +470,35 @@ impl Forge for GitHubApp {
                 .transpose()?;
         }
         Ok(files)
+    }
+
+    async fn installation_repositories(
+        &self,
+        installation: u64,
+    ) -> Result<Vec<InstalledRepository>, Error> {
+        let mut url = self.url(&["installation", "repositories"], "");
+        url.query_pairs_mut().append_pair("per_page", PAGE_SIZE);
+        let mut repositories = Vec::new();
+        let mut next = Some(url);
+        while let Some(url) = next.take() {
+            let reply = self
+                .request(
+                    Credential::Installation(installation),
+                    Method::GET,
+                    url,
+                    JSON,
+                    None,
+                )
+                .await?;
+            let page: wire::InstallationRepositories = reply.json()?;
+            repositories.extend(page.repositories.into_iter().map(InstalledRepository::from));
+            next = reply
+                .next
+                .as_deref()
+                .map(|link| self.page(link))
+                .transpose()?;
+        }
+        Ok(repositories)
     }
 
     async fn mint_token(

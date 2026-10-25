@@ -62,7 +62,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 | Area | Tables |
 |------|--------|
 | identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `session`, `sign_in_failure` |
-| tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
+| tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `forge_repository`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
 | runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
 | agents | `pool`, `pool_access`, `agent`, `registration_token`, `control_message`, `label_alias` |
@@ -148,6 +148,14 @@ permission names to levels. `settings_version` is the version their `ETag` carri
 and grows by one with each change, which is an `UPDATE` conditioned on the version the change was
 made from. They arrived with step 25 of [../plan.md](../plan.md); a later setting arrives as a
 column with its default, so a project that existed before takes the default.
+
+The forge's installations and repositories, `forge_installation` and `forge_repository`, are keyed
+by the forge's own ids, as `bigint`, since they mirror rows of the forge rather than rows Bosun
+creates; a project's `repository_id` names its repository, a plain foreign key with a unique index,
+so a repository is bound to one project at most
+([06-runtime-services.md](06-runtime-services.md#installations-and-repositories)).
+`webhook_delivery` holds `id, delivery, event, payload jsonb, received_at, attempts,
+next_attempt_at, last_error, processed_at`, unique by `delivery`, the forge's id of the delivery.
 
 An agent records its current replica in `agent.replica_id`, which no row references: replicas are
 processes, not rows. `control_message` holds the control messages sent to agents
@@ -272,6 +280,7 @@ of its own under its run's lock, after checking again, with the reason `no_agent
 | `bosun_replica_<id>` | agent id and control message id, separated by a space | the replica holding that agent's stream |
 | `bosun_events` | run id and event sequence number | replicas with subscribers on the event stream |
 | `bosun_log` | execution id and the sequence number of the chunk stored, separated by a space | replicas with followers of that log |
+| `bosun_webhook` | the id of a stored webhook delivery | the webhook worker of every replica with a GitHub App |
 
 Payloads carry identifiers only; the data is read from the tables. A listener that reconnects
 reads everything newer than the last sequence number it saw, so a dropped connection loses nothing;
@@ -289,7 +298,8 @@ tokens, and the removal of ended sessions together with forgotten failed sign-in
 ([08-access.md](08-access.md#local-sign-in)). Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
 work of each task, and each change it finds checks its condition again under the lock of what it
 changes. Outbox delivery is not a singleton: workers in every replica claim rows with
-`SKIP LOCKED`.
+`SKIP LOCKED`, and so does the processing of webhook deliveries
+([06-runtime-services.md](06-runtime-services.md#deliveries)).
 
 Each task has a lock of its own, a transaction-level `pg_try_advisory_xact_lock` whose key spells
 the task in eight bytes (`bosunagt` for the sweep of agents, `bosunlse` for the lease expiry,

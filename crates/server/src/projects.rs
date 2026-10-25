@@ -5,7 +5,10 @@ use axum::http::request::Parts;
 use axum::http::{Method, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use bosun_types::api::{CreateProjectRequest, Page, Project};
+use bosun_db::installations::Visibility;
+use bosun_types::api::{
+    CreateProjectRequest, Organisation, Page, Project, Repository, UpdateProjectRequest,
+};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::ProjectId;
 use sea_orm::{ConnectionTrait, TransactionTrait};
@@ -14,7 +17,7 @@ use crate::access::{Caller, Key, Listed, OnOrganisation, OnProject, ProjectManag
 use crate::envelope::{self, ApiError};
 use crate::openapi::{Api, Input, Spec};
 use crate::reply::Created;
-use crate::request::{Faults, Idempotent, Listing, Segment, database};
+use crate::request::{Body, Faults, Idempotent, Listing, Segment, database, failed};
 use crate::{AppState, idempotency, organisations, settings, slug, workflows};
 
 const WORKFLOWS: &str = "workflows";
@@ -30,6 +33,7 @@ pub(crate) fn routes() -> Api {
             get(read).post(write).patch(change),
         )
         .describe(Method::GET, "/api/v1/projects/{project}", show)
+        .describe(Method::PATCH, "/api/v1/projects/{project}", update)
         .describe(
             Method::GET,
             "/api/v1/projects/{project}/workflows",
@@ -187,17 +191,98 @@ async fn create(
     let mut faults = Faults::default();
     slug::check_slug(&mut faults, "slug", "a slug", &request.slug);
     slug::check_name(&mut faults, "name", &request.name);
+    let repository = match &request.repository {
+        Some(full_name) => visible(&state.db, &organisation, full_name, &mut faults).await?,
+        None => None,
+    };
     faults.finish("the project is not valid")?;
 
     let transaction = state.db.begin().await.map_err(database)?;
     if let Some(replayed) = idempotency::replay(&transaction, body.idempotency.as_ref()).await? {
         return Ok(replayed);
     }
-    let project =
+    let mut project =
         bosun_db::projects::create(&transaction, organisation.id, &request.slug, &request.name)
             .await
             .map_err(database)?;
+    if let Some(repository) = &repository {
+        project = bosun_db::projects::bind(&transaction, project.id, Some(repository))
+            .await
+            .map_err(database)?
+            .ok_or_else(|| failed("a project vanished while it was created"))?;
+    }
     idempotency::commit(&state.db, transaction, body.idempotency.as_ref(), project).await
+}
+
+async fn update(
+    State(state): State<AppState>,
+    caller: Caller<OnProject<ProjectManage>>,
+    project: ProjectPath,
+    body: Result<Body<UpdateProjectRequest>, ApiError>,
+) -> Result<Json<Project>, ApiError> {
+    let project = project.resolve(&state.db, &caller).await?;
+    let Body(UpdateProjectRequest { repository }) = body?;
+    let Some(repository) = repository else {
+        return Ok(Json(project));
+    };
+    let repository = match repository {
+        Some(full_name) => {
+            let organisation = bosun_db::organisations::find(&state.db, project.organisation_id)
+                .await
+                .map_err(database)?
+                .ok_or_else(|| failed("the organisation of a project vanished"))?;
+            let mut faults = Faults::default();
+            let found = visible(&state.db, &organisation, &full_name, &mut faults).await?;
+            faults.finish("the project is not valid")?;
+            found
+        }
+        None => None,
+    };
+    bosun_db::projects::bind(&state.db, project.id, repository.as_ref())
+        .await
+        .map_err(database)?
+        .map(Json)
+        .ok_or_else(|| failed("a project vanished while it was changed"))
+}
+
+async fn visible<C: ConnectionTrait>(
+    db: &C,
+    organisation: &Organisation,
+    full_name: &str,
+    faults: &mut Faults,
+) -> Result<Option<Repository>, ApiError> {
+    let Some((owner, name)) = full_name
+        .split_once('/')
+        .filter(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
+    else {
+        faults.add(
+            "repository",
+            format!("`{full_name}` is not the full name of a repository, `<owner>/<name>`"),
+        );
+        return Ok(None);
+    };
+    let visibility = bosun_db::installations::visibility(db, organisation.id, owner, name)
+        .await
+        .map_err(database)?;
+    match visibility {
+        Visibility::Visible(repository) => return Ok(Some(repository)),
+        Visibility::NoInstallation => faults.add(
+            "repository",
+            format!(
+                "the organisation `{}` has no installation of the GitHub App, so its projects \
+                 bind no repository",
+                organisation.slug
+            ),
+        ),
+        Visibility::Hidden { account } => faults.add(
+            "repository",
+            format!(
+                "the installation of the GitHub App on `{account}` cannot see the repository \
+                 `{full_name}`"
+            ),
+        ),
+    }
+    Ok(None)
 }
 
 async fn show(
@@ -244,6 +329,7 @@ async fn change(
     request: Request,
 ) -> Response {
     match parse(&path) {
+        Some((_, Below::Nothing)) => update.call(request, state).await,
         Some((_, Below::Settings)) => settings::change.call(request, state).await,
         _ => envelope::absent(&method, &uri).into_response(),
     }

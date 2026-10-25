@@ -55,6 +55,11 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
     version exactly one is stored and the other is `412`.
   - An update whose values are the current ones stores nothing and answers with the current
     version, so it does not make the copies of other editors stale.
+  `If-Match` with the version from `ETag`, and fail with `412` when it moved.
+- A `PATCH` takes the fields it changes. A field the body leaves out keeps its value, `null`
+  clears a field that may be empty, and a field the resource does not have is `invalid_input`; an
+  empty body changes nothing and answers with the resource. Its request schema lists no field as
+  required ([The OpenAPI document](#the-openapi-document)).
 - Errors share one shape, with a stable `code`, the fields at fault for invalid input, and the
   diagnostics ([02-workflows.md](02-workflows.md)) when the input was a workflow. Both lists are
   always present, empty when they do not apply:
@@ -139,7 +144,8 @@ fails when the generated document differs from the committed one ([below](#the-o
 | `/webhook-subscriptions` | GET, POST, PATCH, DELETE | outgoing webhooks |
 | `/audit` | GET | the audit trail |
 
-Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming webhooks,
+Outside `/api/v1`: `/hooks/github` ([06-runtime-services.md](06-runtime-services.md#deliveries))
+and `/hooks/plugins/{instance}` for incoming webhooks,
 `/twirp/` and `/_runtime/` for the services jobs call ([06-runtime-services.md](06-runtime-services.md)), `/mcp`,
 `/healthz`, `/readyz`, `/metrics`, `/install-agent.sh` and the agent binaries at
 `/_runtime/agent/linux-<arch>` without a token ([12-operations.md](12-operations.md#agents)), and
@@ -231,9 +237,11 @@ with the answers each built-in role gets:
 | `GET /auth/methods` | — | `anyone` |
 | `POST /organisations` | `organisation.manage` | `installation` |
 | `GET /organisations/{organisation}` | `project.view` | `organisation` |
+| `PATCH /organisations/{organisation}` | `organisation.manage` | `installation` |
 | `GET /projects` | `project.view` | `items` |
 | `POST /projects` | `project.manage` | `organisation` |
 | `GET /projects/{project}` | `project.view` | `project` |
+| `PATCH /projects/{project}` | `project.manage` | `project` |
 | `GET /projects/{project}/workflows` | `project.view` | `project` |
 | `POST /projects/{project}/workflows` | `workflow.edit` | `project` |
 | `GET /projects/{project}/settings` | `project.view` | `project` |
@@ -264,9 +272,25 @@ A step that adds an endpoint adds its row here.
 - `GET /projects` lists the projects the caller may view, oldest first, as a cursor page without
   filters.
 - `POST /organisations` takes `slug` and `name`; `POST /projects` takes `organisation` (an id or a
-  slug), `slug` and `name`. Both answer `201` with the resource, a slug that is taken is
-  `409 conflict`, and a slug or a name that breaks its rule ([08-access.md](08-access.md)) is
+  slug), `slug`, `name` and `repository`. Both answer `201` with the resource, a slug that is taken
+  is `409 conflict`, and a slug or a name that breaks its rule ([08-access.md](08-access.md)) is
   `invalid_input` naming the field.
+- An organisation carries `installation`, the installation of the GitHub App it maps to as
+  `{"id", "account"}`, or `null`
+  ([06-runtime-services.md](06-runtime-services.md#installations-and-repositories)).
+  `PATCH /organisations/{organisation}` takes `installation`, the forge's id of an installation
+  Bosun learned of from its webhooks, or `null`, and maps the organisation to it in place of the
+  one it had, or to none; it needs `organisation.manage` on the installation, so only owners map
+  installations. An installation Bosun does not know is `invalid_input` naming `installation`, and
+  one that another organisation holds is `409 conflict`.
+- A project carries `repository`, the repository it is bound to as
+  `{"id", "owner", "name", "default_branch"}` with the forge's id and the names the forge last
+  gave, or `null`. `repository` in `POST /projects`, and in `PATCH /projects/{project}`, which
+  needs `project.manage`, is the repository's full name `<owner>/<name>`, matched without regard
+  to case, or `null`, which leaves the project without one or unbinds it. A name that is not of
+  that form, an organisation without an installation, and a repository its installation cannot see
+  are `invalid_input` naming `repository`; a repository bound to another project is
+  `409 conflict`.
 - `POST /projects/{project}/workflows` takes `name` and `source` and creates a server-side workflow
   with its first revision; `GET` lists the project's workflows oldest first and filters by `name`.
   `PUT /workflows/{workflow}/source` takes `source` and answers with the revision: `201` when the
@@ -494,7 +518,9 @@ The schemas describe the shapes as the server writes them (schemars' serialize c
 field is present, with `null` when it has no value, as the conventions require of responses.
 Request bodies are described by the same schemas, so a field that may be `null` is listed as
 required in them too; the server also takes a request that leaves such a field out, and reads it
-as `null`. Ids are strings of the format `uuid`, times strings of the format `date-time`, and job
+as `null`. The bodies of `PATCH` are the exception: they have schemas of their own, whose fields
+are all optional, since a field left out keeps its value ([Conventions](#conventions)). Ids are
+strings of the format `uuid`, times strings of the format `date-time`, and job
 keys strings with their pattern.
 
 A followed log is `text/event-stream`, and OpenAPI 3.1 has no schema for the events of a stream.

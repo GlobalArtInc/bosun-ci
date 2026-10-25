@@ -803,6 +803,8 @@ async fn calls(
             "slug": format!("project-{name}"),
             "name": "Project"
         })),
+        ("PATCH", "/api/v1/organisations/{organisation}") => Some(json!({})),
+        ("PATCH", "/api/v1/projects/{project}") => Some(json!({ "repository": null })),
         ("POST", "/api/v1/projects/{project}/workflows") => {
             Some(json!({ "name": format!("workflow-{name}"), "source": SOURCE }))
         }

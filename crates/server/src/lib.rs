@@ -10,8 +10,10 @@ mod config;
 mod dispatch;
 mod envelope;
 mod error;
+mod forge;
 mod grpc;
 mod health;
+mod hooks;
 mod idempotency;
 mod install;
 mod interface;
@@ -55,6 +57,7 @@ use axum::routing::get;
 use bosun_proto::agent::v1::agent_server::AgentServer;
 use sea_orm::DatabaseConnection;
 use tokio::net::TcpListener;
+use tokio::sync::Notify;
 use tonic::service::Routes;
 use tower::{ServiceExt, service_fn};
 use tracing::{info, warn};
@@ -73,6 +76,7 @@ struct AppState {
     agent_binaries: Arc<Path>,
     clock: clock::Clock,
     sign_in: Arc<sign_in::Settings>,
+    forge: Option<Arc<forge::Forge>>,
 }
 
 pub async fn serve(
@@ -88,6 +92,12 @@ pub async fn serve(
         );
     }
     keys::load(&config.keys, &config.data_dir)?;
+    let forge = config
+        .github
+        .as_ref()
+        .map(forge::load)
+        .transpose()?
+        .map(Arc::new);
     let store = Arc::new(store::open(&config.store).await?);
     let db = connect(&config).await?;
     bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
@@ -112,6 +122,7 @@ pub async fn serve(
         config.site.clone(),
     );
     let followers = Arc::new(logs::Followers::default());
+    let deliveries = Arc::new(Notify::new());
     let mut tasks = agents::start(
         db.clone(),
         Arc::clone(&replica),
@@ -119,7 +130,11 @@ pub async fn serve(
         config.agents,
         Arc::clone(&dispatcher),
         Arc::clone(&followers),
+        Arc::clone(&deliveries),
     );
+    if let Some(forge) = &forge {
+        tasks.spawn(hooks::work(db.clone(), Arc::clone(forge), deliveries));
+    }
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
     tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
     tasks.spawn(sessions::sweep(db.clone(), clock.clone()));
@@ -147,6 +162,7 @@ pub async fn serve(
         agent_binaries: Arc::from(config.agent_binaries.as_path()),
         clock,
         sign_in,
+        forge,
     };
     axum::serve(
         listener,
@@ -213,6 +229,7 @@ fn app(
         .route("/readyz", get(health::ready))
         .merge(api().into_router(&state))
         .merge(install::routes())
+        .merge(hooks::routes())
         .fallback(move |method: Method, uri: Uri| interface::answer(interface, method, uri))
         .method_not_allowed_fallback(envelope::no_route)
         .with_state(state);

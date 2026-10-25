@@ -1,8 +1,8 @@
 use bosun_db::entity::{
-    agent, api_token, attempt, control_message, execution, idempotency_key, job, label_alias,
-    log_chunk, log_object, organisation, pool_access, project, registration_token, role,
-    role_binding, run, run_event, session, sign_in_failure, step, team, team_member, user,
-    workflow, workflow_revision,
+    agent, api_token, attempt, control_message, execution, forge_installation, forge_repository,
+    idempotency_key, job, label_alias, log_chunk, log_object, organisation, pool_access, project,
+    registration_token, role, role_binding, run, run_event, session, sign_in_failure, step, team,
+    team_member, user, webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -35,6 +35,10 @@ pub const ROLE: u8 = 0x14;
 pub const BINDING: u8 = 0x15;
 pub const ACCESS: u8 = 0x16;
 pub const ALIAS: u8 = 0x17;
+pub const DELIVERY: u8 = 0x18;
+
+pub const INSTALLATION: i64 = 52_814_339;
+pub const REPOSITORY: i64 = 871_264_503;
 
 pub fn id(number: u8) -> Uuid {
     Uuid::from_bytes([
@@ -78,6 +82,9 @@ pub struct Rows {
     pub role_binding: role_binding::Model,
     pub pool_access: pool_access::Model,
     pub label_alias: label_alias::Model,
+    pub forge_installation: forge_installation::Model,
+    pub forge_repository: forge_repository::Model,
+    pub webhook_delivery: webhook_delivery::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -96,16 +103,55 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("an organisation");
 
+    let forge_installation = forge_installation::ActiveModel {
+        id: ActiveValue::Set(INSTALLATION),
+        account_id: ActiveValue::Set(43_265_880),
+        account_login: ActiveValue::Set(format!("GlobalArtInc-{label}")),
+        organisation_id: ActiveValue::Set(Some(id(ORGANISATION))),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("an installation");
+
+    let forge_repository = forge_repository::ActiveModel {
+        id: ActiveValue::Set(REPOSITORY),
+        installation_id: ActiveValue::Set(Some(INSTALLATION)),
+        owner: ActiveValue::Set("GlobalArtInc".to_owned()),
+        name: ActiveValue::Set(format!("keel-{label}")),
+        default_branch: ActiveValue::Set("main".to_owned()),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a repository");
+
     let project = project::ActiveModel {
         id: ActiveValue::Set(id(PROJECT)),
         organisation_id: ActiveValue::Set(id(ORGANISATION)),
         slug: ActiveValue::Set("keel".to_owned()),
         name: ActiveValue::Set(format!("Keel {label}")),
+        repository_id: ActiveValue::Set(Some(REPOSITORY)),
         ..Default::default()
     }
     .insert(db)
     .await
     .expect("a project");
+
+    let webhook_delivery = webhook_delivery::ActiveModel {
+        id: ActiveValue::Set(id(DELIVERY)),
+        delivery: ActiveValue::Set(format!("72d3162e-cc78-11e3-81ab-{label}")),
+        event: ActiveValue::Set("installation".to_owned()),
+        payload: ActiveValue::Set(json!({ "action": "created", "label": label })),
+        attempts: ActiveValue::Set(2),
+        next_attempt_at: ActiveValue::Set(at("2026-10-24T18:34:52Z")),
+        last_error: ActiveValue::Set(Some("the forge could not be reached".to_owned())),
+        processed_at: ActiveValue::Set(Some(at("2026-10-24T18:34:53.5Z"))),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a webhook delivery");
 
     let user = user::ActiveModel {
         id: ActiveValue::Set(id(USER)),
@@ -487,6 +533,9 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         role_binding,
         pool_access,
         label_alias,
+        forge_installation,
+        forge_repository,
+        webhook_delivery,
     }
 }
 
@@ -551,5 +600,8 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         role_binding: one::<_, role_binding::Entity>(db, id(BINDING)).await,
         pool_access: one::<_, pool_access::Entity>(db, id(ACCESS)).await,
         label_alias: one::<_, label_alias::Entity>(db, id(ALIAS)).await,
+        forge_installation: one::<_, forge_installation::Entity>(db, INSTALLATION).await,
+        forge_repository: one::<_, forge_repository::Entity>(db, REPOSITORY).await,
+        webhook_delivery: one::<_, webhook_delivery::Entity>(db, id(DELIVERY)).await,
     }
 }
