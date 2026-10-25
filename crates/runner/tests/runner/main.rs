@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use bosun_proto::assignment::{Contexts, Evaluated};
-use bosun_runner::{BosunFacts, Event, Job, Runner, Tracking};
+use bosun_runner::{Annotation, BosunFacts, Event, Job, Runner, Tracking};
 use bosun_types::ir::{
     Action, Defaults, Evaluable, JobKind, JobTemplate, RunsOn, SecretReferences, Span, Step,
     Template,
@@ -147,6 +147,18 @@ impl Finished {
                 outputs,
                 ..
             } if *finished == index => Some((*outcome, *conclusion, outputs.clone())),
+            _ => None,
+        })
+    }
+
+    pub fn reported(&self, index: u32) -> Option<(Vec<Annotation>, Option<String>)> {
+        self.events.iter().find_map(|event| match event {
+            Event::StepFinished {
+                index: finished,
+                annotations,
+                summary,
+                ..
+            } if *finished == index => Some((annotations.clone(), summary.clone())),
             _ => None,
         })
     }

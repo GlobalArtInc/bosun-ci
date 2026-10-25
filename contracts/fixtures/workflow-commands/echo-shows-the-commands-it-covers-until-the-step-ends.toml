@@ -1,0 +1,42 @@
+conclusion = "success"
+
+[env]
+ACTIONS_ALLOW_UNSECURE_COMMANDS = "true"
+
+[[steps]]
+run = '''
+echo "::set-env name=FIRST::1"
+echo "::echo::on"
+echo "::set-env name=SECOND::2"
+echo "::group::groups are not echoed"
+echo "::endgroup::"
+echo "::echo::OFF"
+echo "::set-env name=THIRD::3"
+'''
+outcome = "success"
+output = [
+  "::set-env name=SECOND::2",
+  "##[group]groups are not echoed",
+  "##[endgroup]",
+  "::echo::OFF",
+]
+
+[[steps]]
+run = '''
+echo "::set-env name=FOURTH::4"
+echo "$FIRST $SECOND $THIRD"
+'''
+outcome = "success"
+output = ["1 2 3"]
+
+[[steps]]
+continue-on-error = true
+run = 'echo "::echo::loud"'
+outcome = "failure"
+conclusion = "success"
+output = [
+  "##[error]the command `::echo::loud` could not be processed: `::echo::` takes `on` or `off`, not `loud`",
+]
+annotations = [
+  { kind = "error", message = "the command `::echo::loud` could not be processed: `::echo::` takes `on` or `off`, not `loud`" },
+]

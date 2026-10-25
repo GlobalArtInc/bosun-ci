@@ -1,0 +1,26 @@
+conclusion = "success"
+
+[github]
+repository = "GlobalArtInc/keel"
+
+[[steps]]
+run = '''
+mkdir -p .git pkg/sub
+printf '[remote "origin"]\n\turl = https://github.com/GlobalArtInc/keel\n' > .git/config
+touch pkg/sub/lib.ts pkg/top.ts
+echo "::add-matcher::$FIXTURES/project-report.json"
+echo "project pkg/sub/project.json"
+echo "lib.ts:4 beside the project"
+echo "../top.ts:2 above the project"
+'''
+outcome = "success"
+output = [
+  "added the problem matchers `project-report`",
+  "project pkg/sub/project.json",
+  "##[warning]lib.ts:4 beside the project",
+  "##[warning]../top.ts:2 above the project",
+]
+annotations = [
+  { kind = "warning", message = "beside the project", file = "pkg/sub/lib.ts", line = 4 },
+  { kind = "warning", message = "above the project", file = "pkg/top.ts", line = 2 },
+]

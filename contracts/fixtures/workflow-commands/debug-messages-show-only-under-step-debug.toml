@@ -1,0 +1,25 @@
+conclusion = "success"
+
+[env]
+ACTIONS_STEP_DEBUG = ""
+RUNNER_DEBUG = ""
+
+[[steps]]
+run = '''
+echo "::debug::hidden"
+echo "shown"
+'''
+outcome = "success"
+output = ["shown"]
+
+[[steps]]
+env = { ACTIONS_STEP_DEBUG = "true" }
+run = 'echo "::debug::first%0Asecond"'
+outcome = "success"
+output = ["##[debug]first", "##[debug]second"]
+
+[[steps]]
+env = { RUNNER_DEBUG = "1" }
+run = 'echo "::debug::under the debug of the runner"'
+outcome = "success"
+output = ["##[debug]under the debug of the runner"]

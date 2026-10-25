@@ -1,0 +1,46 @@
+conclusion = "success"
+
+[[steps]]
+run = '''
+echo "::notice::a plain notice"
+echo "::warning file=src/app.ts,line=3,col=5,endColumn=9,title=A title::a warning"
+echo "::error file=$GITHUB_WORKSPACE/src/lib.ts,line=7,endLine=9::spans lines"
+echo "::error title=100%25 sure%2C really%3A yes::first%0Asecond%25"
+echo "::warning endLine=4::takes its line from endLine"
+echo "::notice line=5,endLine=6,col=2,endColumn=3::loses its columns across lines"
+echo "::notice line=8,endLine=7::loses its lines when they end before they start"
+echo "::notice line=2,col=6,endColumn=4::loses its columns when they end before they start"
+echo "::notice col=3::loses a column without a line"
+echo "  ::NOTICE file=/elsewhere/a.ts::ignores white space before it and the case of its name"
+echo "::warning::"
+echo "::unknown::is output"
+echo "text before ::notice::is output"
+'''
+outcome = "success"
+output = [
+  "##[notice]a plain notice",
+  "##[warning]a warning",
+  "##[error]spans lines",
+  "##[error]first",
+  "second%",
+  "##[warning]takes its line from endLine",
+  "##[notice]loses its columns across lines",
+  "##[notice]loses its lines when they end before they start",
+  "##[notice]loses its columns when they end before they start",
+  "##[notice]loses a column without a line",
+  "##[notice]ignores white space before it and the case of its name",
+  "::unknown::is output",
+  "text before ::notice::is output",
+]
+annotations = [
+  { kind = "notice", message = "a plain notice" },
+  { kind = "warning", message = "a warning", title = "A title", file = "src/app.ts", line = 3, column = 5, end-column = 9 },
+  { kind = "error", message = "spans lines", file = "src/lib.ts", line = 7, end-line = 9 },
+  { kind = "error", message = "first\nsecond%", title = "100% sure, really: yes" },
+  { kind = "warning", message = "takes its line from endLine", line = 4, end-line = 4 },
+  { kind = "notice", message = "loses its columns across lines", line = 5, end-line = 6 },
+  { kind = "notice", message = "loses its lines when they end before they start" },
+  { kind = "notice", message = "loses its columns when they end before they start", line = 2 },
+  { kind = "notice", message = "loses a column without a line" },
+  { kind = "notice", message = "ignores white space before it and the case of its name", file = "/elsewhere/a.ts" },
+]

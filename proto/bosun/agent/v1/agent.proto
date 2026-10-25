@@ -49,6 +49,13 @@ enum Conclusion {
   CONCLUSION_TIMED_OUT = 5;
 }
 
+enum AnnotationKind {
+  ANNOTATION_KIND_UNSPECIFIED = 0;
+  ANNOTATION_KIND_NOTICE = 1;
+  ANNOTATION_KIND_WARNING = 2;
+  ANNOTATION_KIND_ERROR = 3;
+}
+
 enum ControlKind {
   CONTROL_KIND_UNSPECIFIED = 0;
   CONTROL_KIND_CANCEL = 1;
@@ -128,6 +135,19 @@ message StepFinished {
   Conclusion outcome = 4;
   Conclusion conclusion = 5;
   map<string, string> outputs = 6;
+  repeated Annotation annotations = 7;
+  string summary = 8;
+}
+
+message Annotation {
+  AnnotationKind kind = 1;
+  string message = 2;
+  optional string title = 3;
+  optional string file = 4;
+  optional uint32 line = 5;
+  optional uint32 end_line = 6;
+  optional uint32 column = 7;
+  optional uint32 end_column = 8;
 }
 
 message Log {

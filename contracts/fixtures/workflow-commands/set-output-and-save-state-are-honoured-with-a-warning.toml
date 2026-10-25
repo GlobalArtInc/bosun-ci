@@ -1,0 +1,47 @@
+conclusion = "success"
+
+[outputs]
+version = "${{ steps.old.outputs.version }}"
+
+[reported]
+version = "1.2.3"
+
+[[steps]]
+id = "old"
+run = '''
+echo "::set-output name=version::1.2.3"
+echo "::set-output name=overridden::by the command"
+echo "overridden=by the file" >> "$GITHUB_OUTPUT"
+echo "::save-state name=pid::42"
+'''
+outcome = "success"
+outputs = { version = "1.2.3", overridden = "by the file" }
+output = [
+  "##[warning]`::set-output` is deprecated: write to the file in `GITHUB_OUTPUT` instead",
+  "##[warning]`::set-output` is deprecated: write to the file in `GITHUB_OUTPUT` instead",
+  "##[warning]`::save-state` is deprecated: write to the file in `GITHUB_STATE` instead",
+]
+annotations = [
+  { kind = "warning", message = "`::set-output` is deprecated: write to the file in `GITHUB_OUTPUT` instead" },
+  { kind = "warning", message = "`::set-output` is deprecated: write to the file in `GITHUB_OUTPUT` instead" },
+  { kind = "warning", message = "`::save-state` is deprecated: write to the file in `GITHUB_STATE` instead" },
+]
+
+[[steps]]
+run = 'echo "${{ steps.old.outputs.version }} ${{ steps.old.outputs.overridden }}"'
+outcome = "success"
+output = ["1.2.3 by the file"]
+
+[[steps]]
+continue-on-error = true
+run = 'echo "::set-output::without a name"'
+outcome = "failure"
+conclusion = "success"
+output = [
+  "##[warning]`::set-output` is deprecated: write to the file in `GITHUB_OUTPUT` instead",
+  "##[error]the command `::set-output::without a name` could not be processed: `::set-output` needs the property `name`",
+]
+annotations = [
+  { kind = "warning", message = "`::set-output` is deprecated: write to the file in `GITHUB_OUTPUT` instead" },
+  { kind = "error", message = "the command `::set-output::without a name` could not be processed: `::set-output` needs the property `name`" },
+]

@@ -1,0 +1,49 @@
+conclusion = "success"
+
+[github]
+repository = "GlobalArtInc/keel"
+server_url = "https://github.com"
+
+[[steps]]
+run = '''
+mkdir -p .git src include vendor/other/.git nested/.git
+printf '[remote "origin"]\n\turl = https://github.com/GlobalArtInc/keel\n' > .git/config
+printf '[remote "origin"]\n\turl = https://github.com/someone/other\n' > vendor/other/.git/config
+printf '[remote "origin"]\n\turl = git@github.com:GlobalArtInc/Keel.git\n' > nested/.git/config
+touch src/main.c include/util.h vendor/other/lib.c nested/part.c
+echo "::add-matcher::$FIXTURES/gcc.json"
+echo "src/main.c: In function 'main':"
+echo "src/main.c:5:10: warning: unused variable 'x' [-Wunused-variable]"
+echo "include/util.h:2:1: error: unknown type name 'size'"
+echo "src/../src/main.c:9:3: fatal error: missing.h: No such file or directory"
+echo "src/main.c:12: warning: no column"
+echo "src/gone.c:1:1: error: a file that does not exist"
+echo "/usr/include/stdio.h:27:1: warning: a file outside the workspace"
+echo "vendor/other/lib.c:3:4: warning: a file of another repository"
+echo "nested/part.c:7:2: warning: a file of a nested checkout of the repository"
+echo "compilation terminated."
+'''
+outcome = "success"
+output = [
+  "added the problem matchers `gcc-problem-matcher`",
+  "src/main.c: In function 'main':",
+  "##[warning]src/main.c:5:10: warning: unused variable 'x' [-Wunused-variable]",
+  "##[error]include/util.h:2:1: error: unknown type name 'size'",
+  "##[error]src/../src/main.c:9:3: fatal error: missing.h: No such file or directory",
+  "##[warning]src/main.c:12: warning: no column",
+  "##[error]src/gone.c:1:1: error: a file that does not exist",
+  "##[warning]/usr/include/stdio.h:27:1: warning: a file outside the workspace",
+  "##[warning]vendor/other/lib.c:3:4: warning: a file of another repository",
+  "##[warning]nested/part.c:7:2: warning: a file of a nested checkout of the repository",
+  "compilation terminated.",
+]
+annotations = [
+  { kind = "warning", message = "unused variable 'x' [-Wunused-variable]", file = "src/main.c", line = 5, column = 10 },
+  { kind = "error", message = "unknown type name 'size'", file = "include/util.h", line = 2, column = 1 },
+  { kind = "error", message = "missing.h: No such file or directory", file = "src/main.c", line = 9, column = 3 },
+  { kind = "warning", message = "no column", file = "src/main.c", line = 12 },
+  { kind = "error", message = "a file that does not exist", line = 1, column = 1 },
+  { kind = "warning", message = "a file outside the workspace", line = 27, column = 1 },
+  { kind = "warning", message = "a file of another repository", line = 3, column = 4 },
+  { kind = "warning", message = "a file of a nested checkout of the repository", file = "part.c", line = 7, column = 2 },
+]

@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use bosun_proto::agent::v1::agent_message::Message as Report;
-use bosun_proto::agent::v1::{Accept, Conclusion, JobFinished, StepFinished, StepStarted};
+use bosun_proto::agent::v1::{
+    Accept, Annotation, AnnotationKind, Conclusion, JobFinished, StepFinished, StepStarted,
+};
 use bosun_testkit::TestDatabase;
 use bosun_testkit::agent::{Connection, FakeAgent};
 use reqwest::Method;
@@ -63,7 +65,7 @@ fn report_step(connection: &Connection, execution: &str, index: u32, conclusion:
         completed_at: None,
         outcome: conclusion.into(),
         conclusion: conclusion.into(),
-        outputs: Default::default(),
+        ..Default::default()
     }));
 }
 
@@ -398,6 +400,7 @@ async fn the_server_stores_the_outputs_an_agent_reports_for_a_step() {
             ("lines".to_owned(), "a\nb".to_owned()),
         ]
         .into(),
+        ..Default::default()
     }));
     report_step(&connection, &execution, 1, Conclusion::Success);
     connection.finish_job(&execution, Conclusion::Success, &[]);
@@ -419,6 +422,98 @@ async fn the_server_stores_the_outputs_an_agent_reports_for_a_step() {
         stored,
         [r#"0 {"lines": "a\nb", "digest": "sha256:0f1e"}"#, "1 {}"]
     );
+}
+
+fn longest_annotation(kind: AnnotationKind) -> Annotation {
+    let widest = "\u{1d11e}".repeat(4096);
+    Annotation {
+        kind: kind.into(),
+        message: widest.clone(),
+        title: Some(widest.clone()),
+        file: Some(widest),
+        line: Some(1),
+        end_line: Some(2),
+        column: Some(3),
+        end_column: Some(4),
+    }
+}
+
+#[tokio::test]
+async fn a_step_report_with_a_summary_of_1_mib_and_ten_annotations_of_each_kind_keeps_the_stream() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::start(&database).await;
+    let run = dispatched(&api).await;
+    let (status, token) = api
+        .post(
+            "/api/v1/registration-tokens",
+            &json!({ "pool": "default", "reusable": false, "expires_at": null }),
+        )
+        .await;
+    assert_eq!(status, 201, "{token}");
+    let agent = FakeAgent::register(api.address, text(&token["token"]), "runner1", &[]).await;
+    let mut connection = agent.connect(api.address).await;
+    connection.idle();
+    let execution = connection.assignment().await.execution_id;
+    connection.send(Report::Accept(Accept {
+        execution_id: execution.clone(),
+    }));
+    connection.send(Report::StepStarted(StepStarted {
+        execution_id: execution.clone(),
+        step_index: 0,
+        started_at: None,
+    }));
+    let annotations: Vec<Annotation> = [
+        AnnotationKind::Notice,
+        AnnotationKind::Warning,
+        AnnotationKind::Error,
+    ]
+    .into_iter()
+    .flat_map(|kind| (0..10).map(move |_| longest_annotation(kind)))
+    .collect();
+    let report = StepFinished {
+        execution_id: execution.clone(),
+        step_index: 0,
+        completed_at: None,
+        outcome: Conclusion::Success.into(),
+        conclusion: Conclusion::Success.into(),
+        outputs: [("padding".to_owned(), "p".repeat(2 * 1024 * 1024))].into(),
+        annotations,
+        summary: "\u{e9}".repeat(512 * 1024),
+    };
+    let texts = report.summary.len()
+        + report.outputs.values().map(String::len).sum::<usize>()
+        + report
+            .annotations
+            .iter()
+            .map(|annotation| {
+                annotation.message.len()
+                    + annotation.title.as_ref().map_or(0, String::len)
+                    + annotation.file.as_ref().map_or(0, String::len)
+            })
+            .sum::<usize>();
+    assert_eq!(report.summary.len(), 1024 * 1024);
+    assert!(
+        texts > 4 * 1024 * 1024,
+        "the report fits the default limit of a message"
+    );
+    connection.send(Report::StepFinished(report));
+    report_step(&connection, &execution, 1, Conclusion::Success);
+    connection.finish_job(&execution, Conclusion::Success, &[]);
+    until(
+        &api,
+        &format!("/api/v1/runs/{}/attempts/1/jobs", text(&run["id"])),
+        |page| job_named(page, "build")["status"] == "completed",
+    )
+    .await;
+    let stored = crate::strings(
+        database.connection(),
+        &format!(
+            "SELECT concat_ws(' ', index, status, length(outputs->>'padding')) AS value \
+             FROM bosun.step WHERE execution_id = '{execution}' ORDER BY index"
+        ),
+    )
+    .await;
+    assert_eq!(stored, ["0 completed 2097152", "1 completed"]);
 }
 
 #[tokio::test]

@@ -1,0 +1,34 @@
+conclusion = "success"
+
+[github]
+repository = "GlobalArtInc/keel"
+server_url = "https://github.com"
+
+[[steps]]
+run = '''
+mkdir -p .git src
+printf '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/GlobalArtInc/keel\n' > .git/config
+touch src/app.ts src/types.ts
+echo "::add-matcher::$FIXTURES/tsc.json"
+echo "src/app.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'."
+echo "src/types.ts:12:1 - error TS6133: 'unused' is declared but its value is never read."
+echo "src/missing.ts(1,1): error TS2307: Cannot find module './gone'."
+echo "Found 3 errors."
+echo "::remove-matcher::$FIXTURES/tsc.json"
+echo "src/app.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'."
+'''
+outcome = "success"
+output = [
+  "added the problem matchers `tsc`",
+  "##[error]src/app.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.",
+  "##[error]src/types.ts:12:1 - error TS6133: 'unused' is declared but its value is never read.",
+  "##[error]src/missing.ts(1,1): error TS2307: Cannot find module './gone'.",
+  "Found 3 errors.",
+  "removed the problem matchers `tsc`",
+  "src/app.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.",
+]
+annotations = [
+  { kind = "error", message = "Type 'string' is not assignable to type 'number'.", file = "src/app.ts", line = 3, column = 5 },
+  { kind = "error", message = "'unused' is declared but its value is never read.", file = "src/types.ts", line = 12, column = 1 },
+  { kind = "error", message = "Cannot find module './gone'.", line = 1, column = 1 },
+]

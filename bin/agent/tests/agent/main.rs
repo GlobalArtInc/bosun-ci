@@ -1,4 +1,5 @@
 mod cancel;
+mod commands;
 mod drain;
 mod jobs;
 mod masking;

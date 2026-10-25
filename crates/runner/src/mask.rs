@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::SystemTime;
 
 use aho_corasick::AhoCorasick;
@@ -9,7 +9,8 @@ use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use bosun_types::status::Conclusion;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::engine::Event;
+use crate::annotation::Allowance;
+use crate::engine::{Event, Results};
 use crate::output::LONGEST_LINE;
 
 const MASK: &[u8] = b"***";
@@ -23,6 +24,7 @@ enum Automaton {
 }
 
 pub(crate) struct Masker {
+    values: Vec<String>,
     automaton: Automaton,
     longest: usize,
 }
@@ -36,8 +38,9 @@ pub(crate) struct Cut {
 
 impl Masker {
     pub(crate) fn new<'a>(secrets: impl IntoIterator<Item = &'a str>) -> Masker {
+        let secrets: Vec<String> = secrets.into_iter().map(str::to_owned).collect();
         let mut patterns = BTreeSet::new();
-        for secret in secrets {
+        for secret in &secrets {
             for value in values(secret) {
                 patterns.insert(value.as_bytes().to_vec());
                 patterns.extend(
@@ -53,7 +56,20 @@ impl Masker {
         } else {
             AhoCorasick::new(&patterns).map_or(Automaton::Unbuilt, Automaton::Built)
         };
-        Masker { automaton, longest }
+        Masker {
+            values: secrets,
+            automaton,
+            longest,
+        }
+    }
+
+    pub(crate) fn with(&self, value: &str) -> Masker {
+        Masker::new(
+            self.values
+                .iter()
+                .map(String::as_str)
+                .chain(std::iter::once(value)),
+        )
     }
 
     pub(crate) fn longest(&self) -> usize {
@@ -217,19 +233,27 @@ fn xml(value: &str) -> Vec<u8> {
 #[derive(Clone)]
 pub(crate) struct Sink {
     events: UnboundedSender<Event>,
-    masker: Arc<Masker>,
+    masker: Arc<Mutex<Arc<Masker>>>,
+    allowance: Allowance,
 }
 
 impl Sink {
     pub(crate) fn new(events: UnboundedSender<Event>, masker: Masker) -> Sink {
         Sink {
             events,
-            masker: Arc::new(masker),
+            masker: Arc::new(Mutex::new(Arc::new(masker))),
+            allowance: Allowance::default(),
         }
     }
 
-    pub(crate) fn masker(&self) -> &Masker {
-        &self.masker
+    pub(crate) fn masker(&self) -> Arc<Masker> {
+        Arc::clone(&self.masker.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    pub(crate) fn add_mask(&self, value: &str) {
+        let mut masker = self.masker.lock().unwrap_or_else(PoisonError::into_inner);
+        let added = masker.with(value);
+        *masker = Arc::new(added);
     }
 
     pub(crate) fn started(&self, index: u32) {
@@ -244,7 +268,7 @@ impl Sink {
     }
 
     pub(crate) fn output(&self, index: u32, text: &[u8], masked: usize) {
-        let text = self.masker.mask(text, masked);
+        let text = self.masker().mask(text, masked);
         if text.is_empty() {
             self.send_line(index, Vec::new());
         }
@@ -258,22 +282,30 @@ impl Sink {
         index: u32,
         outcome: Conclusion,
         conclusion: Conclusion,
-        outputs: &BTreeMap<String, String>,
+        results: Results,
     ) {
+        let masker = self.masker();
+        let text =
+            |text: &str| String::from_utf8_lossy(&masker.mask(text.as_bytes(), 0)).into_owned();
+        let mut annotations = Vec::new();
+        for annotation in results.annotations {
+            if self.allowance.admits() {
+                annotations.push(annotation.texts(text));
+            }
+        }
         let _ = self.events.send(Event::StepFinished {
             index,
             at: SystemTime::now(),
             outcome,
             conclusion,
-            outputs: outputs
+            outputs: results
+                .outputs
                 .iter()
-                .map(|(name, value)| (self.text(name), self.text(value)))
+                .map(|(name, value)| (text(name), text(value)))
                 .collect(),
+            annotations,
+            summary: results.summary,
         });
-    }
-
-    fn text(&self, text: &str) -> String {
-        String::from_utf8_lossy(&self.masker.mask(text.as_bytes(), 0)).into_owned()
     }
 
     fn send_line(&self, index: u32, text: Vec<u8>) {
@@ -358,6 +390,16 @@ mod tests {
                 "{prefix:?} {suffix:?}: {encoded} gives {masked}, which keeps too much of it"
             );
         }
+    }
+
+    #[test]
+    fn a_value_added_later_is_masked_with_its_forms_beside_the_earlier_ones() {
+        let masker = Masker::new(["first-secret"]).with("later value");
+        let text = "first-secret, later value, later%20value, bGF0ZXIgdmFsdWU=";
+        assert_eq!(
+            String::from_utf8(masker.mask(text.as_bytes(), 0)).expect("UTF-8"),
+            "***, ***, ***, ***"
+        );
     }
 
     #[test]

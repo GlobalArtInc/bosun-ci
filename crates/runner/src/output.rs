@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, timeout_at};
 
 use crate::mask::Sink;
+use crate::workflow_commands::Processor;
 
 pub(crate) const LONGEST_LINE: usize = 64 * 1024;
 
@@ -22,10 +23,15 @@ pub(crate) struct Output {
 }
 
 impl Output {
-    pub(crate) fn start(reader: PipeReader, index: u32, sink: Sink) -> io::Result<Output> {
+    pub(crate) fn start(
+        reader: PipeReader,
+        index: u32,
+        sink: Sink,
+        processor: Processor,
+    ) -> io::Result<Output> {
         let receiver = Receiver::from_owned_fd(OwnedFd::from(reader))?;
         let (flushes, requests) = mpsc::unbounded_channel();
-        let task = tokio::spawn(read(receiver, Lines::new(index, sink), requests));
+        let task = tokio::spawn(read(receiver, Lines::new(index, sink, processor), requests));
         Ok(Output {
             flushes,
             task,
@@ -119,17 +125,21 @@ fn drain(receiver: &Receiver, buffer: &mut [u8], lines: &mut Lines) -> bool {
 struct Lines {
     index: u32,
     sink: Sink,
+    processor: Processor,
     pending: Vec<u8>,
     masked: usize,
+    continued: bool,
 }
 
 impl Lines {
-    fn new(index: u32, sink: Sink) -> Lines {
+    fn new(index: u32, sink: Sink, processor: Processor) -> Lines {
         Lines {
             index,
             sink,
+            processor,
             pending: Vec::new(),
             masked: 0,
+            continued: false,
         }
     }
 
@@ -138,8 +148,11 @@ impl Lines {
         let mut start = 0;
         while let Some(end) = self.pending[start..].iter().position(|byte| *byte == b'\n') {
             let masked = std::mem::take(&mut self.masked);
-            self.sink
-                .output(self.index, &self.pending[start..start + end], masked);
+            let continued = std::mem::take(&mut self.continued);
+            let line = &self.pending[start..start + end];
+            if continued || line.len() > LONGEST_LINE || !self.processor.line(line) {
+                self.sink.output(self.index, line, masked);
+            }
             start += end + 1;
         }
         self.pending.drain(..start);
@@ -153,6 +166,7 @@ impl Lines {
                 .output(self.index, &self.pending[..cut.at], cut.masked);
             self.pending.drain(..cut.at);
             self.masked = cut.carried;
+            self.continued = true;
         }
     }
 
@@ -160,7 +174,10 @@ impl Lines {
         if !self.pending.is_empty() {
             let line = std::mem::take(&mut self.pending);
             let masked = std::mem::take(&mut self.masked);
-            self.sink.output(self.index, &line, masked);
+            let continued = std::mem::take(&mut self.continued);
+            if continued || line.len() > LONGEST_LINE || !self.processor.line(&line) {
+                self.sink.output(self.index, &line, masked);
+            }
         }
     }
 }
@@ -172,10 +189,18 @@ mod tests {
     use super::{LONGEST_LINE, Lines};
     use crate::engine::Event;
     use crate::mask::{Masker, Sink};
+    use crate::matchers::Registry;
+    use crate::workflow_commands::{Processor, Reports, Settings};
 
     fn texts(secrets: &[&str], chunks: &[&[u8]]) -> Vec<Vec<u8>> {
         let (events, mut received) = mpsc::unbounded_channel();
-        let mut lines = Lines::new(3, Sink::new(events, Masker::new(secrets.iter().copied())));
+        let sink = Sink::new(events, Masker::new(secrets.iter().copied()));
+        let processor = Processor::new(
+            Reports::new(3, sink.clone()),
+            Settings::default(),
+            Registry::default(),
+        );
+        let mut lines = Lines::new(3, sink, processor);
         for chunk in chunks {
             lines.push(chunk);
         }
@@ -202,6 +227,21 @@ mod tests {
                 b"three".to_vec()
             ]
         );
+    }
+
+    #[test]
+    fn a_command_is_read_from_a_whole_line_of_at_most_64_kib_only() {
+        let mut long = b"::warning::".to_vec();
+        long.extend(vec![b'x'; LONGEST_LINE]);
+        long.push(b'\n');
+        let texts = texts(&[], &[b"::group::Build\r\n", &long, b"::endgroup::"]);
+        assert_eq!(texts[0], b"##[group]Build");
+        assert!(
+            texts[1].starts_with(b"::warning::xxx"),
+            "{:?}",
+            &texts[1][..20]
+        );
+        assert_eq!(texts.last().map(Vec::as_slice), Some(&b"##[endgroup]"[..]));
     }
 
     #[test]

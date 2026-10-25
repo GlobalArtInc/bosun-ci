@@ -1,0 +1,31 @@
+conclusion = "success"
+
+[env]
+ACTIONS_ALLOW_UNSECURE_COMMANDS = ""
+
+[[steps]]
+continue-on-error = true
+run = '''
+echo "::set-env name=MODE::fast"
+echo "::add-path::/opt/tool/bin"
+echo "the script goes on"
+'''
+outcome = "failure"
+conclusion = "success"
+output = [
+  "##[error]the command `::set-env name=MODE::fast` could not be processed: `::set-env` is disabled: write to the file in `GITHUB_ENV` instead, or set `ACTIONS_ALLOW_UNSECURE_COMMANDS` to `true` in the step's environment to allow it",
+  "##[error]the command `::add-path::/opt/tool/bin` could not be processed: `::add-path` is disabled: write to the file in `GITHUB_PATH` instead, or set `ACTIONS_ALLOW_UNSECURE_COMMANDS` to `true` in the step's environment to allow it",
+  "the script goes on",
+]
+annotations = [
+  { kind = "error", message = "the command `::set-env name=MODE::fast` could not be processed: `::set-env` is disabled: write to the file in `GITHUB_ENV` instead, or set `ACTIONS_ALLOW_UNSECURE_COMMANDS` to `true` in the step's environment to allow it" },
+  { kind = "error", message = "the command `::add-path::/opt/tool/bin` could not be processed: `::add-path` is disabled: write to the file in `GITHUB_PATH` instead, or set `ACTIONS_ALLOW_UNSECURE_COMMANDS` to `true` in the step's environment to allow it" },
+]
+
+[[steps]]
+run = '''
+echo "[${MODE:-unset}]"
+case ":$PATH:" in *:/opt/tool/bin:*) echo "on the path" ;; *) echo "not on the path" ;; esac
+'''
+outcome = "success"
+output = ["[unset]", "not on the path"]

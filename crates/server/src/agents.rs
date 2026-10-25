@@ -29,6 +29,8 @@ pub(crate) const LABEL_RULE: &str =
 
 const LONGEST: usize = 64;
 
+pub(crate) const MESSAGE_LIMIT: usize = 8 * 1024 * 1024;
+
 pub(crate) struct Tasks(Vec<JoinHandle<()>>);
 
 pub(crate) struct Listeners {

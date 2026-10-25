@@ -1,8 +1,12 @@
-use std::fs;
-use std::io::{self, ErrorKind};
+use std::fs::{self, File};
+use std::io::{self, ErrorKind, Read};
 use std::path::PathBuf;
 
 use serde_json::{Map, Value};
+
+use crate::mask::Masker;
+
+pub(crate) const SUMMARY_LIMIT: usize = 1024 * 1024;
 
 pub(crate) struct Commands {
     env: PathBuf,
@@ -18,6 +22,12 @@ pub(crate) struct Written {
     pub(crate) outputs: Vec<(String, String)>,
     pub(crate) paths: Vec<String>,
     pub(crate) faults: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Summary {
+    pub(crate) text: String,
+    pub(crate) cut: bool,
 }
 
 impl Commands {
@@ -88,6 +98,42 @@ impl Commands {
         }
         written
     }
+
+    pub(crate) fn summary(&self, masker: &Masker) -> Result<Option<Summary>, String> {
+        let mut raw = Vec::new();
+        let read = match File::open(&self.summary) {
+            Ok(file) => file
+                .take((SUMMARY_LIMIT + masker.longest()) as u64 + 1)
+                .read_to_end(&mut raw),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(0),
+            Err(error) => Err(error),
+        };
+        read.map_err(|error| format!("GITHUB_STEP_SUMMARY could not be read: {error}"))?;
+        Ok(summary(&raw, masker))
+    }
+}
+
+fn summary(raw: &[u8], masker: &Masker) -> Option<Summary> {
+    if raw.is_empty() {
+        return None;
+    }
+    let longer = raw.len() > SUMMARY_LIMIT;
+    let (kept, masked) = if longer {
+        let cut = masker.cut(raw, SUMMARY_LIMIT, 0);
+        (&raw[..cut.at], cut.masked)
+    } else {
+        (raw, 0)
+    };
+    let mut text = String::from_utf8_lossy(&masker.mask(kept, masked)).into_owned();
+    let cut = longer || text.len() > SUMMARY_LIMIT;
+    if text.len() > SUMMARY_LIMIT {
+        let mut end = SUMMARY_LIMIT;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    Some(Summary { text, cut })
 }
 
 fn read(path: &PathBuf) -> io::Result<String> {
@@ -175,7 +221,41 @@ fn pairs(text: &str) -> Result<Vec<(String, String)>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::pairs;
+    use super::{SUMMARY_LIMIT, Summary, pairs, summary};
+    use crate::mask::Masker;
+
+    #[test]
+    fn a_summary_is_masked_and_cut_at_1_mib_without_splitting_a_value_or_a_character() {
+        let masker = Masker::new(["a-secret-value", "e"]);
+        assert_eq!(summary(b"", &masker), None);
+        let exact = "x".repeat(SUMMARY_LIMIT);
+        assert_eq!(
+            summary(exact.as_bytes(), &masker),
+            Some(Summary {
+                text: exact.clone(),
+                cut: false
+            })
+        );
+        let mut across = "x".repeat(SUMMARY_LIMIT - 3);
+        across.push_str("a-secret-value and more");
+        let kept = summary(across.as_bytes(), &masker).expect("a summary");
+        assert_eq!(
+            kept,
+            Summary {
+                text: "x".repeat(SUMMARY_LIMIT - 3),
+                cut: true
+            }
+        );
+        let grown = "e-".repeat(SUMMARY_LIMIT / 2);
+        let kept = summary(grown.as_bytes(), &masker).expect("a summary");
+        assert!(kept.cut);
+        assert_eq!(kept.text.len(), SUMMARY_LIMIT);
+        let wide = "\u{e9}".repeat(SUMMARY_LIMIT / 2 + 1);
+        let kept = summary(format!("x{wide}").as_bytes(), &masker).expect("a summary");
+        assert!(kept.cut);
+        assert_eq!(kept.text.len(), SUMMARY_LIMIT - 1);
+        assert!(kept.text.ends_with('\u{e9}'));
+    }
 
     fn pairs_of(text: &str) -> Vec<(String, String)> {
         pairs(text).unwrap_or_else(|fault| panic!("{text:?}: {fault}"))

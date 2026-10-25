@@ -1,0 +1,48 @@
+conclusion = "success"
+
+[[steps]]
+run = '''
+echo "::add-matcher::"
+echo "::remove-matcher::"
+echo "::remove-matcher owner=tsc::tsc.json"
+echo "::remove-matcher owner=tsc::"
+'''
+outcome = "success"
+output = [
+  "##[warning]`::add-matcher::` names no file of problem matchers",
+  "##[warning]`::remove-matcher` takes an `owner` or a file of problem matchers",
+  "##[warning]`::remove-matcher` takes an `owner` or a file, not both",
+  "removed no problem matcher",
+]
+annotations = [
+  { kind = "warning", message = "`::add-matcher::` names no file of problem matchers" },
+  { kind = "warning", message = "`::remove-matcher` takes an `owner` or a file of problem matchers" },
+  { kind = "warning", message = "`::remove-matcher` takes an `owner` or a file, not both" },
+]
+
+[[steps]]
+continue-on-error = true
+run = 'echo "::add-matcher::missing.json"'
+outcome = "failure"
+conclusion = "success"
+output = [
+  "##[error]the command `::add-matcher::missing.json` could not be processed: `missing.json` could not be read: No such file or directory (os error 2)",
+]
+annotations = [
+  { kind = "error", message = "the command `::add-matcher::missing.json` could not be processed: `missing.json` could not be read: No such file or directory (os error 2)" },
+]
+
+[[steps]]
+continue-on-error = true
+run = '''
+printf '{"problemMatcher": [{"owner": "broken", "pattern": [{"regexp": "(.*)", "message": 1, "loop": true}]}]}' > broken.json
+echo "::add-matcher::broken.json"
+'''
+outcome = "failure"
+conclusion = "success"
+output = [
+  "##[error]the command `::add-matcher::broken.json` could not be processed: only the last of several patterns of the problem matcher `broken` may set `loop`",
+]
+annotations = [
+  { kind = "error", message = "the command `::add-matcher::broken.json` could not be processed: only the last of several patterns of the problem matcher `broken` may set `loop`" },
+]

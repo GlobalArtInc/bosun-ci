@@ -131,7 +131,7 @@ anew, so a server that moved to another address is found without restarting the 
 | `Hello` | agent version, protocol version, the revision of the assignment it reads, capabilities, labels, OS, architecture, host name, and the executions it is still running with the last log sequence number of each |
 | `Idle` | the slot is free |
 | `Accept`, `Reject` | answer to an assignment, with a reason for a rejection |
-| `StepStarted`, `StepFinished` | step identity, times, outcome, conclusion, outputs, annotations, the reference of the uploaded step summary |
+| `StepStarted`, `StepFinished` | step identity, times, outcome, conclusion, outputs, annotations and the step summary |
 | `Log` | execution, step, sequence number, a chunk of masked log lines |
 | `Paused`, `Held` | the job stopped at a boundary or after a failure |
 | `JobFinished` | conclusion and job outputs |
@@ -151,7 +151,12 @@ anew, so a server that moved to another address is found without restarting the 
 The protobuf definitions live in `proto/bosun/agent/v1/agent.proto` and are compiled by
 `bosun-proto` with a protobuf compiler written in Rust, so building needs no `protoc`. The first
 message on a stream is the `Hello`, which names the protocol as `bosun.agent.v1` and the agent's own
-version; the server answers with `Welcome` before anything else. The server refuses a `Hello` from
+version; the server answers with `Welcome` before anything else. A message the server reads from an
+agent is at most 8 MiB, which step 23 of [../plan.md](../plan.md) set: the summary and the
+annotations a `StepFinished` carries come to at most 2.5 MiB
+([File commands and workflow commands](#file-commands-and-workflow-commands)), so the limit leaves
+more than 5 MiB for its outputs and the rest, where the 4 MiB of the gRPC library would not have
+held a report with long outputs. The server refuses a `Hello` from
 an agent whose protocol version it does not speak, and from an agent of a minor version other than
 its own and the previous one, by ending the stream with `FAILED_PRECONDITION` and a message that
 names both versions. The server composes the agent's labels from the `Hello`: `self-hosted`, the
@@ -543,16 +548,117 @@ step, the last value of a name winning, which `StepFinished` reports and `steps.
 from the next step on. `GITHUB_STATE` is read and checked like the others; its values are the state
 that the pre, main and post steps of a Node action pass on to each other, which arrive with them
 (step 33 of [../plan.md](../plan.md)). The cases in `contracts/fixtures/file-commands/` pin these
-rules. The step summary is limited to 1 MiB and uploaded to the server.
+rules.
 
-Lines on standard output are scanned for workflow commands: `::debug::`, `::notice`, `::warning`
-and `::error` with `file`, `line`, `endLine`, `col`, `endColumn` and `title`, `::group::` and
-`::endgroup::`, `::add-mask::`, `::stop-commands::<token>` with its matching end, `::echo::on` and
-`::echo::off`, and `::add-matcher::` and `::remove-matcher::`, whose problem matchers turn matching
-output lines into annotations, as the setup actions of language toolchains expect. The deprecated
-`::set-output` and `::save-state` are honoured with a warning; `::set-env` and `::add-path` are
-refused unless the step's environment sets `ACTIONS_ALLOW_UNSECURE_COMMANDS=true`. Annotations are
-reported with `StepFinished` within the target's limits: 10 of each kind per step and 50 per job.
+Step 23 of M1 ([../plan.md](../plan.md)) settled the step summary, the workflow commands and the
+problem matchers below.
+
+**The step summary.** After each step, whatever its outcome, the engine reads `GITHUB_STEP_SUMMARY`;
+an empty file gives the step no summary. The text is masked ([Masking](#masking)), a sequence that
+is not UTF-8 replaced by U+FFFD, and cut at 1 MiB: at the start of a masked value that would cross
+the cut, and at a character boundary. A cut summary gives the step the notice `the step summary is
+longer than 1 MiB, so only its first 1 MiB is kept`. The target drops a summary over 1 MiB with an
+error instead; Bosun keeps its start. The summary travels in `StepFinished`, not as an upload the
+report refers to ([06-runtime-services.md](06-runtime-services.md#step-summaries-and-annotations)).
+
+**Workflow commands.** Every whole line of a step's output of at most 64 KiB, without a `\r` that
+ends it, is read for a command. A line is a command when, after the white space at its start, it
+begins with `::`, holds a second `::`, and the text between them up to its first space names one of
+the commands below, in any case. The rest of that text is the properties, `key=value` separated by
+commas, the key in any case, where one without a key or a value is ignored; everything after the
+second `::` is the data. Data is unescaped from `%0D`, `%0A` and `%25` in this order, a property
+also from `%3A` and `%2C` before `%25`, the reverse of the toolkit's escaping, so `%250A` stays
+`%0A`. Any other line is output, and so is a line longer than 64 KiB, which the log splits. The
+line of a command is not logged; each command writes what its entry says:
+
+- `::debug::` writes each line of its data after `##[debug]` when step debug is on, and nothing
+  otherwise. Step debug is on when `ACTIONS_STEP_DEBUG` is `true` in the `vars` or `secrets`
+  context or in the step's environment, or `RUNNER_DEBUG` is `1` in the step's environment.
+- `::notice`, `::warning` and `::error` give the step an annotation of their kind whose message is
+  the data, and write the message after `##[notice]`, `##[warning]` or `##[error]`. The properties
+  `title`, `file`, `line`, `endLine`, `col` and `endColumn` become the annotation's; a number that is
+  not a whole number of at least 0 is left out, and the rest are corrected as the target corrects
+  them: `endLine` without `line` is both, `endColumn` without `col` is both, columns without a line
+  are left out, and so are the columns when `line` and `endLine` differ, the lines when `endLine` is
+  before `line` and the columns when `endColumn` is before `col`. An absolute `file` inside the
+  workspace becomes relative to it. Empty data gives neither an annotation nor a line, since the
+  forge refuses an annotation without a message.
+- `::group::` writes `##[group]` and its data, `::endgroup::` writes `##[endgroup]`, and the log
+  viewer folds the lines between them ([09-frontend.md](09-frontend.md)).
+- `::add-mask::` adds its data to the masker, which masks it in every text that leaves the agent
+  from then on, later lines of the step and later steps included. White space alone masks nothing
+  and gives a warning.
+- `::stop-commands::<token>` writes its own line, and every later line is output, read by the
+  problem matchers but not for commands, until a line that is a command named `<token>`, in any
+  case, which is written too and ends the pause. A token that is empty, `pause-logging` or the name
+  of a command fails the command, unless the step's environment sets
+  `ACTIONS_ALLOW_UNSECURE_STOPCOMMAND_TOKENS` to `true`.
+- `::echo::on` and `::echo::off` turn echoing on and off until the step ends; each step starts with
+  it off. While it is on, `set-output`, `save-state`, `set-env`, `add-path`, `add-matcher`,
+  `remove-matcher` and `echo` write their own line before they act; the other commands never do.
+  Data other than `on` and `off`, in any case, fails the command.
+- `::add-matcher::` and `::remove-matcher` add and remove problem matchers, below.
+- `::set-output name=<name>::<value>` sets an output of the step, and `::save-state` with a `name`
+  is read like an entry of `GITHUB_STATE`. Both are deprecated, and each use gives a warning. Since
+  the files are read after the step, a value the file `GITHUB_OUTPUT` gives the same name wins.
+- `::set-env name=<name>::<value>` and `::add-path::<directory>` act as an entry of `GITHUB_ENV`
+  and of `GITHUB_PATH` do, applied before the files, when the step's environment sets
+  `ACTIONS_ALLOW_UNSECURE_COMMANDS` to `true`; otherwise they fail.
+
+A boolean of the step's environment or of a context is `true` as the target reads it, in any case
+and with white space around it. A command that fails, by those rules or because `set-output`,
+`save-state` or `set-env` has no `name` or a document of problem matchers cannot be read or breaks
+their rules, gives the error ``the command `<line>` could not be processed: <reason>`` and fails
+the step, as in the target, while its script goes on.
+
+**Problem matchers.** `::add-matcher::<file>` reads a document of problem matchers in the target's
+format, its path relative to the workspace: `problemMatcher`, a list of matchers, each with an
+`owner`, an optional default `severity` of `error`, `warning` or `notice`, and `pattern`, a list
+of patterns, each with a regular expression `regexp`, the group numbers of the properties `file`,
+`fromPath`, `line`, `column`, `severity`, `code` and `message`, and `loop`; other keys are ignored.
+The document is refused when a matcher has no owner, an owner names two matchers ignoring case, a
+default severity is another, a matcher has no pattern, `loop` is set on a pattern that is not the
+last of several or that sets no `message`, a `regexp` does not compile, a property is set in two
+patterns of a matcher or to a group its pattern does not have, or no pattern of a matcher sets
+`message`. Matchers belong to the job: those a document adds come first, replace any matcher of the
+same owner ignoring case, and apply from the next line on, in this step and the later ones, and the
+log gets ``added the problem matchers `<owner>`, …``. `::remove-matcher owner=<owner>::` removes
+the matcher of that owner and `::remove-matcher::<file>` those of the owners a document names, and
+the log gets ``removed the problem matchers …`` or `removed no problem matcher`; a command with both
+an owner and a file, or with neither, only gives a warning. An empty `::add-matcher::` gives a
+warning as well.
+
+Every line that is not a command is matched, without its colour codes (`ESC [`, digits and `;`,
+then `m`), against the job's matchers in order, as the target matches it. A matcher of one pattern
+matches the lines its expression matches. In a matcher of several, a pattern after the first is
+tried only on the line after the one its predecessor matched, the last completes a match, and a
+last pattern with `loop` keeps what the patterns before it captured, so each further line it
+matches is another match until a line breaks the sequence. A property comes from the first pattern
+that captures it. When one matcher completes a match, every other one starts over. The match
+becomes an annotation when its message is not blank and its severity, or else the matcher's, is
+empty, `error`, `warning` or `notice` in any case, an empty one meaning `error`; the line is then
+written after `##[<kind>]`, colour codes removed, in place of the line, and the first matcher whose
+match gives an annotation takes the line. `line` and `column` count only when they are digits;
+`code` is read but not reported, as the forge shows none. `file` is resolved as the target resolves
+it: a relative path from the directory of `fromPath` when the match has one, then from the
+workspace, with `.` and `..` resolved. The file must exist and belong to the workflow's repository:
+the nearest directory above it that holds `.git/config` must name `<server_url>/<repository>` or
+`git@<host>:<repository>.git` as a `url`, ignoring case, with `server_url` and `repository` from
+`github`, and the path becomes relative to that directory; otherwise the annotation has no file.
+Patterns are expressions of `fancy-regex`, a backtracking engine like the target's that has
+lookaround and backreferences too, so the matchers of the setup actions in use compile. A line on
+which matching exceeds its backtracking limit removes the matcher from the job with a warning, as
+the target removes a matcher that keeps timing out. The cases in
+`contracts/fixtures/matchers/` run the matchers that the setup actions of eslint, tsc and gcc
+register.
+
+**Annotations.** A step keeps its first 10 annotations of each kind and a job its first 50, as the
+target keeps them, and the log keeps the line of every one. `StepFinished` carries a step's
+annotations with their message, title and file masked and each cut at 4096 characters: the target
+cuts the message there, and Bosun cuts the two others too, so the 30 annotations of a step stay
+under 1.5 MiB and with a summary of 1 MiB fit a message of the stream ([Protocol](#protocol)) with
+room to spare. The cases in `contracts/fixtures/workflow-commands/` pin the commands, the
+annotations, the summary and the log.
 
 ### Masking
 
@@ -571,10 +677,11 @@ writes one whose values fail to parse, so the parse error a reason carries is th
 agent does not know, which names the field and no value (see *Fields an agent does not know*).
 
 **Values.** The masker holds every secret in the assignment's `secrets` context, the forge token,
-the job token and every value given to `::add-mask::`, whatever their length. A value is taken
-without the white space around it, as in the target, and so is each of its lines, split at `\r` and
-`\n`; one that is only white space masks nothing. A multi-line value is so masked as a whole, as a
-message of the agent can quote it, and line by line, as a step prints it.
+the job token and every value given to `::add-mask::`, whatever their length; a value of
+`::add-mask::` joins it from the next text on. A value is taken without the white space around it,
+as in the target, and so is each of its lines, split at `\r` and `\n`; one that is only white space
+masks nothing. A multi-line value is so masked as a whole, as a message of the agent can quote it,
+and line by line, as a step prints it.
 
 **Encoded forms.** For each value it also masks the encoded forms the target masks:
 

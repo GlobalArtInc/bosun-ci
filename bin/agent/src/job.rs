@@ -4,10 +4,13 @@ use std::time::{Duration, SystemTime};
 
 use bosun_proto::agent::v1::agent_message::Message;
 use bosun_proto::agent::v1::{
-    Assignment, Conclusion as Concluded, JobFinished, StepFinished, StepStarted,
+    Annotation as Reported, AnnotationKind as ReportedKind, Assignment, Conclusion as Concluded,
+    JobFinished, StepFinished, StepStarted,
 };
 use bosun_proto::assignment::Documents;
-use bosun_runner::{BosunFacts, Completed, Event, Job, Runner, Tracking};
+use bosun_runner::{
+    Annotation, AnnotationKind, BosunFacts, Completed, Event, Job, Runner, Tracking,
+};
 use bosun_types::id::ExecutionId;
 use bosun_types::ir::{self, Action, JobKind, Shell};
 use bosun_types::slug::{SLUG_RULE, is_slug};
@@ -270,6 +273,8 @@ impl Pump {
                 outcome,
                 conclusion,
                 outputs,
+                annotations,
+                summary,
             } => {
                 self.flush().await;
                 self.report(Message::StepFinished(StepFinished {
@@ -279,6 +284,8 @@ impl Pump {
                     outcome: concluded(outcome).into(),
                     conclusion: concluded(conclusion).into(),
                     outputs: outputs.into_iter().collect(),
+                    annotations: annotations.into_iter().map(reported).collect(),
+                    summary: summary.unwrap_or_default(),
                 }));
             }
         }
@@ -337,6 +344,24 @@ impl Pump {
 
     fn report(&self, message: Message) {
         let _ = self.out.send(Out::Report(message));
+    }
+}
+
+fn reported(annotation: Annotation) -> Reported {
+    let kind = match annotation.kind {
+        AnnotationKind::Notice => ReportedKind::Notice,
+        AnnotationKind::Warning => ReportedKind::Warning,
+        AnnotationKind::Error => ReportedKind::Error,
+    };
+    Reported {
+        kind: kind.into(),
+        message: annotation.message,
+        title: annotation.title,
+        file: annotation.file,
+        line: annotation.line,
+        end_line: annotation.end_line,
+        column: annotation.column,
+        end_column: annotation.end_column,
     }
 }
 

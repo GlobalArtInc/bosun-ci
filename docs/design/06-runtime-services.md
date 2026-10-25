@@ -455,12 +455,21 @@ a low-trust run could poison the cache a release build restores.
 
 ## Step summaries and annotations
 
-The step summary (`GITHUB_STEP_SUMMARY`) is uploaded by the agent at the end of each step and
-stored with the step. The run page renders the summaries of all steps as sanitised Markdown: no
-raw HTML except the tags the target allows, no scripts, images only from `https` addresses.
+The step summary (`GITHUB_STEP_SUMMARY`) travels in the agent's `StepFinished` at the end of each
+step, masked and cut at 1 MiB ([05-execution.md](05-execution.md#file-commands-and-workflow-commands)),
+and is stored with the step. Step 23 of [../plan.md](../plan.md) put it inline in the report where
+the design had an upload that the report referred to: until `bosun-services` arrives in M2 an agent
+has no endpoint to upload to, a report that refers to an upload needs the upload to land first and
+leaves a dangling object when the report is lost, and at 1 MiB the summary is small beside the log
+the same stream already carries. The run page renders the summaries of all steps as sanitised
+Markdown: no raw HTML except the tags the target allows, no scripts, images only from `https`
+addresses.
 
-Annotations from `::notice`, `::warning` and `::error` are stored with the step, shown on the run
-page and in the job log at the line that produced them, and forwarded to the forge.
+Annotations from `::notice`, `::warning` and `::error` and from problem matchers travel in
+`StepFinished` too, within the target's limits
+([05-execution.md](05-execution.md#file-commands-and-workflow-commands)). They are stored with the
+step, shown on the run page and in the job log at the line that produced them, which the agent
+writes after `##[notice]`, `##[warning]` or `##[error]`, and forwarded to the forge.
 
 ## Reporting to the forge
 

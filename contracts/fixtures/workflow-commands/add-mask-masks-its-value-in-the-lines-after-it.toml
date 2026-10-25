@@ -1,0 +1,42 @@
+conclusion = "success"
+
+[outputs]
+token = "${{ steps.mask.outputs.token }}"
+
+[reported]
+
+[[steps]]
+id = "mask"
+run = '''
+echo "before: s3cr3t-value"
+echo "::add-mask::s3cr3t-value"
+echo "after: s3cr3t-value"
+echo "base64: $(printf '%s' s3cr3t-value | base64)"
+echo "::warning title=s3cr3t-value::uses s3cr3t-value"
+echo "::add-mask::first line%0Asecond line"
+echo "first line, then second line"
+echo "::add-mask::   "
+echo "token=s3cr3t-value" >> "$GITHUB_OUTPUT"
+'''
+outcome = "success"
+outputs = { token = "***" }
+output = [
+  "before: s3cr3t-value",
+  "after: ***",
+  "base64: ***",
+  "##[warning]uses ***",
+  "***, then ***",
+  "##[warning]`::add-mask::` was given an empty value, which masks nothing",
+]
+annotations = [
+  { kind = "warning", message = "uses ***", title = "***" },
+  { kind = "warning", message = "`::add-mask::` was given an empty value, which masks nothing" },
+]
+
+[[steps]]
+run = 'echo "the next step: s3cr3t-value"'
+outcome = "success"
+output = [
+  "the next step: ***",
+  "the output `token` of the job is not reported, since it contains a masked value",
+]

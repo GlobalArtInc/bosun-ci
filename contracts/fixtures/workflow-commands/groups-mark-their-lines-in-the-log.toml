@@ -1,0 +1,11 @@
+conclusion = "success"
+
+[[steps]]
+run = '''
+echo "::group::Build the image"
+echo "inside the group"
+echo "::endgroup::"
+echo "after the group"
+'''
+outcome = "success"
+output = ["##[group]Build the image", "inside the group", "##[endgroup]", "after the group"]

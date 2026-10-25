@@ -10,6 +10,7 @@ echo "$GITHUB_OUTPUT" > "$RUNNER_TEMP/first"
 '''
 outcome = "success"
 outputs = { WRITTEN = "1" }
+summary = "WRITTEN=1\n"
 
 [[steps]]
 run = '''

@@ -18,12 +18,15 @@ use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until, timeout};
 use uuid::Uuid;
 
+use crate::annotation::{Annotation, AnnotationKind};
 use crate::commands::Commands;
 use crate::mask::{Masker, Sink};
+use crate::matchers::{Place, Registry};
 use crate::output::Output;
 use crate::scope::{self, Fixed, Record, Standing, StepScope};
 use crate::shell::Invocation;
 use crate::tracking::{self, Processes, Tracking};
+use crate::workflow_commands::{Processor, Reports, Settings};
 
 const INTERRUPT_GRACE: Duration = Duration::from_millis(7500);
 
@@ -32,6 +35,8 @@ const TERMINATE_GRACE: Duration = Duration::from_millis(2500);
 const OUTPUT_AFTER_TEARDOWN: Duration = Duration::from_secs(2);
 
 const SCRIPT: &str = "__run";
+
+const STEP_DEBUG: &str = "ACTIONS_STEP_DEBUG";
 
 #[derive(Debug)]
 pub struct Job {
@@ -78,7 +83,16 @@ pub enum Event {
         outcome: Conclusion,
         conclusion: Conclusion,
         outputs: BTreeMap<String, String>,
+        annotations: Vec<Annotation>,
+        summary: Option<String>,
     },
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct Results {
+    pub(crate) outputs: BTreeMap<String, String>,
+    pub(crate) annotations: Vec<Annotation>,
+    pub(crate) summary: Option<String>,
 }
 
 pub async fn run(
@@ -125,7 +139,7 @@ pub async fn run(
                     0,
                     Conclusion::Failure,
                     Conclusion::Failure,
-                    &BTreeMap::new(),
+                    Results::default(),
                 );
             }
             return Completed {
@@ -150,6 +164,14 @@ pub async fn run(
         workspace: workspace.parent().map(text).unwrap_or_default(),
     };
     let fixed = Fixed::new(&contexts, &runner);
+    let step_debug = [&contexts.vars, &contexts.secrets]
+        .into_iter()
+        .any(|context| {
+            context
+                .get(STEP_DEBUG)
+                .and_then(Value::as_str)
+                .is_some_and(enabled)
+        });
     let Evaluated {
         env,
         shell,
@@ -177,6 +199,8 @@ pub async fn run(
         paths: Vec::new(),
         records: Vec::new(),
         last: None,
+        matchers: Registry::default(),
+        step_debug,
         processes,
         outputs: Vec::new(),
         events,
@@ -190,6 +214,10 @@ pub async fn run(
         conclusion,
         outputs,
     }
+}
+
+fn enabled(value: &str) -> bool {
+    value.trim().eq_ignore_ascii_case("true")
 }
 
 fn limit(minute: Duration, minutes: u32) -> Option<Duration> {
@@ -280,6 +308,8 @@ struct Execution {
     paths: Vec<String>,
     records: Vec<Record>,
     last: Option<u32>,
+    matchers: Registry,
+    step_debug: bool,
     processes: Processes,
     outputs: Vec<Output>,
     events: Sink,
@@ -289,7 +319,7 @@ struct Execution {
 struct Ran {
     outcome: Conclusion,
     timed_out: Option<Limit>,
-    outputs: BTreeMap<String, String>,
+    results: Results,
 }
 
 impl Ran {
@@ -297,7 +327,7 @@ impl Ran {
         Ran {
             outcome: Conclusion::Failure,
             timed_out: None,
-            outputs: BTreeMap::new(),
+            results: Results::default(),
         }
     }
 }
@@ -363,7 +393,7 @@ impl Execution {
                     index,
                     Conclusion::Skipped,
                     Conclusion::Skipped,
-                    &BTreeMap::new(),
+                    Results::default(),
                 );
                 return;
             }
@@ -382,7 +412,7 @@ impl Execution {
                     index,
                     Conclusion::Failure,
                     Conclusion::Failure,
-                    &BTreeMap::new(),
+                    Results::default(),
                 );
                 return;
             }
@@ -403,7 +433,7 @@ impl Execution {
         let Ran {
             outcome,
             timed_out,
-            outputs,
+            results,
         } = ran;
         let mut conclusion = outcome;
         if matches!(outcome, Conclusion::Failure | Conclusion::TimedOut)
@@ -427,8 +457,8 @@ impl Execution {
         if timed_out == Some(Limit::Job) {
             self.timed_out = true;
         }
-        self.record(step, outcome, conclusion, &outputs);
-        self.events.finished(index, outcome, conclusion, &outputs);
+        self.record(step, outcome, conclusion, &results.outputs);
+        self.events.finished(index, outcome, conclusion, results);
     }
 
     fn record(
@@ -515,6 +545,7 @@ impl Execution {
             None => self.workspace.clone(),
         };
         let shell = step.shell.clone().or_else(|| self.shell.clone());
+        let reports = Reports::new(index, self.events.clone());
         let (outcome, timed_out) = self
             .process(
                 index,
@@ -525,19 +556,36 @@ impl Execution {
                     env: self.process_env(github, &variables),
                     minutes,
                     cancellable,
+                    reports: reports.clone(),
                 },
             )
             .await;
-        let written = commands.read();
+        let mut written = commands.read();
+        let summary = match commands.summary(&self.events.masker()) {
+            Ok(summary) => summary,
+            Err(fault) => {
+                written.faults.push(fault);
+                None
+            }
+        };
         for fault in &written.faults {
             self.events.line(index, fault);
         }
-        self.files.extend(written.env);
-        for path in written.paths {
+        if summary.as_ref().is_some_and(|summary| summary.cut) {
+            reports.note(
+                AnnotationKind::Notice,
+                "the step summary is longer than 1 MiB, so only its first 1 MiB is kept".to_owned(),
+            );
+        }
+        let effects = reports.take();
+        for path in effects.paths.into_iter().chain(written.paths) {
             self.paths.retain(|known| *known != path);
             self.paths.push(path);
         }
-        let outcome = if outcome == Conclusion::Success && !written.faults.is_empty() {
+        self.files
+            .extend(effects.env.into_iter().chain(written.env));
+        let failed = !written.faults.is_empty() || effects.failed;
+        let outcome = if outcome == Conclusion::Success && failed {
             Conclusion::Failure
         } else {
             outcome
@@ -545,7 +593,38 @@ impl Execution {
         Ran {
             outcome,
             timed_out,
-            outputs: written.outputs.into_iter().collect(),
+            results: Results {
+                outputs: effects.outputs.into_iter().chain(written.outputs).collect(),
+                annotations: effects.annotations.into_vec(),
+                summary: summary.map(|summary| summary.text),
+            },
+        }
+    }
+
+    fn settings(&self, env: &BTreeMap<OsString, OsString>) -> Settings {
+        let variable = |name: &str| {
+            env.get(OsStr::new(name))
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        let property = |name: &str| {
+            self.github
+                .get(name)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        Settings {
+            debug: self.step_debug
+                || enabled(&variable(STEP_DEBUG))
+                || variable("RUNNER_DEBUG") == "1",
+            unsecure_commands: enabled(&variable("ACTIONS_ALLOW_UNSECURE_COMMANDS")),
+            unsecure_stop_tokens: enabled(&variable("ACTIONS_ALLOW_UNSECURE_STOPCOMMAND_TOKENS")),
+            place: Place {
+                workspace: self.workspace.clone(),
+                repository: property("repository"),
+                server_url: property("server_url"),
+            },
         }
     }
 
@@ -592,6 +671,7 @@ impl Execution {
             env,
             minutes,
             cancellable,
+            reports,
         } = process;
         if !directory.is_dir() {
             self.events.line(
@@ -633,7 +713,15 @@ impl Execution {
                 _ => (step, Limit::Step),
             })
             .or(self.deadline.map(|job| (job, Limit::Job)));
-        let (child, mut output) = match self.spawn(index, &invocation, &file, directory, env) {
+        let processor = Processor::new(reports, self.settings(&env), self.matchers.clone());
+        let launch = Launch {
+            invocation: &invocation,
+            script: &file,
+            directory,
+            env,
+            processor,
+        };
+        let (child, mut output) = match self.spawn(index, launch) {
             Ok(started) => started,
             Err(error) => {
                 self.events.line(
@@ -668,14 +756,14 @@ impl Execution {
         }
     }
 
-    fn spawn(
-        &mut self,
-        index: u32,
-        invocation: &Invocation,
-        script: &Path,
-        directory: &Path,
-        env: BTreeMap<OsString, OsString>,
-    ) -> io::Result<((Child, Pid), Output)> {
+    fn spawn(&mut self, index: u32, launch: Launch<'_>) -> io::Result<((Child, Pid), Output)> {
+        let Launch {
+            invocation,
+            script,
+            directory,
+            env,
+            processor,
+        } = launch;
         let (reader, writer) = io::pipe()?;
         let errors = writer.try_clone()?;
         let mut command = Command::new(invocation.program(script));
@@ -697,7 +785,7 @@ impl Execution {
             .and_then(Pid::from_raw)
             .ok_or_else(|| io::Error::other("the step has no process id"))?;
         self.processes.started(group);
-        let output = Output::start(reader, index, self.events.clone())?;
+        let output = Output::start(reader, index, self.events.clone(), processor)?;
         Ok(((child, group), output))
     }
 
@@ -791,6 +879,15 @@ struct Process<'a> {
     env: BTreeMap<OsString, OsString>,
     minutes: Option<Duration>,
     cancellable: bool,
+    reports: Reports,
+}
+
+struct Launch<'a> {
+    invocation: &'a Invocation,
+    script: &'a Path,
+    directory: &'a Path,
+    env: BTreeMap<OsString, OsString>,
+    processor: Processor,
 }
 
 async fn cancelled(cancel: &mut watch::Receiver<bool>) {

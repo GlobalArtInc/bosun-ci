@@ -246,7 +246,7 @@ async fn run_step(connection: &mut Connection) -> String {
         completed_at: None,
         outcome: Conclusion::Success.into(),
         conclusion: Conclusion::Success.into(),
-        outputs: Default::default(),
+        ..Default::default()
     }));
     connection.finish_job(&execution, Conclusion::Success, &[]);
     execution

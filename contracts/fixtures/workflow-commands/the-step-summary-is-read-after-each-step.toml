@@ -1,0 +1,23 @@
+conclusion = "success"
+
+[[steps]]
+run = '''
+echo "## Results" >> "$GITHUB_STEP_SUMMARY"
+echo "- passed" >> "$GITHUB_STEP_SUMMARY"
+'''
+outcome = "success"
+summary = "## Results\n- passed\n"
+
+[[steps]]
+run = 'test ! -s "$GITHUB_STEP_SUMMARY"'
+outcome = "success"
+
+[[steps]]
+continue-on-error = true
+run = '''
+echo "failed, and kept" >> "$GITHUB_STEP_SUMMARY"
+exit 1
+'''
+outcome = "failure"
+conclusion = "success"
+summary = "failed, and kept\n"

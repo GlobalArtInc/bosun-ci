@@ -1,0 +1,56 @@
+conclusion = "success"
+
+[env]
+ACTIONS_ALLOW_UNSECURE_STOPCOMMAND_TOKENS = ""
+
+[[steps]]
+run = '''
+echo "::stop-commands::a-token-1234"
+echo "::warning::not a command while stopped"
+echo "::add-mask::not a mask while stopped"
+echo "::A-TOKEN-1234::"
+echo "::warning::a command again, not a mask while stopped"
+'''
+outcome = "success"
+output = [
+  "::stop-commands::a-token-1234",
+  "::warning::not a command while stopped",
+  "::add-mask::not a mask while stopped",
+  "::A-TOKEN-1234::",
+  "##[warning]a command again, not a mask while stopped",
+]
+annotations = [{ kind = "warning", message = "a command again, not a mask while stopped" }]
+
+[[steps]]
+continue-on-error = true
+run = '''
+echo "::stop-commands::warning"
+echo "::warning::still a command"
+'''
+outcome = "failure"
+conclusion = "success"
+output = [
+  "##[error]the command `::stop-commands::warning` could not be processed: the token of `::stop-commands::` must not be empty, `pause-logging` or the name of a command: choose another, or set `ACTIONS_ALLOW_UNSECURE_STOPCOMMAND_TOKENS` to `true` in the step's environment to allow it",
+  "##[warning]still a command",
+]
+annotations = [
+  { kind = "error", message = "the command `::stop-commands::warning` could not be processed: the token of `::stop-commands::` must not be empty, `pause-logging` or the name of a command: choose another, or set `ACTIONS_ALLOW_UNSECURE_STOPCOMMAND_TOKENS` to `true` in the step's environment to allow it" },
+  { kind = "warning", message = "still a command" },
+]
+
+[[steps]]
+env = { ACTIONS_ALLOW_UNSECURE_STOPCOMMAND_TOKENS = "true" }
+run = '''
+echo "::stop-commands::warning"
+echo "::error::not a command while stopped"
+echo "::warning::"
+echo "::error::a command again"
+'''
+outcome = "success"
+output = [
+  "::stop-commands::warning",
+  "::error::not a command while stopped",
+  "::warning::",
+  "##[error]a command again",
+]
+annotations = [{ kind = "error", message = "a command again" }]

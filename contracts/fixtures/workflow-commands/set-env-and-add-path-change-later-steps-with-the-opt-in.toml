@@ -1,0 +1,21 @@
+conclusion = "success"
+
+[[steps]]
+env = { ACTIONS_ALLOW_UNSECURE_COMMANDS = "True" }
+run = '''
+echo "::set-env name=MODE::fast"
+echo "::set-env name=SOURCE::the command"
+echo "SOURCE=the file" >> "$GITHUB_ENV"
+echo "::add-path::/opt/tool/bin"
+echo "[${MODE:-unset}]"
+'''
+outcome = "success"
+output = ["[unset]"]
+
+[[steps]]
+run = '''
+echo "$MODE ${{ env.MODE }} $SOURCE"
+echo "${PATH%%:*}"
+'''
+outcome = "success"
+output = ["fast fast the file", "/opt/tool/bin"]

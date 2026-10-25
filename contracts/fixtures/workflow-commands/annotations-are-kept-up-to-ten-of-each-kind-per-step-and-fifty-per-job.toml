@@ -1,0 +1,73 @@
+conclusion = "success"
+
+[[steps]]
+run = '''
+for i in 1 2 3 4 5 6 7 8 9 10 11; do echo "::warning::warning $i"; done
+for i in 1 2 3 4 5 6 7 8 9 10; do echo "::error::error $i"; echo "::notice::notice $i"; done
+'''
+outcome = "success"
+annotations = [
+  { kind = "warning", message = "warning 1" },
+  { kind = "warning", message = "warning 2" },
+  { kind = "warning", message = "warning 3" },
+  { kind = "warning", message = "warning 4" },
+  { kind = "warning", message = "warning 5" },
+  { kind = "warning", message = "warning 6" },
+  { kind = "warning", message = "warning 7" },
+  { kind = "warning", message = "warning 8" },
+  { kind = "warning", message = "warning 9" },
+  { kind = "warning", message = "warning 10" },
+  { kind = "error", message = "error 1" },
+  { kind = "notice", message = "notice 1" },
+  { kind = "error", message = "error 2" },
+  { kind = "notice", message = "notice 2" },
+  { kind = "error", message = "error 3" },
+  { kind = "notice", message = "notice 3" },
+  { kind = "error", message = "error 4" },
+  { kind = "notice", message = "notice 4" },
+  { kind = "error", message = "error 5" },
+  { kind = "notice", message = "notice 5" },
+  { kind = "error", message = "error 6" },
+  { kind = "notice", message = "notice 6" },
+  { kind = "error", message = "error 7" },
+  { kind = "notice", message = "notice 7" },
+  { kind = "error", message = "error 8" },
+  { kind = "notice", message = "notice 8" },
+  { kind = "error", message = "error 9" },
+  { kind = "notice", message = "notice 9" },
+  { kind = "error", message = "error 10" },
+  { kind = "notice", message = "notice 10" },
+]
+
+[[steps]]
+run = '''
+for i in 1 2 3 4 5 6 7 8 9 10; do echo "::error::later error $i"; echo "::warning::later warning $i"; done
+'''
+outcome = "success"
+annotations = [
+  { kind = "error", message = "later error 1" },
+  { kind = "warning", message = "later warning 1" },
+  { kind = "error", message = "later error 2" },
+  { kind = "warning", message = "later warning 2" },
+  { kind = "error", message = "later error 3" },
+  { kind = "warning", message = "later warning 3" },
+  { kind = "error", message = "later error 4" },
+  { kind = "warning", message = "later warning 4" },
+  { kind = "error", message = "later error 5" },
+  { kind = "warning", message = "later warning 5" },
+  { kind = "error", message = "later error 6" },
+  { kind = "warning", message = "later warning 6" },
+  { kind = "error", message = "later error 7" },
+  { kind = "warning", message = "later warning 7" },
+  { kind = "error", message = "later error 8" },
+  { kind = "warning", message = "later warning 8" },
+  { kind = "error", message = "later error 9" },
+  { kind = "warning", message = "later warning 9" },
+  { kind = "error", message = "later error 10" },
+  { kind = "warning", message = "later warning 10" },
+]
+
+[[steps]]
+run = 'echo "::notice::the fifty-first"'
+outcome = "success"
+output = ["##[notice]the fifty-first"]

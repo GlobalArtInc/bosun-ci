@@ -3,10 +3,11 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use bosun_runner::{Annotation, AnnotationKind};
 use bosun_types::ir::{Action, Evaluable, Shell, Step};
 use bosun_types::status::Conclusion;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::{job, repository, run_cancelled_on, step, template};
 
@@ -20,6 +21,8 @@ struct Case {
     env: BTreeMap<String, String>,
     #[serde(default)]
     secrets: BTreeMap<String, String>,
+    #[serde(default)]
+    github: Map<String, Value>,
     #[serde(default)]
     defaults: CaseDefaults,
     timeout_minutes: Option<u32>,
@@ -54,6 +57,42 @@ struct CaseStep {
     conclusion: Option<Conclusion>,
     output: Option<Vec<String>>,
     outputs: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    annotations: Vec<CaseAnnotation>,
+    summary: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct CaseAnnotation {
+    kind: String,
+    message: String,
+    title: Option<String>,
+    file: Option<String>,
+    line: Option<u32>,
+    end_line: Option<u32>,
+    column: Option<u32>,
+    end_column: Option<u32>,
+}
+
+impl CaseAnnotation {
+    fn expected(&self) -> Annotation {
+        Annotation {
+            kind: match self.kind.as_str() {
+                "notice" => AnnotationKind::Notice,
+                "warning" => AnnotationKind::Warning,
+                "error" => AnnotationKind::Error,
+                other => panic!("`{other}` is not the kind of an annotation"),
+            },
+            message: self.message.clone(),
+            title: self.title.clone(),
+            file: self.file.clone(),
+            line: self.line,
+            end_line: self.end_line,
+            column: self.column,
+            end_column: self.end_column,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,7 +165,8 @@ fn cases(directory: &Path) -> Vec<(String, Case)> {
 }
 
 async fn every_case_of(directory: &str) {
-    let cases = cases(&repository().join("contracts/fixtures").join(directory));
+    let fixtures = repository().join("contracts/fixtures").join(directory);
+    let cases = cases(&fixtures);
     assert!(!cases.is_empty(), "no cases in {directory}");
     for (name, case) in cases {
         let directory = tempfile::tempdir().expect("a directory");
@@ -134,6 +174,11 @@ async fn every_case_of(directory: &str) {
         let mut job = job(directory.path(), steps);
         job.minute = MINUTE;
         job.evaluated.env = case.env.clone();
+        job.evaluated.env.insert(
+            "FIXTURES".to_owned(),
+            fixtures.to_string_lossy().into_owned(),
+        );
+        job.contexts.github.extend(case.github.clone());
         job.contexts.secrets = case
             .secrets
             .iter()
@@ -186,6 +231,16 @@ async fn every_case_of(directory: &str) {
                     if let Some(expected) = &step.outputs {
                         assert_eq!(&outputs, expected, "{name}: the outputs of step {index}");
                     }
+                    let (annotations, summary) = finished.reported(index).unwrap_or_default();
+                    assert_eq!(
+                        annotations,
+                        step.annotations
+                            .iter()
+                            .map(CaseAnnotation::expected)
+                            .collect::<Vec<_>>(),
+                        "{name}: the annotations of step {index}"
+                    );
+                    assert_eq!(summary, step.summary, "{name}: the summary of step {index}");
                 }
                 None => assert!(
                     !finished.started(index) && ended.is_none(),
@@ -217,4 +272,14 @@ async fn every_file_command_case_produces_its_outcomes_its_output_and_its_output
 #[tokio::test(flavor = "multi_thread")]
 async fn every_masking_case_masks_its_secrets_in_the_output_and_the_outputs() {
     every_case_of("masking").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_workflow_command_case_produces_its_annotations_and_its_log() {
+    every_case_of("workflow-commands").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_problem_matcher_case_turns_its_output_into_its_annotations() {
+    every_case_of("matchers").await;
 }

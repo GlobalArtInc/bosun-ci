@@ -1,0 +1,21 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "project-report",
+      "severity": "warning",
+      "pattern": [
+        {
+          "regexp": "^project (.*)$",
+          "fromPath": 1
+        },
+        {
+          "regexp": "^(\\S+):(\\d+) (.*)$",
+          "file": 1,
+          "line": 2,
+          "message": 3,
+          "loop": true
+        }
+      ]
+    }
+  ]
+}

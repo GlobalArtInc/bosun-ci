@@ -291,7 +291,8 @@ fn app(
         .fallback(move |method: Method, uri: Uri| interface::answer(interface, method, uri))
         .method_not_allowed_fallback(envelope::no_route)
         .with_state(state);
-    let grpc = grpc::routes(Routes::new(AgentServer::new(connector)), shutdown);
+    let agents = AgentServer::new(connector).max_decoding_message_size(agents::MESSAGE_LIMIT);
+    let grpc = grpc::routes(Routes::new(agents), shutdown);
     Router::new()
         .fallback_service(service_fn(move |request: Request| {
             let target = if grpc::is_grpc(&request) {
