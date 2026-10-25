@@ -43,6 +43,7 @@ mod retry;
 mod roles;
 mod runs;
 mod runtime;
+mod schedules;
 mod scope;
 mod secrets;
 mod sessions;
@@ -194,6 +195,7 @@ pub async fn serve(
             deliveries,
             Arc::clone(&parses),
             config.site.clone(),
+            clock.clone(),
         ));
         tasks.spawn(outbox::work(
             outbox::Outbox {
@@ -209,6 +211,11 @@ pub async fn serve(
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
     tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
     tasks.spawn(sessions::sweep(db.clone(), clock.clone()));
+    tasks.spawn(schedules::work(
+        db.clone(),
+        config.site.clone(),
+        clock.clone(),
+    ));
     let connector = agents::Connector::new(
         db.clone(),
         Arc::clone(&store),

@@ -1,0 +1,105 @@
+[
+  {
+    "description": "a nightly time that the change to daylight saving time skips advances to the end of the gap, as the target documents",
+    "cron": "30 2 * * *",
+    "timezone": "Europe/Belgrade",
+    "after": "2026-03-27T12:00:00Z",
+    "instants": ["2026-03-28T01:30:00Z", "2026-03-29T01:00:00Z", "2026-03-30T00:30:00Z"]
+  },
+  {
+    "description": "a nightly time that the change from daylight saving time repeats fires at its first occurrence only",
+    "cron": "30 2 * * *",
+    "timezone": "Europe/Belgrade",
+    "after": "2026-10-23T12:00:00Z",
+    "instants": ["2026-10-24T00:30:00Z", "2026-10-25T00:30:00Z", "2026-10-26T01:30:00Z"]
+  },
+  {
+    "description": "the times of a cron inside the skipped hour advance to one instant and fire once there",
+    "cron": "*/20 2 * * *",
+    "timezone": "Europe/Belgrade",
+    "after": "2026-03-28T12:00:00Z",
+    "instants": [
+      "2026-03-29T01:00:00Z",
+      "2026-03-30T00:00:00Z",
+      "2026-03-30T00:20:00Z",
+      "2026-03-30T00:40:00Z"
+    ]
+  },
+  {
+    "description": "a cron that runs every hour fires at both occurrences of the repeated hour",
+    "cron": "30 * * * *",
+    "timezone": "Europe/Belgrade",
+    "after": "2026-10-24T23:00:00Z",
+    "instants": [
+      "2026-10-24T23:30:00Z",
+      "2026-10-25T00:30:00Z",
+      "2026-10-25T01:30:00Z",
+      "2026-10-25T02:30:00Z"
+    ]
+  },
+  {
+    "description": "a cron that runs every hour fires at the end of the skipped hour and at its own time after it",
+    "cron": "30 * * * *",
+    "timezone": "Europe/Belgrade",
+    "after": "2026-03-29T00:00:00Z",
+    "instants": [
+      "2026-03-29T00:30:00Z",
+      "2026-03-29T01:00:00Z",
+      "2026-03-29T01:30:00Z",
+      "2026-03-29T02:30:00Z"
+    ]
+  },
+  {
+    "description": "the target's example of a time zone runs at 5:30 in New York on weekdays across the change to daylight saving time",
+    "cron": "30 5 * * 1-5",
+    "timezone": "America/New_York",
+    "after": "2026-03-06T00:00:00Z",
+    "instants": ["2026-03-06T10:30:00Z", "2026-03-09T09:30:00Z", "2026-03-10T09:30:00Z"]
+  },
+  {
+    "description": "without a timezone a schedule runs in UTC",
+    "cron": "0 3 * * *",
+    "after": "2026-03-28T12:00:00Z",
+    "instants": ["2026-03-29T03:00:00Z", "2026-03-30T03:00:00Z"]
+  },
+  {
+    "description": "an instant is strictly after the time it follows",
+    "cron": "0 3 * * *",
+    "after": "2026-03-29T03:00:00Z",
+    "instants": ["2026-03-30T03:00:00Z"]
+  },
+  {
+    "description": "a cron that restricts both day fields fires on a day that matches either",
+    "cron": "0 0 13 * 1",
+    "after": "2026-11-01T00:00:00Z",
+    "instants": [
+      "2026-11-02T00:00:00Z",
+      "2026-11-09T00:00:00Z",
+      "2026-11-13T00:00:00Z",
+      "2026-11-16T00:00:00Z"
+    ]
+  },
+  {
+    "description": "a cron whose day of the month starts with a star fires on a day that matches both day fields",
+    "cron": "0 0 */10 * 1",
+    "after": "2026-11-01T00:00:00Z",
+    "instants": [
+      "2026-12-21T00:00:00Z",
+      "2027-01-11T00:00:00Z",
+      "2027-02-01T00:00:00Z",
+      "2027-03-01T00:00:00Z"
+    ]
+  },
+  {
+    "description": "a cron for the 29th of February fires in leap years only",
+    "cron": "0 12 29 2 *",
+    "after": "2026-10-25T00:00:00Z",
+    "instants": ["2028-02-29T12:00:00Z", "2032-02-29T12:00:00Z"]
+  },
+  {
+    "description": "a cron that names a day no month has never fires",
+    "cron": "0 0 31 2 *",
+    "after": "2026-10-25T00:00:00Z",
+    "instants": []
+  }
+]

@@ -23,6 +23,7 @@ pub mod results;
 pub mod roles;
 mod row;
 pub mod runs;
+pub mod schedules;
 pub mod secrets;
 pub mod sessions;
 pub mod sign_in;

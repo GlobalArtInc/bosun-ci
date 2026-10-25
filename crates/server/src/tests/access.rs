@@ -275,12 +275,16 @@ pub(super) struct Site {
 
 impl Site {
     pub(super) async fn new() -> Site {
+        Site::with_clock(Clock::system()).await
+    }
+
+    pub(super) async fn with_clock(clock: Clock) -> Site {
         let world = World::new().await;
         let directory = tempfile::tempdir().expect("a directory");
         let mut state = super::state(
             &world.database,
             directory.path(),
-            Clock::system(),
+            clock,
             sign_in::Settings::new(Vec::new(), 1000, directory.path().join("data")),
         )
         .await;

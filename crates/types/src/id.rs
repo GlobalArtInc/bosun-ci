@@ -114,4 +114,5 @@ ids!(
     LabelAliasId,
     SecretId,
     VariableId,
+    ScheduleId,
 );

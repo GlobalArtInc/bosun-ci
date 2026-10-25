@@ -82,6 +82,8 @@ pub(crate) async fn receive(
         payload: &payload,
         actor: &actor,
         attempt: 0,
+        at: state.clock.now(),
+        starts_runs: true,
     };
     let runs = match &binding.project.repository {
         None => server_runs(&transaction, &state.site, &binding, &occurrence)

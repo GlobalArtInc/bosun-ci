@@ -10,6 +10,7 @@ pub(crate) enum Task {
     QueueTimeout,
     LogCompaction,
     SessionSweep,
+    Schedules,
 }
 
 impl Task {
@@ -20,6 +21,7 @@ impl Task {
             Task::QueueTimeout => *b"bosunqto",
             Task::LogCompaction => *b"bosunlog",
             Task::SessionSweep => *b"bosunses",
+            Task::Schedules => *b"bosuncrn",
         })
     }
 }

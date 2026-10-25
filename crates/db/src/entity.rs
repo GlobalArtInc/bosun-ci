@@ -25,6 +25,7 @@ pub mod role;
 pub mod role_binding;
 pub mod run;
 pub mod run_event;
+pub mod schedule;
 pub mod schema_version;
 pub mod secret;
 pub mod session;

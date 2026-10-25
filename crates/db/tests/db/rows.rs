@@ -2,9 +2,9 @@ use bosun_db::entity::{
     action_ref, agent, annotation, api_token, api_token_scope, attempt, control_message, execution,
     forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
     log_chunk, log_object, oidc_state, organisation, outbox, pool_access, project,
-    registration_token, role, role_binding, run, run_event, secret, session, sign_in_failure, step,
-    step_summary, stream_event, team, team_member, tool_object, user, user_identity, variable,
-    webhook_delivery, workflow, workflow_revision,
+    registration_token, role, role_binding, run, run_event, schedule, secret, session,
+    sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object, user,
+    user_identity, variable, webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -44,6 +44,7 @@ pub const VARIABLE: u8 = 0x1b;
 pub const ACTION: u8 = 0x1c;
 pub const TOOL: u8 = 0x1d;
 pub const IDENTITY: u8 = 0x1e;
+pub const SCHEDULE: u8 = 0x1f;
 
 pub const OUTBOX: i64 = 41;
 pub const CHECK_RUN: i64 = 7_301_115_026;
@@ -108,6 +109,7 @@ pub struct Rows {
     pub tool_object: tool_object::Model,
     pub user_identity: user_identity::Model,
     pub oidc_state: oidc_state::Model,
+    pub schedule: schedule::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -696,6 +698,23 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a stored tool");
 
+    let schedule = schedule::ActiveModel {
+        id: ActiveValue::Set(id(SCHEDULE)),
+        workflow_id: ActiveValue::Set(id(WORKFLOW)),
+        revision_id: ActiveValue::Set(id(REVISION)),
+        expression: ActiveValue::Set("30 2 * * *".to_owned()),
+        timezone: ActiveValue::Set(format!("Europe/Belgrade {label}")),
+        cron: ActiveValue::Set(json!({ "expression": "30 2 * * *", "label": label })),
+        git_ref: ActiveValue::Set(Some("refs/heads/main".to_owned())),
+        sha: ActiveValue::Set(Some(format!("{label:0>40}"))),
+        actor: ActiveValue::Set(actor()),
+        next_at: ActiveValue::Set(Some(at("2026-10-26T01:30:00Z"))),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:52Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a schedule");
+
     Rows {
         organisation,
         project,
@@ -738,6 +757,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         tool_object,
         user_identity,
         oidc_state,
+        schedule,
     }
 }
 
@@ -822,5 +842,6 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         tool_object: one::<_, tool_object::Entity>(db, id(TOOL)).await,
         user_identity: one::<_, user_identity::Entity>(db, id(IDENTITY)).await,
         oidc_state: one::<_, oidc_state::Entity>(db, vec![0x77; 32]).await,
+        schedule: one::<_, schedule::Entity>(db, id(SCHEDULE)).await,
     }
 }

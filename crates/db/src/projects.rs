@@ -11,7 +11,7 @@ use sea_orm::{
 
 use crate::entity::{forge_repository, organisation, project};
 use crate::row::statement;
-use crate::{Error, row};
+use crate::{Error, row, schedules};
 
 const TABLE: &str = "project";
 
@@ -96,20 +96,26 @@ pub async fn bind<C: ConnectionTrait>(
     let repository_id = repository
         .map(|repository| row::signed(TABLE, repository.id))
         .transpose()?;
-    db.execute(statement(
-        "UPDATE project SET repository_id = $2 WHERE id = $1",
-        [Uuid::from(id).into(), repository_id.into()],
-    ))
-    .await
-    .map_err(|error| {
-        row::taken(error, || {
-            Error::RepositoryBound(
-                repository
-                    .map(|repository| format!("{}/{}", repository.owner, repository.name))
-                    .unwrap_or_default(),
-            )
-        })
-    })?;
+    let changed = db
+        .execute(statement(
+            "UPDATE project SET repository_id = $2 \
+             WHERE id = $1 AND repository_id IS DISTINCT FROM $2",
+            [Uuid::from(id).into(), repository_id.into()],
+        ))
+        .await
+        .map_err(|error| {
+            row::taken(error, || {
+                Error::RepositoryBound(
+                    repository
+                        .map(|repository| format!("{}/{}", repository.owner, repository.name))
+                        .unwrap_or_default(),
+                )
+            })
+        })?
+        .rows_affected();
+    if changed > 0 {
+        schedules::forget_repository(db, id).await?;
+    }
     find(db, id).await
 }
 

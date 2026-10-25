@@ -6,15 +6,18 @@ mod push;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use bosun_db::deliveries::Delivery;
 use bosun_db::outbox::ForkStatus;
 use bosun_db::projects::Binding;
 use bosun_db::runs::{NewRun, Trust};
+use bosun_db::schedules::Origin;
 use bosun_db::workflows::Blob;
 use bosun_forge::{Comparison, EntryKind, Forge as _, Repository};
 use bosun_types::actor::Actor;
 use bosun_types::api::{ForkPolicy, Revision, Run, Workflow};
 use bosun_types::id::RevisionId;
 use bosun_types::ir::{self, Trigger};
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseTransaction;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -25,6 +28,7 @@ pub(crate) use http::{full_name, readable, receive, refused};
 
 use crate::forge::Forge;
 use crate::planner;
+use crate::schedules::{self, Source};
 use crate::site::Site;
 use cache::{Counted, Lowered};
 use pull::{PULL_REQUESTS, Pull, TARGET};
@@ -37,6 +41,10 @@ const EXTENSIONS: [&str; 2] = [".yml", ".yaml"];
 const BRANCHES: &str = "refs/heads/";
 
 const TAGS: &str = "refs/tags/";
+
+const PUSH: &str = "push";
+
+const SCHEDULE: &str = "schedule";
 
 const PLANNED_ELSEWHERE: &[&str] = &[
     "installation",
@@ -80,6 +88,18 @@ struct Occurrence<'a> {
     payload: &'a Value,
     actor: &'a Actor,
     attempt: u32,
+    at: DateTime<Utc>,
+    starts_runs: bool,
+}
+
+pub(crate) struct Scheduled<'a> {
+    pub(crate) workflow: &'a Workflow,
+    pub(crate) revision: &'a Revision,
+    pub(crate) git_ref: Option<&'a str>,
+    pub(crate) sha: Option<&'a str>,
+    pub(crate) payload: &'a Value,
+    pub(crate) actor: &'a Actor,
+    pub(crate) at: DateTime<Utc>,
 }
 
 struct Target {
@@ -215,10 +235,12 @@ pub(crate) async fn delivered(
     forge: &Forge,
     parses: &Parses,
     site: &Site,
-    event: &str,
-    payload: &Value,
-    attempt: u32,
+    delivery: &Delivery,
+    at: DateTime<Utc>,
 ) -> Result<(), Failed> {
+    let event = delivery.event.as_str();
+    let payload = &delivery.payload;
+    let attempt = delivery.attempts;
     if PLANNED_ELSEWHERE.contains(&event) {
         return Ok(());
     }
@@ -239,6 +261,7 @@ pub(crate) async fn delivered(
         return Ok(());
     };
     let actor = sender(payload);
+    let mut starts_runs = true;
     if let Actor::Forge { id, login } = &actor
         && !SENT_BY_JOBS.contains(&event)
         && *id == forge.bot().await?
@@ -249,7 +272,10 @@ pub(crate) async fn delivered(
             project_id = %binding.project.id,
             "an event the GitHub App's own bot caused starts no run"
         );
-        return Ok(());
+        if !pushes_to_default_branch(event, payload, &binding) {
+            return Ok(());
+        }
+        starts_runs = false;
     }
     let events: &[&str] = if event == PULL_REQUEST {
         &[PULL_REQUEST, TARGET]
@@ -263,6 +289,8 @@ pub(crate) async fn delivered(
             payload,
             actor: &actor,
             attempt,
+            at,
+            starts_runs,
         };
         let planned = repository_runs(
             transaction,
@@ -285,6 +313,18 @@ pub(crate) async fn delivered(
         );
     }
     Ok(())
+}
+
+fn pushes_to_default_branch(event: &str, payload: &Value, binding: &Binding) -> bool {
+    event == PUSH
+        && binding
+            .project
+            .repository
+            .as_ref()
+            .is_some_and(|repository| {
+                payload.get("ref").and_then(Value::as_str)
+                    == Some(format!("{BRANCHES}{}", repository.default_branch).as_str())
+            })
 }
 
 fn sender(payload: &Value) -> Actor {
@@ -372,15 +412,16 @@ async fn repository_runs(
     let mut runs = Vec::new();
     for file in &files {
         let candidate = Candidate::of(file, Some(&target));
-        if let Some(run) = plan(
-            transaction,
-            site,
-            occurrence,
-            Some(&target),
-            trust,
-            candidate,
-        )
-        .await?
+        if occurrence.starts_runs
+            && let Some(run) = plan(
+                transaction,
+                site,
+                occurrence,
+                Some(&target),
+                trust,
+                candidate,
+            )
+            .await?
         {
             runs.push(run);
         }
@@ -388,6 +429,36 @@ async fn repository_runs(
             bosun_db::workflows::make_current(transaction, file.workflow.id, file.revision_id)
                 .await?;
         }
+    }
+    let default_ref = format!("{BRANCHES}{}", bound.default_branch);
+    let pushed_to_default_branch = occurrence.event == PUSH
+        && target.default_branch
+        && target
+            .pushed()
+            .is_some_and(|pushed| pushed.git_ref == default_ref);
+    if pushed_to_default_branch {
+        let sources: Vec<Source<'_>> = files
+            .iter()
+            .filter_map(|file| {
+                file.lowered.triggers.as_deref().map(|triggers| Source {
+                    workflow_id: file.workflow.id,
+                    revision_id: file.revision_id,
+                    triggers,
+                })
+            })
+            .collect();
+        schedules::rebuild(
+            transaction,
+            bosun_db::schedules::Scope::Repository(binding.project.id),
+            &sources,
+            Origin {
+                git_ref: target.git_ref.as_deref(),
+                sha: Some(&target.sha),
+                actor: occurrence.actor,
+            },
+            occurrence.at,
+        )
+        .await?;
     }
     Ok(Planned {
         runs,
@@ -485,6 +556,41 @@ async fn server_runs(
     Ok(runs)
 }
 
+pub(crate) async fn scheduled(
+    transaction: &DatabaseTransaction,
+    site: &Site,
+    scheduled: Scheduled<'_>,
+) -> Result<Option<Run>, bosun_db::Error> {
+    let lowered = Lowered::new(&scheduled.workflow.name, &scheduled.revision.source);
+    let occurrence = Occurrence {
+        event: SCHEDULE,
+        action: None,
+        payload: scheduled.payload,
+        actor: scheduled.actor,
+        attempt: 0,
+        at: scheduled.at,
+        starts_runs: true,
+    };
+    let target = scheduled
+        .sha
+        .map(|sha| Target::other(scheduled.git_ref.map(str::to_owned), sha.to_owned(), true));
+    let candidate = Candidate {
+        workflow: scheduled.workflow,
+        revision_id: scheduled.revision.id,
+        lowered: &lowered,
+        touched: false,
+    };
+    plan(
+        transaction,
+        site,
+        &occurrence,
+        target.as_ref(),
+        Trust::Trusted,
+        candidate,
+    )
+    .await
+}
+
 async fn target(
     forge: &Forge,
     repository: &Repository,
@@ -511,7 +617,7 @@ async fn target(
         return Ok(Some(Target::pulled(git_ref, sha, false, pull)));
     }
     let named = match occurrence.event {
-        "push" => {
+        PUSH => {
             let push = push::plan(payload, default_branch).map_err(Failed::Payload)?;
             let changes = match push.changes {
                 Pending::Known(changes) => changes,

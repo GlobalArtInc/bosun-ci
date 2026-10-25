@@ -4,9 +4,9 @@ use bosun_db::entity::{
     action_ref, agent, annotation, api_token, api_token_scope, attempt, control_message, execution,
     forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
     log_chunk, log_object, oidc_state, organisation, outbox, pool, pool_access, project,
-    registration_token, role, role_binding, run, run_event, schema_version, secret, session,
-    sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object, user,
-    user_identity, variable, webhook_delivery, workflow, workflow_revision,
+    registration_token, role, role_binding, run, run_event, schedule, schema_version, secret,
+    session, sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object,
+    user, user_identity, variable, webhook_delivery, workflow, workflow_revision,
 };
 use bosun_testkit::TestDatabase;
 use sea_orm::EntityName;
@@ -51,6 +51,7 @@ async fn every_table_has_an_entity() {
         role_binding::Entity.table_name(),
         run::Entity.table_name(),
         run_event::Entity.table_name(),
+        schedule::Entity.table_name(),
         schema_version::Entity.table_name(),
         secret::Entity.table_name(),
         session::Entity.table_name(),

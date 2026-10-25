@@ -15,6 +15,7 @@ mod queue;
 mod roles;
 mod rows;
 mod runs;
+mod schedules;
 mod secrets;
 mod sessions;
 mod stream;

@@ -44,6 +44,7 @@ const RUN_BY_OTHER_SUITES: &[&str] = &[
     "names",
     "pushes",
     "runs",
+    "schedules",
     "triggers",
 ];
 

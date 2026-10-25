@@ -55,7 +55,9 @@ repository-bound project's files.
   workflows come through its API.
 - **Bosun's own events.** An event whose `sender` has the id of the App's bot starts no run, unless
   it is `repository_dispatch` (or `workflow_dispatch`, which the API starts). The server reads the
-  App's identity from the forge once per process.
+  App's identity from the forge once per process. A push of the bot to the default branch is still
+  read, for its schedules and the current revisions, and plans no run
+  ([Schedules](#schedules)).
 - **Which commit.** The files are read at the commit the `github` context names for the event
   ([06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment)): a
   push's `after`, or the default branch's last commit when it deletes a ref; for `create` and
@@ -148,6 +150,66 @@ merged pull request, and the server's tests in `bin/server/tests/server/pull_req
 against the fake forge the ref and the commit each of these events runs at: a merged pull request,
 one the forge made no merge commit of, one whose merge ref lags behind its head, which the fake
 shows by holding its merge commits back, and one with more files than the forge lists.
+
+### Schedules
+
+Step 31 of M1 ([../plan.md](../plan.md)) settled how `on.schedule` becomes runs.
+
+- **The table.** A `schedule` row is one entry of a workflow's `schedule`, identified by the
+  workflow, the cron as written and its time zone (`UTC` when the entry has none), so two equal
+  entries of one file are one schedule. It holds the revision it was read from, the cron as the IR
+  lowers it, the ref and commit a run of it starts at, its actor and its next instant.
+- **Rebuilt from the default branch.** Every push to the default branch rebuilds the rows of every
+  repository workflow of the project from the files the push reads at its `after`
+  ([Repository workflows](#repository-workflows)): a file whose `on` lowers gives its entries, its
+  other errors included, so that a broken file's schedule yields `startup_failure` runs as its
+  other triggers do; a file that is gone, whose `on` is broken or that no longer has the entry
+  loses it. The rows take that commit as their commit and the default branch as their ref, which
+  is the default branch's last commit as Bosun last saw it, and the revision the push read. A push
+  the App's own bot sends to the default branch starts no run but rebuilds the rows all the same,
+  so a file a job commits is scheduled as written. A push to any other branch, a tag push and every
+  other event leave the rows as they are. A project bound to another repository, or unbound, loses
+  the rows of its repository files until a push to the new repository's default branch.
+- **Rebuilt on every save.** Creating a server-side workflow and every `PUT
+  /workflows/{workflow}/source` rebuild its rows from the source in the same transaction, from a
+  source saved again as much as from a new one. Its runs have no ref and no commit, as its
+  dispatches have none.
+- **The actor.** The actor of a scheduled run is whoever last changed its entry: the sender of the
+  push to the default branch, or the user or token that saved the server-side workflow, when the
+  entry first appeared with its cron and time zone. A rebuild that keeps an entry keeps its actor
+  and its next instant, so a push that changes another line of the file does not take the schedule
+  over. This follows the target, where the user who changes the cron of a schedule becomes its
+  actor, and gives `github.actor` and `github.triggering_actor` an account to name, which actions
+  that commit or comment read. The run's trigger, its attempt and its journal events carry that
+  actor.
+- **The scheduler.** Each replica wakes one second into every minute of its clock and takes the
+  advisory lock `bosuncrn` ([07-storage.md](07-storage.md#periodic-tasks)); the replica that holds
+  it finds every row whose next instant has come. Each one then fires in a transaction of its own,
+  which locks the row with `SKIP LOCKED`, checks again that it is due, moves it to its first
+  instant after the round's time and plans the run with step 7's payload, `{"schedule": "<cron>"}`
+  with the cron as written ([06-runtime-services.md](06-runtime-services.md)). So two replicas
+  never fire one instant twice, and a schedule whose instants passed while no replica ran fires
+  once at the next round, not once for each instant it missed.
+- **What fires.** A disabled workflow's schedule moves to its next instant and creates no run, so
+  enabling the workflow again fires none of the instants it missed. So does the schedule of a
+  repository file when no installation of the GitHub App sees the repository any more. Otherwise
+  the run is planned from the row's revision as an event of the name `schedule` is
+  ([Repository workflows](#repository-workflows)), with the revision's warnings as notices, or
+  completed as `startup_failure` when the file has errors.
+- **Instants.** A cron is evaluated in its time zone, at whole minutes, a day matching its day
+  fields by the rule of `days`. Across a change of the time zone's offset, as the cases in
+  `contracts/fixtures/schedules/cases.json` pin:
+  - a local time that the change to daylight saving time skips advances to the first instant after
+    the gap, as the target documents (`30 2 * * *` in `Europe/Belgrade` fires at 03:00 on the
+    night the clocks go forward), and several skipped times of one cron fire once there;
+  - a local time that the change from daylight saving time repeats fires at its first occurrence
+    only, so a nightly job runs once; a cron that selects every hour of the day fires at both,
+    since it counts hours rather than naming a time of day. The target documents only the first
+    change. For the second, cron on Linux runs a job at both occurrences when its minute or hour
+    field is written with `*`; Bosun decides by the hours the IR keeps, so `0 */2 * * *` fires
+    once there.
+- **Never.** A cron with no instant in the next eleven years, such as one for the 31st of
+  February, never fires; its row keeps no next instant.
 
 ## Parsing
 
@@ -578,6 +640,10 @@ the first two.
   member's combination is stored as a JSON object ([07-storage.md](07-storage.md)), rather than in
   the order of the workflow; it shows only in `toJSON(matrix)` and `matrix.*`, and the member's
   name keeps the order of the workflow.
+- Schedules follow the default branch through its pushes ([Schedules](#schedules)): a change of
+  the repository's default branch moves them to the new branch with its first push, where the
+  target moves them at once and makes whoever changed the branch their actor. A scheduled run
+  starts at the commit of the last push to the default branch that Bosun processed.
 
 ## Extensions
 

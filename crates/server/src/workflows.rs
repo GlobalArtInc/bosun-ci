@@ -1,14 +1,18 @@
 use axum::Json;
 use axum::extract::State;
 use bosun_db::projects::Holder;
+use bosun_db::schedules::{Origin, Scope};
 use bosun_db::workflows::NewWorkflow;
+use bosun_types::actor::Actor;
 use bosun_types::api::{
     CreateWorkflowRequest, Page, Revision, UpdateSourceRequest, UpdateWorkflowRequest, Workflow,
     WorkflowSource,
 };
 use bosun_types::diagnostic::Severity;
 use bosun_types::error::{ErrorBody, ErrorCode, FieldError};
-use bosun_types::id::WorkflowId;
+use bosun_types::id::{RevisionId, WorkflowId};
+use bosun_workflow::Parsed;
+use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, TransactionTrait};
 use sha2::{Digest, Sha256};
 use tracing::info;
@@ -19,6 +23,7 @@ use crate::openapi::Api;
 use crate::projects::ProjectPath;
 use crate::reply::{Created, Saved};
 use crate::request::{Body, Faults, Filters, Idempotent, Listing, Segment, database, failed};
+use crate::schedules::{self, Source};
 use crate::{AppState, dispatch, idempotency, slug};
 
 const NAME: &str = "name";
@@ -57,25 +62,23 @@ pub(crate) async fn find<C: ConnectionTrait, K: Key>(
         .ok_or_else(missing)
 }
 
-fn validate(name: &str, source: &str) -> Result<(), ApiError> {
-    bosun_workflow::parse(name, source)
-        .map(drop)
-        .map_err(|diagnostics| {
-            let errors = diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.severity == Severity::Error)
-                .count();
-            let plural = if errors == 1 { "" } else { "s" };
-            ApiError(ErrorBody {
-                code: ErrorCode::InvalidInput,
-                message: "the workflow is not valid".to_owned(),
-                fields: vec![FieldError {
-                    field: "source".to_owned(),
-                    message: format!("the workflow has {errors} error{plural}"),
-                }],
-                diagnostics,
-            })
+fn validate(name: &str, source: &str) -> Result<Parsed, ApiError> {
+    bosun_workflow::parse(name, source).map_err(|diagnostics| {
+        let errors = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .count();
+        let plural = if errors == 1 { "" } else { "s" };
+        ApiError(ErrorBody {
+            code: ErrorCode::InvalidInput,
+            message: "the workflow is not valid".to_owned(),
+            fields: vec![FieldError {
+                field: "source".to_owned(),
+                message: format!("the workflow has {errors} error{plural}"),
+            }],
+            diagnostics,
         })
+    })
 }
 
 pub(crate) async fn create(
@@ -90,7 +93,7 @@ pub(crate) async fn create(
     let mut faults = Faults::default();
     slug::check_slug(&mut faults, NAME, "a workflow name", &request.name);
     faults.finish("the workflow is not valid")?;
-    validate(&request.name, &request.source)?;
+    let parsed = validate(&request.name, &request.source)?;
 
     let transaction = state.db.begin().await.map_err(database)?;
     if let Some(replayed) = idempotency::replay(&transaction, body.idempotency.as_ref()).await? {
@@ -107,6 +110,18 @@ pub(crate) async fn create(
     )
     .await
     .map_err(database)?;
+    let revision_id = workflow
+        .revision_id
+        .ok_or_else(|| failed(format!("workflow {} has no revision", workflow.id)))?;
+    reschedule(
+        &transaction,
+        workflow.id,
+        revision_id,
+        &parsed,
+        &caller.principal.actor(),
+        state.clock.now(),
+    )
+    .await?;
     idempotency::commit(&state.db, transaction, body.idempotency.as_ref(), workflow).await
 }
 
@@ -186,11 +201,20 @@ async fn save(
         ));
     }
     let Body(UpdateSourceRequest { source }) = body?;
-    validate(&workflow.name, &source)?;
+    let parsed = validate(&workflow.name, &source)?;
     let transaction = state.db.begin().await.map_err(database)?;
     let saved = bosun_db::workflows::save(&transaction, workflow.id, &source, sha256(&source))
         .await
         .map_err(database)?;
+    reschedule(
+        &transaction,
+        workflow.id,
+        saved.revision.id,
+        &parsed,
+        &caller.principal.actor(),
+        state.clock.now(),
+    )
+    .await?;
     transaction.commit().await.map_err(database)?;
     Ok(if saved.created {
         Saved::New(saved.revision)
@@ -214,6 +238,34 @@ async fn revisions(
     Ok(Json(
         listing.page(revisions, |revision| revision.id.as_uuid()),
     ))
+}
+
+async fn reschedule<C: ConnectionTrait>(
+    db: &C,
+    workflow_id: WorkflowId,
+    revision_id: RevisionId,
+    parsed: &Parsed,
+    actor: &Actor,
+    now: DateTime<Utc>,
+) -> Result<(), ApiError> {
+    schedules::rebuild(
+        db,
+        Scope::Workflow(workflow_id),
+        &[Source {
+            workflow_id,
+            revision_id,
+            triggers: &parsed.workflow.triggers,
+        }],
+        Origin {
+            git_ref: None,
+            sha: None,
+            actor,
+        },
+        now,
+    )
+    .await
+    .map_err(database)?;
+    Ok(())
 }
 
 fn sha256(source: &str) -> Vec<u8> {

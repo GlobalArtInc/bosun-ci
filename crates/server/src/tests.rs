@@ -18,6 +18,7 @@ mod queue;
 mod reports;
 mod results;
 mod runs;
+mod schedules;
 mod secrets;
 mod settings;
 mod sign_in;

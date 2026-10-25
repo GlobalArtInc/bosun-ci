@@ -100,6 +100,8 @@ step_summary step_id, key, size, created_at
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
              actor jsonb, data jsonb, at, xact
 stream_event seq bigserial, xact, subject, project_id, run_id, kind, data jsonb, at
+schedule     id, workflow_id, revision_id, expression, timezone, cron jsonb, git_ref, sha,
+             actor jsonb, next_at, created_at
 ```
 
 A run's `trigger` holds the actor and the payload of the event, `{"actor": …, "payload": …}`; for
@@ -145,6 +147,14 @@ for a job whose strategy has no matrix, when the job is evaluated; it is `null` 
 strategy, which sees the context of a single job. Postgres keeps the keys of a `jsonb` object in an
 order of its own, so a member's `matrix` keeps its values but not their order, which named the
 member when it was created ([04-runs.md](04-runs.md#matrices)).
+
+A `schedule` row, from step 31 of [../plan.md](../plan.md), is one entry of a workflow's
+`on.schedule`, unique by its workflow, its `expression` as written and its `timezone`, `UTC` for an
+entry without one. `cron` is the entry as the IR lowers it, `revision_id` the revision it was read
+from, `git_ref` and `sha` the default branch and the commit a run of a repository file starts at
+(`null` for a server-side workflow), `actor` the account that last changed the entry, and `next_at`
+its next instant, `null` for a cron that never fires
+([02-workflows.md](02-workflows.md#schedules)).
 
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
 `derived_from` of runs, `reason` of attempts, `kind`, `pinned_agent_id` and `carried_from` of jobs,
@@ -410,15 +420,17 @@ changes. Outbox delivery is not a singleton: workers in every replica claim rows
 Each task has a lock of its own, a transaction-level `pg_try_advisory_xact_lock` whose key spells
 the task in eight bytes (`bosunagt` for the sweep of agents, `bosunlse` for the lease expiry,
 `bosunqto` for the queue timeout, `bosunlog` for log compaction, `bosunses` for the removal of
-sessions). A replica that finds the lock taken skips the round. The transaction that holds it only
-finds the rows to change; each change then runs in a transaction of its own under the lock of its
-run, or, for log compaction, which changes no run, under an advisory lock of its execution and then
-its execution's row, and checks its condition again, so a change never waits for a lock while holding
-the task's, and a round that overlaps another changes nothing twice. The removal of sessions changes
-no run and decides by time alone, so it deletes in the transaction that holds its lock: a session
-that ended stays ended, a count of failed sign-ins whose last failure lies a day back and that
-holds no lock any more is forgotten whether or not the task removes it, and a used state whose
-sign-in has ended is refused by the cookie's own time before its row matters.
+sessions, `bosuncrn` for the cron scheduler). A replica that finds the lock taken skips the round.
+The transaction that holds it only finds the rows to change; each change then runs in a transaction
+of its own under the lock of its run, or, for log compaction, which changes no run, under an
+advisory lock of its execution and then its execution's row, or, for the cron scheduler, under the
+lock of its `schedule` row, taken with `SKIP LOCKED` ([02-workflows.md](02-workflows.md#schedules)),
+and checks its condition again, so a change never waits for a lock while holding the task's, and a
+round that overlaps another changes nothing twice. The removal of sessions changes no run and
+decides by time alone, so it deletes in the transaction that holds its lock: a session that ended
+stays ended, a count of failed sign-ins whose last failure lies a day back and that holds no lock
+any more is forgotten whether or not the task removes it, and a used state whose sign-in has ended
+is refused by the cookie's own time before its row matters.
 
 ## The outbox
 

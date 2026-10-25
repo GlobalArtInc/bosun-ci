@@ -371,7 +371,10 @@ A step that adds an endpoint adds its row here.
   source is new to the workflow, `200` when it is the source of a revision the workflow has, which
   becomes current again. A source with errors is `422 invalid_input` with the field `source`, the
   message `the workflow is not valid` and the diagnostics, and stores nothing
-  ([02-workflows.md](02-workflows.md)). `GET /workflows/{workflow}/revisions` lists newest first.
+  ([02-workflows.md](02-workflows.md)). Both rebuild the workflow's schedules from the source that
+  becomes current, with the caller as the actor of the entries they add
+  ([02-workflows.md](02-workflows.md#schedules)). `GET /workflows/{workflow}/revisions` lists newest
+  first.
 - Step 38 of M1 ([../plan.md](../plan.md)) settled enabling and disabling a workflow and the latest
   run a workflow carries:
   - `PATCH /workflows/{workflow}` takes `enabled`, `true` or `false`, needs `workflow.manage`, and

@@ -70,6 +70,11 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   which meets every path filter and counts every file as changed, or `"untouched"`, for a push that
   path filters do not apply to and that changes no workflow file. The server's tests run them, and
   its end-to-end tests push a tag and create a branch against the fake forge as the cases say.
+- `fixtures/schedules/`: `cases.json`, from step 31 of M1, the instants at which a schedule fires.
+  Each case has a `description`, a `cron` as written, maybe a `timezone`, and the time it starts
+  `after`; it expects the `instants`, in order, each the first after the one before it, and an
+  empty list for a cron that never fires. The server's tests lower each cron as an entry of
+  `on.schedule` and compare every instant, across the changes to and from daylight saving time.
 - `fixtures/runs/`: `filters.json`, from step 38 of M1, the filters of `GET /api/v1/runs`. Its `runs`
   are planted in this order, each with its `name`, the `project` it belongs to as
   `<organisation>/<project>`, the name of its `workflow`, its `event`, `ref`, `status`, `conclusion`

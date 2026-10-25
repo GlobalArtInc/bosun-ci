@@ -7,6 +7,7 @@ use tokio::sync::Notify;
 use tracing::{info, warn};
 
 use super::installations;
+use crate::clock::Clock;
 use crate::forge::Forge;
 use crate::forge_events::{self, Failed, Parses};
 use crate::retry::{Failure, backoff};
@@ -35,6 +36,7 @@ impl From<Failed> for Failure {
 struct Planning {
     parses: Arc<Parses>,
     site: Site,
+    clock: Clock,
 }
 
 pub(crate) async fn work(
@@ -43,8 +45,13 @@ pub(crate) async fn work(
     wake: Arc<Notify>,
     parses: Arc<Parses>,
     site: Site,
+    clock: Clock,
 ) {
-    let planning = Planning { parses, site };
+    let planning = Planning {
+        parses,
+        site,
+        clock,
+    };
     loop {
         let notified = wake.notified();
         tokio::pin!(notified);
@@ -128,14 +135,13 @@ async fn process(
             installations::installation_repositories(transaction, forge, &delivery.payload).await
         }
         "repository" => installations::repository(transaction, forge, &delivery.payload).await,
-        event => forge_events::delivered(
+        _ => forge_events::delivered(
             transaction,
             forge,
             &planning.parses,
             &planning.site,
-            event,
-            &delivery.payload,
-            delivery.attempts,
+            delivery,
+            planning.clock.now(),
         )
         .await
         .map_err(Failure::from),
