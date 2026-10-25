@@ -29,6 +29,20 @@ impl<T: JsonSchema> Output for Created<T> {
     }
 }
 
+pub(crate) struct Removed;
+
+impl IntoResponse for Removed {
+    fn into_response(self) -> Response {
+        StatusCode::NO_CONTENT.into_response()
+    }
+}
+
+impl Output for Removed {
+    fn output(spec: &mut Spec<'_>) {
+        spec.empty(StatusCode::NO_CONTENT);
+    }
+}
+
 pub(crate) enum Saved<T> {
     New(T),
     Again(T),

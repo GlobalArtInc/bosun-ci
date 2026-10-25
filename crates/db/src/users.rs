@@ -2,7 +2,7 @@ use bosun_types::api::User;
 use bosun_types::id::UserId;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait,
-    QueryFilter, SqlErr, TransactionTrait,
+    QueryFilter, QueryOrder, QuerySelect, SqlErr, TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -13,6 +13,13 @@ use crate::{Error, row};
 const TABLE: &str = "user";
 
 const BOOTSTRAP_LOCK: i64 = i64::from_be_bytes(*b"bosunown");
+
+pub struct NewUser<'a> {
+    pub login: &'a str,
+    pub name: &'a str,
+    pub email: &'a str,
+    pub password_hash: String,
+}
 
 pub struct Credentials {
     pub user: User,
@@ -33,6 +40,59 @@ pub async fn create_owner<C: TransactionTrait>(
 
 pub async fn create<C: ConnectionTrait>(db: &C, login: &str) -> Result<User, Error> {
     decode(insert(db, login, false, None).await?)
+}
+
+pub async fn create_local<C: ConnectionTrait>(db: &C, new: NewUser<'_>) -> Result<User, Error> {
+    let created = user::ActiveModel {
+        id: ActiveValue::Set(Uuid::now_v7()),
+        login: ActiveValue::Set(new.login.to_owned()),
+        name: ActiveValue::Set(new.name.to_owned()),
+        email: ActiveValue::Set(Some(new.email.to_owned())),
+        owner: ActiveValue::Set(false),
+        created_at: ActiveValue::NotSet,
+        password_hash: ActiveValue::Set(Some(new.password_hash)),
+        password_change_required: ActiveValue::Set(true),
+    }
+    .insert(db)
+    .await
+    .map_err(|error| row::taken(error, || Error::LoginTaken(new.login.to_owned())))?;
+    decode(created)
+}
+
+pub async fn list<C: ConnectionTrait>(
+    db: &C,
+    after: Option<Uuid>,
+    limit: u64,
+) -> Result<Vec<User>, Error> {
+    let mut query = user::Entity::find()
+        .order_by_asc(user::Column::Id)
+        .limit(limit);
+    if let Some(after) = after {
+        query = query.filter(user::Column::Id.gt(after));
+    }
+    query.all(db).await?.into_iter().map(decode).collect()
+}
+
+pub async fn find<C: ConnectionTrait>(db: &C, id: UserId) -> Result<Option<User>, Error> {
+    user::Entity::find_by_id(Uuid::from(id))
+        .one(db)
+        .await?
+        .map(decode)
+        .transpose()
+}
+
+pub async fn find_by_login<C: ConnectionTrait>(db: &C, login: &str) -> Result<Option<User>, Error> {
+    user::Entity::find()
+        .filter(user::Column::Login.eq(login))
+        .one(db)
+        .await?
+        .map(decode)
+        .transpose()
+}
+
+pub async fn delete<C: ConnectionTrait>(db: &C, id: UserId) -> Result<bool, Error> {
+    let deleted = user::Entity::delete_by_id(Uuid::from(id)).exec(db).await?;
+    Ok(deleted.rows_affected > 0)
 }
 
 pub async fn bootstrap_owner<C: TransactionTrait>(

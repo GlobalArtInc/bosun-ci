@@ -7,7 +7,8 @@ the team, the rules for drafts and terminals, and the audit trail.
 ## Users and sign-in
 
 A user has a login, a display name, an email address and any number of linked identities. A login
-is 1 to 64 lowercase letters, digits, `-`, `_` or `.`, and starts with a letter or a digit.
+is 1 to 64 lowercase letters, digits, `-`, `_` or `.`, starts with a letter or a digit, and never
+reads as an id (a UUID), because a request names a user by its id or its login.
 
 - **Local password**, hashed with argon2id. Local accounts can add TOTP as a second factor
   (from M3).
@@ -219,14 +220,62 @@ API answers is in [11-api.md](11-api.md#permissions).
 - **When it is read.** The server reads the bindings of a person who is not an owner, with one
   query, on every request their credentials authenticate, and keeps nothing between requests: a
   binding removed, or a member removed from a team, is gone from their next request.
-- **Tokens.** A personal token acts with the permissions of its user, until step 10 of M1 restricts
-  tokens to the keys and the scopes they carry.
+- **Tokens.** A personal token acts with the permissions of its user, restricted to the keys and
+  the places it carries ([Users, teams, roles and tokens](#users-teams-roles-and-tokens)).
 - **The installation.** Bindings exist only on organisations and projects, so what is checked on
   the installation is held by owners alone: creating organisations (`organisation.manage`), and the
   pools, agents and registration tokens, which belong to the installation (`agent.manage`). So do
   the label aliases, an organisation's too (step 18 of [../plan.md](../plan.md)): an alias chooses
   the pool that receives a project's jobs, and with them its secrets, and pools are the secret
   boundary the owners draw ([What a stolen credential gets](#what-a-stolen-credential-gets)).
+
+### Users, teams, roles and tokens
+
+Step 10 of M1 ([../plan.md](../plan.md)) settled who manages these and how a token's permissions
+are computed; the endpoints are in [11-api.md](11-api.md#identity-and-access).
+
+- **Installation owners manage users.** Only an owner creates, lists and deletes users, since a user
+  belongs to the installation rather than to an organisation. A local user is created with a login,
+  a display name, an email address and an initial password, and must replace that password at the
+  first sign-in, through the change of password of [Local sign-in](#local-sign-in); until then its
+  sessions reach nothing else. Deleting a user removes its sessions, tokens, team memberships and
+  bindings with it. An owner cannot delete themselves, so an installation always keeps an owner.
+- **Organisations manage their teams, roles and bindings.** Teams with their members, custom roles
+  and role bindings are each managed with `organisation.manage` in the organisation they belong
+  to; a binding on a project belongs to the project's organisation. `organisation.manage` lets its
+  holder bind anyone, themselves included, to any role in the organisation, so it is as strong as
+  every permission there, and a custom role that holds it holds them all in effect.
+- **Names.** The built-in roles are fixed: they are neither changed nor deleted, and no custom role
+  takes the name of one. A custom role's name follows the rule of slugs and is unique in its
+  organisation; neither it nor a team's slug reads as an id, so a binding names its role, its user
+  and its team by id or by name without ambiguity.
+- **What a personal token carries.** A token carries a set of permission keys, every one of which
+  its creator holds where the token reaches, and may be restricted to organisations and projects
+  the creator holds something on. It expires within a year (365 days) of its creation. Its owner,
+  the user who created it, lists and revokes it; a revoked token stays in the list with the time it
+  was revoked. The tokens the server makes for an owner it creates (`bootstrap` and `admin.token`)
+  carry every key and no restriction. The keys are the column `api_token.permissions`, `NULL` for
+  those tokens of the server, which so carry the keys of later versions too; a restriction is
+  `api_token.restricted` with one row of `api_token_scope` per organisation or project, which the
+  deletion of that organisation or project removes.
+- **What a personal token holds.** A token acts with the intersection of its keys and its creator's
+  permissions at the time of each request, read as the creator's bindings are
+  ([When it is read](#roles-and-bindings)), so a creator who loses a permission takes it from their
+  tokens as well, and one who gains a permission the token carries gives it to them. An
+  unrestricted token holds that intersection everywhere. A token restricted to organisations and
+  projects holds nothing on the installation, even when its creator is an owner; on each of its
+  organisations, and on the projects of that organisation, it holds what its creator holds there
+  within its keys; on each of its projects, what its creator holds on that project, the bindings
+  of its organisation included, within its keys. A restricted token whose organisations and
+  projects were all deleted stays restricted and reaches nothing.
+- **Tokens made with a token.** A token may create tokens, as `bosun token create` does with the
+  token of its profile, but only within its own reach: the keys the new token carries must be held
+  by the token that creates it, a restricted token makes only tokens restricted to its own
+  organisations and projects or some of their projects, and the new token expires no later than
+  the one that made it. A token made with a stolen one therefore reaches no further and lives no
+  longer than the stolen token would have. Revoking a token does not revoke the tokens it made, so
+  that rotating the token of a profile keeps the tokens made with it; after a theft their owner
+  revokes those too, from the list of their tokens.
 
 ## Code from outside the team
 
@@ -282,7 +331,10 @@ and linked from the journal and the audit trail.
 
 ## What a stolen credential gets
 
-- A personal token gets its scopes on its projects until it expires or is revoked.
+- A personal token gets its keys, within what its creator holds, on the organisations and
+  projects it is restricted to, or wherever its creator holds them, until it expires or is revoked.
+  It can also make tokens within that reach that expire no later than it does, and its revocation
+  leaves those alone.
 - An agent credential gets the jobs that would be dispatched to its pool, and with them their
   secrets. Pools limit which projects can use them; credentials rotate; a pool can restrict the
   source addresses its agents may connect from.

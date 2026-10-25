@@ -196,6 +196,23 @@ fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
         .map_err(|error| invalid(format!("the request body does not fit: {error}")))
 }
 
+pub(crate) struct Pair(pub(crate) String, pub(crate) String);
+
+impl<S: Send + Sync> FromRequestParts<S> for Pair {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Pair, ApiError> {
+        match Path::<(String, String)>::from_request_parts(parts, state).await {
+            Ok(Path((first, second))) => Ok(Pair(first, second)),
+            Err(_) => Err(envelope::absent(&parts.method, &parts.uri)),
+        }
+    }
+}
+
+impl Input for Pair {
+    fn input(_: &mut Spec<'_>) {}
+}
+
 pub(crate) struct Segment(pub(crate) String);
 
 impl<S: Send + Sync> FromRequestParts<S> for Segment {
@@ -241,6 +258,7 @@ impl Faults {
 
 pub(crate) trait Filters {
     const NAMES: &'static [&'static str];
+    const REQUIRED: &'static [&'static str] = &[];
 }
 
 pub(crate) struct Unfiltered;
@@ -270,12 +288,24 @@ impl<F: Filters> Input for Listing<F> {
         spec.reference(openapi::LIMIT);
         spec.reference(openapi::CURSOR);
         for name in F::NAMES {
-            spec.parameter(json!({
-                "name": name,
-                "in": "query",
-                "description": format!("only the items whose `{name}` is this value"),
-                "schema": { "type": "string" }
-            }));
+            if F::REQUIRED.contains(name) {
+                spec.parameter(json!({
+                    "name": name,
+                    "in": "query",
+                    "required": true,
+                    "description": format!(
+                        "the `{name}`, by id or slug, whose items the list holds; the list needs it"
+                    ),
+                    "schema": { "type": "string" }
+                }));
+            } else {
+                spec.parameter(json!({
+                    "name": name,
+                    "in": "query",
+                    "description": format!("only the items whose `{name}` is this value"),
+                    "schema": { "type": "string" }
+                }));
+            }
         }
     }
 }
@@ -341,6 +371,14 @@ impl<F: Filters> Listing<F> {
         self.filters.get(name).map(String::as_str)
     }
 
+    pub(crate) fn required(&self, name: &str) -> Result<&str, ApiError> {
+        self.filter(name).ok_or_else(|| {
+            let mut faults = Faults::default();
+            faults.add(name, format!("is missing, and this list needs `{name}`"));
+            faults.refuse("the query is not valid")
+        })
+    }
+
     pub(crate) fn cursor(&self) -> Option<Uuid> {
         self.cursor
     }
@@ -371,9 +409,11 @@ pub(crate) fn database(failure: impl Into<bosun_db::Error>) -> ApiError {
         | bosun_db::Error::ProjectTaken(_)
         | bosun_db::Error::WorkflowTaken(_)
         | bosun_db::Error::PoolTaken(_)
-        | bosun_db::Error::RepositoryBound(_) => {
-            ApiError::new(ErrorCode::Conflict, failure.to_string())
-        }
+        | bosun_db::Error::RepositoryBound(_)
+        | bosun_db::Error::LoginTaken(_)
+        | bosun_db::Error::TeamTaken(_)
+        | bosun_db::Error::RoleTaken(_)
+        | bosun_db::Error::BindingTaken => ApiError::new(ErrorCode::Conflict, failure.to_string()),
         _ => failed(failure),
     }
 }

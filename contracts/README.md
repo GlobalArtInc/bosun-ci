@@ -77,6 +77,12 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/api/me.json`: from step 9 of M1, the server's tests compare its `permissions` with
   those `GET /api/v1/me` lists for a user bound as the fixture describes
   ([../docs/design/11-api.md](../docs/design/11-api.md#permissions)).
+- `fixtures/api/` of identity and access: from step 10 of M1, the server's tests send
+  `create-user-request.json`, `create-team-request.json`, `add-member-request.json`,
+  `create-role-request.json` and `create-role-binding-request.json`, and compare the answers with
+  `user.json`, `team.json`, `role.json` and `role-binding.json` but for ids and times; the answer to
+  a restricted token's creation has the fields of `personal-token-created.json`, and a listed token
+  those of `personal-token.json`.
 - `openapi.json`: the description of the REST API generated from the handlers, from step 1 of M1.
   `hack/openapi.sh` writes it, a test fails when it differs from the generated document, and it is
   never edited or merged by hand

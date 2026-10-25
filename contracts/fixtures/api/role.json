@@ -1,0 +1,10 @@
+{
+  "id": "0192f3a4-5b6c-7d8e-9f01-000000000014",
+  "organisation_id": "0192f3a4-5b6c-7d8e-9f01-000000000001",
+  "name": "releaser",
+  "permissions": [
+    "run.dispatch",
+    "run.cancel"
+  ],
+  "created_at": "2026-10-24T18:34:50.078Z"
+}

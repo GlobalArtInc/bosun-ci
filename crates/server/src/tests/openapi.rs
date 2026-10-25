@@ -21,6 +21,12 @@ enum Part {
 }
 
 const FIXTURES: &[(&str, &str, &str, Part)] = &[
+    (
+        "add-member-request.json",
+        "post",
+        "/api/v1/teams/{team}/members",
+        Part::Request,
+    ),
     ("agent.json", "get", "/api/v1/agents", Part::Within("Agent")),
     (
         "command-job-cancel.json",
@@ -41,6 +47,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Request,
     ),
     (
+        "create-personal-token-request.json",
+        "post",
+        "/api/v1/tokens",
+        Part::Request,
+    ),
+    (
         "create-pool-request.json",
         "post",
         "/api/v1/pools",
@@ -50,6 +62,30 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "create-project-request.json",
         "post",
         "/api/v1/projects",
+        Part::Request,
+    ),
+    (
+        "create-role-binding-request.json",
+        "post",
+        "/api/v1/role-bindings",
+        Part::Request,
+    ),
+    (
+        "create-role-request.json",
+        "post",
+        "/api/v1/roles",
+        Part::Request,
+    ),
+    (
+        "create-team-request.json",
+        "post",
+        "/api/v1/teams",
+        Part::Request,
+    ),
+    (
+        "create-user-request.json",
+        "post",
+        "/api/v1/users",
         Part::Request,
     ),
     (
@@ -125,6 +161,18 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "/api/v1/runs/{run}/attempts/{attempt}/jobs",
         Part::Response("200"),
     ),
+    (
+        "personal-token-created.json",
+        "post",
+        "/api/v1/tokens",
+        Part::Response("201"),
+    ),
+    (
+        "personal-token.json",
+        "get",
+        "/api/v1/tokens",
+        Part::Within("PersonalToken"),
+    ),
     ("pool.json", "post", "/api/v1/pools", Part::Response("201")),
     (
         "project.json",
@@ -169,6 +217,13 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Response("201"),
     ),
     (
+        "role-binding.json",
+        "post",
+        "/api/v1/role-bindings",
+        Part::Response("201"),
+    ),
+    ("role.json", "post", "/api/v1/roles", Part::Response("201")),
+    (
         "run.json",
         "get",
         "/api/v1/runs/{run}",
@@ -198,6 +253,7 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "/api/v1/executions/{execution}",
         Part::Within("Step"),
     ),
+    ("team.json", "post", "/api/v1/teams", Part::Response("201")),
     (
         "update-organisation-request.json",
         "patch",
@@ -216,6 +272,7 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "/api/v1/workflows/{workflow}/source",
         Part::Request,
     ),
+    ("user.json", "post", "/api/v1/users", Part::Response("201")),
     (
         "workflow.json",
         "get",

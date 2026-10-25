@@ -3,12 +3,14 @@ use std::fs;
 use std::path::Path;
 
 use bosun_types::api::{
-    Agent, CreateOrganisationRequest, CreatePoolRequest, CreateProjectRequest,
-    CreateWorkflowRequest, DispatchRequest, Execution, Job, LabelAlias, LogEnd, LogLine, Me,
-    Organisation, Page, PasswordChangeRequest, Pool, Project, ProjectSettings,
-    RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
-    RegistrationTokenRequest, Revision, Run, SetLabelAliasRequest, SignInMethods, SignInRequest,
-    Step, UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest, Workflow,
+    AddMemberRequest, Agent, CreateOrganisationRequest, CreatePersonalTokenRequest,
+    CreatePoolRequest, CreateProjectRequest, CreateRoleBindingRequest, CreateRoleRequest,
+    CreateTeamRequest, CreateUserRequest, CreateWorkflowRequest, DispatchRequest, Execution, Job,
+    LabelAlias, LogEnd, LogLine, Me, Organisation, Page, PasswordChangeRequest, PersonalToken,
+    PersonalTokenCreated, Pool, Project, ProjectSettings, RegisterAgentRequest,
+    RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest, Revision, Role,
+    RoleBinding, Run, SetLabelAliasRequest, SignInMethods, SignInRequest, Step, Team,
+    UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest, User, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -92,6 +94,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "actions/using-unknown-runtime.json",
             round_trip::<ActionCase>,
         ),
+        (
+            "api/add-member-request.json",
+            round_trip::<AddMemberRequest>,
+        ),
         ("api/agent.json", round_trip::<Agent>),
         ("api/command-job-cancel.json", round_trip::<CommandRequest>),
         ("api/command-run-cancel.json", round_trip::<CommandRequest>),
@@ -100,12 +106,32 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<CreateOrganisationRequest>,
         ),
         (
+            "api/create-personal-token-request.json",
+            round_trip::<CreatePersonalTokenRequest>,
+        ),
+        (
             "api/create-pool-request.json",
             round_trip::<CreatePoolRequest>,
         ),
         (
             "api/create-project-request.json",
             round_trip::<CreateProjectRequest>,
+        ),
+        (
+            "api/create-role-binding-request.json",
+            round_trip::<CreateRoleBindingRequest>,
+        ),
+        (
+            "api/create-role-request.json",
+            round_trip::<CreateRoleRequest>,
+        ),
+        (
+            "api/create-team-request.json",
+            round_trip::<CreateTeamRequest>,
+        ),
+        (
+            "api/create-user-request.json",
+            round_trip::<CreateUserRequest>,
         ),
         (
             "api/create-workflow-request.json",
@@ -126,6 +152,11 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "api/password-change-request.json",
             round_trip::<PasswordChangeRequest>,
         ),
+        (
+            "api/personal-token-created.json",
+            round_trip::<PersonalTokenCreated>,
+        ),
+        ("api/personal-token.json", round_trip::<PersonalToken>),
         ("api/pool.json", round_trip::<Pool>),
         ("api/project.json", round_trip::<Project>),
         ("api/project-settings.json", round_trip::<ProjectSettings>),
@@ -146,6 +177,8 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<RegistrationTokenRequest>,
         ),
         ("api/revision.json", round_trip::<Revision>),
+        ("api/role-binding.json", round_trip::<RoleBinding>),
+        ("api/role.json", round_trip::<Role>),
         ("api/run.json", round_trip::<Run>),
         (
             "api/set-label-alias-request.json",
@@ -154,6 +187,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/sign-in-methods.json", round_trip::<SignInMethods>),
         ("api/sign-in-request.json", round_trip::<SignInRequest>),
         ("api/step.json", round_trip::<Step>),
+        ("api/team.json", round_trip::<Team>),
         (
             "api/update-organisation-request.json",
             round_trip::<UpdateOrganisationRequest>,
@@ -166,6 +200,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "api/update-source-request.json",
             round_trip::<UpdateSourceRequest>,
         ),
+        ("api/user.json", round_trip::<User>),
         ("api/workflow.json", round_trip::<Workflow>),
         ("diagnostics/alias-bomb.json", round_trip::<Diagnostic>),
         ("diagnostics/all-secrets.json", round_trip::<Diagnostic>),

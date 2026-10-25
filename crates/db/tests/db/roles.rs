@@ -21,7 +21,8 @@ async fn a_binding_gives_nothing_outside_its_organisation() {
         .expect("a project of the other organisation");
     let outsiders = teams::create(db, other.id, "outsiders", "Outsiders")
         .await
-        .expect("a team of the other organisation");
+        .expect("a team of the other organisation")
+        .id;
     let dana = users::create(db, "dana").await.expect("a user");
     teams::add_member(db, outsiders, dana.id)
         .await
@@ -72,7 +73,8 @@ async fn a_binding_gives_nothing_outside_its_organisation() {
         &BTreeSet::from([Permission::RunDispatch]),
     )
     .await
-    .expect("a custom role");
+    .expect("a custom role")
+    .id;
     roles::bind(
         db,
         NewBinding {
@@ -84,9 +86,7 @@ async fn a_binding_gives_nothing_outside_its_organisation() {
     )
     .await
     .expect("a binding of a role of another organisation");
-    let held = roles::permissions(db, dana.id)
-        .await
-        .expect("the permissions");
+    let held = roles::grants(db, dana.id).await.expect("the grants");
     assert!(
         held.organisations.is_empty() && held.projects.is_empty(),
         "{held:?}"

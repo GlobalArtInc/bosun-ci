@@ -4,7 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools interface"
+scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens"
+scenarios="$scenarios interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -709,6 +710,52 @@ EOF
     fail "bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
   grep -qE "^build \| workspace $work/agents/gamma/" "$watched" ||
     fail "the job of ubuntu-latest did not run on the agent of the pool e2e-gamma: $(cat "$watched")"
+  passed
+}
+
+scenario_tokens() {
+  begin tokens "bosun token create makes a token that views one project and cannot dispatch there"
+  local token created="$work/out/token-create.txt" refused="$work/out/token-refused.txt"
+  api POST /api/v1/projects --data '{"organisation": "e2e", "slug": "m1-tokens", "name": "Tokens"}' \
+    >/dev/null || fail "the project of the scenario could not be created"
+  push token-probe <<'EOF'
+name: token-probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: [self-hosted]
+    steps:
+      - run: echo probe
+EOF
+  token="$(cli --profile a token create --name e2e-viewer --scope project.view --project e2e/m0 \
+    --expires 1d 2>"$created")" || fail "bosun token create failed: $(cat "$created")"
+  case "$token" in
+    bst_*) ;;
+    *) fail "bosun token create printed '$token' rather than a personal token" ;;
+  esac
+  grep -qE '^the token e2e-viewer carries project\.view on e2e/m0 until [^ ]+; it is shown only once$' \
+    "$created" || fail "bosun token create described the token as: $(cat "$created")"
+  printf '%s\n' "$token" | cli --profile viewer login --server "http://$address_a" >/dev/null ||
+    fail "bosun login with the new token failed"
+  cli --profile viewer project settings e2e/m0 >"$refused" 2>&1 ||
+    fail "the token cannot read the project it views: $(cat "$refused")"
+  if cli --profile viewer project settings e2e/m1-tokens >"$refused" 2>&1; then
+    fail "the token reads a project it is not restricted to: $(cat "$refused")"
+  fi
+  expect_line "$refused" 'error: there is no project `e2e/m1-tokens`' \
+    "the token learnt of a project outside its restriction"
+  if cli --profile viewer workflow dispatch e2e/m0/token-probe >"$refused" 2>&1; then
+    fail "the token that views dispatched a run: $(cat "$refused")"
+  fi
+  expect_line "$refused" 'error: `e2e` does not hold `run.dispatch` on project `m0`' \
+    "the refusal of the dispatch did not say why"
+  if cli --profile a token create --name e2e-long --scope project.view --expires 400d >"$refused" 2>&1; then
+    fail "bosun token create made a token that lives 400 days: $(cat "$refused")"
+  fi
+  expect_line "$refused" "error: the personal token is not valid" \
+    "the refusal of the expiry did not say why"
+  grep -q '^  expires_at: lies more than a year ahead' "$refused" ||
+    fail "the refusal does not name expires_at: $(cat "$refused")"
   passed
 }
 

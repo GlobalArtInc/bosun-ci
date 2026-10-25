@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod api_token;
+pub mod api_token_scope;
 pub mod attempt;
 pub mod control_message;
 pub mod execution;

@@ -11,6 +11,8 @@ pub struct Model {
     pub created_at: DateTimeUtc,
     pub expires_at: DateTimeUtc,
     pub revoked_at: Option<DateTimeUtc>,
+    pub permissions: Option<Vec<String>>,
+    pub restricted: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -1,0 +1,8 @@
+{
+  "organisation": "globalart",
+  "name": "releaser",
+  "permissions": [
+    "run.dispatch",
+    "run.cancel"
+  ]
+}

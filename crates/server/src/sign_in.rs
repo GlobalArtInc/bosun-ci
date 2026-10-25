@@ -220,7 +220,7 @@ async fn login(
     bosun_db::sign_in::release(&state.db, granted)
         .await
         .map_err(database)?;
-    let permissions = access::load(&state.db, &credentials.user)
+    let permissions = access::load(&state.db, &credentials.user, None)
         .await
         .map_err(database)?;
     let started = sessions::start(&state.db, credentials.user.id, now).await?;

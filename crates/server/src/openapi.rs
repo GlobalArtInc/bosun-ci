@@ -110,6 +110,14 @@ impl Api {
         self.on(Method::PUT, MethodFilter::PUT, path, handler)
     }
 
+    pub(crate) fn delete<H, T>(self, path: &'static str, handler: H) -> Api
+    where
+        H: Handler<T, AppState> + Documented<T>,
+        T: 'static,
+    {
+        self.on(Method::DELETE, MethodFilter::DELETE, path, handler)
+    }
+
     fn on<H, T>(self, method: Method, filter: MethodFilter, path: &'static str, handler: H) -> Api
     where
         H: Handler<T, AppState> + Documented<T>,
@@ -343,6 +351,11 @@ fn path_parameter(name: &str) -> (&'static str, Value) {
         "job" => ("the job's id", id),
         "execution" => ("the execution's id", id),
         "step" => ("the id of a step of the execution", id),
+        "user" => ("the user's id", id),
+        "team" => ("the team's id", id),
+        "role" => ("the role's id", id),
+        "binding" => ("the role binding's id", id),
+        "token" => ("the personal token's id", id),
         _ => {
             panic!("the path parameter `{name}` has no description in crates/server/src/openapi.rs")
         }

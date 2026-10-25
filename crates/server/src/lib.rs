@@ -3,6 +3,7 @@ mod address;
 mod agents;
 mod aliases;
 mod auth;
+mod bindings;
 mod check;
 mod clock;
 mod commands;
@@ -30,6 +31,7 @@ mod projects;
 mod queue;
 mod reply;
 mod request;
+mod roles;
 mod runs;
 mod sessions;
 mod settings;
@@ -38,10 +40,13 @@ mod sign_in;
 mod site;
 mod slug;
 mod store;
+mod teams;
 #[cfg(test)]
 mod tests;
 mod token;
+mod tokens;
 mod trace;
+mod users;
 mod workflows;
 
 use std::future::Future;
@@ -216,6 +221,11 @@ fn api() -> openapi::Api {
         .merge(agents::routes())
         .merge(pools::routes())
         .merge(aliases::routes())
+        .merge(users::routes())
+        .merge(teams::routes())
+        .merge(roles::routes())
+        .merge(bindings::routes())
+        .merge(tokens::routes())
 }
 
 fn app(

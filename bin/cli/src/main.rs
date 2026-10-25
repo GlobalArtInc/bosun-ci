@@ -9,6 +9,7 @@ mod output;
 mod pool;
 mod project;
 mod run;
+mod token;
 mod workflow;
 
 use std::process::ExitCode;
@@ -68,6 +69,8 @@ enum Command {
         about = "Map labels of runs-on to pools, capabilities and images"
     )]
     Alias(alias::Command),
+    #[command(subcommand, about = "Create personal tokens")]
+    Token(token::Command),
 }
 
 pub(crate) struct Context {
@@ -102,6 +105,7 @@ async fn main() -> ExitCode {
         Command::Agent(command) => agent::run(&context, command).await,
         Command::Pool(command) => pool::run(&context, command).await,
         Command::Alias(command) => alias::run(&context, command).await,
+        Command::Token(command) => token::run(&context, command).await,
     };
     match outcome {
         Ok(code) => code,

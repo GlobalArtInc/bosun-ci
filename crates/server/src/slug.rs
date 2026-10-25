@@ -21,6 +21,18 @@ pub(crate) fn check_slug(faults: &mut Faults, field: &str, what: &str, text: &st
     valid
 }
 
+pub(crate) fn check_unlike_id(
+    faults: &mut Faults,
+    field: &str,
+    what: &str,
+    text: &str,
+    reason: &str,
+) {
+    if check_slug(faults, field, what, text) && reads_as_id(text) {
+        faults.add(field, format!("`{text}` reads as an id, and {reason}"));
+    }
+}
+
 pub(crate) fn check_name(faults: &mut Faults, field: &str, text: &str) {
     let length = text.chars().count();
     if text.trim().is_empty() || length > NAME_LENGTH || text.chars().any(char::is_control) {

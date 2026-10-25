@@ -14,7 +14,7 @@ use bosun_db::tokens::NewToken;
 use bosun_db::workflows::NewWorkflow;
 use bosun_types::api::{Permissions, Project, Workflow};
 use bosun_types::id::{
-    ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, UserId,
+    ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, TokenId, UserId,
 };
 use bosun_types::permission::Permission;
 use chrono::{TimeDelta, Utc};
@@ -32,9 +32,9 @@ use crate::site::Site as Public;
 use crate::token::{PERSONAL, REGISTRATION, Token};
 use crate::{AppState, api, sign_in};
 
-const PASSWORD: &str = "correct horse battery staple";
+pub(super) const PASSWORD: &str = "correct horse battery staple";
 
-const NEW_PASSWORD: &str = "correct horse battery stapler";
+pub(super) const NEW_PASSWORD: &str = "correct horse battery stapler";
 
 const SOURCE: &str = concat!(
     "name: deploy\n",
@@ -240,6 +240,7 @@ struct Fixture {
     job: JobId,
     execution: ExecutionId,
     step: StepId,
+    team: TeamId,
 }
 
 pub(super) struct Site {
@@ -269,7 +270,7 @@ impl Site {
         }
     }
 
-    fn db(&self) -> &sea_orm::DatabaseConnection {
+    pub(super) fn db(&self) -> &sea_orm::DatabaseConnection {
         self.world.db()
     }
 
@@ -280,14 +281,14 @@ impl Site {
             .expect("the project of the world")
     }
 
-    async fn second_project(&self, slug: &str) -> Project {
+    pub(super) async fn second_project(&self, slug: &str) -> Project {
         let project = self.project().await;
         bosun_db::projects::create(self.db(), project.organisation_id, slug, slug)
             .await
             .expect("a project")
     }
 
-    async fn workflow(&self, project: ProjectId, name: &str) -> Workflow {
+    pub(super) async fn workflow(&self, project: ProjectId, name: &str) -> Workflow {
         bosun_db::workflows::create(
             self.db(),
             NewWorkflow {
@@ -320,7 +321,7 @@ impl Site {
         (user.id, Credentials::Bearer(token.into_string()))
     }
 
-    async fn owner(&self, login: &str) -> UserId {
+    pub(super) async fn owner(&self, login: &str) -> UserId {
         let token = Token::generate(PERSONAL).expect("random bytes");
         bosun_db::users::create_owner(
             self.db(),
@@ -360,7 +361,7 @@ impl Site {
         .expect("a binding");
     }
 
-    async fn signed(&self, user: UserId, login: &str) -> Credentials {
+    pub(super) async fn signed(&self, user: UserId, login: &str) -> Credentials {
         let hash = self
             .state
             .sign_in
@@ -371,6 +372,20 @@ impl Site {
         bosun_db::users::set_password(self.db(), user, hash)
             .await
             .expect("a password");
+        let (answer, session) = self.sign_in(login, PASSWORD).await;
+        assert_eq!(
+            answer.status,
+            StatusCode::OK,
+            "{login} signs in: {answer:?}"
+        );
+        session.expect("a session")
+    }
+
+    pub(super) async fn sign_in(
+        &self,
+        login: &str,
+        password: &str,
+    ) -> (Answer, Option<Credentials>) {
         let response = self
             .router
             .clone()
@@ -378,28 +393,32 @@ impl Site {
                 request(Method::POST, "/api/v1/auth/login")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        json!({ "login": login, "password": PASSWORD }).to_string(),
+                        json!({ "login": login, "password": password }).to_string(),
                     ))
                     .expect("a request"),
             )
             .await
             .expect("an answer");
-        assert_eq!(response.status(), StatusCode::OK, "{login} signs in");
-        let cookie = response.headers()["set-cookie"]
-            .to_str()
-            .expect("a cookie")
-            .split(';')
-            .next()
-            .expect("a cookie")
-            .to_owned();
+        let status = response.status();
+        let headers = response.headers().clone();
         let body = read(response.into_body()).await;
-        Credentials::Session {
-            cookie,
-            csrf: body["csrf_token"]
-                .as_str()
-                .expect("a CSRF token")
-                .to_owned(),
-        }
+        let session = headers
+            .get("set-cookie")
+            .and_then(|cookie| cookie.to_str().ok())
+            .and_then(|cookie| cookie.split(';').next())
+            .zip(body["csrf_token"].as_str())
+            .map(|(cookie, csrf)| Credentials::Session {
+                cookie: cookie.to_owned(),
+                csrf: csrf.to_owned(),
+            });
+        (
+            Answer {
+                status,
+                headers,
+                body,
+            },
+            session,
+        )
     }
 
     pub(super) async fn send(
@@ -461,7 +480,7 @@ impl Site {
         self.send(Method::GET, path, credentials, None).await
     }
 
-    async fn dispatch(&self, workflow: &Workflow, credentials: &Credentials) -> Answer {
+    pub(super) async fn dispatch(&self, workflow: &Workflow, credentials: &Credentials) -> Answer {
         self.send(
             Method::POST,
             &format!("/api/v1/workflows/{}/dispatch", workflow.id),
@@ -471,7 +490,7 @@ impl Site {
         .await
     }
 
-    async fn run(&self) -> (RunId, JobId) {
+    pub(super) async fn run(&self) -> (RunId, JobId) {
         let run = self
             .world
             .dispatch(&workflow(vec![template("build", &[], 1)]))
@@ -499,6 +518,7 @@ impl Site {
             .into_iter()
             .find(|(_, step)| step.execution == execution)
             .expect("the started step");
+        let team = self.team(project.organisation_id, "fixture").await;
         Fixture {
             project,
             deploy,
@@ -506,7 +526,41 @@ impl Site {
             job,
             execution,
             step,
+            team,
         }
+    }
+
+    async fn team(&self, organisation: OrganisationId, slug: &str) -> TeamId {
+        bosun_db::teams::create(self.db(), organisation, slug, slug)
+            .await
+            .expect("a team")
+            .id
+    }
+
+    async fn custom_role(&self, organisation: OrganisationId, name: &str) -> RoleId {
+        bosun_db::roles::create(
+            self.db(),
+            organisation,
+            name,
+            &BTreeSet::from([Permission::ProjectView]),
+        )
+        .await
+        .expect("a custom role")
+        .id
+    }
+
+    async fn personal_token(&self, user: UserId) -> TokenId {
+        bosun_db::tokens::create(
+            self.db(),
+            user,
+            NewToken {
+                name: "spare".to_owned(),
+                sha256: Token::generate(PERSONAL).expect("random bytes").sha256(),
+                expires_at: Utc::now() + TimeDelta::days(1),
+            },
+        )
+        .await
+        .expect("a token")
     }
 
     async fn registration_token(&self) -> String {
@@ -555,13 +609,13 @@ pub(super) fn forbidden(answer: &Answer, context: &str) {
     assert_eq!(answer.body["error"]["code"], "forbidden", "{context}");
 }
 
-fn absent(answer: &Answer, message: &str) {
+pub(super) fn absent(answer: &Answer, message: &str) {
     assert_eq!(answer.status, StatusCode::NOT_FOUND, "{answer:?}");
     assert_eq!(answer.body["error"]["code"], "not_found");
     assert_eq!(answer.body["error"]["message"], message);
 }
 
-fn ids(page: &Answer) -> BTreeSet<String> {
+pub(super) fn ids(page: &Answer) -> BTreeSet<String> {
     assert_eq!(page.status, StatusCode::OK, "{page:?}");
     page.body["items"]
         .as_array()
@@ -756,6 +810,82 @@ async fn calls(
         command: None,
     };
     let workflow = fixture.deploy.id;
+    let organisation = fixture.project.organisation_id;
+    match (endpoint.method.as_str(), endpoint.path.as_str()) {
+        ("GET", "/api/v1/teams" | "/api/v1/roles" | "/api/v1/role-bindings") => {
+            return vec![call(
+                format!("{}?organisation=globalart", endpoint.path),
+                None,
+            )];
+        }
+        ("DELETE", "/api/v1/users/{user}") => {
+            let (user, _) = site.user(&format!("deleted-{name}")).await;
+            return vec![call(format!("/api/v1/users/{user}"), None)];
+        }
+        ("DELETE", "/api/v1/teams/{team}") => {
+            let team = site.team(organisation, &format!("gone-{name}")).await;
+            return vec![call(format!("/api/v1/teams/{team}"), None)];
+        }
+        ("POST", "/api/v1/teams/{team}/members") => {
+            let login = format!("member-{name}");
+            site.user(&login).await;
+            return vec![call(
+                format!("/api/v1/teams/{}/members", fixture.team),
+                Some(json!({ "user": login })),
+            )];
+        }
+        ("DELETE", "/api/v1/teams/{team}/members/{user}") => {
+            let (user, _) = site.user(&format!("leaver-{name}")).await;
+            join(site, fixture.team, user).await;
+            return vec![call(
+                format!("/api/v1/teams/{}/members/{user}", fixture.team),
+                None,
+            )];
+        }
+        ("PATCH", "/api/v1/roles/{role}") => {
+            let role = site
+                .custom_role(organisation, &format!("patched-{name}"))
+                .await;
+            return vec![call(
+                format!("/api/v1/roles/{role}"),
+                Some(json!({ "permissions": ["project.view", "run.cancel"] })),
+            )];
+        }
+        ("DELETE", "/api/v1/roles/{role}") => {
+            let role = site
+                .custom_role(organisation, &format!("deleted-{name}"))
+                .await;
+            return vec![call(format!("/api/v1/roles/{role}"), None)];
+        }
+        ("DELETE", "/api/v1/role-bindings/{binding}") => {
+            let (user, _) = site.user(&format!("unbound-{name}")).await;
+            let role_id = bosun_db::roles::builtin(site.db(), "viewer")
+                .await
+                .expect("a role")
+                .expect("the role viewer");
+            let binding = bosun_db::roles::bind(
+                site.db(),
+                NewBinding {
+                    role_id,
+                    subject: Subject::User(user),
+                    organisation_id: organisation,
+                    project_id: None,
+                },
+            )
+            .await
+            .expect("a binding");
+            return vec![call(format!("/api/v1/role-bindings/{}", binding.id), None)];
+        }
+        ("DELETE", "/api/v1/tokens/{token}") => {
+            let user = bosun_db::users::find_by_login(site.db(), login)
+                .await
+                .expect("a lookup")
+                .expect("the user of the session");
+            let token = site.personal_token(user.id).await;
+            return vec![call(format!("/api/v1/tokens/{token}"), None)];
+        }
+        _ => {}
+    }
     let path = match endpoint.path.as_str() {
         "/api/v1/runs/{run}/commands" => {
             let mut calls = Vec::new();
@@ -785,7 +915,8 @@ async fn calls(
             .replace("{attempt}", "1")
             .replace("{job}", &fixture.job.to_string())
             .replace("{execution}", &fixture.execution.to_string())
-            .replace("{step}", &fixture.step.to_string()),
+            .replace("{step}", &fixture.step.to_string())
+            .replace("{team}", &fixture.team.to_string()),
     };
     let body = match (endpoint.method.as_str(), endpoint.path.as_str()) {
         ("GET", _) => None,
@@ -838,6 +969,40 @@ async fn calls(
             "pool": "default",
             "capability": null,
             "image": null
+        })),
+        ("POST", "/api/v1/users") => Some(json!({
+            "login": format!("user-{name}"),
+            "name": "A user",
+            "email": format!("user-{name}@example.org"),
+            "password": PASSWORD
+        })),
+        ("POST", "/api/v1/teams") => Some(json!({
+            "organisation": "globalart",
+            "slug": format!("team-{name}"),
+            "name": "A team"
+        })),
+        ("POST", "/api/v1/roles") => Some(json!({
+            "organisation": "globalart",
+            "name": format!("role-{name}"),
+            "permissions": ["project.view"]
+        })),
+        ("POST", "/api/v1/role-bindings") => {
+            let login = format!("bound-{name}");
+            site.user(&login).await;
+            Some(json!({
+                "role": "viewer",
+                "user": login,
+                "team": null,
+                "organisation": "globalart",
+                "project": null
+            }))
+        }
+        ("POST", "/api/v1/tokens") => Some(json!({
+            "name": format!("cli-{name}"),
+            "permissions": ["project.view"],
+            "organisations": [],
+            "projects": [],
+            "expires_at": Utc::now() + TimeDelta::days(1)
         })),
         ("POST", "/api/v1/agents/register") => Some(json!({
             "token": site.registration_token().await,
@@ -895,7 +1060,8 @@ async fn a_team_binding_gives_its_members_the_role_until_they_leave_the_team() {
     let deploy = site.workflow(project.id, "deploy").await;
     let team = bosun_db::teams::create(site.db(), project.organisation_id, "platform", "Platform")
         .await
-        .expect("a team");
+        .expect("a team")
+        .id;
     site.bind(
         "developer",
         Subject::Team(team),
@@ -1173,7 +1339,8 @@ async fn me_lists_the_permissions_in_the_shape_of_the_fixture() {
         .await;
     let team = bosun_db::teams::create(db, organisation, "platform", "Platform")
         .await
-        .expect("a team");
+        .expect("a team")
+        .id;
     join(&site, team, dana).await;
     site.bind("maintainer", Subject::Team(team), organisation, Some(ops))
         .await;
@@ -1184,7 +1351,8 @@ async fn me_lists_the_permissions_in_the_shape_of_the_fixture() {
         &BTreeSet::from([Permission::RunCancel, Permission::RunDispatch]),
     )
     .await
-    .expect("a custom role");
+    .expect("a custom role")
+    .id;
     bosun_db::roles::bind(
         db,
         NewBinding {

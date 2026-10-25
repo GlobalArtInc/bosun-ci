@@ -61,7 +61,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 
 | Area | Tables |
 |------|--------|
-| identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `session`, `sign_in_failure` |
+| identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `api_token_scope`, `session`, `sign_in_failure` |
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `forge_repository`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
 | runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
@@ -171,7 +171,8 @@ A row that another row owns references its owner with `ON DELETE CASCADE`: a pro
 organisation, a workflow its project, a revision its workflow, a run its project and its workflow,
 an attempt its run, a job its attempt, an execution its job, a step its execution, a journal event
 its run, a log chunk its execution, a log object its step, a control message its execution, a
-personal token its user, a registration token its pool, an entry of an access list its pool and
+personal token its user, an entry of a token's restriction its token and the organisation and
+project it names, a registration token its pool, an entry of an access list its pool and
 the organisation and project it names, and a label alias its organisation. Deleting a run under `run_retention`
 therefore removes everything it owns in one statement. The other references inside one run (the
 attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a

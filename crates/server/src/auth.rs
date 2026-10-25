@@ -3,10 +3,12 @@ use axum::http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
 use axum::http::{HeaderMap, HeaderValue, Method};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use bosun_db::tokens::Carried;
 use bosun_types::actor::Actor;
 use bosun_types::api::{Permissions, User};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::{SessionId, TokenId};
+use chrono::{DateTime, Utc};
 use tracing::{error, warn};
 
 use crate::envelope::ApiError;
@@ -30,18 +32,26 @@ struct Identity {
     user: User,
     credential: Credential,
     password_change_required: bool,
+    carried: Option<Carried>,
 }
 
 #[derive(Clone)]
 pub(crate) enum Credential {
-    Token(TokenId),
-    Session { id: SessionId, csrf: String },
+    Token {
+        id: TokenId,
+        expires_at: DateTime<Utc>,
+        restricted: bool,
+    },
+    Session {
+        id: SessionId,
+        csrf: String,
+    },
 }
 
 impl Principal {
     pub(crate) fn actor(&self) -> Actor {
         match &self.credential {
-            Credential::Token(id) => Actor::Token {
+            Credential::Token { id, .. } => Actor::Token {
                 id: *id,
                 user_id: self.user.id,
                 login: self.user.login.clone(),
@@ -55,14 +65,14 @@ impl Principal {
 
     pub(crate) fn session(&self) -> Option<SessionId> {
         match &self.credential {
-            Credential::Token(_) => None,
+            Credential::Token { .. } => None,
             Credential::Session { id, .. } => Some(*id),
         }
     }
 
     pub(crate) fn csrf_token(&self) -> Option<String> {
         match &self.credential {
-            Credential::Token(_) => None,
+            Credential::Token { .. } => None,
             Credential::Session { csrf, .. } => Some(csrf.clone()),
         }
     }
@@ -129,7 +139,8 @@ async fn guard(
         ))
         .into_response();
     }
-    let permissions = match access::load(&state.db, &identity.user).await {
+    let permissions = match access::load(&state.db, &identity.user, identity.carried.as_ref()).await
+    {
         Ok(permissions) => permissions,
         Err(failure) => {
             error!(error = %failure, login = %identity.user.login, "the permissions of a user could not be read");
@@ -187,8 +198,13 @@ async fn bearer_identity(state: &AppState, header: &HeaderValue) -> Result<Ident
     }
     Ok(Identity {
         user: found.user,
-        credential: Credential::Token(found.id),
+        credential: Credential::Token {
+            id: found.id,
+            expires_at: found.expires_at,
+            restricted: found.carried.scopes.is_some(),
+        },
         password_change_required: found.password_change_required,
+        carried: Some(found.carried),
     })
 }
 
@@ -248,6 +264,7 @@ async fn session_identity(
         user: found.user,
         credential: Credential::Session { id: found.id, csrf },
         password_change_required: found.password_change_required,
+        carried: None,
     })
 }
 

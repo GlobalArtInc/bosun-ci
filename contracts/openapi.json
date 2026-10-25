@@ -146,6 +146,17 @@
           }
         ]
       },
+      "AddMemberRequest": {
+        "properties": {
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "type": "object"
+      },
       "Agent": {
         "properties": {
           "capabilities": {
@@ -223,6 +234,54 @@
         },
         "required": [
           "number"
+        ],
+        "type": "object"
+      },
+      "BoundRole": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "BoundTeam": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug"
+        ],
+        "type": "object"
+      },
+      "BoundUser": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "login"
         ],
         "type": "object"
       },
@@ -339,6 +398,43 @@
         ],
         "type": "object"
       },
+      "CreatePersonalTokenRequest": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "type": "array"
+          },
+          "projects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "permissions",
+          "organisations",
+          "projects",
+          "expires_at"
+        ],
+        "type": "object"
+      },
       "CreatePoolRequest": {
         "properties": {
           "access": {
@@ -381,6 +477,106 @@
           "slug",
           "name",
           "repository"
+        ],
+        "type": "object"
+      },
+      "CreateRoleBindingRequest": {
+        "properties": {
+          "organisation": {
+            "type": "string"
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "role",
+          "user",
+          "team",
+          "organisation",
+          "project"
+        ],
+        "type": "object"
+      },
+      "CreateRoleRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "organisation": {
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "organisation",
+          "name",
+          "permissions"
+        ],
+        "type": "object"
+      },
+      "CreateTeamRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "organisation": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "organisation",
+          "slug",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CreateUserRequest": {
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "login",
+          "name",
+          "email",
+          "password"
         ],
         "type": "object"
       },
@@ -1139,6 +1335,22 @@
         ],
         "type": "object"
       },
+      "OrganisationRef": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug"
+        ],
+        "type": "object"
+      },
       "Page": {
         "properties": {
           "items": {
@@ -1251,6 +1463,130 @@
         ],
         "type": "object"
       },
+      "PersonalToken": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisations": {
+            "items": {
+              "$ref": "#/components/schemas/OrganisationRef"
+            },
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "type": "array"
+          },
+          "restricted": {
+            "type": "boolean"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "permissions",
+          "restricted",
+          "organisations",
+          "projects",
+          "created_at",
+          "expires_at",
+          "revoked_at"
+        ],
+        "type": "object"
+      },
+      "PersonalTokenCreated": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisations": {
+            "items": {
+              "$ref": "#/components/schemas/OrganisationRef"
+            },
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "type": "array"
+          },
+          "restricted": {
+            "type": "boolean"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "permissions",
+          "restricted",
+          "organisations",
+          "projects",
+          "created_at",
+          "expires_at",
+          "revoked_at",
+          "token"
+        ],
+        "type": "object"
+      },
       "Pool": {
         "properties": {
           "access": {
@@ -1287,13 +1623,13 @@
           },
           "organisations": {
             "items": {
-              "$ref": "#/components/schemas/PoolOrganisation"
+              "$ref": "#/components/schemas/OrganisationRef"
             },
             "type": "array"
           },
           "projects": {
             "items": {
-              "$ref": "#/components/schemas/PoolProject"
+              "$ref": "#/components/schemas/ProjectRef"
             },
             "type": "array"
           }
@@ -1327,43 +1663,6 @@
           "all_projects",
           "organisations",
           "projects"
-        ],
-        "type": "object"
-      },
-      "PoolOrganisation": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "slug": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "slug"
-        ],
-        "type": "object"
-      },
-      "PoolProject": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "organisation_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "organisation_id",
-          "path"
         ],
         "type": "object"
       },
@@ -1405,6 +1704,27 @@
           "name",
           "repository",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ProjectRef": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organisation_id",
+          "path"
         ],
         "type": "object"
       },
@@ -1628,6 +1948,102 @@
           "workflow_id",
           "sha256",
           "source",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "Role": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "id",
+          "organisation_id",
+          "name",
+          "permissions",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "RoleBinding": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/BoundRole"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundTeam"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundUser"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "user",
+          "team",
+          "organisation_id",
+          "project",
           "created_at"
         ],
         "type": "object"
@@ -2389,6 +2805,36 @@
           "attempt",
           "job",
           "step"
+        ],
+        "type": "object"
+      },
+      "Team": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organisation_id",
+          "slug",
+          "name",
+          "created_at"
         ],
         "type": "object"
       },
@@ -3779,6 +4225,342 @@
         }
       }
     },
+    "/api/v1/role-bindings": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "description": "the `organisation`, by id or slug, whose items the list holds; the list needs it",
+            "in": "query",
+            "name": "organisation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/RoleBinding"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleBindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleBinding"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/role-bindings/{binding}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the role binding's id",
+            "in": "path",
+            "name": "binding",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "description": "the `organisation`, by id or slug, whose items the list holds; the list needs it",
+            "in": "query",
+            "name": "organisation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Role"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Role"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/roles/{role}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the role's id",
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "description": "the role's id",
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "the fields to change, each with its new value",
+                "minProperties": 1,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "permissions": {
+                    "items": {
+                      "$ref": "#/components/schemas/Permission"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Role"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
     "/api/v1/runs": {
       "get": {
         "parameters": [
@@ -3979,6 +4761,548 @@
             "run.cancel": "run.cancel"
           },
           "on": "project"
+        }
+      }
+    },
+    "/api/v1/teams": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "description": "the `organisation`, by id or slug, whose items the list holds; the list needs it",
+            "in": "query",
+            "name": "organisation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Team"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTeamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/teams/{team}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the team's id",
+            "in": "path",
+            "name": "team",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/teams/{team}/members": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the team's id",
+            "in": "path",
+            "name": "team",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/User"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "description": "the team's id",
+            "in": "path",
+            "name": "team",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/teams/{team}/members/{user}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the team's id",
+            "in": "path",
+            "name": "team",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "the user's id",
+            "in": "path",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "organisation"
+        }
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/PersonalToken"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "on": "authenticated"
+        }
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePersonalTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalTokenCreated"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "on": "authenticated"
+        }
+      }
+    },
+    "/api/v1/tokens/{token}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the personal token's id",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "on": "authenticated"
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/User"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "installation"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "installation"
+        }
+      }
+    },
+    "/api/v1/users/{user}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the user's id",
+            "in": "path",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "organisation.manage",
+          "on": "installation"
         }
       }
     },

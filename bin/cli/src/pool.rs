@@ -11,7 +11,8 @@ use crate::Context;
 use crate::client::Failure;
 use crate::output::{self, name};
 
-const DURATION_RULE: &str = "a duration is a whole number followed by m, h or d, such as 12h";
+pub(crate) const DURATION_RULE: &str =
+    "a duration is a whole number followed by m, h or d, such as 12h";
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
@@ -198,7 +199,7 @@ fn install_command(server: &str, token: &str) -> String {
     format!("curl -fsSL {server}/install-agent.sh | sudo sh -s -- --token {token}")
 }
 
-fn lifetime(text: &str) -> Option<TimeDelta> {
+pub(crate) fn lifetime(text: &str) -> Option<TimeDelta> {
     let split = text
         .find(|character: char| !character.is_ascii_digit())
         .filter(|split| *split > 0)?;

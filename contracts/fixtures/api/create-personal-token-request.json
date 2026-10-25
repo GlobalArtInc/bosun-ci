@@ -1,0 +1,12 @@
+{
+  "name": "ci",
+  "permissions": [
+    "project.view",
+    "run.dispatch"
+  ],
+  "organisations": [],
+  "projects": [
+    "globalart/keel"
+  ],
+  "expires_at": "2027-04-24T18:34:50Z"
+}

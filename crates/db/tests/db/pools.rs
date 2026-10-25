@@ -3,7 +3,7 @@ use bosun_db::aliases::{self, NewAlias};
 use bosun_db::entity::pool;
 use bosun_db::pools::{self, Access, NewPool, Placement};
 use bosun_testkit::TestDatabase;
-use bosun_types::api::{Capability, PoolAccess, PoolOrganisation, PoolProject, TrustLevel};
+use bosun_types::api::{Capability, OrganisationRef, PoolAccess, ProjectRef, TrustLevel};
 use bosun_types::id::PoolId;
 use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait};
 
@@ -60,11 +60,11 @@ async fn a_pool_keeps_its_access_list_and_its_name_is_taken_once() {
         created.access,
         PoolAccess {
             all_projects: false,
-            organisations: vec![PoolOrganisation {
+            organisations: vec![OrganisationRef {
                 id: globalart.id,
                 slug: "globalart".to_owned(),
             }],
-            projects: vec![PoolProject {
+            projects: vec![ProjectRef {
                 id: keel.id,
                 organisation_id: ownlate.id,
                 path: "ownlate/keel".to_owned(),

@@ -1,8 +1,8 @@
 use bosun_db::entity::{
-    agent, api_token, attempt, control_message, execution, forge_installation, forge_repository,
-    idempotency_key, job, label_alias, log_chunk, log_object, organisation, pool_access, project,
-    registration_token, role, role_binding, run, run_event, session, sign_in_failure, step, team,
-    team_member, user, webhook_delivery, workflow, workflow_revision,
+    agent, api_token, api_token_scope, attempt, control_message, execution, forge_installation,
+    forge_repository, idempotency_key, job, label_alias, log_chunk, log_object, organisation,
+    pool_access, project, registration_token, role, role_binding, run, run_event, session,
+    sign_in_failure, step, team, team_member, user, webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -36,6 +36,7 @@ pub const BINDING: u8 = 0x15;
 pub const ACCESS: u8 = 0x16;
 pub const ALIAS: u8 = 0x17;
 pub const DELIVERY: u8 = 0x18;
+pub const SCOPE: u8 = 0x19;
 
 pub const INSTALLATION: i64 = 52_814_339;
 pub const REPOSITORY: i64 = 871_264_503;
@@ -60,6 +61,7 @@ pub struct Rows {
     pub project: project::Model,
     pub user: user::Model,
     pub api_token: api_token::Model,
+    pub api_token_scope: api_token_scope::Model,
     pub workflow: workflow::Model,
     pub workflow_revision: workflow_revision::Model,
     pub run: run::Model,
@@ -174,11 +176,24 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         sha256: ActiveValue::Set(vec![0x11; 32]),
         expires_at: ActiveValue::Set(at("2027-10-24T18:34:50.078Z")),
         revoked_at: ActiveValue::Set(None),
+        permissions: ActiveValue::Set(Some(vec!["project.view".to_owned()])),
+        restricted: ActiveValue::Set(true),
         ..Default::default()
     }
     .insert(db)
     .await
     .expect("a personal token");
+
+    let api_token_scope = api_token_scope::ActiveModel {
+        id: ActiveValue::Set(id(SCOPE)),
+        token_id: ActiveValue::Set(id(TOKEN)),
+        organisation_id: ActiveValue::Set(id(ORGANISATION)),
+        project_id: ActiveValue::Set(Some(id(PROJECT))),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a scope of a personal token");
 
     let workflow = workflow::ActiveModel {
         id: ActiveValue::Set(id(WORKFLOW)),
@@ -511,6 +526,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         project,
         user,
         api_token,
+        api_token_scope,
         workflow,
         workflow_revision,
         run,
@@ -560,6 +576,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         project: one::<_, project::Entity>(db, id(PROJECT)).await,
         user: one::<_, user::Entity>(db, id(USER)).await,
         api_token: one::<_, api_token::Entity>(db, id(TOKEN)).await,
+        api_token_scope: one::<_, api_token_scope::Entity>(db, id(SCOPE)).await,
         workflow: one::<_, workflow::Entity>(db, id(WORKFLOW)).await,
         workflow_revision: one::<_, workflow_revision::Entity>(db, id(REVISION)).await,
         run: one::<_, run::Entity>(db, id(RUN)).await,

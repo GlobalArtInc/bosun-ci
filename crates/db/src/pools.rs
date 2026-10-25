@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bosun_types::api::{Capability, Pool, PoolAccess, PoolOrganisation, PoolProject, TrustLevel};
+use bosun_types::api::{Capability, OrganisationRef, Pool, PoolAccess, ProjectRef, TrustLevel};
 use bosun_types::id::{OrganisationId, PoolId, ProjectId};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
@@ -218,13 +218,13 @@ async fn decode<C: ConnectionTrait>(db: &C, pools: Vec<pool::Model>) -> Result<V
             let slug: Option<String> = entry.try_get("", "organisation")?;
             match (organisation, project) {
                 (None, _) => list.all_projects = true,
-                (Some(organisation), None) => list.organisations.push(PoolOrganisation {
+                (Some(organisation), None) => list.organisations.push(OrganisationRef {
                     id: row::id(ACCESS, organisation)?,
                     slug: slug.unwrap_or_default(),
                 }),
                 (Some(organisation), Some(project)) => {
                     let name: Option<String> = entry.try_get("", "project")?;
-                    list.projects.push(PoolProject {
+                    list.projects.push(ProjectRef {
                         id: row::id(ACCESS, project)?,
                         organisation_id: row::id(ACCESS, organisation)?,
                         path: format!("{}/{}", slug.unwrap_or_default(), name.unwrap_or_default()),

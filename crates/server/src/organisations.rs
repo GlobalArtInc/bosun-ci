@@ -7,13 +7,22 @@ use bosun_types::id::OrganisationId;
 use sea_orm::{ConnectionTrait, TransactionTrait};
 
 use crate::AppState;
-use crate::access::{Caller, OnInstallation, OnOrganisation, OrganisationManage, ProjectView};
+use crate::access::{Caller, Key, OnInstallation, OnOrganisation, OrganisationManage, ProjectView};
 use crate::envelope::ApiError;
 use crate::idempotency;
 use crate::openapi::Api;
 use crate::reply::Created;
-use crate::request::{Body, Faults, Idempotent, Segment, database};
+use crate::request::{Body, Faults, Filters, Idempotent, Segment, database};
 use crate::slug;
+
+pub(crate) const ORGANISATION: &str = "organisation";
+
+pub(crate) struct InOrganisation;
+
+impl Filters for InOrganisation {
+    const NAMES: &'static [&'static str] = &[ORGANISATION];
+    const REQUIRED: &'static [&'static str] = &[ORGANISATION];
+}
 
 pub(crate) fn routes() -> Api {
     Api::new()
@@ -37,6 +46,36 @@ pub(crate) fn missing(reference: &str) -> String {
     format!("there is no organisation `{reference}`")
 }
 
+pub(crate) async fn named<C: ConnectionTrait, K: Key>(
+    db: &C,
+    caller: &Caller<OnOrganisation<K>>,
+    reference: &str,
+    refusal: &str,
+) -> Result<Organisation, ApiError> {
+    let absent = || {
+        let mut faults = Faults::default();
+        faults.add(ORGANISATION, missing(reference));
+        faults.refuse(refusal)
+    };
+    let organisation = find(db, reference).await?.ok_or_else(absent)?;
+    caller.organisation(&organisation, absent)?;
+    Ok(organisation)
+}
+
+pub(crate) async fn of<C: ConnectionTrait, K: Key>(
+    db: &C,
+    caller: &Caller<OnOrganisation<K>>,
+    id: OrganisationId,
+    absent: impl Fn() -> ApiError,
+) -> Result<Organisation, ApiError> {
+    let organisation = bosun_db::organisations::find(db, id)
+        .await
+        .map_err(database)?
+        .ok_or_else(&absent)?;
+    caller.organisation(&organisation, absent)?;
+    Ok(organisation)
+}
+
 async fn create(
     State(state): State<AppState>,
     caller: Caller<OnInstallation<OrganisationManage>>,
@@ -46,18 +85,13 @@ async fn create(
     let body = body?;
     let request = &body.value;
     let mut faults = Faults::default();
-    if slug::check_slug(&mut faults, "slug", "a slug", &request.slug)
-        && slug::reads_as_id(&request.slug)
-    {
-        faults.add(
-            "slug",
-            format!(
-                "`{}` reads as an id, and an organisation's slug may not, since a path names an \
-                 organisation by either",
-                request.slug
-            ),
-        );
-    }
+    slug::check_unlike_id(
+        &mut faults,
+        "slug",
+        "a slug",
+        &request.slug,
+        "an organisation's slug may not, since a path names an organisation by either",
+    );
     slug::check_name(&mut faults, "name", &request.name);
     faults.finish("the organisation is not valid")?;
 

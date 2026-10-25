@@ -27,12 +27,15 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
 - Lists use cursor pagination: `?limit=` (default 50, at most 500) and `?cursor=` from the previous
   page's `next`, which is `null` on the last page. Filters are query parameters named after fields.
   A limit outside 1 to 500, a malformed cursor, and a query parameter the list does not take are
-  `invalid_input`.
+  `invalid_input`. A list of the items of one organisation (teams, roles, role bindings) requires
+  the filter `organisation`, the organisation's id or slug, and is `invalid_input` naming
+  `organisation` without it.
 - Writes that create something accept an `Idempotency-Key` header; a repeated request with the same
-  key and body returns the first response. The three whose answer holds a secret that is shown
-  once, `POST /registration-tokens`, `POST /agents/register` and `POST /auth/login`, take no key,
-  since keeping their answer would show it again, and neither does `POST /label-aliases`, which
-  sets an alias rather than adds one, so that repeating it changes nothing. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
+  key and body returns the first response. The four whose answer holds a secret that is shown
+  once, `POST /registration-tokens`, `POST /agents/register`, `POST /auth/login` and
+  `POST /tokens`, take no key, since keeping their answer would show it again, and neither do
+  `POST /label-aliases` and `POST /teams/{team}/members`, which set an alias or a membership rather
+  than add one, so that repeating them changes nothing. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
   it. The request it stands for is its method, its path with the query and the bytes of its body;
   the same key with another request within 24 hours is `409 conflict`. The response is kept in the
   transaction of the write, and only when the write created something, so a request that failed can
@@ -140,7 +143,7 @@ fails when the generated document differs from the committed one ([below](#the-o
 | `/agents/register` | POST | agent registration with a `brt_` token |
 | `/environments`, `/secrets`, `/variables` | GET, POST, PUT, DELETE | scoped by `?organisation=` or `?project=`; secrets are write-only |
 | `/plugins`, `/plugin-instances` | GET, POST, PATCH, DELETE | plugins and instances |
-| `/users`, `/teams`, `/roles`, `/role-bindings`, `/tokens` | GET, POST, PATCH, DELETE | identity and access |
+| `/users`, `/teams`, `/teams/{team}/members`, `/roles`, `/role-bindings`, `/tokens` | GET, POST, PATCH, DELETE | identity and access ([below](#identity-and-access)) |
 | `/webhook-subscriptions` | GET, POST, PATCH, DELETE | outgoing webhooks |
 | `/audit` | GET | the audit trail |
 
@@ -198,7 +201,9 @@ Step 9 of M1 ([../plan.md](../plan.md)) settled how the API applies the permissi
 - **`403` or `404`.** A caller who holds no permission at all where an operation is checked gets the
   answer the operation gives for a resource that does not exist: `404 not_found` with the same
   message, or for the organisation named in `POST /projects` the same `invalid_input`, so ids and
-  slugs of other organisations and projects tell nothing. A caller who holds some permission there
+  slugs of other organisations and projects tell nothing; for an organisation named in the query
+  of a list, or in the body of `POST /teams`, `POST /roles` and `POST /role-bindings`, that is
+  `invalid_input` naming `organisation`. A caller who holds some permission there
   but not the one the operation needs gets `403 forbidden`, whose message names the login, the
   permission and the organisation or project, such as `` `dana` does not hold `run.dispatch` on
   project `keel` ``. An operation checked on the installation answers `403` to everyone but owners.
@@ -206,9 +211,13 @@ Step 9 of M1 ([../plan.md](../plan.md)) settled how the API applies the permissi
   on, before it validates the rest of the request, so a caller who may not act learns nothing about
   what the request would need. `POST /projects` reads its body first, because the body names the
   organisation; `POST /runs/{run}/commands` checks that the run is visible before it looks at the
-  body, and the permission of the command after.
-- **Lists** answer `200` to every caller and hold only the items on whose project the caller holds
-  the permission the list declares, `project.view` for every list served so far.
+  body, and the permission of the command after. The lists of teams, roles and role bindings read
+  their query first for the same reason, and so do `POST /teams`, `POST /roles` and
+  `POST /role-bindings` their body.
+- **Lists** declared on `items` answer `200` to every caller and hold only the items on whose
+  project the caller holds the permission the list declares, `project.view` for every such list
+  served so far. A list checked on the installation or on an organisation is refused there like any
+  other operation.
 
 Every operation declares what it needs, and the declaration is its `x-bosun-permission` in
 `contracts/openapi.json` ([The OpenAPI document](#the-openapi-document)), an object whose `on` says
@@ -219,7 +228,7 @@ where it is checked:
 | `{"on": "anyone"}` | the operation takes no credentials |
 | `{"on": "authenticated"}` | any valid credentials; the operation acts on the caller alone |
 | `{"on": "installation", "key": K}` | `K` on the installation, which only owners hold |
-| `{"on": "organisation", "key": K}` | `K` on the organisation the path or the body names |
+| `{"on": "organisation", "key": K}` | `K` on the organisation the path, the query or the body names, or on the organisation of the team, role or role binding the path names |
 | `{"on": "project", "key": K}` | `K` on the project the path names, or the project of the workflow, run, job or execution it names |
 | `{"on": "items", "key": K}` | a list of the items on whose project the caller holds `K` |
 | `{"on": "project", "by_command": {…}}` | the permission of the command in the body, on the run's project; the map gives it for each command the endpoint takes, as the command table of [04-runs.md](04-runs.md#operator-commands) does |
@@ -264,6 +273,25 @@ with the answers each built-in role gets:
 | `POST /pools` | `agent.manage` | `installation` |
 | `GET /label-aliases` | `agent.manage` | `installation` |
 | `POST /label-aliases` | `agent.manage` | `installation` |
+| `GET /users` | `organisation.manage` | `installation` |
+| `POST /users` | `organisation.manage` | `installation` |
+| `DELETE /users/{user}` | `organisation.manage` | `installation` |
+| `GET /teams` | `organisation.manage` | `organisation` |
+| `POST /teams` | `organisation.manage` | `organisation` |
+| `DELETE /teams/{team}` | `organisation.manage` | `organisation` |
+| `GET /teams/{team}/members` | `organisation.manage` | `organisation` |
+| `POST /teams/{team}/members` | `organisation.manage` | `organisation` |
+| `DELETE /teams/{team}/members/{user}` | `organisation.manage` | `organisation` |
+| `GET /roles` | `organisation.manage` | `organisation` |
+| `POST /roles` | `organisation.manage` | `organisation` |
+| `PATCH /roles/{role}` | `organisation.manage` | `organisation` |
+| `DELETE /roles/{role}` | `organisation.manage` | `organisation` |
+| `GET /role-bindings` | `organisation.manage` | `organisation` |
+| `POST /role-bindings` | `organisation.manage` | `organisation` |
+| `DELETE /role-bindings/{binding}` | `organisation.manage` | `organisation` |
+| `GET /tokens` | — | `authenticated` |
+| `POST /tokens` | — | `authenticated` |
+| `DELETE /tokens/{token}` | — | `authenticated` |
 
 A step that adds an endpoint adds its row here.
 
@@ -418,6 +446,81 @@ Step 18 of M1 ([../plan.md](../plan.md)) settled these endpoints; what pools and
 - All four are checked on the installation, an organisation's aliases too: an alias sends jobs to a
   pool, and pools belong to the installation ([08-access.md](08-access.md#roles-and-bindings)).
 
+### Identity and access
+
+Step 10 of M1 ([../plan.md](../plan.md)) settled these endpoints; who manages what, and what a
+token holds, is in [08-access.md](08-access.md#users-teams-roles-and-tokens).
+
+- **Users.** `GET /users` lists the users oldest first, as a cursor page without filters, each in the
+  shape of `user` in `GET /me`. `POST /users` takes `login`, `name`, `email` and `password`, and
+  answers `201` with the user, who is not an owner and must change the password at the first
+  sign-in. A login, a name or a password that breaks its rule ([08-access.md](08-access.md)), and an
+  email address that is not one (up to 254 characters without white space or control characters,
+  with one `@` between a local part and a domain), are `invalid_input` naming the field; a login
+  that is taken is `409 conflict`. `DELETE /users/{user}` deletes the user and answers `204`; the
+  caller's own id is `409 invalid_state`. All three are checked on the installation.
+- **Teams.** A team is `{"id", "organisation_id", "slug", "name", "created_at"}`. `GET /teams`
+  lists the teams of the organisation `organisation` names, oldest first. `POST /teams` takes
+  `organisation`, `slug` and `name`, and answers `201` with the team; a slug that breaks the rule of
+  slugs or reads as an id, and a name that breaks the rule of names, are `invalid_input` naming the
+  field, and a slug that the organisation has already is `409 conflict`. `DELETE /teams/{team}`
+  deletes the team with its memberships and bindings, and answers `204`.
+- **Members.** `GET /teams/{team}/members` lists the members of the team as users, in the order the
+  users were created.
+  `POST /teams/{team}/members` takes `user`, an id or a login, and answers `201` with the user when
+  it added them and `200` when they were a member already; a user who does not exist is
+  `invalid_input` naming `user`. `DELETE /teams/{team}/members/{user}` takes the user's id and
+  answers `204`, or `404 not_found` with ``there is no member `<user>` in team `<team>` `` when the
+  user is not a member.
+- **Roles.** A role is `{"id", "organisation_id", "name", "permissions", "created_at"}`, where
+  `organisation_id` is `null` for a built-in role and `permissions` is ordered as the permission
+  table of [08-access.md](08-access.md#permissions-and-roles). `GET /roles` lists the built-in roles
+  and the custom roles of the organisation `organisation` names, oldest first, so the built-in roles
+  come first. `POST /roles` takes `organisation`, `name` and `permissions`, and answers `201` with
+  the role. `PATCH /roles/{role}` takes `name`, `permissions` or both, in the way of a change of the
+  project settings ([Project settings](#project-settings)) but without a version, each replacing
+  what the role had, and answers `200` with the role; the change reaches the role's bindings at
+  their next request. `DELETE /roles/{role}` deletes the role with its bindings and answers `204`.
+  A key that is not a permission key is `invalid_input` naming `permissions.<n>`, a name that
+  breaks the rule of slugs or reads as an id is `invalid_input` naming `name`, and a name that the
+  organisation has already, or that a built-in role has, is `409 conflict`. A built-in role answers
+  `PATCH` and `DELETE` with `409 invalid_state` to every caller, since the built-in roles are the
+  same in every installation.
+- **Role bindings.** A binding is `{"id", "role", "user", "team", "organisation_id", "project",
+  "created_at"}`: the role as `{"id", "name"}`; the user as `{"id", "login"}` or the team as
+  `{"id", "slug"}`, the other being `null`; and the project as `{"id", "organisation_id", "path"}`,
+  or `null` for a binding on the organisation. `GET /role-bindings` lists the bindings of the
+  organisation `organisation` names, on it and on its projects, oldest first.
+  `POST /role-bindings` takes `role` (an id or a name), `user` (an id or a login) or `team` (an id
+  or a slug), `organisation` (an id or a slug) and `project` (an id, `<organisation>/<project>`, or
+  `null`), and answers `201` with the binding. A role that is neither built in nor a custom role of
+  the organisation, a team or a project of another organisation, a user who does not exist, and a
+  request that names both a user and a team or neither, are `invalid_input` naming the field; the
+  same binding again is `409 conflict`. `DELETE /role-bindings/{binding}` deletes the binding and
+  answers `204`.
+- A team, a role or a binding named by its id in the path is checked on its organisation: one that
+  does not exist, or belongs to an organisation where the caller holds nothing, is `404 not_found`
+  with ``there is no team `<id>` `` (or `role`, `role binding`).
+- **Personal tokens.** A token is `{"id", "name", "permissions", "restricted", "organisations",
+  "projects", "created_at", "expires_at", "revoked_at"}`: the keys it carries, ordered as the
+  permission table, whether it is restricted, and the organisations (each `{"id", "slug"}`) and
+  projects (each `{"id", "organisation_id", "path"}`) it is restricted to. `restricted` stays
+  `true` when those were all deleted, and a token that the server made for an owner lists every
+  key. `GET /tokens` lists the caller's own tokens oldest first, revoked and expired ones included.
+  `POST /tokens` takes `name`, `permissions`, `organisations` (ids or slugs), `projects` (ids or
+  `<organisation>/<project>`) and `expires_at`, and answers `201` with the token and, in `token`,
+  its `bst_` text, which is shown only this once; empty `organisations` and `projects` make a token
+  that is not restricted. Each of these is `invalid_input` naming the field: a name that breaks the
+  rule of names; no permission (`permissions`); a key that is not a permission key, or one that the
+  caller does not hold anywhere the token would reach (`permissions.<n>`); an organisation or a
+  project that does not exist or where the caller holds nothing (`organisations.<n>`,
+  `projects.<n>`); an expiry that has passed or lies more than 365 days ahead (`expires_at`). A
+  request that a token authenticates is also refused for a token that would not be restricted
+  while the requesting token is (`organisations`), and for an expiry after the requesting token's
+  (`expires_at`). `DELETE /tokens/{token}` revokes one of the caller's tokens and answers `204`,
+  also when it was revoked already; a token of another user is `404 not_found`. All three act on
+  the caller alone, so they are declared `authenticated`.
+
 ### Logs
 
 - `GET /executions/{execution}/steps/{step}/log` serves the log of one step
@@ -464,14 +567,16 @@ cover exactly the extractors and responses its handlers use.
 
 How the document follows the handlers:
 
-- Routes under `/api/v1` are registered through `Api` (`get`, `post`, `put`), which routes the
+- Routes under `/api/v1` are registered through `Api` (`get`, `post`, `put`, `patch`,
+  `delete`), which routes the
   handler and records its operation in one call. The operation is derived from the handler's
   signature, at compile time, through two traits: each argument contributes what it reads, and the
   return type the responses. `Body<T>` is a JSON body of `T`; `Idempotent<T>` is that body and the
   `Idempotency-Key` header; `Listing<F>` is `limit`, `cursor` and the filters of `F`; the query of
   a log and the agent list have their own extractors. `Json<T>` answers `200` with `T`,
-  `Created<T>` `201`, `Saved<T>` `201` or `200`, `Tagged<T>` `200` with `ETag`, and `ApiError` the
-  error envelope. `Changes<T>` is a body that changes a document of `T`: its schema has the
+  `Created<T>` `201`, `Saved<T>` `201` or `200`, `Tagged<T>` `200` with `ETag`, `Removed` `204`
+  without a body, and `ApiError` the error envelope. A filter that `F` requires is a required query
+  parameter. `Changes<T>` is a body that changes a document of `T`: its schema has the
   properties of `T`, inline, none of them required, no others and at least one. A handler that
   reads a raw query, header map or body, or returns an untyped response, has no operation, and so
   cannot be registered.
@@ -589,7 +694,7 @@ bosun alias set <label> [--pool <p>] [--capability <c>] [--image <i>] [--organis
 bosun secret set <name> [--project <p> | --organisation <o> | --environment <e>] < value
 bosun var set <name> <value> [scope]
 bosun plugin install <oci-ref> | list | instance create <plugin> --name <n> --config <file>
-bosun token create --name <n> --scope <perm>... --expires <d>
+bosun token create --name <n> --scope <perm>... --expires <d> [--organisation <o>]... [--project <p>]...
 ```
 
 What M0 settles of these commands:
@@ -638,6 +743,12 @@ What M1 settles of these commands:
 - `bosun alias set <label>` sets the alias of the label for the installation, or for the
   organisation `--organisation` names, to the pool, the capability (`shell` or `podman`) and the
   image its options give, replacing what the label had in that scope, and prints the alias.
+- `bosun token create` creates a personal token of the profile's user that carries the permission
+  keys `--scope` names, each as often as needed, restricted to the organisations and projects that
+  `--organisation` and `--project` name, if any, and that expires after `--expires`, a whole number
+  of minutes, hours or days as for `bosun pool token create`, which the command requires. It prints
+  the token alone on standard output and, on standard error, a line that names its keys, where it
+  reaches and its expiry, and says that it is shown only once; `--json` prints the created token.
 - `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
   and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
   `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the

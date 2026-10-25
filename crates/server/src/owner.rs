@@ -14,7 +14,8 @@ use crate::token::{PERSONAL, Token};
 use crate::{Error, slug};
 
 pub(crate) const LOGIN_RULE: &str = "a login is 1 to 64 lowercase letters, digits, `-`, `_` or \
-                                     `.`, and starts with a letter or a digit";
+                                     `.`, starts with a letter or a digit, and does not read as an \
+                                     id";
 
 const TOKEN_NAME: &str = "bootstrap";
 
@@ -27,7 +28,7 @@ const TOKEN_FILE: &str = "admin.token";
 const PASSWORD_FILE: &str = "admin.password";
 
 pub(crate) fn is_login(text: &str) -> bool {
-    slug::is_slug(text)
+    slug::is_slug(text) && !slug::reads_as_id(text)
 }
 
 pub(crate) async fn create(db: &DatabaseConnection, login: &str) -> Result<String, Error> {
@@ -171,6 +172,7 @@ mod tests {
             "user:roman",
             "rómán",
             &"a".repeat(65),
+            "0192f3a4-5b6c-7d8e-9f01-000000000003",
         ] {
             assert!(!is_login(text), "`{text}` was accepted");
         }

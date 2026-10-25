@@ -1,9 +1,11 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use bosun_db::projects::{Holder, Reach};
+use bosun_db::roles::Grants;
+use bosun_db::tokens::Carried;
 use bosun_types::api::{Organisation, Permissions, Project, User};
 use bosun_types::command::Command;
 use bosun_types::error::ErrorCode;
@@ -291,9 +293,258 @@ impl Caller<ByCommand> {
 pub(crate) async fn load<C: ConnectionTrait>(
     db: &C,
     user: &User,
+    carried: Option<&Carried>,
 ) -> Result<Permissions, bosun_db::Error> {
-    if user.owner {
-        return Ok(Permissions::everything());
+    let (installation, grants) = if user.owner {
+        (Permission::ALL.into_iter().collect(), Grants::default())
+    } else {
+        (BTreeSet::new(), bosun_db::roles::grants(db, user.id).await?)
+    };
+    Ok(effective(installation, grants, carried))
+}
+
+fn effective(
+    installation: BTreeSet<Permission>,
+    grants: Grants,
+    carried: Option<&Carried>,
+) -> Permissions {
+    let carries = carried.and_then(|carried| carried.permissions.as_ref());
+    let keep = |held: BTreeSet<Permission>| -> BTreeSet<Permission> {
+        match carries {
+            Some(keys) => held.intersection(keys).copied().collect(),
+            None => held,
+        }
+    };
+    let Some(scopes) = carried.and_then(|carried| carried.scopes.as_ref()) else {
+        return Permissions {
+            installation: keep(installation),
+            organisations: present(
+                grants
+                    .organisations
+                    .into_iter()
+                    .map(|(organisation, held)| (organisation, keep(held))),
+            ),
+            projects: present(
+                grants
+                    .projects
+                    .into_iter()
+                    .map(|(project, grant)| (project, keep(grant.permissions))),
+            ),
+        };
+    };
+    let on_organisation = |organisation| {
+        let mut held = installation.clone();
+        if let Some(granted) = grants.organisations.get(&organisation) {
+            held.extend(granted);
+        }
+        held
+    };
+    let mut organisations = BTreeMap::new();
+    let mut projects: BTreeMap<_, BTreeSet<Permission>> = BTreeMap::new();
+    for scope in scopes.iter().filter(|scope| scope.project_id.is_none()) {
+        organisations.insert(
+            scope.organisation_id,
+            keep(on_organisation(scope.organisation_id)),
+        );
+        for (project, grant) in &grants.projects {
+            if grant.organisation_id == scope.organisation_id {
+                projects
+                    .entry(*project)
+                    .or_default()
+                    .extend(keep(grant.permissions.clone()));
+            }
+        }
     }
-    bosun_db::roles::permissions(db, user.id).await
+    for scope in scopes {
+        let Some(project) = scope.project_id else {
+            continue;
+        };
+        let mut held = on_organisation(scope.organisation_id);
+        if let Some(grant) = grants.projects.get(&project) {
+            held.extend(&grant.permissions);
+        }
+        projects.entry(project).or_default().extend(keep(held));
+    }
+    Permissions {
+        installation: BTreeSet::new(),
+        organisations: present(organisations),
+        projects: present(projects),
+    }
+}
+
+fn present<K: Ord>(
+    entries: impl IntoIterator<Item = (K, BTreeSet<Permission>)>,
+) -> BTreeMap<K, BTreeSet<Permission>> {
+    entries
+        .into_iter()
+        .filter(|(_, held)| !held.is_empty())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use bosun_db::roles::{Grants, ProjectGrant};
+    use bosun_db::tokens::{Carried, Scope};
+    use bosun_types::api::Permissions;
+    use bosun_types::id::{OrganisationId, ProjectId};
+    use bosun_types::permission::Permission;
+    use sea_orm::prelude::Uuid;
+
+    use super::effective;
+
+    const VIEW: Permission = Permission::ProjectView;
+
+    const DISPATCH: Permission = Permission::RunDispatch;
+
+    const EDIT: Permission = Permission::WorkflowEdit;
+
+    fn uuid(number: u8) -> Uuid {
+        Uuid::from_bytes([
+            0x01, 0x92, 0xf3, 0xa4, 0x5b, 0x6c, 0x7d, 0x8e, 0x9f, 0x01, 0, 0, 0, 0, 0, number,
+        ])
+    }
+
+    fn organisation(number: u8) -> OrganisationId {
+        OrganisationId::try_from(uuid(number)).expect("an id")
+    }
+
+    fn project(number: u8) -> ProjectId {
+        ProjectId::try_from(uuid(number)).expect("an id")
+    }
+
+    fn keys(permissions: &[Permission]) -> BTreeSet<Permission> {
+        permissions.iter().copied().collect()
+    }
+
+    fn grants() -> Grants {
+        Grants {
+            organisations: BTreeMap::from([
+                (organisation(1), keys(&[VIEW])),
+                (organisation(2), keys(&[VIEW, DISPATCH])),
+            ]),
+            projects: BTreeMap::from([(
+                project(11),
+                ProjectGrant {
+                    organisation_id: organisation(1),
+                    permissions: keys(&[VIEW, EDIT]),
+                },
+            )]),
+        }
+    }
+
+    fn carried(permissions: &[Permission], scopes: Option<Vec<Scope>>) -> Carried {
+        Carried {
+            permissions: Some(keys(permissions)),
+            scopes,
+        }
+    }
+
+    fn within(organisation_id: OrganisationId, project_id: Option<ProjectId>) -> Scope {
+        Scope {
+            organisation_id,
+            project_id,
+        }
+    }
+
+    #[test]
+    fn a_session_and_a_token_without_keys_hold_what_the_bindings_give() {
+        let expected = Permissions {
+            installation: BTreeSet::new(),
+            organisations: BTreeMap::from([
+                (organisation(1), keys(&[VIEW])),
+                (organisation(2), keys(&[VIEW, DISPATCH])),
+            ]),
+            projects: BTreeMap::from([(project(11), keys(&[VIEW, EDIT]))]),
+        };
+        assert_eq!(effective(BTreeSet::new(), grants(), None), expected);
+        let everything = Carried {
+            permissions: None,
+            scopes: None,
+        };
+        assert_eq!(
+            effective(BTreeSet::new(), grants(), Some(&everything)),
+            expected
+        );
+    }
+
+    #[test]
+    fn a_token_holds_the_intersection_of_its_keys_and_the_bindings() {
+        assert_eq!(
+            effective(BTreeSet::new(), grants(), Some(&carried(&[EDIT], None))),
+            Permissions {
+                installation: BTreeSet::new(),
+                organisations: BTreeMap::new(),
+                projects: BTreeMap::from([(project(11), keys(&[EDIT]))]),
+            }
+        );
+    }
+
+    #[test]
+    fn a_token_of_an_organisation_reaches_its_projects_and_nothing_else() {
+        let token = carried(
+            &[VIEW, EDIT, DISPATCH],
+            Some(vec![within(organisation(1), None)]),
+        );
+        assert_eq!(
+            effective(BTreeSet::new(), grants(), Some(&token)),
+            Permissions {
+                installation: BTreeSet::new(),
+                organisations: BTreeMap::from([(organisation(1), keys(&[VIEW]))]),
+                projects: BTreeMap::from([(project(11), keys(&[VIEW, EDIT]))]),
+            }
+        );
+    }
+
+    #[test]
+    fn a_token_of_a_project_holds_there_what_its_organisation_gives() {
+        let token = carried(
+            &[VIEW, DISPATCH],
+            Some(vec![within(organisation(2), Some(project(21)))]),
+        );
+        assert_eq!(
+            effective(BTreeSet::new(), grants(), Some(&token)),
+            Permissions {
+                installation: BTreeSet::new(),
+                organisations: BTreeMap::new(),
+                projects: BTreeMap::from([(project(21), keys(&[VIEW, DISPATCH]))]),
+            }
+        );
+    }
+
+    #[test]
+    fn a_restricted_token_of_an_owner_holds_its_keys_only_where_it_reaches() {
+        let owner: BTreeSet<Permission> = Permission::ALL.into_iter().collect();
+        let token = carried(
+            &[Permission::RunCancel],
+            Some(vec![within(organisation(2), Some(project(21)))]),
+        );
+        assert_eq!(
+            effective(owner.clone(), Grants::default(), Some(&token)),
+            Permissions {
+                installation: BTreeSet::new(),
+                organisations: BTreeMap::new(),
+                projects: BTreeMap::from([(project(21), keys(&[Permission::RunCancel]))]),
+            }
+        );
+        assert_eq!(
+            effective(
+                owner,
+                Grants::default(),
+                Some(&carried(&[Permission::AgentManage], None))
+            )
+            .installation,
+            keys(&[Permission::AgentManage])
+        );
+        let nowhere = carried(&[VIEW], Some(Vec::new()));
+        assert_eq!(
+            effective(BTreeSet::new(), grants(), Some(&nowhere)),
+            Permissions {
+                installation: BTreeSet::new(),
+                organisations: BTreeMap::new(),
+                projects: BTreeMap::new(),
+            }
+        );
+    }
 }

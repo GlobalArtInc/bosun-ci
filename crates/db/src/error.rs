@@ -30,6 +30,12 @@ pub enum Error {
     PoolTaken(String),
     #[error("the repository `{0}` is bound to another project")]
     RepositoryBound(String),
+    #[error("the organisation already has a team with the slug `{0}`")]
+    TeamTaken(String),
+    #[error("the organisation already has a role named `{0}`")]
+    RoleTaken(String),
+    #[error("the role is bound there to that user or team already")]
+    BindingTaken,
     #[error("{0} was removed while the request used it")]
     Vanished(String),
     #[error("could not hold the migration lock: {0}")]

@@ -10,7 +10,8 @@ use crate::actor::Actor;
 use crate::diagnostic::Diagnostic;
 use crate::id::{
     AgentId, AttemptId, ExecutionId, JobId, LabelAliasId, OrganisationId, PoolId, ProjectId,
-    RegistrationTokenId, RevisionId, RunId, StepId, UserId, WorkflowId,
+    RegistrationTokenId, RevisionId, RoleBindingId, RoleId, RunId, StepId, TeamId, TokenId, UserId,
+    WorkflowId,
 };
 use crate::key::JobKey;
 use crate::permission::Permission;
@@ -99,14 +100,6 @@ pub struct Permissions {
 }
 
 impl Permissions {
-    pub fn everything() -> Permissions {
-        Permissions {
-            installation: Permission::ALL.into_iter().collect(),
-            organisations: BTreeMap::new(),
-            projects: BTreeMap::new(),
-        }
-    }
-
     pub fn on_organisation(&self, organisation: OrganisationId) -> BTreeSet<Permission> {
         let mut held = self.installation.clone();
         if let Some(granted) = self.organisations.get(&organisation) {
@@ -149,6 +142,127 @@ pub struct SignInMethods {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SignInProvider {
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CreateUserRequest {
+    pub login: String,
+    pub name: String,
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Team {
+    pub id: TeamId,
+    pub organisation_id: OrganisationId,
+    pub slug: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CreateTeamRequest {
+    pub organisation: String,
+    pub slug: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AddMemberRequest {
+    pub user: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Role {
+    pub id: RoleId,
+    pub organisation_id: Option<OrganisationId>,
+    pub name: String,
+    pub permissions: BTreeSet<Permission>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CreateRoleRequest {
+    pub organisation: String,
+    pub name: String,
+    #[schemars(with = "Vec<Permission>")]
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RoleDefinition {
+    pub name: String,
+    #[schemars(with = "Vec<Permission>")]
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RoleBinding {
+    pub id: RoleBindingId,
+    pub role: BoundRole,
+    pub user: Option<BoundUser>,
+    pub team: Option<BoundTeam>,
+    pub organisation_id: OrganisationId,
+    pub project: Option<ProjectRef>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BoundRole {
+    pub id: RoleId,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BoundUser {
+    pub id: UserId,
+    pub login: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BoundTeam {
+    pub id: TeamId,
+    pub slug: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CreateRoleBindingRequest {
+    pub role: String,
+    pub user: Option<String>,
+    pub team: Option<String>,
+    pub organisation: String,
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PersonalToken {
+    pub id: TokenId,
+    pub name: String,
+    pub permissions: BTreeSet<Permission>,
+    pub restricted: bool,
+    pub organisations: Vec<OrganisationRef>,
+    pub projects: Vec<ProjectRef>,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PersonalTokenCreated {
+    #[serde(flatten)]
+    pub personal: PersonalToken,
+    pub token: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CreatePersonalTokenRequest {
+    pub name: String,
+    #[schemars(with = "Vec<Permission>")]
+    pub permissions: Vec<String>,
+    pub organisations: Vec<String>,
+    pub projects: Vec<String>,
+    pub expires_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -432,18 +546,18 @@ pub struct Pool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PoolAccess {
     pub all_projects: bool,
-    pub organisations: Vec<PoolOrganisation>,
-    pub projects: Vec<PoolProject>,
+    pub organisations: Vec<OrganisationRef>,
+    pub projects: Vec<ProjectRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct PoolOrganisation {
+pub struct OrganisationRef {
     pub id: OrganisationId,
     pub slug: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct PoolProject {
+pub struct ProjectRef {
     pub id: ProjectId,
     pub organisation_id: OrganisationId,
     pub path: String,
