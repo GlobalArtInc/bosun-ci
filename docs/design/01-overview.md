@@ -127,7 +127,7 @@ The frontend is built into the server binary, so one artifact carries the whole 
 | `bosun-agent` | agent binary: registration, connection, slot | `bosun-types`, `bosun-runner`, `bosun-proto` |
 | `bosun-cli` | CLI binary `bosun` | `bosun-types`, `bosun-workflow`, `bosun-runner`, `bosun-services`, `bosun-blob` |
 | `bosun-wasm` | WebAssembly bindings of `bosun-workflow` and `bosun-expr`, published as `@globalart/bosun-wasm` (from M4) | `bosun-workflow`, `bosun-expr` |
-| `bosun-testkit` | database per test, server harness, scripted fake agent | anything, dev-only |
+| `bosun-testkit` | database per test, server harness, scripted fake agent, fake forge | anything, dev-only |
 
 Rules that CI enforces with `hack/check-deps.sh`, which reads the graph from `cargo metadata` with
 all features on:

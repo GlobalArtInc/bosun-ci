@@ -13,6 +13,7 @@ repository = "https://github.com/GlobalArtInc/bosun-ci"
 bosun-blob = { path = "crates/blob" }
 bosun-db = { path = "crates/db" }
 bosun-expr = { path = "crates/expr" }
+bosun-forge = { path = "crates/forge" }
 bosun-proto = { path = "crates/proto" }
 bosun-runner = { path = "crates/runner" }
 bosun-server = { path = "crates/server" }
@@ -21,18 +22,23 @@ bosun-types = { path = "crates/types" }
 bosun-workflow = { path = "crates/workflow" }
 
 axum = { version = "0.8", default-features = false }
+base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
 chrono-tz = { version = "0.10", default-features = false }
 clap = { version = "4", features = ["derive"] }
 crc = "3"
+flate2 = "1"
 getrandom = "0.4"
+hmac = "0.12"
 http-body = "1"
 prost = "0.14"
 prost-types = "0.14"
 proptest = { version = "1", default-features = false, features = ["std"] }
 protox = "0.9"
 reqwest = { version = "0.12", default-features = false }
+ring = "0.17"
 rustix = "1.1"
+rustls-pki-types = "1"
 saphyr-parser = "0.2"
 sea-orm = { version = "1.1", default-features = false, features = [
     "macros",
@@ -44,12 +50,15 @@ sea-orm = { version = "1.1", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha1 = "0.10"
 sha2 = "0.10"
 sqlmig = "0.2"
+tar = { version = "0.4", default-features = false }
 tempfile = "3"
 thiserror = "2"
 tokio = "1"
 tokio-stream = { version = "0.1", default-features = false }
+tokio-util = { version = "0.7", default-features = false }
 toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
 tonic = { version = "0.14", default-features = false }
 tonic-prost = "0.14"

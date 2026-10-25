@@ -40,9 +40,97 @@ bot account starts no run unless it is `workflow_dispatch` or `repository_dispat
 events a job causes with its forge token, and the target ignores them for the same reason, to keep a
 workflow from triggering itself.
 
-The forge sits behind a trait in `bosun-forge`: read a file or a directory at a commit, compare two
-commits, list the files of a pull request, mint a token, report a status, create a commit and a
-pull request. A second forge implements the same trait ([13-decisions.md](13-decisions.md)).
+The forge sits behind the trait `Forge` in `bosun-forge`. In M1 it reads a file and a directory at
+a commit with their blob hashes, resolves a ref to a commit, compares two commits and says whether
+the forge truncated the list of changed files, lists the files of a pull request, reads the App's
+own identity (its slug and the account of its bot), mints an installation token for given
+repositories and permissions and revokes a token, creates and updates a check run, creates a commit
+status, and downloads a repository's tarball at a commit. Creating a commit and a pull request join
+it with the editor in M4. A second forge implements the same trait
+([13-decisions.md](13-decisions.md)).
+
+### The GitHub App client
+
+`GitHubApp` speaks the forge's REST API, version `2022-11-28`, at the configured API address:
+`https://api.github.com` for GitHub, an address with a path such as `/api/v3` for an enterprise
+server or the fake below.
+
+- **The App's key.** The private key is read as PEM, in the PKCS#1 form the forge hands out or in
+  PKCS#8; any other key is refused when the client is built. It stays in the memory of the process
+  and only signs. A request that authenticates as the App carries a fresh JWT signed with RS256:
+  `iat` 60 seconds in the past against clock drift, `exp` 9 minutes ahead (the forge refuses more
+  than 10), and `iss` the App's id.
+- **Installation tokens for Bosun's own requests.** A request about a repository carries a token of
+  the repository's installation, minted for the whole installation and kept in memory per
+  installation. A request that finds less than 5 minutes left on it mints a new one, and concurrent
+  requests of one installation wait for the same mint.
+- **Tokens for jobs.** `mint_token` always names the repositories and the permissions, and an empty
+  list of either is refused before any request, because the forge reads an empty list as everything
+  the installation holds. These tokens are not cached; whoever holds one revokes it.
+- **The bot.** The App's bot account is `<slug>[bot]`, read without credentials from
+  `/users/<login>`, since the forge accepts an App's JWT only on the App's own endpoints.
+- **Conditional requests.** Every `GET` remembers the `ETag` of a successful answer, keyed by who
+  asked (the App, an installation, or nobody), the media type and the address, and sends it back as
+  `If-None-Match`. A `304` serves the remembered body, and the forge does not count it against the
+  rate limit. The memory holds the 1024 answers stored last, of at most 1 MiB each; the oldest goes
+  first.
+- **Rate limits.** A `403` or `429` that the forge marks as a rate limit becomes
+  `Error::RateLimited` with the time to wait until: `retry-after` seconds from now when the forge
+  sends it, `x-ratelimit-reset` when `x-ratelimit-remaining` is 0, and one minute for a `429` that
+  says neither. The client does not wait or retry by itself; its callers do, the outbox among them.
+- **Pagination** follows the `next` link of the `Link` header, and only to an address under the
+  API's own origin and path, so a token is never sent anywhere else. A pull request's files are read
+  in pages of 100.
+- **Files and directories.** The contents endpoint inlines a file up to 1 MiB as base64; above that
+  it names the blob without its content, and the client reads the blob by its hash. A directory
+  lists each entry's name, kind (file, directory, symlink or submodule) and hash; the forge lists at
+  most 1000 entries of a directory, far more than a workflow directory holds. A path where nothing
+  is, or where the other kind is, reads as absent.
+- **References** resolve through `commits/<ref>` with the media type `application/vnd.github.sha`,
+  which takes branch and tag names, full refs and commits and peels tags; `404` and `422` mean that
+  no commit has that name.
+- **Comparisons.** The forge lists at most 300 changed files and does not say whether it stopped
+  there, so a comparison with 300 files counts as truncated, one of exactly 300 changes included.
+  What a truncated comparison means for path filters is settled with the planning of pushes
+  ([02-workflows.md](02-workflows.md)).
+- **Tarballs** are requested with the installation token and streamed from wherever the forge
+  redirects, without the `Authorization` header when that is another origin. Transport errors of a
+  download leave out its address, which may carry a short-lived download token.
+- **Reports.** A check run is created with its name, head commit, details address and status, and
+  updated with the same fields. Bosun's conclusions map one to one onto the forge's: `success`,
+  `failure`, `cancelled`, `skipped` and `timed_out`.
+
+### The fake forge
+
+`bosun-testkit` holds `FakeForge`, a local HTTP server on a free port of `127.0.0.1` that tests use
+in place of the forge, since no test reaches the forge or the internet. Its REST API is under
+`/api/v3`, which keeps the root of its address free for serving git and exercises an API address
+with a path. It holds, in memory:
+
+- installations with their permissions; repositories with branches, tags, commits and pull
+  requests between two branches. A commit is the full tree of paths and blob hashes, the hashes
+  being git's own, and a commit to a new branch starts from the default branch;
+- the token endpoints. `/app` and the access token endpoint accept only a JWT that verifies against
+  the public key of the App's fixture key and whose claims keep the forge's limits. A minted token
+  is recorded with its installation, repositories and permissions; a request for a repository or a
+  permission the installation lacks is refused with `422`, as the forge does; `DELETE
+  /installation/token` revokes. Tokens live an hour unless a test shortens it;
+- the repository endpoints the client uses. Each checks that the token is live, covers the
+  repository and holds the permission the endpoint needs (`contents`, `pull_requests`, `checks` or
+  `statuses`), and refuses with the forge's `401`, `404` and `403`;
+- weak `ETag`s and `304` for a matching `If-None-Match`, and a rate limit per installation that a
+  test sets, which counts every answer but a `304` and, once spent, refuses with the forge's `403`
+  and its headers;
+- check runs and commit statuses, recorded for assertions;
+- comparisons cut at 300 files, pull request files in pages of 30 by default and 100 at most with
+  `Link` headers, and tarballs that redirect to a download path and hold the tree under
+  `<owner>-<repo>-<short commit>/`;
+- a sender of webhooks, signed with `X-Hub-Signature-256` under a secret drawn for each fake, with
+  `X-GitHub-Event` and a fresh `X-GitHub-Delivery`. Sending the same webhook twice is a
+  redelivery.
+
+The App's keys for tests are fixtures in `crates/testkit/keys/`: `app.pem`, in PKCS#1, is the
+fake App's key, and `foreign.pem`, in PKCS#8, is a key the fake does not know.
 
 ## The `github` context and the environment
 

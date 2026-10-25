@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod forge;
 
 use std::collections::HashSet;
 use std::future::Future;
