@@ -7,7 +7,7 @@ use bosun_types::ir::{
 };
 
 use crate::Code;
-use crate::lower::{Entry, Fields, Item, Lowering, index, optional, scalar_text};
+use crate::lower::{Entry, Fields, Item, Lowering, Mark, index, optional, scalar_text};
 use crate::pattern;
 use crate::schedule;
 use crate::surface::{
@@ -61,6 +61,13 @@ impl Lowering<'_> {
         } else {
             let mut seen = BTreeSet::new();
             for item in self.strings(entry.value, &entry.path, "`on`")? {
+                if EVENTS.extension(&item.text) {
+                    self.extensions.push(Mark {
+                        span: item.node.span,
+                        path: item.path.clone(),
+                        what: format!("event `{}`", item.text),
+                    });
+                }
                 match EVENTS.find(&item.text) {
                     Known::Now if !seen.insert(item.text.clone()) => {
                         complete = false;
@@ -452,7 +459,7 @@ impl Lowering<'_> {
         })
     }
 
-    fn boolean(&mut self, field: &Entry<'_>, what: &str) -> Option<bool> {
+    pub(crate) fn boolean(&mut self, field: &Entry<'_>, what: &str) -> Option<bool> {
         if let Value::Bool(value) = field.value.value {
             return Some(value);
         }

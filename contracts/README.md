@@ -6,7 +6,15 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/workflows/`: workflow sources, from step 3 of M0. Each one lowers to the IR of the same
   name in `fixtures/ir/`, or produces exactly the diagnostic of the same name in
   `fixtures/diagnostics/`. From step 4 of M1, a source that lowers with a warning has both: its IR,
-  and the warning as its diagnostic.
+  and the warning as its diagnostic. From step 6 of M1, the diagnostic is what
+  `bosun_workflow::lint` returns for the source at the path in the diagnostic's `file`, so a case of
+  a warning that needs a file under `.github/workflows/` names such a path, and every other case
+  `.bosun/workflows/ci.yml`.
+- `fixtures/actions/`: the metadata of actions, from step 6 of M1. Each `<case>.yml` is an
+  `action.yml`, and `<case>.json` holds the `metadata` it lowers to, or `null`, and its
+  `diagnostics`: its warnings, or every diagnostic when one is an error. The cases named after an
+  owner, a repository and a major version are that action's `action.yml` at that version, copied
+  without its comments; the others pin one rule each.
 - `fixtures/steps/`: jobs of `run` steps on the host, from step 12 of M0, each with the conclusion,
   the outcome of every step that starts and the output lines the execution engine must produce.
   They pin the shell rules of the target: the default and the named shells, custom templates,
@@ -25,7 +33,9 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/triggers/`: event matching, from step 5 of M1. Each file is a list of cases, each with a
   `description`, an `on` block written as JSON, an `event` (`name`, `action`, `ref`, `base_ref` and
   `changed_files`, each optional but the name) and whether it `matches`. `bosun-workflow` runs them.
-- `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from M1.
+- `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from step 6 of M1.
+  Every key of the tables of arrivals and of extensions in `docs/design/02-workflows.md` carries
+  its milestone as `x-bosun-from`, and every extension `x-bosun-extension: true`.
 - `openapi.json`: the description of the REST API generated from the handlers, from M1.
 
 A change to a file here is a change of a contract, and its commit message says so.

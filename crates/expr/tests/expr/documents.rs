@@ -88,6 +88,12 @@ fn arrivals() -> BTreeMap<(String, String), String> {
             arrivals.insert((place.clone(), key), row[2].clone());
         }
     }
+    for row in table(&workflows, "| In the metadata | Keys | From |") {
+        let place = row[0].trim_matches('`').to_string();
+        for key in quoted(&row[1]) {
+            arrivals.insert((place.clone(), key), row[2].clone());
+        }
+    }
     for row in table(&workflows, "| Key | Where | Meaning | From |") {
         for key in quoted(&row[0]) {
             let key = key.strip_prefix("on.").unwrap_or(&key);
@@ -104,6 +110,8 @@ fn surface(path: &str) -> (String, String) {
     let parts: Vec<&str> = path.split('.').collect();
     let (place, key) = match parts.as_slice() {
         ["on", event, ..] => ("on", *event),
+        ["inputs", "<input_id>", key] => ("inputs.<input_id>", *key),
+        ["runs", key] => ("runs", *key),
         ["jobs", _, "steps", key, ..] => ("step", *key),
         ["jobs", _, key, ..] => ("job", *key),
         [key, ..] => ("workflow", *key),

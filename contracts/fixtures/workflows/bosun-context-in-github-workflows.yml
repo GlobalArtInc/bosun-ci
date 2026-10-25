@@ -1,0 +1,6 @@
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: echo "Built by ${{ bosun.run_url }}"

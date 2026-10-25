@@ -1,0 +1,5 @@
+name: Lint
+description: Lints in a container
+runs:
+  using: docker
+  image: Dockerfile

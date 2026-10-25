@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "name": "GitHub Script",
+    "description": "Run simple scripts using the GitHub client",
+    "author": "GitHub",
+    "branding": {
+      "icon": "code",
+      "color": "blue"
+    },
+    "inputs": [
+      {
+        "name": "script",
+        "description": "The script to run",
+        "required": true,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "github-token",
+        "description": "The GitHub token used to create an authenticated client",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 13,
+                      "column": 18,
+                      "end_line": 13,
+                      "end_column": 24
+                    }
+                  }
+                },
+                "name": "token",
+                "span": {
+                  "line": 13,
+                  "column": 18,
+                  "end_line": 13,
+                  "end_column": 30
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "debug",
+        "description": "Whether to tell the GitHub client to log details of its requests. true or false. Default is to run in debug mode when the GitHub Actions step debug logging is turned on.",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "compare": {
+                "operator": "==",
+                "left": {
+                  "property": {
+                    "target": {
+                      "context": {
+                        "name": "runner",
+                        "span": {
+                          "line": 17,
+                          "column": 18,
+                          "end_line": 17,
+                          "end_column": 24
+                        }
+                      }
+                    },
+                    "name": "debug",
+                    "span": {
+                      "line": 17,
+                      "column": 18,
+                      "end_line": 17,
+                      "end_column": 30
+                    }
+                  }
+                },
+                "right": {
+                  "string": {
+                    "value": "1",
+                    "span": {
+                      "line": 17,
+                      "column": 34,
+                      "end_line": 17,
+                      "end_column": 37
+                    }
+                  }
+                },
+                "span": {
+                  "line": 17,
+                  "column": 18,
+                  "end_line": 17,
+                  "end_column": 37
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "user-agent",
+        "description": "An optional user-agent string",
+        "required": false,
+        "default": [
+          {
+            "text": "actions/github-script"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "previews",
+        "description": "A comma-separated list of GraphQL API previews to accept",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "result-encoding",
+        "description": "Either \"string\" or \"json\" (default \"json\")—how the result will be encoded",
+        "required": false,
+        "default": [
+          {
+            "text": "json"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "retries",
+        "description": "The number of times to retry a request",
+        "required": false,
+        "default": [
+          {
+            "text": "0"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "retry-exempt-status-codes",
+        "description": "A comma separated list of status codes that will NOT be retried e.g. \"400,500\". No effect unless `retries` is set",
+        "required": false,
+        "default": [
+          {
+            "text": "400,401,403,404,422"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "base-url",
+        "description": "An optional GitHub REST API URL to connect to a different GitHub instance. For example, https://my.github-enterprise-server.com/api/v3",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "result",
+        "description": "The return value of the script, stringified with `JSON.stringify`"
+      }
+    ],
+    "runs": {
+      "node": {
+        "using": "node20",
+        "main": "dist/index.js",
+        "pre": null,
+        "pre_if": null,
+        "post": null,
+        "post_if": null
+      }
+    }
+  },
+  "diagnostics": []
+}

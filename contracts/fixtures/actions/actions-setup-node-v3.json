@@ -1,0 +1,226 @@
+{
+  "metadata": {
+    "name": "Setup Node.js environment",
+    "description": "Setup a Node.js environment by adding problem matchers and optionally downloading and adding it to the PATH.",
+    "author": "GitHub",
+    "branding": null,
+    "inputs": [
+      {
+        "name": "always-auth",
+        "description": "Set always-auth in npmrc.",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "node-version",
+        "description": "Version Spec of the version to use. Examples: 12.x, 10.15.1, >=10.15.0.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "node-version-file",
+        "description": "File containing the version Spec of the version to use.  Examples: .nvmrc, .node-version, .tool-versions.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "architecture",
+        "description": "Target architecture for Node to use. Examples: x86, x64. Will use system architecture by default.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "check-latest",
+        "description": "Set this option if you want the action to check for the latest available version that satisfies the version spec.",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "registry-url",
+        "description": "Optional registry to set up for auth. Will set the registry in a project level .npmrc and .yarnrc file, and set up auth to read in from env.NODE_AUTH_TOKEN.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "scope",
+        "description": "Optional scope for authenticating against scoped registries. Will fall back to the repository owner when using the GitHub Packages registry (https://npm.pkg.github.com/).",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "token",
+        "description": "Used to pull node distributions from node-versions. Since there's a default, this is typically not supplied by the user. When running this action on github.com, the default value is sufficient. When running on GHES, you can pass a personal access token for github.com if you are experiencing rate limiting.",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "or": {
+                "operands": [
+                  {
+                    "and": {
+                      "operands": [
+                        {
+                          "compare": {
+                            "operator": "==",
+                            "left": {
+                              "property": {
+                                "target": {
+                                  "context": {
+                                    "name": "github",
+                                    "span": {
+                                      "line": 23,
+                                      "column": 18,
+                                      "end_line": 23,
+                                      "end_column": 24
+                                    }
+                                  }
+                                },
+                                "name": "server_url",
+                                "span": {
+                                  "line": 23,
+                                  "column": 18,
+                                  "end_line": 23,
+                                  "end_column": 35
+                                }
+                              }
+                            },
+                            "right": {
+                              "string": {
+                                "value": "https://github.com",
+                                "span": {
+                                  "line": 23,
+                                  "column": 39,
+                                  "end_line": 23,
+                                  "end_column": 59
+                                }
+                              }
+                            },
+                            "span": {
+                              "line": 23,
+                              "column": 18,
+                              "end_line": 23,
+                              "end_column": 59
+                            }
+                          }
+                        },
+                        {
+                          "property": {
+                            "target": {
+                              "context": {
+                                "name": "github",
+                                "span": {
+                                  "line": 23,
+                                  "column": 63,
+                                  "end_line": 23,
+                                  "end_column": 69
+                                }
+                              }
+                            },
+                            "name": "token",
+                            "span": {
+                              "line": 23,
+                              "column": 63,
+                              "end_line": 23,
+                              "end_column": 75
+                            }
+                          }
+                        }
+                      ],
+                      "span": {
+                        "line": 23,
+                        "column": 18,
+                        "end_line": 23,
+                        "end_column": 75
+                      }
+                    }
+                  },
+                  {
+                    "string": {
+                      "value": "",
+                      "span": {
+                        "line": 23,
+                        "column": 79,
+                        "end_line": 23,
+                        "end_column": 81
+                      }
+                    }
+                  }
+                ],
+                "span": {
+                  "line": 23,
+                  "column": 18,
+                  "end_line": 23,
+                  "end_column": 81
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "cache",
+        "description": "Used to specify a package manager for caching in the default directory. Supported values: npm, yarn, pnpm.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "cache-dependency-path",
+        "description": "Used to specify the path to a dependency file: package-lock.json, yarn.lock, etc. Supports wildcards or a list of file names for caching multiple dependencies.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "cache-hit",
+        "description": "A boolean value to indicate if a cache was hit."
+      },
+      {
+        "name": "node-version",
+        "description": "The installed node version."
+      }
+    ],
+    "runs": {
+      "node": {
+        "using": "node16",
+        "main": "dist/setup/index.js",
+        "pre": null,
+        "pre_if": null,
+        "post": "dist/cache-save/index.js",
+        "post_if": {
+          "expression": {
+            "call": {
+              "function": "success",
+              "arguments": [],
+              "span": {
+                "line": 37,
+                "column": 12,
+                "end_line": 37,
+                "end_column": 21
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "diagnostics": []
+}

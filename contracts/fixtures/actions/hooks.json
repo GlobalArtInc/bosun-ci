@@ -1,0 +1,176 @@
+{
+  "metadata": {
+    "name": "Hooks",
+    "description": "Runs before and after the job",
+    "author": null,
+    "branding": null,
+    "inputs": [
+      {
+        "name": "workspace",
+        "description": "Where to work",
+        "required": true,
+        "default": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 7,
+                      "column": 18,
+                      "end_line": 7,
+                      "end_column": 24
+                    }
+                  }
+                },
+                "name": "workspace",
+                "span": {
+                  "line": 7,
+                  "column": 18,
+                  "end_line": 7,
+                  "end_column": 34
+                }
+              }
+            }
+          },
+          {
+            "text": "/build"
+          }
+        ],
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "ready",
+        "description": "Whether the workspace is ready"
+      }
+    ],
+    "runs": {
+      "node": {
+        "using": "node24",
+        "main": "dist/main.js",
+        "pre": "dist/pre.js",
+        "pre_if": {
+          "expression": {
+            "compare": {
+              "operator": "==",
+              "left": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "runner",
+                      "span": {
+                        "line": 14,
+                        "column": 15,
+                        "end_line": 14,
+                        "end_column": 21
+                      }
+                    }
+                  },
+                  "name": "os",
+                  "span": {
+                    "line": 14,
+                    "column": 15,
+                    "end_line": 14,
+                    "end_column": 24
+                  }
+                }
+              },
+              "right": {
+                "string": {
+                  "value": "Linux",
+                  "span": {
+                    "line": 14,
+                    "column": 28,
+                    "end_line": 14,
+                    "end_column": 35
+                  }
+                }
+              },
+              "span": {
+                "line": 14,
+                "column": 15,
+                "end_line": 14,
+                "end_column": 35
+              }
+            }
+          }
+        },
+        "post": "dist/post.js",
+        "post_if": {
+          "expression": {
+            "or": {
+              "operands": [
+                {
+                  "call": {
+                    "function": "failure",
+                    "arguments": [],
+                    "span": {
+                      "line": 17,
+                      "column": 12,
+                      "end_line": 17,
+                      "end_column": 21
+                    }
+                  }
+                },
+                {
+                  "compare": {
+                    "operator": "!=",
+                    "left": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "env",
+                            "span": {
+                              "line": 17,
+                              "column": 25,
+                              "end_line": 17,
+                              "end_column": 28
+                            }
+                          }
+                        },
+                        "name": "KEEP_ON_SUCCESS",
+                        "span": {
+                          "line": 17,
+                          "column": 25,
+                          "end_line": 17,
+                          "end_column": 44
+                        }
+                      }
+                    },
+                    "right": {
+                      "string": {
+                        "value": "true",
+                        "span": {
+                          "line": 17,
+                          "column": 48,
+                          "end_line": 17,
+                          "end_column": 54
+                        }
+                      }
+                    },
+                    "span": {
+                      "line": 17,
+                      "column": 25,
+                      "end_line": 17,
+                      "end_column": 54
+                    }
+                  }
+                }
+              ],
+              "span": {
+                "line": 17,
+                "column": 12,
+                "end_line": 17,
+                "end_column": 54
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "diagnostics": []
+}

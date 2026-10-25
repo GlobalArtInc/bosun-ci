@@ -5,11 +5,11 @@ use serde_json::Value;
 
 use crate::{FILE, read, repository};
 
-fn fixtures() -> PathBuf {
+pub(crate) fn fixtures() -> PathBuf {
     repository().join("contracts/fixtures")
 }
 
-fn cases(directory: &Path, extension: &str) -> Vec<String> {
+pub(crate) fn cases(directory: &Path, extension: &str) -> Vec<String> {
     let mut cases: Vec<String> = fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
         .map(|entry| entry.expect("a directory entry").path())
@@ -25,11 +25,11 @@ fn cases(directory: &Path, extension: &str) -> Vec<String> {
     cases
 }
 
-fn json(path: &Path) -> Value {
+pub(crate) fn json(path: &Path) -> Value {
     serde_json::from_str(&read(path)).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
-fn pretty(value: &Value) -> String {
+pub(crate) fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).expect("serialisable")
 }
 
@@ -42,13 +42,22 @@ fn every_workflow_fixture_lowers_to_its_snapshot_or_its_diagnostic() {
         let source = read(&root.join("workflows").join(format!("{case}.yml")));
         let ir = root.join("ir").join(format!("{case}.json"));
         let diagnostic = root.join("diagnostics").join(format!("{case}.json"));
-        let expected = |path: &Path| Value::Array(vec![json(path)]);
-        match (
-            bosun_workflow::parse(FILE, &source),
-            ir.exists(),
-            diagnostic.exists(),
-        ) {
-            (Ok(parsed), true, warned) => {
+        let committed = if diagnostic.exists() {
+            Value::Array(vec![json(&diagnostic)])
+        } else {
+            Value::Array(Vec::new())
+        };
+        let file = committed[0]["file"].as_str().unwrap_or(FILE).to_string();
+        let linted =
+            serde_json::to_value(bosun_workflow::lint(&file, &source)).expect("serialisable");
+        assert_eq!(
+            linted,
+            committed,
+            "{case}: the diagnostics differ from diagnostics/{case}.json; they are now\n{}",
+            pretty(&linted)
+        );
+        match (bosun_workflow::parse(&file, &source), ir.exists()) {
+            (Ok(parsed), true) => {
                 let produced = serde_json::to_value(&parsed.workflow).expect("serialisable");
                 assert_eq!(
                     produced,
@@ -57,32 +66,25 @@ fn every_workflow_fixture_lowers_to_its_snapshot_or_its_diagnostic() {
                     pretty(&produced)
                 );
                 let warnings = serde_json::to_value(&parsed.warnings).expect("serialisable");
-                let committed = if warned {
-                    expected(&diagnostic)
-                } else {
-                    Value::Array(Vec::new())
-                };
-                assert_eq!(
-                    warnings,
-                    committed,
-                    "{case}: the warnings differ from diagnostics/{case}.json; they are now\n{}",
+                assert!(
+                    warnings
+                        .as_array()
+                        .is_some_and(|warnings| warnings.iter().all(|warning| committed
+                            .as_array()
+                            .is_some_and(|committed| committed.contains(warning)))),
+                    "{case}: parse warns {}, which lint does not",
                     pretty(&warnings)
                 );
             }
-            (Err(diagnostics), false, true) => {
-                let produced = serde_json::to_value(&diagnostics).expect("serialisable");
-                assert_eq!(
-                    produced,
-                    expected(&diagnostic),
-                    "{case}: the diagnostics differ from diagnostics/{case}.json; they are now\n{}",
-                    pretty(&produced)
-                );
-            }
-            (Ok(parsed), false, _) => panic!(
+            (Err(_), false) => assert!(
+                diagnostic.exists(),
+                "{case}: has neither ir/{case}.json nor diagnostics/{case}.json"
+            ),
+            (Ok(parsed), false) => panic!(
                 "{case}: lowered without an ir/{case}.json, to {}",
                 pretty(&serde_json::to_value(&parsed.workflow).expect("serialisable"))
             ),
-            (Err(diagnostics), _, _) => panic!(
+            (Err(diagnostics), true) => panic!(
                 "{case}: expected the IR, got {}",
                 pretty(&serde_json::to_value(&diagnostics).expect("serialisable"))
             ),

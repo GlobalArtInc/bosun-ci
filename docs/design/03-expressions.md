@@ -184,8 +184,9 @@ every other function is available at every key, and `bosun` wherever `github` is
 everywhere. Bosun reproduces this availability table of the target syntax as data in `bosun-expr`,
 pinned by `contracts/fixtures/expr/availability.json`, and validation rejects an expression that
 names a context or calls a function unavailable at its key. Keys are named as the target names
-them, from the root of the file: `jobs.<job_id>.steps.run` is the `run` of any step. The table in
-the crate holds the keys of the milestones reached so far ([../plan.md](../plan.md)). A key the
+them, from the root of the file: `jobs.<job_id>.steps.run` is the `run` of any step, and
+`runs.pre-if` the `pre-if` of an action's metadata ([02-workflows.md](02-workflows.md)). The table
+in the crate holds the keys of the milestones reached so far ([../plan.md](../plan.md)). A key the
 table does not list takes no expression, such as a step's `shell` or `uses`, as in the target
 ([02-workflows.md](02-workflows.md)).
 
@@ -232,9 +233,19 @@ the agent alone knows the runner and the steps.
 | `jobs.<job_id>.steps.timeout-minutes` | agent | when the step is reached |
 | `on.workflow_call.inputs.<inputs_id>.default` | server | when the call starts |
 | `on.workflow_call.outputs.<output_id>.value` | server | when the call ends |
+| `inputs.<input_id>.default` | agent | when the step that uses the action is reached |
+| `runs.pre-if` | agent | when the pre step of the action is reached |
+| `runs.post-if` | agent | when the post step of the action is reached |
 
 Expanding a matrix when the `needs` are complete is what makes a matrix computed by an earlier job
 (`fromJSON(needs.setup.outputs.matrix)`) work.
+
+The three keys of an action's metadata see what the runner of the target gives them. The default
+of an input sees `github`, `job`, `runner`, `strategy` and `matrix` and calls `hashFiles`, as the
+target's schema of action metadata says, so `${{ github.token }}` and `${{ runner.debug == '1' }}`
+are defaults that public actions use, while `secrets`, `env` and `steps` are refused. `pre-if` and
+`post-if` are read like a step's `if` and see what it sees, except that `pre-if` cannot see
+`steps`, since no step has run before it.
 
 ## Static checks
 

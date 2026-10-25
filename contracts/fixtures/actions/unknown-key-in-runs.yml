@@ -1,0 +1,6 @@
+name: Build
+description: Builds the project
+runs:
+  using: node20
+  main: dist/index.js
+  post_if: always()

@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "name": "rust-toolchain",
+    "description": "Install the Rust toolchain",
+    "author": "actions-rs team",
+    "branding": {
+      "icon": "play-circle",
+      "color": "black"
+    },
+    "inputs": [
+      {
+        "name": "toolchain",
+        "description": "Rust toolchain name.\n\nSee https://rust-lang.github.io/rustup/concepts/toolchains.html#toolchain-specification\n\nIf this is not given, the action will try and install the version specified in the `rust-toolchain` file.\n",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "target",
+        "description": "Target triple to install for this toolchain",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "default",
+        "description": "Set installed toolchain as default",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "override",
+        "description": "Set installed toolchain as an override for a directory",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "profile",
+        "description": "Name of the group of components to be installed for a new toolchain",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "components",
+        "description": "Comma-separated list of components to be additionally installed for a new toolchain",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rustc",
+        "description": "Installed Rustc version"
+      },
+      {
+        "name": "rustc_hash",
+        "description": "Installed Rustc version hash, can be used for caching purposes"
+      },
+      {
+        "name": "cargo",
+        "description": "Installed Cargo version"
+      },
+      {
+        "name": "rustup",
+        "description": "Installed rustup version"
+      }
+    ],
+    "runs": {
+      "node": {
+        "using": "node12",
+        "main": "dist/index.js",
+        "pre": null,
+        "pre_if": null,
+        "post": null,
+        "post_if": null
+      }
+    }
+  },
+  "diagnostics": []
+}

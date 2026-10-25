@@ -4,19 +4,28 @@ use bosun_expr::Key;
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
 use bosun_types::ir::{SecretReferences, Span, Template, Trigger, Workflow};
 
+use crate::Code;
 use crate::place::Text;
-use crate::surface::{Known, Shape, WORKFLOW};
+use crate::surface::{Known, Milestone, Shape, WORKFLOW};
 use crate::yaml::{Node, Value};
-use crate::{Code, Parsed};
+
+pub(crate) struct Mark {
+    pub(crate) span: Span,
+    pub(crate) path: Vec<PathSegment>,
+    pub(crate) what: String,
+}
 
 pub(crate) struct Lowering<'f> {
     file: &'f str,
     text: Text,
     diagnostics: Vec<Diagnostic>,
-    triggers: Option<Vec<Trigger>>,
+    pub(crate) triggers: Option<Vec<Trigger>>,
     job: Option<String>,
     secrets: SecretReferences,
     shared: SecretReferences,
+    pub(crate) extensions: Vec<Mark>,
+    pub(crate) bosun: Vec<Mark>,
+    pub(crate) checkouts: Vec<Mark>,
 }
 
 pub(crate) struct Entry<'n> {
@@ -60,7 +69,7 @@ fn article(noun: &str) -> String {
     }
 }
 
-fn child(path: &[PathSegment], key: &str) -> Vec<PathSegment> {
+pub(crate) fn child(path: &[PathSegment], key: &str) -> Vec<PathSegment> {
     let mut path = path.to_vec();
     path.push(PathSegment::Key(key.to_string()));
     path
@@ -143,6 +152,9 @@ impl<'f> Lowering<'f> {
             job: None,
             secrets: SecretReferences::Named(BTreeSet::new()),
             shared: SecretReferences::Named(BTreeSet::new()),
+            extensions: Vec::new(),
+            bosun: Vec::new(),
+            checkouts: Vec::new(),
         }
     }
 
@@ -215,15 +227,20 @@ impl<'f> Lowering<'f> {
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     }
 
-    pub(crate) fn finish(mut self, workflow: Option<Workflow>) -> Result<Parsed, Vec<Diagnostic>> {
+    pub(crate) fn finish<T>(
+        mut self,
+        lowered: Option<T>,
+    ) -> Result<(T, Vec<Diagnostic>), Vec<Diagnostic>> {
         let failed = self.sorted();
-        match workflow {
-            Some(workflow) if !failed => Ok(Parsed {
-                workflow,
-                warnings: self.diagnostics,
-            }),
+        match lowered {
+            Some(lowered) if !failed => Ok((lowered, self.diagnostics)),
             _ => Err(self.diagnostics),
         }
+    }
+
+    pub(crate) fn finish_lint(mut self) -> Vec<Diagnostic> {
+        self.sorted();
+        self.diagnostics
     }
 
     pub(crate) fn finish_triggers(mut self) -> (Option<Vec<Trigger>>, Vec<Diagnostic>) {
@@ -242,7 +259,7 @@ impl<'f> Lowering<'f> {
         noun: &str,
         name: &str,
         place: &str,
-        milestone: &str,
+        milestone: Milestone,
         span: Span,
         path: &[PathSegment],
     ) {
@@ -250,7 +267,10 @@ impl<'f> Lowering<'f> {
             Code::NotImplemented,
             span,
             path,
-            format!("{noun} `{name}` in {place} is not supported yet; it arrives in {milestone}"),
+            format!(
+                "{noun} `{name}` in {place} is not supported yet; it arrives in {}",
+                milestone.name()
+            ),
         );
     }
 
@@ -348,6 +368,13 @@ impl<'f> Lowering<'f> {
             complete: found.complete,
         };
         for entry in found.entries {
+            if shape.extension(entry.name) {
+                self.extensions.push(Mark {
+                    span: entry.key.span,
+                    path: entry.path.clone(),
+                    what: format!("{} `{}`", shape.noun, entry.name),
+                });
+            }
             match shape.find(entry.name) {
                 Known::Now => fields.entries.push(entry),
                 Known::Later(milestone) => {
@@ -359,6 +386,20 @@ impl<'f> Lowering<'f> {
                         milestone,
                         entry.key.span,
                         &entry.path,
+                    );
+                }
+                Known::Unknown(suggestion) if shape.loose => {
+                    let hint = suggestion
+                        .map(|suggestion| format!("; did you mean `{suggestion}`?"))
+                        .unwrap_or_default();
+                    self.warning(
+                        Code::IgnoredKey,
+                        entry.key.span,
+                        &entry.path,
+                        format!(
+                            "unknown {} `{}` in {place} is ignored{hint}",
+                            shape.noun, entry.name
+                        ),
                     );
                 }
                 Known::Unknown(suggestion) => {

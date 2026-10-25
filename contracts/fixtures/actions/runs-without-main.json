@@ -1,0 +1,20 @@
+{
+  "metadata": null,
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "missing_key",
+      "message": "missing key `main` in `runs`",
+      "file": "action.yml",
+      "span": {
+        "line": 3,
+        "column": 1,
+        "end_line": 3,
+        "end_column": 5
+      },
+      "path": [
+        "runs"
+      ]
+    }
+  ]
+}

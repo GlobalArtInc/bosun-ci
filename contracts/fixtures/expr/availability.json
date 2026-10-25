@@ -240,5 +240,46 @@
     ],
     "special_functions": ["hashFiles"],
     "evaluated_by": "agent"
+  },
+  {
+    "key": "inputs.<input_id>.default",
+    "contexts": ["github", "job", "runner", "strategy", "matrix", "bosun"],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "runs.pre-if",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "runner",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles", "success", "failure", "cancelled", "always"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "runs.post-if",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles", "success", "failure", "cancelled", "always"],
+    "evaluated_by": "agent"
   }
 ]

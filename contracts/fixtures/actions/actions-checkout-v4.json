@@ -1,0 +1,276 @@
+{
+  "metadata": {
+    "name": "Checkout",
+    "description": "Checkout a Git repository at a particular version",
+    "author": null,
+    "branding": null,
+    "inputs": [
+      {
+        "name": "repository",
+        "description": "Repository name with owner. For example, actions/checkout",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 6,
+                      "column": 18,
+                      "end_line": 6,
+                      "end_column": 24
+                    }
+                  }
+                },
+                "name": "repository",
+                "span": {
+                  "line": 6,
+                  "column": 18,
+                  "end_line": 6,
+                  "end_column": 35
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "ref",
+        "description": "The branch, tag or SHA to checkout. When checking out the repository that triggered a workflow, this defaults to the reference or SHA for that event.  Otherwise, uses the default branch.\n",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "token",
+        "description": "Personal access token (PAT) used to fetch the repository. The PAT is configured with the local git config, which enables your scripts to run authenticated git commands. The post-job step removes the PAT.\n\nWe recommend using a service account with the least permissions necessary. Also when generating a new PAT, select the least scopes necessary.\n\n[Learn more about creating and using encrypted secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets)\n",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 24,
+                      "column": 18,
+                      "end_line": 24,
+                      "end_column": 24
+                    }
+                  }
+                },
+                "name": "token",
+                "span": {
+                  "line": 24,
+                  "column": 18,
+                  "end_line": 24,
+                  "end_column": 30
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "ssh-key",
+        "description": "SSH key used to fetch the repository. The SSH key is configured with the local git config, which enables your scripts to run authenticated git commands. The post-job step removes the SSH key.\n\nWe recommend using a service account with the least permissions necessary.\n\n[Learn more about creating and using encrypted secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets)\n",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "ssh-known-hosts",
+        "description": "Known hosts in addition to the user and global host key database. The public SSH keys for a host may be obtained using the utility `ssh-keyscan`. For example, `ssh-keyscan github.com`. The public key for github.com is always implicitly added.\n",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "ssh-strict",
+        "description": "Whether to perform strict host key checking. When true, adds the options `StrictHostKeyChecking=yes` and `CheckHostIP=no` to the SSH command line. Use the input `ssh-known-hosts` to configure additional hosts.\n",
+        "required": false,
+        "default": [
+          {
+            "text": "true"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "ssh-user",
+        "description": "The user to use when connecting to the remote SSH host. By default 'git' is used.\n",
+        "required": false,
+        "default": [
+          {
+            "text": "git"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "persist-credentials",
+        "description": "Whether to configure the token or SSH key with the local git config",
+        "required": false,
+        "default": [
+          {
+            "text": "true"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "path",
+        "description": "Relative path under $GITHUB_WORKSPACE to place the repository",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "clean",
+        "description": "Whether to execute `git clean -ffdx && git reset --hard HEAD` before fetching",
+        "required": false,
+        "default": [
+          {
+            "text": "true"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "filter",
+        "description": "Partially clone against a given filter. Overrides sparse-checkout if set.\n",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "sparse-checkout",
+        "description": "Do a sparse checkout on given patterns. Each pattern should be separated with new lines.\n",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "sparse-checkout-cone-mode",
+        "description": "Specifies whether to use cone-mode when doing a sparse checkout.\n",
+        "required": false,
+        "default": [
+          {
+            "text": "true"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "fetch-depth",
+        "description": "Number of commits to fetch. 0 indicates all history for all branches and tags.",
+        "required": false,
+        "default": [
+          {
+            "text": "1"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "fetch-tags",
+        "description": "Whether to fetch tags, even if fetch-depth > 0.",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "show-progress",
+        "description": "Whether to show progress status output when fetching.",
+        "required": false,
+        "default": [
+          {
+            "text": "true"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "lfs",
+        "description": "Whether to download Git-LFS files",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "submodules",
+        "description": "Whether to checkout submodules: `true` to checkout submodules or `recursive` to recursively checkout submodules.\n\nWhen the `ssh-key` input is not provided, SSH URLs beginning with `git@github.com:` are converted to HTTPS.\n",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "set-safe-directory",
+        "description": "Add repository path as safe.directory for Git global config by running `git config --global --add safe.directory <path>`",
+        "required": false,
+        "default": [
+          {
+            "text": "true"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "github-server-url",
+        "description": "The base URL for the GitHub instance that you are trying to clone from, will use environment defaults to fetch from the same instance that the workflow is running from unless specified. Example URLs are https://github.com or https://my-ghes-server.example.com",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "allow-unsafe-pr-checkout",
+        "description": "Required to check out fork pull request code from a workflow triggered by `pull_request_target` or `workflow_run`. These workflows run with the base repository's GITHUB_TOKEN, secrets, default-branch cache scope, and runner access; fetching and executing a fork's code in that trusted context commonly leads to \"pwn request\" vulnerabilities. Set to `true` only after reviewing the risks at https://gh.io/securely-using-pull_request_target.\n",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "ref",
+        "description": "The branch, tag or SHA that was checked out"
+      },
+      {
+        "name": "commit",
+        "description": "The commit SHA that was checked out"
+      }
+    ],
+    "runs": {
+      "node": {
+        "using": "node20",
+        "main": "dist/index.js",
+        "pre": null,
+        "pre_if": null,
+        "post": "dist/index.js",
+        "post_if": null
+      }
+    }
+  },
+  "diagnostics": []
+}

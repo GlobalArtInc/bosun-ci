@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "name": "Build",
+    "description": "Builds the project",
+    "author": null,
+    "branding": null,
+    "inputs": [],
+    "outputs": [],
+    "runs": {
+      "node": {
+        "using": "node20",
+        "main": "dist/index.js",
+        "pre": null,
+        "pre_if": null,
+        "post": null,
+        "post_if": null
+      }
+    }
+  },
+  "diagnostics": []
+}

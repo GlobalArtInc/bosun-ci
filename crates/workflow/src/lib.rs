@@ -1,9 +1,11 @@
+mod action;
 mod concurrency;
 mod defaults;
 mod expression;
 pub mod github;
 mod graph;
 mod job;
+mod lint;
 mod lower;
 mod matching;
 mod on;
@@ -19,11 +21,12 @@ mod uses;
 mod yaml;
 
 use bosun_types::diagnostic::Diagnostic;
-use bosun_types::ir::{Trigger, Workflow};
+use bosun_types::ir::{ActionMetadata, Trigger, Workflow};
 
 use crate::lower::Lowering;
 
 pub use crate::matching::{Event, matches};
+pub use crate::surface::{MILESTONE, Milestone, PENDING};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Code {
@@ -43,6 +46,9 @@ pub(crate) enum Code {
     NeedsCycle,
     TemplateCondition,
     AllSecrets,
+    IgnoredKey,
+    Extension,
+    UntrustedCheckout,
 }
 
 impl Code {
@@ -64,6 +70,9 @@ impl Code {
             Code::NeedsCycle => "needs_cycle",
             Code::TemplateCondition => "template_condition",
             Code::AllSecrets => "all_secrets",
+            Code::IgnoredKey => "ignored_key",
+            Code::Extension => "extension",
+            Code::UntrustedCheckout => "untrusted_checkout",
         }
     }
 }
@@ -74,22 +83,51 @@ pub struct Parsed {
     pub warnings: Vec<Diagnostic>,
 }
 
-fn lower<'f>(file: &'f str, source: &str) -> (Lowering<'f>, Option<Workflow>) {
+#[derive(Debug)]
+pub struct ParsedAction {
+    pub metadata: ActionMetadata,
+    pub warnings: Vec<Diagnostic>,
+}
+
+fn load<'f, T>(
+    file: &'f str,
+    source: &str,
+    read: impl FnOnce(&mut Lowering<'f>, &yaml::Node) -> Option<T>,
+) -> (Lowering<'f>, Option<T>) {
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     let mut lowering = Lowering::new(file, source);
-    let workflow = match yaml::load(source) {
-        Ok(root) => lowering.workflow(&root),
+    let lowered = match yaml::load(source) {
+        Ok(root) => read(&mut lowering, &root),
         Err(fault) => {
             lowering.error(fault.code, fault.span, &[], fault.message);
             None
         }
     };
-    (lowering, workflow)
+    (lowering, lowered)
+}
+
+fn lower<'f>(file: &'f str, source: &str) -> (Lowering<'f>, Option<Workflow>) {
+    load(file, source, |lowering, root| lowering.workflow(root))
 }
 
 pub fn parse(file: &str, source: &str) -> Result<Parsed, Vec<Diagnostic>> {
     let (lowering, workflow) = lower(file, source);
-    lowering.finish(workflow)
+    lowering
+        .finish(workflow)
+        .map(|(workflow, warnings)| Parsed { workflow, warnings })
+}
+
+pub fn lint(file: &str, source: &str) -> Vec<Diagnostic> {
+    let (mut lowering, _) = lower(file, source);
+    lowering.lint();
+    lowering.finish_lint()
+}
+
+pub fn action(file: &str, source: &str) -> Result<ParsedAction, Vec<Diagnostic>> {
+    let (lowering, metadata) = load(file, source, |lowering, root| lowering.metadata(root));
+    lowering
+        .finish(metadata)
+        .map(|(metadata, warnings)| ParsedAction { metadata, warnings })
 }
 
 pub fn triggers(file: &str, source: &str) -> (Option<Vec<Trigger>>, Vec<Diagnostic>) {

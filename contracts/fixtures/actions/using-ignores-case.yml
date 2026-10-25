@@ -1,0 +1,5 @@
+name: Build
+description: Builds the project
+runs:
+  using: Node20
+  main: dist/index.js

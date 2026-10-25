@@ -1,0 +1,224 @@
+{
+  "metadata": {
+    "name": "GH Release",
+    "description": "Github Action for creating Github Releases",
+    "author": "softprops",
+    "branding": {
+      "icon": "package",
+      "color": "green"
+    },
+    "inputs": [
+      {
+        "name": "body",
+        "description": "Note-worthy description of changes in release",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "body_path",
+        "description": "Path to load note-worthy description of changes in release from",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "name",
+        "description": "Gives the release a custom name. Defaults to tag name",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "tag_name",
+        "description": "Gives a tag name. Defaults to github.ref_name. refs/tags/<name> values are normalized to <name>.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "draft",
+        "description": "Keeps the release as a draft. Defaults to false. When reusing an existing draft release, set this to true to keep it draft; omit it to publish after upload. On immutable-release repositories, use this for prereleases that upload assets and publish the draft later.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "prerelease",
+        "description": "Identify the release as a prerelease. Defaults to false",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "preserve_order",
+        "description": "Upload artifacts sequentially in the provided order. This does not control the final display order GitHub uses for release assets.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "files",
+        "description": "Newline-delimited list of path globs for asset files to upload. Escape glob metacharacters when matching literal filenames that contain them. `~/...` expands to the runner home directory. On Windows, both \\ and / path separators are accepted. GitHub may normalize raw asset filenames that contain special characters; the action restores the asset label when possible, but the final download name remains GitHub-controlled.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "working_directory",
+        "description": "Base directory to resolve 'files' globs against. Defaults to the workspace root used by the action step.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "overwrite_files",
+        "description": "Overwrite existing files with the same name. Defaults to true",
+        "required": false,
+        "default": [
+          {
+            "text": "true"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "fail_on_unmatched_files",
+        "description": "Fails if any of the `files` globs match nothing. Defaults to false",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "repository",
+        "description": "Repository to make releases against, in <owner>/<repo> format",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "token",
+        "description": "Authorized GitHub token or PAT. Defaults to github.token when omitted. A non-empty explicit token overrides GITHUB_TOKEN. Passing an empty string treats the token as unset.",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 45,
+                      "column": 18,
+                      "end_line": 45,
+                      "end_column": 24
+                    }
+                  }
+                },
+                "name": "token",
+                "span": {
+                  "line": 45,
+                  "column": 18,
+                  "end_line": 45,
+                  "end_column": 30
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "target_commitish",
+        "description": "Commitish value that determines where the Git tag is created from. Can be any branch or commit SHA. When creating a new tag for an older commit, `github.token` may not have permission to create the ref; use a PAT or another token with sufficient contents permissions if you hit 403 `Resource not accessible by integration`.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "discussion_category_name",
+        "description": "If specified, a discussion of the specified category is created and linked to the release. The value must be a category that already exists in the repository. If there is already a discussion linked to the release, this parameter is ignored.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "generate_release_notes",
+        "description": "Whether to automatically generate the name and body for this release. If name is specified, the specified name will be used; otherwise, a name will be automatically generated. If body is specified, the body will be pre-pended to the automatically generated notes.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "previous_tag",
+        "description": "Optional. When generate_release_notes is enabled, use this tag as GitHub's previous_tag_name comparison base. If omitted, GitHub chooses the comparison base automatically.",
+        "required": false,
+        "default": [
+          {
+            "text": ""
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "append_body",
+        "description": "Append to existing body instead of overwriting it. Default is false.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "make_latest",
+        "description": "Specifies whether this release should be set as the latest release for the repository. Drafts and prereleases cannot be set as latest. Can be `true`, `false`, or `legacy`. Uses GitHub api default if not provided",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "url",
+        "description": "URL to the Release HTML Page"
+      },
+      {
+        "name": "id",
+        "description": "Release ID"
+      },
+      {
+        "name": "upload_url",
+        "description": "URL for uploading assets to the release"
+      },
+      {
+        "name": "assets",
+        "description": "JSON array containing information about each uploaded asset, in the format given [here](https://docs.github.com/en/rest/reference/repos#upload-a-release-asset--code-samples) (minus the `uploader` field)"
+      }
+    ],
+    "runs": {
+      "node": {
+        "using": "node20",
+        "main": "dist/index.js",
+        "pre": null,
+        "pre_if": null,
+        "post": null,
+        "post_if": null
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "ignored_key",
+      "message": "unknown key `env` in the action's metadata is ignored",
+      "file": "action.yml",
+      "span": {
+        "line": 65,
+        "column": 1,
+        "end_line": 65,
+        "end_column": 4
+      },
+      "path": [
+        "env"
+      ]
+    }
+  ]
+}

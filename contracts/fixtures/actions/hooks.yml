@@ -1,0 +1,17 @@
+name: Hooks
+description: Runs before and after the job
+inputs:
+  workspace:
+    description: Where to work
+    required: true
+    default: ${{ github.workspace }}/build
+outputs:
+  ready:
+    description: Whether the workspace is ready
+runs:
+  using: node24
+  pre: dist/pre.js
+  pre-if: ${{ runner.os == 'Linux' }}
+  main: dist/main.js
+  post: dist/post.js
+  post-if: failure() || env.KEEP_ON_SUCCESS != 'true'

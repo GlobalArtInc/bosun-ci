@@ -1,0 +1,200 @@
+{
+  "metadata": {
+    "name": "Harden-Runner",
+    "description": "Harden-Runner provides runtime security for GitHub-hosted and self-hosted runners",
+    "author": null,
+    "branding": {
+      "icon": "check-square",
+      "color": "green"
+    },
+    "inputs": [
+      {
+        "name": "allowed-endpoints",
+        "description": "Only these endpoints will be allowed if egress-policy is set to block",
+        "required": false,
+        "default": [
+          {
+            "text": ""
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "denied-endpoints",
+        "description": "These endpoints will be denied when endpoint blocking is enabled",
+        "required": false,
+        "default": [
+          {
+            "text": ""
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "egress-policy",
+        "description": "Policy for outbound traffic, can be either audit or block",
+        "required": false,
+        "default": [
+          {
+            "text": "block"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "token",
+        "description": "Used to avoid github rate limiting",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 18,
+                      "column": 18,
+                      "end_line": 18,
+                      "end_column": 24
+                    }
+                  }
+                },
+                "name": "token",
+                "span": {
+                  "line": 18,
+                  "column": 18,
+                  "end_line": 18,
+                  "end_column": 30
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "disable-telemetry",
+        "description": "Disable sending telemetry to StepSecurity API, can be set to true or false. This can only be set to true when egress-policy is set to block",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "disable-sudo",
+        "description": "Disable sudo access for the runner account. Note: This parameter will be deprecated in the future. Please use disable-sudo-and-containers instead.",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "disable-sudo-and-containers",
+        "description": "Disable sudo and container access for the runner account",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "disable-file-monitoring",
+        "description": "Disable file monitoring",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "policy",
+        "description": "Policy name to be used from the policy store. Requires id-token: write permission.",
+        "required": false,
+        "default": [
+          {
+            "text": ""
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "api-key",
+        "description": "StepSecurity API key for authenticating with the policy store. Required when use-policy-store is set to true.",
+        "required": false,
+        "default": [
+          {
+            "text": ""
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "use-policy-store",
+        "description": "Set to true to fetch policy from the policy store using the API key. This is the preferred method over the policy input which requires id-token: write permission. Policies can be defined and attached at workflow, repo, org, or cluster (for ARC) level in the policy store. The most granular policy will apply.",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "deploy-on-self-hosted-vm",
+        "description": "Set to true to deploy the Harden Runner agent directly on a self-hosted runner VM (Linux only). The recommended approach for self-hosted VMs is to bake the agent into the VM image; see docs.stepsecurity.io. Use this option only if baking is not possible, and only for ephemeral runners.",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "customer",
+        "description": "StepSecurity customer name. Required in GitHub Enterprise Server (GHES) environments for TLS checks, policy fetching, and direct self-hosted VM agent installation.",
+        "required": false,
+        "default": [
+          {
+            "text": ""
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "server-name",
+        "description": "GHES server name registered with StepSecurity. Required in GitHub Enterprise Server (GHES) environments for TLS checks, policy fetching, and direct self-hosted VM agent installation.",
+        "required": false,
+        "default": [
+          {
+            "text": ""
+          }
+        ],
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [],
+    "runs": {
+      "node": {
+        "using": "node24",
+        "main": "dist/index.js",
+        "pre": "dist/pre/index.js",
+        "pre_if": null,
+        "post": "dist/post/index.js",
+        "post_if": null
+      }
+    }
+  },
+  "diagnostics": []
+}

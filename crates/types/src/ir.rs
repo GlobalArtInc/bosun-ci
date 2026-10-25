@@ -587,6 +587,68 @@ impl fmt::Display for ActionReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionMetadata {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub branding: Option<Branding>,
+    pub inputs: Vec<ActionInput>,
+    pub outputs: Vec<ActionOutput>,
+    pub runs: Runs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Branding {
+    pub icon: Option<String>,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+    pub default: Option<Template>,
+    pub deprecation_message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionOutput {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Runs {
+    Node(NodeRuns),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeRuns {
+    pub using: NodeRuntime,
+    pub main: String,
+    pub pre: Option<String>,
+    pub pre_if: Option<Condition>,
+    pub post: Option<String>,
+    pub post_if: Option<Condition>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeRuntime {
+    Node12,
+    Node16,
+    Node20,
+    Node24,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Shell {
     Bash,

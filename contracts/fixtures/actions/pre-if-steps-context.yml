@@ -1,0 +1,7 @@
+name: Warm up
+description: Prepares a cache before the job
+runs:
+  using: node20
+  pre: dist/pre.js
+  pre-if: steps.build.outcome == 'success'
+  main: dist/main.js

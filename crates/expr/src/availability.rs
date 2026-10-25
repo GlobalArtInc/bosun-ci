@@ -214,6 +214,9 @@ pub enum Key {
     StepWorkingDirectory,
     StepContinueOnError,
     StepTimeoutMinutes,
+    ActionInputDefault,
+    ActionPreIf,
+    ActionPostIf,
 }
 
 const RUN: &[Context] = &[
@@ -300,6 +303,28 @@ const STEP_IF: &[Context] = &[
     Context::Bosun,
 ];
 
+const ACTION_INPUT_DEFAULT: &[Context] = &[
+    Context::Github,
+    Context::Job,
+    Context::Runner,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Bosun,
+];
+
+const ACTION_PRE_IF: &[Context] = &[
+    Context::Github,
+    Context::Env,
+    Context::Vars,
+    Context::Job,
+    Context::Runner,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
 const STATUS: &[Function] = &[
     Function::Success,
     Function::Failure,
@@ -318,7 +343,7 @@ const STEP_STATUS: &[Function] = &[
 const FILES: &[Function] = &[Function::HashFiles];
 
 impl Key {
-    pub const ALL: [Key; 21] = [
+    pub const ALL: [Key; 24] = [
         Key::RunName,
         Key::WorkflowConcurrency,
         Key::WorkflowEnv,
@@ -340,6 +365,9 @@ impl Key {
         Key::StepWorkingDirectory,
         Key::StepContinueOnError,
         Key::StepTimeoutMinutes,
+        Key::ActionInputDefault,
+        Key::ActionPreIf,
+        Key::ActionPostIf,
     ];
 
     pub fn path(self) -> &'static str {
@@ -365,6 +393,9 @@ impl Key {
             Key::StepWorkingDirectory => "jobs.<job_id>.steps.working-directory",
             Key::StepContinueOnError => "jobs.<job_id>.steps.continue-on-error",
             Key::StepTimeoutMinutes => "jobs.<job_id>.steps.timeout-minutes",
+            Key::ActionInputDefault => "inputs.<input_id>.default",
+            Key::ActionPreIf => "runs.pre-if",
+            Key::ActionPostIf => "runs.post-if",
         }
     }
 
@@ -380,7 +411,9 @@ impl Key {
             | Key::JobContinueOnError => JOB,
             Key::JobEnv => JOB_ENV,
             Key::JobDefaultsRun => JOB_DEFAULTS,
-            Key::StepIf => STEP_IF,
+            Key::StepIf | Key::ActionPostIf => STEP_IF,
+            Key::ActionPreIf => ACTION_PRE_IF,
+            Key::ActionInputDefault => ACTION_INPUT_DEFAULT,
             Key::JobOutputs
             | Key::StepName
             | Key::StepRun
@@ -395,8 +428,9 @@ impl Key {
     pub fn special_functions(self) -> &'static [Function] {
         match self {
             Key::JobIf => STATUS,
-            Key::StepIf => STEP_STATUS,
-            Key::StepName
+            Key::StepIf | Key::ActionPreIf | Key::ActionPostIf => STEP_STATUS,
+            Key::ActionInputDefault
+            | Key::StepName
             | Key::StepRun
             | Key::StepEnv
             | Key::StepWith

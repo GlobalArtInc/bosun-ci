@@ -1,0 +1,20 @@
+{
+  "severity": "warning",
+  "code": "untrusted_checkout",
+  "message": "input `ref` of step 1 of job `test` checks out the head of the pull request in a workflow that `pull_request_target` triggers, which runs code from the pull request with the secrets and the forge token of the base repository",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 10,
+    "column": 16,
+    "end_line": 10,
+    "end_column": 57
+  },
+  "path": [
+    "jobs",
+    "test",
+    "steps",
+    0,
+    "with",
+    "ref"
+  ]
+}

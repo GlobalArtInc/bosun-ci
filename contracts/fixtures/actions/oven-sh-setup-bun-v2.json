@@ -1,0 +1,241 @@
+{
+  "metadata": {
+    "name": "Setup Bun",
+    "description": "Download, install, and setup Bun to your path.",
+    "author": "robobun",
+    "branding": {
+      "icon": "play-circle",
+      "color": "white"
+    },
+    "inputs": [
+      {
+        "name": "bun-version",
+        "description": "The version of Bun to install. (e.g. \"latest\", \"canary\", \"1.0.0\", \"1.0.x\", <sha>)",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "bun-version-file",
+        "description": "The version of Bun to install from file. (e.g. \"package.json\", \".bun-version\", \".tool-versions\")",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "bun-download-url",
+        "description": "Override the URL to download Bun from. This skips version resolution and verifying AVX2 support.",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "registries",
+        "description": "List of package registries with authentication support. Format:\n- Default registry: https://registry.npmjs.org/\n- Default with token: https://registry.npmjs.org/|token\n- Scoped registry: @scope:https://registry.example.com/\n- Scoped with token: @scope:https://registry.example.com/|token\n- Scoped with credentials: @scope:https://user:pass@registry.example.com/\n",
+        "required": false,
+        "default": null,
+        "deprecation_message": null
+      },
+      {
+        "name": "registry-url",
+        "description": "The URL of the package registry to use for installing Bun. Set the $BUN_AUTH_TOKEN environment variable to authenticate with the registry.",
+        "required": false,
+        "default": null,
+        "deprecation_message": "Use 'registries' input instead."
+      },
+      {
+        "name": "scope",
+        "description": "The scope for authenticating with the package registry.",
+        "required": false,
+        "default": null,
+        "deprecation_message": "Use 'registries' input instead."
+      },
+      {
+        "name": "no-cache",
+        "description": "Disable caching of bun executable.",
+        "required": false,
+        "default": [
+          {
+            "text": "false"
+          }
+        ],
+        "deprecation_message": null
+      },
+      {
+        "name": "token",
+        "description": "Personal access token (PAT) used to fetch tags from oven-sh/bun repository. Recommended for resolving wildcard/range versions to avoid GitHub API rate limiting. When running this action on github.com, the default value is sufficient. When running on GHES, you can pass a personal access token for github.com if you are experiencing rate limiting.",
+        "required": false,
+        "default": [
+          {
+            "expression": {
+              "or": {
+                "operands": [
+                  {
+                    "and": {
+                      "operands": [
+                        {
+                          "compare": {
+                            "operator": "==",
+                            "left": {
+                              "property": {
+                                "target": {
+                                  "context": {
+                                    "name": "github",
+                                    "span": {
+                                      "line": 44,
+                                      "column": 18,
+                                      "end_line": 44,
+                                      "end_column": 24
+                                    }
+                                  }
+                                },
+                                "name": "server_url",
+                                "span": {
+                                  "line": 44,
+                                  "column": 18,
+                                  "end_line": 44,
+                                  "end_column": 35
+                                }
+                              }
+                            },
+                            "right": {
+                              "string": {
+                                "value": "https://github.com",
+                                "span": {
+                                  "line": 44,
+                                  "column": 39,
+                                  "end_line": 44,
+                                  "end_column": 59
+                                }
+                              }
+                            },
+                            "span": {
+                              "line": 44,
+                              "column": 18,
+                              "end_line": 44,
+                              "end_column": 59
+                            }
+                          }
+                        },
+                        {
+                          "property": {
+                            "target": {
+                              "context": {
+                                "name": "github",
+                                "span": {
+                                  "line": 44,
+                                  "column": 63,
+                                  "end_line": 44,
+                                  "end_column": 69
+                                }
+                              }
+                            },
+                            "name": "token",
+                            "span": {
+                              "line": 44,
+                              "column": 63,
+                              "end_line": 44,
+                              "end_column": 75
+                            }
+                          }
+                        }
+                      ],
+                      "span": {
+                        "line": 44,
+                        "column": 18,
+                        "end_line": 44,
+                        "end_column": 75
+                      }
+                    }
+                  },
+                  {
+                    "string": {
+                      "value": "",
+                      "span": {
+                        "line": 44,
+                        "column": 79,
+                        "end_line": 44,
+                        "end_column": 81
+                      }
+                    }
+                  }
+                ],
+                "span": {
+                  "line": 44,
+                  "column": 18,
+                  "end_line": 44,
+                  "end_column": 81
+                }
+              }
+            }
+          }
+        ],
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "bun-version",
+        "description": "The version of Bun that was installed."
+      },
+      {
+        "name": "bun-revision",
+        "description": "The revision of Bun that was installed."
+      },
+      {
+        "name": "bun-path",
+        "description": "The path to the Bun executable."
+      },
+      {
+        "name": "bun-download-url",
+        "description": "The URL from which Bun was downloaded."
+      },
+      {
+        "name": "cache-hit",
+        "description": "If the version of Bun was cached."
+      }
+    ],
+    "runs": {
+      "node": {
+        "using": "node24",
+        "main": "dist/setup/index.js",
+        "pre": null,
+        "pre_if": null,
+        "post": "dist/cache-save/index.js",
+        "post_if": {
+          "expression": {
+            "call": {
+              "function": "success",
+              "arguments": [],
+              "span": {
+                "line": 63,
+                "column": 12,
+                "end_line": 63,
+                "end_column": 21
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "ignored_key",
+      "message": "unknown key `type` in input `no-cache` is ignored",
+      "file": "action.yml",
+      "span": {
+        "line": 39,
+        "column": 5,
+        "end_line": 39,
+        "end_column": 9
+      },
+      "path": [
+        "inputs",
+        "no-cache",
+        "type"
+      ]
+    }
+  ]
+}

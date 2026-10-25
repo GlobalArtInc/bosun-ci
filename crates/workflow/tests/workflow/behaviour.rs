@@ -267,7 +267,7 @@ fn the_yaml_itself_is_held_to_one_plain_document() {
         (
             format!("on: workflow_dispatch\n{JOBS}---\non: workflow_dispatch\n"),
             "unsupported_yaml",
-            "a workflow file holds exactly one YAML document",
+            "a file holds exactly one YAML document",
             7,
         ),
         (

@@ -1,0 +1,186 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "pull_request_target": {
+        "types": [
+          "opened",
+          "synchronize"
+        ],
+        "branches": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "test",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "uses": {
+                "owner": "actions",
+                "repository": "checkout",
+                "path": null,
+                "ref": "v4"
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {
+              "ref": [
+                {
+                  "expression": {
+                    "property": {
+                      "target": {
+                        "property": {
+                          "target": {
+                            "property": {
+                              "target": {
+                                "property": {
+                                  "target": {
+                                    "context": {
+                                      "name": "github",
+                                      "span": {
+                                        "line": 10,
+                                        "column": 20,
+                                        "end_line": 10,
+                                        "end_column": 26
+                                      }
+                                    }
+                                  },
+                                  "name": "event",
+                                  "span": {
+                                    "line": 10,
+                                    "column": 20,
+                                    "end_line": 10,
+                                    "end_column": 32
+                                  }
+                                }
+                              },
+                              "name": "pull_request",
+                              "span": {
+                                "line": 10,
+                                "column": 20,
+                                "end_line": 10,
+                                "end_column": 45
+                              }
+                            }
+                          },
+                          "name": "head",
+                          "span": {
+                            "line": 10,
+                            "column": 20,
+                            "end_line": 10,
+                            "end_column": 50
+                          }
+                        }
+                      },
+                      "name": "sha",
+                      "span": {
+                        "line": 10,
+                        "column": 20,
+                        "end_line": 10,
+                        "end_column": 54
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 8,
+              "column": 9,
+              "end_line": 10,
+              "end_column": 57
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make test"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 11,
+              "column": 9,
+              "end_line": 11,
+              "end_column": 23
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 5,
+        "column": 3,
+        "end_line": 11,
+        "end_column": 23
+      }
+    }
+  ]
+}

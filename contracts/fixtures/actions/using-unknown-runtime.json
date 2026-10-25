@@ -1,0 +1,21 @@
+{
+  "metadata": null,
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "invalid_value",
+      "message": "`using` of `runs` is `node18`, which is not `node12`, `node16`, `node20`, `node24`, `composite` or `docker`",
+      "file": "action.yml",
+      "span": {
+        "line": 4,
+        "column": 10,
+        "end_line": 4,
+        "end_column": 16
+      },
+      "path": [
+        "runs",
+        "using"
+      ]
+    }
+  ]
+}

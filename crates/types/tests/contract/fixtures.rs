@@ -13,13 +13,20 @@ use bosun_types::diagnostic::Diagnostic;
 use bosun_types::error::ErrorEnvelope;
 use bosun_types::event::RunEvent;
 use bosun_types::ir;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{fixture, repository};
 
 type Check = fn(&Value) -> Result<Value, String>;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActionCase {
+    metadata: Option<ir::ActionMetadata>,
+    diagnostics: Vec<Diagnostic>,
+}
 
 const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github", "triggers"];
 
@@ -30,6 +37,59 @@ fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, S
 
 fn fixtures() -> Vec<(&'static str, Check)> {
     vec![
+        ("actions/actions-cache-v4.json", round_trip::<ActionCase>),
+        ("actions/actions-checkout-v4.json", round_trip::<ActionCase>),
+        (
+            "actions/actions-github-script-v7.json",
+            round_trip::<ActionCase>,
+        ),
+        (
+            "actions/actions-rs-toolchain-v1.json",
+            round_trip::<ActionCase>,
+        ),
+        (
+            "actions/actions-setup-node-v3.json",
+            round_trip::<ActionCase>,
+        ),
+        ("actions/hooks.json", round_trip::<ActionCase>),
+        (
+            "actions/input-default-secrets.json",
+            round_trip::<ActionCase>,
+        ),
+        ("actions/main-expression.json", round_trip::<ActionCase>),
+        (
+            "actions/marocchino-sticky-pull-request-comment-v2.json",
+            round_trip::<ActionCase>,
+        ),
+        (
+            "actions/oven-sh-setup-bun-v2.json",
+            round_trip::<ActionCase>,
+        ),
+        (
+            "actions/pre-if-steps-context.json",
+            round_trip::<ActionCase>,
+        ),
+        ("actions/runs-without-main.json", round_trip::<ActionCase>),
+        (
+            "actions/softprops-action-gh-release-v2.json",
+            round_trip::<ActionCase>,
+        ),
+        (
+            "actions/step-security-harden-runner-v2.json",
+            round_trip::<ActionCase>,
+        ),
+        (
+            "actions/swatinem-rust-cache-v2.json",
+            round_trip::<ActionCase>,
+        ),
+        ("actions/unknown-key-in-runs.json", round_trip::<ActionCase>),
+        ("actions/using-composite.json", round_trip::<ActionCase>),
+        ("actions/using-docker.json", round_trip::<ActionCase>),
+        ("actions/using-ignores-case.json", round_trip::<ActionCase>),
+        (
+            "actions/using-unknown-runtime.json",
+            round_trip::<ActionCase>,
+        ),
         ("api/agent.json", round_trip::<Agent>),
         ("api/attempt.json", round_trip::<Attempt>),
         ("api/command-job-cancel.json", round_trip::<CommandRequest>),
@@ -82,6 +142,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/workflow.json", round_trip::<Workflow>),
         ("diagnostics/alias-bomb.json", round_trip::<Diagnostic>),
         ("diagnostics/all-secrets.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/bosun-context-in-github-workflows.json",
+            round_trip::<Diagnostic>,
+        ),
         (
             "diagnostics/branches-and-branches-ignore.json",
             round_trip::<Diagnostic>,
@@ -185,6 +249,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "diagnostics/unknown-time-zone.json",
             round_trip::<Diagnostic>,
         ),
+        (
+            "diagnostics/untrusted-checkout.json",
+            round_trip::<Diagnostic>,
+        ),
         ("diagnostics/uses-expression.json", round_trip::<Diagnostic>),
         (
             "diagnostics/uses-local-action.json",
@@ -216,6 +284,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/step-status.json", round_trip::<RunEvent>),
         ("ir/aliases.json", round_trip::<ir::Workflow>),
         ("ir/all-secrets.json", round_trip::<ir::Workflow>),
+        (
+            "ir/bosun-context-in-github-workflows.json",
+            round_trip::<ir::Workflow>,
+        ),
         ("ir/concurrency.json", round_trip::<ir::Workflow>),
         ("ir/continue-on-error.json", round_trip::<ir::Workflow>),
         ("ir/defaults.json", round_trip::<ir::Workflow>),
@@ -243,6 +315,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("ir/template-condition.json", round_trip::<ir::Workflow>),
         ("ir/timeout-minutes.json", round_trip::<ir::Workflow>),
         ("ir/two-jobs.json", round_trip::<ir::Workflow>),
+        ("ir/untrusted-checkout.json", round_trip::<ir::Workflow>),
     ]
 }
 

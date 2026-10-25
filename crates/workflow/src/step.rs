@@ -85,6 +85,11 @@ impl Lowering<'_> {
                 Key::StepWith,
             )
         });
+        if let (Some(Action::Uses(reference)), Some(Some(with)), Some(field)) =
+            (&action, &with, fields.get("with"))
+        {
+            self.mark_checkout(reference, with, field, &place);
+        }
         let env = optional(fields.get("env"), |field| {
             self.env(field.value, &field.path, &place, Key::StepEnv)
         });

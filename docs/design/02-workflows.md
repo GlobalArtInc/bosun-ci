@@ -85,6 +85,12 @@ at once with conclusion `startup_failure` when a trigger matches it, so a broken
 instead of silent. Whether it matched is decided from the `on` block alone, which is parsed first;
 when `on` itself cannot be parsed, the file produces such a run for every push that changes it.
 
+`bosun_workflow::lint` takes the path of the file as its `file` and returns every diagnostic of
+the file, in the same order: those of `parse` and the warnings that need the location of the file
+or the whole of it, `extension` and `untrusted_checkout` ([Validation](#validation)). The editor,
+`POST /api/v1/lint` and `bosun workflow lint` call it. `parse` and `triggers` do not give these
+warnings, since the planner calls them for server-side workflows too, which have no path.
+
 Default limits, configurable per installation: 1 MiB of source per file, 256 job templates per
 workflow, 256 jobs per matrix, 10 levels of nested reusable workflows, 50 distinct reusable
 workflows per run, 10 levels of nested composite actions.
@@ -286,17 +292,71 @@ job reads ([05-execution.md](05-execution.md)).
 
 ### Actions
 
-`action.yml` and `action.yaml` with `name`, `description`, `inputs` (`description`, `required`,
-`default`, `deprecationMessage`), `outputs` and `runs`:
+`action.yml` and `action.yaml` with `name`, `description`, `author`, `branding`, `inputs`
+(`description`, `required`, `default`, `deprecationMessage`), `outputs` and `runs`:
 
-- `using: node20` and `using: node24` with `main`, `pre`, `post`, `pre-if`, `post-if`. The
-  installation's runtime map decides which Node runs which `using`; by default, as on current
-  hosted runners, `node12`, `node16` and `node20` all run on Node 24, and the run page notes the
-  substitution.
+- `using: node12`, `node16`, `node20` and `node24` with `main`, `pre`, `post`, `pre-if` and
+  `post-if`. The installation's runtime map decides which Node runs which `using`; by default, as
+  on current hosted runners, `node12`, `node16` and `node20` all run on Node 24, and the run page
+  notes the substitution.
 - `using: composite` with `steps`, where `run` steps require `shell`, and with `outputs` mapped
   from step outputs.
 - `using: docker` with `image` as a Dockerfile path or `docker://`, `args`, `env`, `entrypoint`,
   `pre-entrypoint`, `post-entrypoint`.
+
+#### Lowering action metadata
+
+`bosun_workflow::action` lowers the metadata of an action: the file `action.yml` of the action's
+directory or, when there is none, `action.yaml`, as the runner of the target looks for them. It
+reads YAML as workflows are read, keeps spans the same way and reports diagnostics of the same
+shape, and returns the metadata with its warnings, or every diagnostic when one is an error. The
+cases are in `contracts/fixtures/actions/`: the metadata of public actions, and cases that pin one
+rule each.
+
+- The root has `name`, `description` and `author`, which are text and never evaluated, so a `${{`
+  in them stays as written; `branding`, with `icon` and `color`; `inputs`; `outputs`; and `runs`,
+  which is required. Inputs and outputs keep the order of the source, and a name is any non-empty
+  text.
+- An input has `description` and `deprecationMessage`, text as well; `required`, a boolean that is
+  `false` when absent; and `default`, a template. A boolean or a number there is converted the way
+  templates convert values, so the `fetch-depth: 1` of `actions/checkout` is `1`, and a null
+  default is none: as in the runner, an input without a value or a default is the empty string.
+- An output has `description`. Its `value` is read by composite actions and arrives with them in
+  M2.
+- `runs` requires `using`. `node12`, `node16`, `node20` and `node24` are compared ignoring case, as
+  the runner compares them. `composite` and `docker` are `not_implemented` and name M2, and the
+  other keys of `runs` are not checked then; any other value is `invalid_value`. A Node action
+  requires `main` and has `pre` and `post`, which are paths in the action's directory, non-empty
+  and without expressions. `pre-if` and `post-if` are non-empty conditions in the forms of an `if`;
+  without one, the condition is `always()`. As in a step's `if`, a condition that calls no status
+  function behaves as `success() && (...)`, and the status functions look at the job, not at the
+  action.
+- Expressions are checked against the keys `inputs.<input_id>.default`, `runs.pre-if` and
+  `runs.post-if` of the availability table ([03-expressions.md](03-expressions.md)). The agent
+  evaluates them: the defaults when the step that uses the action is reached, and each condition
+  before its pre or post step.
+
+**Unknown keys.** In a workflow an unknown key is an error. The runner of the target reads the
+root of an action's metadata and its inputs loosely and ignores keys it does not know, and public
+actions rely on it: `marocchino/sticky-pull-request-comment` declares a `github-token` at its root,
+`softprops/action-gh-release` an `env`, and `oven-sh/setup-bun` gives an input a `type`. Refusing
+them would refuse actions that run on the target, so at the root, in an input and in `branding`,
+which the runner does not read either, an unknown key is the warning `ignored_key`, with a
+suggestion when a known key is close. In an output and in `runs`, which the runner reads strictly,
+an unknown key is `unknown_key`, as in a workflow. The three actions are cases in
+`contracts/fixtures/actions/`.
+
+The keys of action metadata arrive by the rule of [Where each key arrives](#where-each-key-arrives),
+and the keys of `using: composite` and `using: docker` with those kinds in M2:
+
+| In the metadata | Keys | From |
+|-----------------|------|------|
+| root | `name`, `description`, `author`, `branding`, `inputs`, `outputs`, `runs` | M1 |
+| `branding` | `icon`, `color` | M1 |
+| `inputs.<input_id>` | `description`, `required`, `default`, `deprecationMessage` | M1 |
+| `outputs.<output_id>` | `description` | M1 |
+| `outputs.<output_id>` | `value` | M2 |
+| `runs` | `using`, `main`, `pre`, `pre-if`, `post`, `post-if` | M1 |
 
 ### Where each key arrives
 
@@ -306,6 +366,16 @@ the milestone, rather than reported as unknown. Values are literals until M1, wh
 expressions. A step's `uses` arrives in M1 for `owner/repo@ref` and `owner/repo/path@ref`, and in M2
 for `./path` and `docker://`. The extension keys arrive in the milestone of the From column of
 their table below.
+
+`bosun-workflow` names the milestone it has reached, `MILESTONE`, and keeps in `PENDING`, in
+`crates/workflow/src/surface.rs`, the keys whose milestone has been reached but which are not
+implemented yet, each by its place, as the column Where names it but with `on` for a trigger, and
+its name. A key is implemented exactly when its milestone is reached and it is not pending; every
+other key is `not_implemented` and names its From milestone. M1 leaves the list empty. The first
+step of a later milestone moves `MILESTONE` on and puts the keys of that milestone on the list until
+the steps that implement them. A test reads this table, the extensions table and the table of
+action keys, checks the rule against them, and checks that the JSON Schema lists exactly the keys of
+the first two.
 
 | Where | Keys | From |
 |-------|------|------|
@@ -344,8 +414,21 @@ their table below.
 ## Extensions
 
 Bosun adds a closed list of keys. They are part of the published JSON Schema in
-`contracts/schema/workflow.json`; anything else unknown is still an error. Extension keys in a file
-under `.github/workflows/` produce a warning, because the file becomes invalid for GitHub Actions.
+`contracts/schema/workflow.json`; anything else unknown is still an error. Extension keys and the
+`bosun` context in a file directly under a `.github/workflows/` directory, whose path may be
+relative or absolute, produce the warning `extension` from `bosun_workflow::lint`, because the file
+becomes invalid for GitHub Actions; under `.bosun/workflows/` they produce none. For an extension
+whose milestone is not reached, the warning comes beside its `not_implemented`.
+
+The schema follows JSON Schema 2020-12 and describes every key of the surface and every
+extension, whatever its milestone, so it stays the same from milestone to milestone. Each key of the
+table of arrivals and of the extensions table carries the milestone of its From column as
+`x-bosun-from`, and each extension also `x-bosun-extension: true`, so an editor can say when a key
+arrives and which keys GitHub Actions does not know. It describes the shapes of values and refuses
+unknown keys, but it checks no expression, pattern, cron or job graph, which the parser checks. A
+test validates every workflow fixture the parser accepts against it, with the `jsonschema` crate as
+a dev-dependency of `bosun-workflow`, and refuses those with an unknown key. The forms of the keys
+of M3 are left open, and the steps that implement them describe them.
 
 | Key | Where | Meaning | From |
 |-----|-------|---------|------|
@@ -534,10 +617,19 @@ Filter     = Include [pattern] | Exclude [pattern]
 Cron       { expression, minutes, hours, days_of_month, months, days_of_week: [u8], days: Both | Either }
 Input      { name, description: String?, required: bool,
              kind: String | Boolean | Choice { options } | Number | Environment, each with its default? }
+ActionMetadata { name: String?, description: String?, author: String?, branding: Branding?,
+             inputs: [ActionInput], outputs: [ActionOutput], runs: Runs }
+Branding   { icon: String?, color: String? }
+ActionInput{ name, description: String?, required: bool, default: Template?,
+             deprecation_message: String? }
+ActionOutput { name, description: String? }
+Runs       = Node { using: Node12 | Node16 | Node20 | Node24, main, pre: String?,
+             pre_if: Condition?, post: String?, post_if: Condition? }
 ```
 
 The fields of later milestones (`cache_mode`, `priority`, `notify`, `environment`, `container`,
-`services`, `retry`, `pause`, the hold and the cache volumes, and the kinds `Call` and `Gate`) join
+`services`, `retry`, `pause`, the hold and the cache volumes, the kinds `Call` and `Gate`, and the
+composite and container actions) join
 the IR with the milestone that implements them; until then deserialising the IR refuses them like
 any unknown field.
 
@@ -577,7 +669,7 @@ Validation runs after lowering and before any run is created. Errors:
 
 Warnings:
 
-- extension keys in `.github/workflows/`;
+- extension keys and the `bosun` context in `.github/workflows/`;
 - deprecated workflow commands or Node runtimes;
 - an `if` with text around its `${{ }}`, or with several of them, which is a string and so true
   unless it is empty ([03-expressions.md](03-expressions.md));
@@ -585,16 +677,23 @@ Warnings:
   which forces the job to receive every secret in scope instead of only the referenced ones
   ([08-access.md](08-access.md));
 - `pull_request_target` combined with a checkout of the pull request's head, which runs untrusted
-  code with secrets.
+  code with secrets: a step of a workflow that `pull_request_target` triggers uses
+  `actions/checkout`, its owner and repository compared ignoring case, and its input `ref` or
+  `repository` reads the head of the pull request. The head is `github.head_ref`, anything under
+  `github.event.pull_request.head`, `github.event.pull_request.merge_commit_sha`, and the numbers
+  `refs/pull/<n>/merge` is built from, `github.event.number` and `github.event.pull_request.number`.
+  The warning `untrusted_checkout` is at the value of the input. An indirection, such as a variable
+  of `env` that holds the head, is not followed.
 
 `bosun workflow lint`, the editor and the server run the same validation from `bosun-workflow`.
 
 ### Diagnostic codes
 
 Every diagnostic carries one of these codes, and every code is pinned by a case in
-`contracts/fixtures/workflows/`. The codes of the static checks of expressions are those of
-[03-expressions.md](03-expressions.md), raised at the expression in the file; `limit_exceeded` and
-`not_implemented` serve both. A case of a warning lowers to its IR and has the warning beside it.
+`contracts/fixtures/workflows/` or, for the metadata of actions, `contracts/fixtures/actions/`. The
+codes of the static checks of expressions are those of [03-expressions.md](03-expressions.md),
+raised at the expression in the file; `limit_exceeded` and `not_implemented` serve both. A case of
+a warning lowers to its IR and has the warning beside it.
 
 | Code | Severity | Meaning |
 |------|----------|---------|
@@ -619,3 +718,6 @@ Every diagnostic carries one of these codes, and every code is pinned by a case 
 | `wrong_argument_count` | error | a call with a number of arguments the function does not take |
 | `template_condition` | warning | an `if` that is a template, and therefore true unless it is empty |
 | `all_secrets` | warning | a job reads secrets by a computed name or as a whole, and so receives every secret in scope |
+| `ignored_key` | warning | an unknown key at the root of an action's metadata, in an input or in `branding`, which the runner of the target ignores; the message suggests the closest known one |
+| `extension` | warning | an extension key or the `bosun` context in a file under `.github/workflows/`, which GitHub Actions then refuses |
+| `untrusted_checkout` | warning | a workflow that `pull_request_target` triggers checks out the head of the pull request |

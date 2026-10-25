@@ -1,0 +1,5 @@
+name: Cleanup
+description: Cleans up after the job
+runs:
+  using: node20
+  post: dist/post.js

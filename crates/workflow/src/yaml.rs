@@ -88,7 +88,7 @@ impl Loader {
                     return Err(fault(
                         Code::UnsupportedYaml,
                         range,
-                        "a workflow file holds exactly one YAML document",
+                        "a file holds exactly one YAML document",
                     ));
                 }
             }

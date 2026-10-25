@@ -1,244 +1,361 @@
+use Milestone::{M0, M1, M2, M3, M5};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Milestone {
+    M0,
+    M1,
+    M2,
+    M3,
+    M4,
+    M5,
+}
+
+impl Milestone {
+    pub const ALL: [Milestone; 6] = [
+        Milestone::M0,
+        Milestone::M1,
+        Milestone::M2,
+        Milestone::M3,
+        Milestone::M4,
+        Milestone::M5,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Milestone::M0 => "M0",
+            Milestone::M1 => "M1",
+            Milestone::M2 => "M2",
+            Milestone::M3 => "M3",
+            Milestone::M4 => "M4",
+            Milestone::M5 => "M5",
+        }
+    }
+}
+
+pub const MILESTONE: Milestone = Milestone::M1;
+
+pub const PENDING: &[(&str, &str)] = &[];
+
+pub(crate) struct Arrival {
+    name: &'static str,
+    from: Milestone,
+    extension: bool,
+}
+
+const fn key(name: &'static str, from: Milestone) -> Arrival {
+    Arrival {
+        name,
+        from,
+        extension: false,
+    }
+}
+
+const fn extension(name: &'static str, from: Milestone) -> Arrival {
+    Arrival {
+        name,
+        from,
+        extension: true,
+    }
+}
+
 pub(crate) struct Shape {
     pub(crate) noun: &'static str,
-    pub(crate) now: &'static [&'static str],
-    pub(crate) later: &'static [(&'static str, &'static str)],
+    place: &'static str,
+    keys: &'static [Arrival],
     pub(crate) required: &'static [&'static str],
+    pub(crate) loose: bool,
 }
 
 pub(crate) enum Known {
     Now,
-    Later(&'static str),
+    Later(Milestone),
     Unknown(Option<&'static str>),
 }
 
 impl Shape {
     pub(crate) fn find(&self, name: &str) -> Known {
-        if self.now.contains(&name) {
-            return Known::Now;
+        match self.keys.iter().find(|arrival| arrival.name == name) {
+            Some(arrival)
+                if arrival.from <= MILESTONE && !PENDING.contains(&(self.place, arrival.name)) =>
+            {
+                Known::Now
+            }
+            Some(arrival) => Known::Later(arrival.from),
+            None => Known::Unknown(suggest(name, self.keys.iter().map(|arrival| arrival.name))),
         }
-        match self.later.iter().find(|(key, _)| *key == name) {
-            Some(&(_, milestone)) => Known::Later(milestone),
-            None => Known::Unknown(suggest(
-                name,
-                self.now
-                    .iter()
-                    .copied()
-                    .chain(self.later.iter().map(|&(key, _)| key)),
-            )),
-        }
+    }
+
+    pub(crate) fn extension(&self, name: &str) -> bool {
+        self.keys
+            .iter()
+            .any(|arrival| arrival.name == name && arrival.extension)
+    }
+}
+
+const fn shape(place: &'static str, keys: &'static [Arrival]) -> Shape {
+    Shape {
+        noun: "key",
+        place,
+        keys,
+        required: &[],
+        loose: false,
     }
 }
 
 pub(crate) const WORKFLOW: Shape = Shape {
-    noun: "key",
-    now: &[
-        "name",
-        "run-name",
-        "on",
-        "permissions",
-        "env",
-        "defaults",
-        "concurrency",
-        "jobs",
-    ],
-    later: &[("cache-mode", "M2"), ("priority", "M2"), ("notify", "M5")],
     required: &["on", "jobs"],
+    ..shape(
+        "workflow",
+        &[
+            key("name", M0),
+            key("run-name", M1),
+            key("on", M0),
+            key("permissions", M1),
+            key("env", M0),
+            key("defaults", M1),
+            key("concurrency", M1),
+            key("jobs", M0),
+            key("cache-mode", M2),
+            extension("priority", M2),
+            extension("notify", M5),
+        ],
+    )
 };
 
 pub(crate) const EVENTS: Shape = Shape {
     noun: "event",
-    now: &[
-        "workflow_dispatch",
-        "push",
-        "pull_request",
-        "pull_request_target",
-        "schedule",
-        "merge_group",
-        "repository_dispatch",
-        "branch_protection_rule",
-        "check_run",
-        "check_suite",
-        "create",
-        "delete",
-        "deployment",
-        "deployment_status",
-        "discussion",
-        "discussion_comment",
-        "fork",
-        "gollum",
-        "issue_comment",
-        "issues",
-        "label",
-        "milestone",
-        "page_build",
-        "project",
-        "project_card",
-        "project_column",
-        "public",
-        "pull_request_review",
-        "pull_request_review_comment",
-        "registry_package",
-        "release",
-        "status",
-        "watch",
-    ],
-    later: &[
-        ("workflow_call", "M2"),
-        ("workflow_run", "M2"),
-        ("upstream", "M2"),
-        ("plugin", "M5"),
-    ],
-    required: &[],
+    ..shape(
+        "on",
+        &[
+            key("workflow_dispatch", M0),
+            key("push", M1),
+            key("pull_request", M1),
+            key("pull_request_target", M1),
+            key("schedule", M1),
+            key("merge_group", M1),
+            key("repository_dispatch", M1),
+            key("branch_protection_rule", M1),
+            key("check_run", M1),
+            key("check_suite", M1),
+            key("create", M1),
+            key("delete", M1),
+            key("deployment", M1),
+            key("deployment_status", M1),
+            key("discussion", M1),
+            key("discussion_comment", M1),
+            key("fork", M1),
+            key("gollum", M1),
+            key("issue_comment", M1),
+            key("issues", M1),
+            key("label", M1),
+            key("milestone", M1),
+            key("page_build", M1),
+            key("project", M1),
+            key("project_card", M1),
+            key("project_column", M1),
+            key("public", M1),
+            key("pull_request_review", M1),
+            key("pull_request_review_comment", M1),
+            key("registry_package", M1),
+            key("release", M1),
+            key("status", M1),
+            key("watch", M1),
+            key("workflow_call", M2),
+            key("workflow_run", M2),
+            extension("upstream", M2),
+            extension("plugin", M5),
+        ],
+    )
 };
 
-pub(crate) const PUSH: Shape = Shape {
-    noun: "key",
-    now: &[
-        "branches",
-        "branches-ignore",
-        "tags",
-        "tags-ignore",
-        "paths",
-        "paths-ignore",
+pub(crate) const PUSH: Shape = shape(
+    "push",
+    &[
+        key("branches", M1),
+        key("branches-ignore", M1),
+        key("tags", M1),
+        key("tags-ignore", M1),
+        key("paths", M1),
+        key("paths-ignore", M1),
     ],
-    later: &[],
-    required: &[],
-};
+);
 
-pub(crate) const PULL_REQUEST: Shape = Shape {
-    noun: "key",
-    now: &[
-        "types",
-        "branches",
-        "branches-ignore",
-        "paths",
-        "paths-ignore",
+pub(crate) const PULL_REQUEST: Shape = shape(
+    "pull_request",
+    &[
+        key("types", M1),
+        key("branches", M1),
+        key("branches-ignore", M1),
+        key("paths", M1),
+        key("paths-ignore", M1),
     ],
-    later: &[],
-    required: &[],
-};
+);
 
-pub(crate) const MERGE_GROUP: Shape = Shape {
-    noun: "key",
-    now: &["types", "branches", "branches-ignore"],
-    later: &[],
-    required: &[],
-};
+pub(crate) const MERGE_GROUP: Shape = shape(
+    "merge_group",
+    &[
+        key("types", M1),
+        key("branches", M1),
+        key("branches-ignore", M1),
+    ],
+);
 
-pub(crate) const ACTIVITY: Shape = Shape {
-    noun: "key",
-    now: &["types"],
-    later: &[],
-    required: &[],
-};
+pub(crate) const ACTIVITY: Shape = shape("activity", &[key("types", M1)]);
 
 pub(crate) const SCHEDULE: Shape = Shape {
-    noun: "key",
-    now: &["cron", "timezone"],
-    later: &[],
     required: &["cron"],
+    ..shape("schedule", &[key("cron", M1), key("timezone", M1)])
 };
 
-pub(crate) const WORKFLOW_DISPATCH: Shape = Shape {
-    noun: "key",
-    now: &["inputs"],
-    later: &[],
-    required: &[],
-};
+pub(crate) const WORKFLOW_DISPATCH: Shape = shape("workflow_dispatch", &[key("inputs", M1)]);
 
-pub(crate) const INPUT: Shape = Shape {
-    noun: "key",
-    now: &["description", "required", "default", "type", "options"],
-    later: &[],
-    required: &[],
-};
+pub(crate) const INPUT: Shape = shape(
+    "workflow_dispatch.inputs.<input_id>",
+    &[
+        key("description", M1),
+        key("required", M1),
+        key("default", M1),
+        key("type", M1),
+        key("options", M1),
+    ],
+);
 
 pub(crate) const JOB: Shape = Shape {
-    noun: "key",
-    now: &[
-        "name",
-        "needs",
-        "if",
-        "runs-on",
-        "permissions",
-        "concurrency",
-        "strategy",
-        "env",
-        "defaults",
-        "timeout-minutes",
-        "continue-on-error",
-        "outputs",
-        "steps",
-    ],
-    later: &[
-        ("container", "M2"),
-        ("services", "M2"),
-        ("cache-mode", "M2"),
-        ("uses", "M2"),
-        ("with", "M2"),
-        ("secrets", "M2"),
-        ("cache-volumes", "M2"),
-        ("priority", "M2"),
-        ("environment", "M3"),
-        ("retry", "M3"),
-        ("debug", "M3"),
-        ("gate", "M3"),
-    ],
     required: &["runs-on", "steps"],
+    ..shape(
+        "job",
+        &[
+            key("name", M0),
+            key("needs", M0),
+            key("if", M1),
+            key("runs-on", M0),
+            key("permissions", M1),
+            key("concurrency", M1),
+            key("strategy", M1),
+            key("env", M0),
+            key("defaults", M1),
+            key("timeout-minutes", M1),
+            key("continue-on-error", M1),
+            key("outputs", M1),
+            key("steps", M0),
+            key("container", M2),
+            key("services", M2),
+            key("cache-mode", M2),
+            key("uses", M2),
+            key("with", M2),
+            key("secrets", M2),
+            extension("cache-volumes", M2),
+            extension("priority", M2),
+            key("environment", M3),
+            extension("retry", M3),
+            extension("debug", M3),
+            extension("gate", M3),
+        ],
+    )
 };
 
-pub(crate) const RUNS_ON: Shape = Shape {
-    noun: "key",
-    now: &["group", "labels"],
-    later: &[],
-    required: &[],
-};
+pub(crate) const RUNS_ON: Shape = shape("runs-on", &[key("group", M0), key("labels", M0)]);
 
-pub(crate) const STEP: Shape = Shape {
-    noun: "key",
-    now: &[
-        "id",
-        "name",
-        "if",
-        "uses",
-        "run",
-        "shell",
-        "working-directory",
-        "with",
-        "env",
-        "continue-on-error",
-        "timeout-minutes",
+pub(crate) const STEP: Shape = shape(
+    "step",
+    &[
+        key("id", M0),
+        key("name", M0),
+        key("if", M1),
+        key("uses", M1),
+        key("run", M0),
+        key("shell", M0),
+        key("working-directory", M0),
+        key("with", M1),
+        key("env", M0),
+        key("continue-on-error", M1),
+        key("timeout-minutes", M1),
+        extension("retry", M3),
+        extension("pause", M3),
     ],
-    later: &[("retry", "M3"), ("pause", "M3")],
-    required: &[],
-};
+);
 
-pub(crate) const DEFAULTS: Shape = Shape {
-    noun: "key",
-    now: &["run"],
-    later: &[],
-    required: &[],
-};
+pub(crate) const DEFAULTS: Shape = shape("defaults", &[key("run", M1)]);
 
-pub(crate) const DEFAULTS_RUN: Shape = Shape {
-    noun: "key",
-    now: &["shell", "working-directory"],
-    later: &[],
-    required: &[],
-};
+pub(crate) const DEFAULTS_RUN: Shape = shape(
+    "defaults.run",
+    &[key("shell", M1), key("working-directory", M1)],
+);
 
 pub(crate) const CONCURRENCY: Shape = Shape {
-    noun: "key",
-    now: &["group", "cancel-in-progress", "queue"],
-    later: &[],
     required: &["group"],
+    ..shape(
+        "concurrency",
+        &[
+            key("group", M1),
+            key("cancel-in-progress", M1),
+            key("queue", M1),
+        ],
+    )
 };
 
-pub(crate) const STRATEGY: Shape = Shape {
-    noun: "key",
-    now: &["matrix", "fail-fast", "max-parallel"],
-    later: &[],
-    required: &[],
+pub(crate) const STRATEGY: Shape = shape(
+    "strategy",
+    &[
+        key("matrix", M1),
+        key("fail-fast", M1),
+        key("max-parallel", M1),
+    ],
+);
+
+pub(crate) const ACTION: Shape = Shape {
+    required: &["runs"],
+    loose: true,
+    ..shape(
+        "root",
+        &[
+            key("name", M1),
+            key("description", M1),
+            key("author", M1),
+            key("branding", M1),
+            key("inputs", M1),
+            key("outputs", M1),
+            key("runs", M1),
+        ],
+    )
+};
+
+pub(crate) const BRANDING: Shape = Shape {
+    loose: true,
+    ..shape("branding", &[key("icon", M1), key("color", M1)])
+};
+
+pub(crate) const ACTION_INPUT: Shape = Shape {
+    loose: true,
+    ..shape(
+        "inputs.<input_id>",
+        &[
+            key("description", M1),
+            key("required", M1),
+            key("default", M1),
+            key("deprecationMessage", M1),
+        ],
+    )
+};
+
+pub(crate) const ACTION_OUTPUT: Shape = shape(
+    "outputs.<output_id>",
+    &[key("description", M1), key("value", M2)],
+);
+
+pub(crate) const NODE_RUNS: Shape = Shape {
+    required: &["using", "main"],
+    ..shape(
+        "runs",
+        &[
+            key("using", M1),
+            key("main", M1),
+            key("pre", M1),
+            key("pre-if", M1),
+            key("post", M1),
+            key("post-if", M1),
+        ],
+    )
 };
 
 pub(crate) fn suggest<'a>(

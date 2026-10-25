@@ -1,0 +1,1352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bosun workflow",
+  "description": "A workflow of the GitHub Actions syntax with Bosun's extensions. `x-bosun-from` names the milestone a key arrives in, and `x-bosun-extension` marks the keys GitHub Actions does not know.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "on",
+    "jobs"
+  ],
+  "properties": {
+    "name": {
+      "$ref": "#/$defs/text",
+      "x-bosun-from": "M0"
+    },
+    "run-name": {
+      "$ref": "#/$defs/text",
+      "x-bosun-from": "M1"
+    },
+    "on": {
+      "$ref": "#/$defs/triggers",
+      "x-bosun-from": "M0"
+    },
+    "permissions": {
+      "$ref": "#/$defs/permissions",
+      "x-bosun-from": "M1"
+    },
+    "env": {
+      "$ref": "#/$defs/env",
+      "x-bosun-from": "M0"
+    },
+    "defaults": {
+      "$ref": "#/$defs/defaults",
+      "x-bosun-from": "M1"
+    },
+    "concurrency": {
+      "$ref": "#/$defs/concurrency",
+      "x-bosun-from": "M1"
+    },
+    "cache-mode": {
+      "$ref": "#/$defs/cache-mode",
+      "x-bosun-from": "M2"
+    },
+    "priority": {
+      "description": "The dispatch priority of the jobs of a run.",
+      "$ref": "#/$defs/priority",
+      "x-bosun-from": "M2",
+      "x-bosun-extension": true
+    },
+    "notify": {
+      "description": "Routes of run and job events to notifier plugin instances.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/route"
+      },
+      "x-bosun-from": "M5",
+      "x-bosun-extension": true
+    },
+    "jobs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/job"
+      },
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+      },
+      "x-bosun-from": "M0"
+    }
+  },
+  "$defs": {
+    "text": {
+      "description": "A string; a boolean or a number is converted to its text.",
+      "type": [
+        "string",
+        "number",
+        "boolean"
+      ]
+    },
+    "expression": {
+      "description": "A string that holds an expression.",
+      "type": "string",
+      "pattern": "\\$\\{\\{"
+    },
+    "condition": {
+      "description": "An expression with or without its delimiters; empty or null sets no condition.",
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "flag": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/expression"
+        }
+      ]
+    },
+    "minutes": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "$ref": "#/$defs/expression"
+        }
+      ]
+    },
+    "texts": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      ]
+    },
+    "patterns": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      ]
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/text"
+      },
+      "propertyNames": {
+        "minLength": 1
+      }
+    },
+    "templates": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/text"
+      },
+      "propertyNames": {
+        "minLength": 1
+      }
+    },
+    "permissions": {
+      "anyOf": [
+        {
+          "enum": [
+            "read-all",
+            "write-all"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "attestations": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "checks": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "contents": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "deployments": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "discussions": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "issues": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "packages": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "pages": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "pull-requests": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "repository-projects": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "security-events": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "statuses": {
+              "enum": [
+                "read",
+                "write",
+                "none"
+              ]
+            },
+            "id-token": {
+              "enum": [
+                "write",
+                "none"
+              ]
+            },
+            "models": {
+              "enum": [
+                "read",
+                "none"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "shell": {
+              "$ref": "#/$defs/text"
+            },
+            "working-directory": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        }
+      }
+    },
+    "concurrency": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "$ref": "#/$defs/text"
+            },
+            "cancel-in-progress": {
+              "$ref": "#/$defs/flag"
+            },
+            "queue": {
+              "enum": [
+                "single",
+                "max"
+              ]
+            }
+          },
+          "required": [
+            "group"
+          ]
+        }
+      ]
+    },
+    "cache-mode": {
+      "enum": [
+        "read",
+        "write",
+        "write-only",
+        "none"
+      ]
+    },
+    "priority": {
+      "enum": [
+        "low",
+        "normal",
+        "high"
+      ]
+    },
+    "types": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      ]
+    },
+    "triggers": {
+      "anyOf": [
+        {
+          "enum": [
+            "workflow_dispatch",
+            "push",
+            "pull_request",
+            "pull_request_target",
+            "merge_group",
+            "repository_dispatch",
+            "branch_protection_rule",
+            "check_run",
+            "check_suite",
+            "create",
+            "delete",
+            "deployment",
+            "deployment_status",
+            "discussion",
+            "discussion_comment",
+            "fork",
+            "gollum",
+            "issue_comment",
+            "issues",
+            "label",
+            "milestone",
+            "page_build",
+            "project",
+            "project_card",
+            "project_column",
+            "public",
+            "pull_request_review",
+            "pull_request_review_comment",
+            "registry_package",
+            "release",
+            "status",
+            "watch",
+            "workflow_call",
+            "workflow_run"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "enum": [
+              "workflow_dispatch",
+              "push",
+              "pull_request",
+              "pull_request_target",
+              "merge_group",
+              "repository_dispatch",
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issue_comment",
+              "issues",
+              "label",
+              "milestone",
+              "page_build",
+              "project",
+              "project_card",
+              "project_column",
+              "public",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "registry_package",
+              "release",
+              "status",
+              "watch",
+              "workflow_call",
+              "workflow_run"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        {
+          "$ref": "#/$defs/on"
+        }
+      ]
+    },
+    "push": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branches": {
+              "$ref": "#/$defs/patterns"
+            },
+            "branches-ignore": {
+              "$ref": "#/$defs/patterns"
+            },
+            "tags": {
+              "$ref": "#/$defs/patterns"
+            },
+            "tags-ignore": {
+              "$ref": "#/$defs/patterns"
+            },
+            "paths": {
+              "$ref": "#/$defs/patterns"
+            },
+            "paths-ignore": {
+              "$ref": "#/$defs/patterns"
+            }
+          }
+        }
+      ]
+    },
+    "pull_request": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "types": {
+              "$ref": "#/$defs/types"
+            },
+            "branches": {
+              "$ref": "#/$defs/patterns"
+            },
+            "branches-ignore": {
+              "$ref": "#/$defs/patterns"
+            },
+            "paths": {
+              "$ref": "#/$defs/patterns"
+            },
+            "paths-ignore": {
+              "$ref": "#/$defs/patterns"
+            }
+          }
+        }
+      ]
+    },
+    "merge_group": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "types": {
+              "$ref": "#/$defs/types"
+            },
+            "branches": {
+              "$ref": "#/$defs/patterns"
+            },
+            "branches-ignore": {
+              "$ref": "#/$defs/patterns"
+            }
+          }
+        }
+      ]
+    },
+    "activity": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "types": {
+              "$ref": "#/$defs/types"
+            }
+          }
+        }
+      ]
+    },
+    "schedule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cron": {
+            "type": "string",
+            "minLength": 1
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "cron"
+        ]
+      },
+      "minItems": 1
+    },
+    "dispatch-input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "boolean",
+            "choice",
+            "number",
+            "environment"
+          ]
+        },
+        "default": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "workflow_dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/dispatch-input"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+          },
+          "x-bosun-from": "M1"
+        }
+      }
+    },
+    "workflow_call": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inputs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "enum": [
+                      "boolean",
+                      "number",
+                      "string"
+                    ]
+                  },
+                  "default": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "secrets": {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "description": {
+                        "$ref": "#/$defs/text"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "outputs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "value": {
+                    "$ref": "#/$defs/text"
+                  }
+                },
+                "required": [
+                  "value"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "workflow_run": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workflows": {
+              "$ref": "#/$defs/texts"
+            },
+            "types": {
+              "$ref": "#/$defs/types"
+            },
+            "branches": {
+              "$ref": "#/$defs/patterns"
+            },
+            "branches-ignore": {
+              "$ref": "#/$defs/patterns"
+            }
+          }
+        }
+      ]
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "workflows": {
+          "$ref": "#/$defs/texts"
+        },
+        "branches": {
+          "$ref": "#/$defs/patterns"
+        },
+        "conclusions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "object",
+          "null"
+        ]
+      }
+    },
+    "on": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workflow_dispatch": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/workflow_dispatch"
+            }
+          ],
+          "x-bosun-from": "M0"
+        },
+        "push": {
+          "$ref": "#/$defs/push",
+          "x-bosun-from": "M1"
+        },
+        "pull_request": {
+          "$ref": "#/$defs/pull_request",
+          "x-bosun-from": "M1"
+        },
+        "pull_request_target": {
+          "$ref": "#/$defs/pull_request",
+          "x-bosun-from": "M1"
+        },
+        "schedule": {
+          "$ref": "#/$defs/schedule",
+          "x-bosun-from": "M1"
+        },
+        "merge_group": {
+          "$ref": "#/$defs/merge_group",
+          "x-bosun-from": "M1"
+        },
+        "repository_dispatch": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "branch_protection_rule": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "check_run": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "check_suite": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "create": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "delete": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "deployment": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "deployment_status": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "discussion": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "discussion_comment": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "fork": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "gollum": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "issue_comment": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "issues": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "label": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "milestone": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "page_build": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "project": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "project_card": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "project_column": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "public": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "pull_request_review": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "pull_request_review_comment": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "registry_package": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "release": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "status": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "watch": {
+          "$ref": "#/$defs/activity",
+          "x-bosun-from": "M1"
+        },
+        "workflow_call": {
+          "$ref": "#/$defs/workflow_call",
+          "x-bosun-from": "M2"
+        },
+        "workflow_run": {
+          "$ref": "#/$defs/workflow_run",
+          "x-bosun-from": "M2"
+        },
+        "upstream": {
+          "description": "Runs after a workflow of another project completes.",
+          "$ref": "#/$defs/upstream",
+          "x-bosun-from": "M2",
+          "x-bosun-extension": true
+        },
+        "plugin": {
+          "description": "Events from trigger plugin instances, by name.",
+          "$ref": "#/$defs/plugin",
+          "x-bosun-from": "M5",
+          "x-bosun-extension": true
+        }
+      },
+      "minProperties": 1
+    },
+    "runs-on": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "$ref": "#/$defs/text"
+            },
+            "labels": {
+              "$ref": "#/$defs/texts"
+            }
+          }
+        }
+      ]
+    },
+    "matrix-list": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/expression"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "strategy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/expression"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "matrix": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/expression"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "include": {
+                      "$ref": "#/$defs/matrix-list"
+                    },
+                    "exclude": {
+                      "$ref": "#/$defs/matrix-list"
+                    }
+                  },
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/expression"
+                      },
+                      {
+                        "type": "array"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "fail-fast": {
+              "$ref": "#/$defs/flag"
+            },
+            "max-parallel": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "$ref": "#/$defs/expression"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "$ref": "#/$defs/text"
+        },
+        "credentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "username": {
+              "$ref": "#/$defs/text"
+            },
+            "password": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        },
+        "env": {
+          "$ref": "#/$defs/env"
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "options": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "cache-volume": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scope": {
+              "enum": [
+                "project",
+                "organisation"
+              ]
+            },
+            "key": {
+              "$ref": "#/$defs/text"
+            },
+            "mode": {
+              "enum": [
+                "exclusive",
+                "shared"
+              ]
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "started",
+              "success",
+              "failure",
+              "cancelled",
+              "fixed",
+              "waiting"
+            ]
+          },
+          "minItems": 1
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1
+            }
+          ]
+        }
+      },
+      "required": [
+        "to"
+      ]
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/text",
+          "x-bosun-from": "M0"
+        },
+        "needs": {
+          "$ref": "#/$defs/texts",
+          "x-bosun-from": "M0"
+        },
+        "if": {
+          "$ref": "#/$defs/condition",
+          "x-bosun-from": "M1"
+        },
+        "runs-on": {
+          "$ref": "#/$defs/runs-on",
+          "x-bosun-from": "M0"
+        },
+        "permissions": {
+          "$ref": "#/$defs/permissions",
+          "x-bosun-from": "M1"
+        },
+        "concurrency": {
+          "$ref": "#/$defs/concurrency",
+          "x-bosun-from": "M1"
+        },
+        "strategy": {
+          "$ref": "#/$defs/strategy",
+          "x-bosun-from": "M1"
+        },
+        "env": {
+          "$ref": "#/$defs/env",
+          "x-bosun-from": "M0"
+        },
+        "defaults": {
+          "$ref": "#/$defs/defaults",
+          "x-bosun-from": "M1"
+        },
+        "timeout-minutes": {
+          "$ref": "#/$defs/minutes",
+          "x-bosun-from": "M1"
+        },
+        "continue-on-error": {
+          "$ref": "#/$defs/flag",
+          "x-bosun-from": "M1"
+        },
+        "outputs": {
+          "$ref": "#/$defs/templates",
+          "x-bosun-from": "M1"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          },
+          "minItems": 1,
+          "x-bosun-from": "M0"
+        },
+        "container": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "$ref": "#/$defs/container"
+            }
+          ],
+          "x-bosun-from": "M2"
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/container"
+          },
+          "x-bosun-from": "M2"
+        },
+        "cache-mode": {
+          "$ref": "#/$defs/cache-mode",
+          "x-bosun-from": "M2"
+        },
+        "uses": {
+          "type": "string",
+          "minLength": 1,
+          "x-bosun-from": "M2"
+        },
+        "with": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "x-bosun-from": "M2"
+        },
+        "secrets": {
+          "anyOf": [
+            {
+              "const": "inherit"
+            },
+            {
+              "$ref": "#/$defs/templates"
+            }
+          ],
+          "x-bosun-from": "M2"
+        },
+        "cache-volumes": {
+          "description": "Directories that persist between runs on an agent host.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cache-volume"
+          },
+          "x-bosun-from": "M2",
+          "x-bosun-extension": true
+        },
+        "priority": {
+          "description": "The dispatch priority of the job, over the workflow's.",
+          "$ref": "#/$defs/priority",
+          "x-bosun-from": "M2",
+          "x-bosun-extension": true
+        },
+        "environment": {
+          "description": "The environment the job deploys to; its forms are described in M3.",
+          "x-bosun-from": "M3"
+        },
+        "retry": {
+          "description": "Re-queues a failed job; its form is described in M3.",
+          "x-bosun-from": "M3",
+          "x-bosun-extension": true
+        },
+        "debug": {
+          "description": "Debugging of a job, with `hold-on-failure`; its form is described in M3.",
+          "x-bosun-from": "M3",
+          "x-bosun-extension": true
+        },
+        "gate": {
+          "description": "A job without steps that waits for approval; its form is described in M3.",
+          "x-bosun-from": "M3",
+          "x-bosun-extension": true
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "x-bosun-from": "M0"
+        },
+        "name": {
+          "$ref": "#/$defs/text",
+          "x-bosun-from": "M0"
+        },
+        "if": {
+          "$ref": "#/$defs/condition",
+          "x-bosun-from": "M1"
+        },
+        "uses": {
+          "type": "string",
+          "minLength": 1,
+          "x-bosun-from": "M1"
+        },
+        "run": {
+          "$ref": "#/$defs/text",
+          "x-bosun-from": "M0"
+        },
+        "shell": {
+          "$ref": "#/$defs/text",
+          "x-bosun-from": "M0"
+        },
+        "working-directory": {
+          "$ref": "#/$defs/text",
+          "x-bosun-from": "M0"
+        },
+        "with": {
+          "$ref": "#/$defs/templates",
+          "x-bosun-from": "M1"
+        },
+        "env": {
+          "$ref": "#/$defs/env",
+          "x-bosun-from": "M0"
+        },
+        "continue-on-error": {
+          "$ref": "#/$defs/flag",
+          "x-bosun-from": "M1"
+        },
+        "timeout-minutes": {
+          "$ref": "#/$defs/minutes",
+          "x-bosun-from": "M1"
+        },
+        "retry": {
+          "description": "Repeats a failed step in place; its form is described in M3.",
+          "x-bosun-from": "M3",
+          "x-bosun-extension": true
+        },
+        "pause": {
+          "description": "Stops before or after the step until an operator resumes it; its form is described in M3.",
+          "x-bosun-from": "M3",
+          "x-bosun-extension": true
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "run"
+          ]
+        },
+        {
+          "required": [
+            "uses"
+          ]
+        }
+      ]
+    }
+  }
+}

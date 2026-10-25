@@ -1,0 +1,21 @@
+{
+  "metadata": null,
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "invalid_value",
+      "message": "`main` of `runs` takes no expressions",
+      "file": "action.yml",
+      "span": {
+        "line": 5,
+        "column": 9,
+        "end_line": 5,
+        "end_column": 33
+      },
+      "path": [
+        "runs",
+        "main"
+      ]
+    }
+  ]
+}

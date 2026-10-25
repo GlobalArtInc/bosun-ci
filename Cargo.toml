@@ -31,6 +31,7 @@ flate2 = "1"
 getrandom = "0.4"
 hmac = "0.12"
 http-body = "1"
+jsonschema = { version = "0.56", default-features = false }
 prost = "0.14"
 prost-types = "0.14"
 proptest = { version = "1", default-features = false, features = ["std"] }

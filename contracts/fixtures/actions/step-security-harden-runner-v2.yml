@@ -1,0 +1,67 @@
+name: "Harden-Runner"
+description: "Harden-Runner provides runtime security for GitHub-hosted and self-hosted runners"
+inputs:
+  allowed-endpoints:
+    description: "Only these endpoints will be allowed if egress-policy is set to block"
+    required: false
+    default: ""
+  denied-endpoints:
+    description: "These endpoints will be denied when endpoint blocking is enabled"
+    required: false
+    default: ""
+  egress-policy:
+    description: "Policy for outbound traffic, can be either audit or block"
+    required: false
+    default: "block"
+  token:
+    description: "Used to avoid github rate limiting"
+    default: ${{ github.token }}
+  disable-telemetry:
+    description: "Disable sending telemetry to StepSecurity API, can be set to true or false. This can only be set to true when egress-policy is set to block"
+    required: false
+    default: "false"
+  disable-sudo:
+    description: "Disable sudo access for the runner account. Note: This parameter will be deprecated in the future. Please use disable-sudo-and-containers instead."
+    required: false
+    default: "false"
+  disable-sudo-and-containers:
+    description: "Disable sudo and container access for the runner account"
+    required: false
+    default: "false"
+  disable-file-monitoring:
+    description: "Disable file monitoring"
+    required: false
+    default: "false"
+  policy:
+    description: "Policy name to be used from the policy store. Requires id-token: write permission."
+    required: false
+    default: ""
+  api-key:
+    description: "StepSecurity API key for authenticating with the policy store. Required when use-policy-store is set to true."
+    required: false
+    default: ""
+  use-policy-store:
+    description: "Set to true to fetch policy from the policy store using the API key. This is the preferred method over the policy input which requires id-token: write permission. Policies can be defined and attached at workflow, repo, org, or cluster (for ARC) level in the policy store. The most granular policy will apply."
+    required: false
+    default: "false"
+  deploy-on-self-hosted-vm:
+    description: "Set to true to deploy the Harden Runner agent directly on a self-hosted runner VM (Linux only). The recommended approach for self-hosted VMs is to bake the agent into the VM image; see docs.stepsecurity.io. Use this option only if baking is not possible, and only for ephemeral runners."
+    required: false
+    default: "false"
+  customer:
+    description: "StepSecurity customer name. Required in GitHub Enterprise Server (GHES) environments for TLS checks, policy fetching, and direct self-hosted VM agent installation."
+    required: false
+    default: ""
+  server-name:
+    description: "GHES server name registered with StepSecurity. Required in GitHub Enterprise Server (GHES) environments for TLS checks, policy fetching, and direct self-hosted VM agent installation."
+    required: false
+    default: ""
+
+branding:
+  icon: "check-square"
+  color: "green"
+runs:
+  using: "node24"
+  pre: "dist/pre/index.js"
+  main: "dist/index.js"
+  post: "dist/post/index.js"

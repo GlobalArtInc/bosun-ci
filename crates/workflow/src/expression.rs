@@ -2,10 +2,10 @@ use bosun_expr::Key;
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
 use bosun_types::ir::{Condition, Evaluable, Expr, Segment, Template};
 
-use crate::Code;
-use crate::lower::Lowering;
+use crate::lower::{Lowering, Mark};
 use crate::place::Placement;
 use crate::yaml::{Node, Value};
+use crate::{Code, lint};
 
 pub(crate) const OPEN: &str = "${{";
 
@@ -47,6 +47,13 @@ impl Lowering<'_> {
         if valid {
             for expr in found {
                 self.read_secrets(expr, path);
+                for span in lint::bosun(expr) {
+                    self.bosun.push(Mark {
+                        span,
+                        path: path.to_vec(),
+                        what: "the `bosun` context".to_string(),
+                    });
+                }
             }
         }
         valid

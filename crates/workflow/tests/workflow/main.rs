@@ -1,10 +1,13 @@
+mod actions;
 mod behaviour;
 mod documents;
 mod expressions;
 mod fixtures;
 mod github;
 mod jobs;
+mod lint;
 mod on;
+mod schema;
 mod triggers;
 
 use std::fs;
