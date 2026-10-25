@@ -249,6 +249,10 @@ expect_line() {
   grep -qxF -- "$2" "$1" || fail "$3: there is no line '$2' in: $(cat "$1")"
 }
 
+expect_ended() {
+  grep -qxE -- "$2(, job [0-9a-f-]+)?" "$1" || fail "$3: there is no line '$2' in: $(cat "$1")"
+}
+
 expect_order() {
   local file="$1" previous=0 line number
   shift
@@ -996,7 +1000,7 @@ EOF
   reap "$watcher"
   [ "$reaped" -eq 3 ] || fail "bosun run watch exited with $reaped for a failed run, not 3: $(cat "$watched")"
   expect_line "$watched" "build | about to fail" "bosun run watch printed no log line"
-  expect_line "$watched" "build: completed failure" "bosun run watch did not show the job fail"
+  expect_ended "$watched" "build: completed failure" "bosun run watch did not show the job fail"
   [ "$(tail -n 1 "$watched")" = "run $failing: completed failure" ] ||
     fail "bosun run watch did not end with the conclusion: $(cat "$watched")"
   [ "$(cli --profile a --json workflow show e2e/m0/watched-failure | jq -r .latest_run.id)" = "$failing" ] ||
@@ -1055,7 +1059,7 @@ EOF
   expect_line "$watched" "hold: completed cancelled" "the cancelled job did not end cancelled"
   expect_line "$watched" "after | hold ended cancelled" "the dependent job did not see cancelled"
   expect_line "$watched" "after: completed success" "the dependent job did not run after the cancel"
-  expect_line "$watched" "apart: completed success" "the job apart was not left to finish"
+  expect_ended "$watched" "apart: completed success" "the job apart was not left to finish"
   [ "$(tail -n 1 "$watched")" = "run $run: completed cancelled" ] ||
     fail "the run with a cancelled job did not end cancelled: $(cat "$watched")"
   cli --profile a run show "$run" >"$shown" 2>&1 || fail "bosun run show failed: $(cat "$shown")"
@@ -1084,7 +1088,8 @@ playwright() {
   if [ "$(uname -s)" = Linux ] && command -v docker >/dev/null; then
     version="$(jq -r .version "$root/web/node_modules/@playwright/test/package.json")"
     docker run --rm --network host --ipc host --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI \
-      -e BOSUN_E2E_URL -e BOSUN_E2E_FIRST_START -v "$root/web:$root/web" -w "$root/web" \
+      -e BOSUN_E2E_URL -e BOSUN_E2E_FIRST_START -e BOSUN_E2E_TOKEN \
+      -v "$root/web:$root/web" -w "$root/web" \
       "mcr.microsoft.com/playwright:v$version-noble" node node_modules/@playwright/test/cli.js test
   else
     (cd "$root/web" && corepack pnpm exec playwright install --only-shell chromium &&
@@ -1108,7 +1113,8 @@ scenario_interface() {
   first_starts="{}"
   first_start light
   first_start dark
-  BOSUN_E2E_URL="http://$address_a" BOSUN_E2E_FIRST_START="$first_starts" playwright ||
+  BOSUN_E2E_URL="http://$address_a" BOSUN_E2E_FIRST_START="$first_starts" BOSUN_E2E_TOKEN="$owner_token" \
+    playwright ||
     fail "the Playwright scenarios of web/e2e failed"
   passed
 }

@@ -2,6 +2,7 @@ import { Box, Container, Flex, Separator, Text } from '@radix-ui/themes';
 import { Anchor } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router';
 import { useI18n } from '../i18n/i18n';
+import { LiveProvider } from '../live/live';
 import { here, passwordPath, signInPath, useMe } from '../session/session';
 import { Failure, Loading } from './status';
 import { Switches } from './switches';
@@ -45,7 +46,7 @@ export function Shell() {
     <Flex direction="column" minHeight="100vh">
       <Box asChild px="5" py="3">
         <header>
-          <Flex align="center" justify="between" gap="5">
+          <Flex align="center" justify="between" gap="3" wrap="wrap">
             <Flex align="center" gap="6">
               <Wordmark />
               <nav aria-label={t('shell.nav.label')}>
@@ -70,7 +71,9 @@ export function Shell() {
       <Separator size="4" />
       <Box asChild px="5" py="5" flexGrow="1">
         <main>
-          <Outlet />
+          <LiveProvider>
+            <Outlet />
+          </LiveProvider>
         </main>
       </Box>
     </Flex>

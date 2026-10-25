@@ -7,6 +7,8 @@ import { I18nProvider } from './i18n/i18n';
 import { HomePage } from './pages/home';
 import { NotFoundPage } from './pages/not-found';
 import { PasswordPage } from './pages/password';
+import { ProjectPage } from './pages/project';
+import { RunPage } from './pages/run';
 import { SignInPage } from './pages/sign-in';
 import { Shell } from './shell/shell';
 import { ThemeProvider } from './theme/theme';
@@ -24,6 +26,8 @@ export const routes: RouteObject[] = [
     element: <Shell />,
     children: [
       { index: true, element: <HomePage /> },
+      { path: 'projects/:organisation/:project', element: <ProjectPage /> },
+      { path: 'runs/:run', element: <RunPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

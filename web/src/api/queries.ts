@@ -1,0 +1,127 @@
+import { type InfiniteData, useInfiniteQuery, useQueries, useQuery } from '@tanstack/react-query';
+import { useLiveReady } from '../live/context';
+import type { Page, Project, Run, RunFilters } from './client';
+import { useApi } from './context';
+
+export type RunPages = InfiniteData<Page<Run>, string | null>;
+
+const PROJECTS = ['projects'] as const;
+
+export const RUNS = 'runs';
+
+const RUN = 'run';
+
+export const JOBS = 'jobs';
+
+const EXECUTION = 'execution';
+
+export const WORKFLOWS = 'workflows';
+
+export const QUEUE = ['queue'] as const;
+
+const PROJECT = 'project';
+
+const PROJECT_AT = 'projectAt';
+
+const QUEUE_REFRESH_MS = 30_000;
+
+export function runsKey(filters: RunFilters, limit: number) {
+  return [RUNS, filters, limit] as const;
+}
+
+export function runKey(id: string) {
+  return [RUN, id] as const;
+}
+
+export function jobsKey(run: string, attempt: number) {
+  return [JOBS, run, attempt] as const;
+}
+
+export function executionKey(id: string) {
+  return [EXECUTION, id] as const;
+}
+
+export function workflowsKey(project: string) {
+  return [WORKFLOWS, project] as const;
+}
+
+export function useProjects() {
+  const api = useApi();
+  return useQuery({ queryKey: PROJECTS, queryFn: () => api.projects() });
+}
+
+export function useProject(id: string) {
+  const api = useApi();
+  return useQuery({ queryKey: [PROJECT, id], queryFn: () => api.project(id) });
+}
+
+export function useProjectAt(organisation: string, slug: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [PROJECT_AT, organisation, slug],
+    queryFn: () => api.projectAt(organisation, slug),
+  });
+}
+
+export function useWorkflows(project: string) {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQuery({ queryKey: workflowsKey(project), queryFn: () => api.workflows(project), enabled: ready });
+}
+
+export function useWorkflowsOf(projects: Project[]) {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQueries({
+    queries: projects.map((project) => ({
+      queryKey: workflowsKey(project.id),
+      queryFn: () => api.workflows(project.id),
+      enabled: ready,
+    })),
+  });
+}
+
+export function useRuns(filters: RunFilters, limit: number) {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useInfiniteQuery({
+    queryKey: runsKey(filters, limit),
+    queryFn: ({ pageParam }) => api.runs(filters, limit, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next,
+    enabled: ready,
+  });
+}
+
+export function useRun(id: string) {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQuery({ queryKey: runKey(id), queryFn: () => api.run(id), enabled: ready });
+}
+
+export function useJobs(run: string, attempt: number) {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQuery({ queryKey: jobsKey(run, attempt), queryFn: () => api.jobs(run, attempt), enabled: ready });
+}
+
+export function useExecution(id: string | null) {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQuery({
+    queryKey: executionKey(id ?? ''),
+    queryFn: () => api.execution(id ?? ''),
+    enabled: ready && id !== null,
+  });
+}
+
+export function useQueue() {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQuery({
+    queryKey: QUEUE,
+    queryFn: () => api.queue(),
+    refetchInterval: QUEUE_REFRESH_MS,
+    enabled: ready,
+  });
+}

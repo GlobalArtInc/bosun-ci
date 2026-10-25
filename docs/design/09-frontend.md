@@ -87,6 +87,44 @@ in between. An event updates the cached object it concerns, or invalidates the q
 it. A followed log is a separate stream per open step
 (`GET /api/v1/executions/{id}/steps/{step}/log?follow=true`).
 
+Step 41 of M1 ([../plan.md](../plan.md)) settled how the stream and the cache of TanStack Query
+meet:
+
+- **One connection.** The shell owns the connection and each page names its filters: the home page
+  `kind=run.created`, `run.status` and `queue.job`; a project's page `project=<id>` with
+  `run.created` and `run.status`; a run's page `run=<id>` with every kind. The stream is read
+  through `fetch`, not `EventSource`, so that a new connection of the same tab can carry
+  `Last-Event-ID` when the page changes, and so that Vitest feeds it fixture streams through the
+  API client. A connection that ends, or fails on the network or with a `5xx`, is opened again
+  after the `retry` the server sent with `Last-Event-ID`; a `401` makes the shell read `/me`
+  again, which leads to the sign-in page, and a `403`, `404` or `422` ends the following of that
+  page.
+- **The stream before the reads.** The queries the stream keeps current (runs, jobs, executions,
+  workflows and the queue) wait until the first connection of the tab has received its first
+  message, the position it begins at, or has failed. Every read they make therefore happens after
+  the stream began, as [11-api.md](11-api.md#the-event-stream) asks of a client, and a page loaded
+  later reads after a position the stream resumes from.
+- **Patching.** Every status event names both ends of its transition, so an event is applied to a
+  cached run, job, execution or step only when the cached status is the event's `from`. When the
+  cached status is already its `to` the event was seen before, and nothing changes; any other
+  status means the cache missed something, and the query that holds the object is invalidated,
+  which reads it again. A status event sets the times of the transition from its `at`: `started_at`
+  when the object first reaches `in_progress`, `completed_at` when it completes, and a job's
+  `queued_at` when it enters the queue from `pending` or `waiting`. `job.created`,
+  `execution.created` and `step.created` add the object they describe to the cached list or
+  execution, unless it is there already; `execution.created` also sets the job's `execution_id`.
+  `run.notice` adds the notice to every cached copy of the run, unless an equal one is there.
+  `run.created` and `attempt.created` invalidate the lists they change, since their data does not
+  hold the objects. `queue.job` replaces the entry of its job in the cached queue, or removes it
+  when the job left the queue; since agents that come and go change the missing labels without an
+  event, the queue is also read again every 30 seconds while a page shows it. What no event carries,
+  such as a job's labels and outputs, stays as it was last read.
+- **The fixture.** `web/src/test/fixtures/stream.ts`, typed against the generated client so that a
+  change of the API document breaks its build, pins the outcome: the run, job, execution, step and
+  queue events of a run with a job group patch the cached run, jobs, executions, queue, run list
+  and workflow list to the state the fixture expects without invalidating anything, also when the
+  connection is resumed and an event arrives twice.
+
 ## Pages
 
 **Home.** Recent runs of the projects the user can see, the approvals waiting for them, failing
@@ -95,6 +133,42 @@ workflows, and the state of the queue.
 **Project.** Workflows with the status of their latest run on the default branch; the run list
 with filters by workflow, branch, event, status and actor; the project's settings, environments,
 secrets and variables for those who may see them.
+
+Step 41 of M1 ([../plan.md](../plan.md)) settled the pages of M1 where runs are found and watched:
+
+- **Routes.** The home page is `/`, a project's page `/projects/<organisation>/<project>` with the
+  path the API gives a project, and a run's page `/runs/<id>`, whose `?job=<id>` opens the panel of
+  one job. The filters of a project's run list are the query of its address (`workflow`, `branch`,
+  `event`, `status` and `actor`, named as `GET /api/v1/runs` names them), so a filtered list can be
+  linked to.
+- **Home.** The fifteen newest runs of every project the user can see, with their project; the
+  failing workflows, those whose latest run ([11-api.md](11-api.md)) concluded `failure`,
+  `timed_out` or `startup_failure`, read from the workflows of each project; the queue in short:
+  how many jobs are queued and how many are held back, the longest wait so far, and the labels that
+  no online agent offers; and the projects themselves, the way to a project's page. The approvals
+  join the page with the inbox in M3.
+- **Status and conclusion.** A run, a job or a step shows its conclusion once it is completed and
+  its status before. A conclusion an operator chose carries the mark "set by an operator"; a
+  natural one carries none. A run has no source of its own in the API, so its conclusion is marked
+  when a job of its attempt has a conclusion an operator chose. A waiting job shows the reason it
+  waits.
+- **Notices.** A run's notices are listed errors first, then warnings, then notices, each group in
+  the order of the journal, with the severity, `file:line:column` of the span, the job it concerns
+  and the message.
+- **Pre and post steps.** The API lists the steps of an execution flat. The job panel nests a step
+  named `Pre <name>` under the first later step named `<name>`, and a step named `Post <name>` under
+  the last earlier one, as the target names the pre and post steps of an action, so step 33 of
+  [../plan.md](../plan.md) names them that way; a step whose name matches no such step stays where
+  it is.
+- **Commands.** `run.cancel` is offered on a run that is not completed and `job.cancel` on a job
+  that is not completed, to a user whose permissions on the run's project, computed from `/me` and
+  the project's `organisation_id` ([11-api.md](11-api.md#permissions)), hold `run.cancel`. Each asks
+  for a confirmation and is sent with an `Idempotency-Key` of its own; the page then follows the
+  cancellation through the stream.
+- **Keys.** The test of the dictionaries takes every quoted dotted string of a namespace the code
+  uses as a key, so the interface's namespaces are ones no value of the API shares: `runPage.` and
+  `projectPage.` rather than `run.` and `project.`, whose strings are command types and permission
+  keys.
 
 **Run.** The page an operator lives on.
 
@@ -193,10 +267,15 @@ started by `hack/e2e.sh` with a real agent. CI runs `pnpm lint` (Biome), `pnpm t
 at the version `packageManager` pins.
 
 `hack/e2e.sh` runs every scenario under `web/e2e/` in two Playwright projects, `light` and `dark`,
-which emulate the colour scheme the interface follows. It gives the scenarios two variables:
+which emulate the colour scheme the interface follows. It gives the scenarios three variables:
 
 - `BOSUN_E2E_URL`, the first replica of its installation, with the agents the other scenarios use;
   it is the `baseURL` of both projects.
+- `BOSUN_E2E_TOKEN`, the personal token of `e2e`, the owner the script creates for that
+  installation before it creates the organisation `e2e`. Scenarios use it through the API to
+  create what they need, a project, workflows and users with a role on the project, each under a
+  name of its own, and sign in as those users. Step 41 of M1 added it, since a scenario that
+  dispatches runs needs a user the installation knows.
 - `BOSUN_E2E_FIRST_START`, a JSON object with a server per theme, each started for the first time
   on a database of its own, as `{"light": {"url", "password"}, "dark": {…}}`, where `password` is
   the content of its `admin.password`. Scenarios that need an installation nobody has signed in to,

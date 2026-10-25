@@ -43,3 +43,12 @@ body {
   outline: 2px solid var(--focus-8);
   outline-offset: 2px;
 }
+
+.plain-list {
+  list-style: none;
+}
+
+.job-link[aria-current="true"] {
+  font-weight: 700;
+  text-decoration: underline;
+}

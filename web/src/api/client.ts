@@ -8,10 +8,43 @@ export type PasswordChangeRequest = components['schemas']['PasswordChangeRequest
 type ErrorBody = components['schemas']['ErrorBody'];
 type ErrorCode = components['schemas']['ErrorCode'];
 type FieldError = components['schemas']['FieldError'];
+export type Permission = components['schemas']['Permission'];
+export type Project = components['schemas']['Project'];
+export type Workflow = components['schemas']['Workflow'];
+export type Run = components['schemas']['Run'];
+export type Job = components['schemas']['Job'];
+export type Execution = components['schemas']['Execution'];
+export type Step = components['schemas']['Step'];
+export type Notice = components['schemas']['Notice'];
+export type Actor = components['schemas']['Actor'];
+export type QueuedJob = components['schemas']['QueuedJob'];
+export type RunEvent = components['schemas']['RunEvent'];
+export type StreamEvent = components['schemas']['StreamEvent'];
+export type CommandRequest = components['schemas']['CommandRequest'];
+export type RunStatus = components['schemas']['RunStatus'];
+export type RunConclusion = components['schemas']['RunConclusion'];
+export type JobStatus = components['schemas']['JobStatus'];
+export type StepStatus = components['schemas']['StepStatus'];
+export type ConclusionSource = components['schemas']['ConclusionSource'];
+export type WaitingReason = components['schemas']['WaitingReason'];
+export type Severity = components['schemas']['Severity'];
+
+type RunQuery = NonNullable<paths['/api/v1/runs']['get']['parameters']['query']>;
+
+export type RunFilters = Omit<RunQuery, 'limit' | 'cursor'>;
+
+export type EventFilter = NonNullable<paths['/api/v1/events']['get']['parameters']['query']>;
+
+export interface Page<T> {
+  items: T[];
+  next: string | null;
+}
 
 export const CSRF_HEADER = 'X-Bosun-CSRF';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+const WHOLE = 500;
 
 interface ApiOptions {
   baseUrl: string;
@@ -93,6 +126,27 @@ function settle<T>(answer: Answer<T>): T {
   return answer.data as T;
 }
 
+function paged<T>(answer: Answer<components['schemas']['Page']>): Page<T> {
+  return settle(answer) as Page<T>;
+}
+
+async function whole<T>(read: (cursor: string | undefined) => Promise<Page<T>>): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await read(cursor);
+    items.push(...page.items);
+    if (page.next === null) {
+      return items;
+    }
+    cursor = page.next;
+  }
+}
+
+function bySlugs(path: string, params: Record<string, unknown>): string {
+  return path.replace('{project}', String(params.project).split('/').map(encodeURIComponent).join('/'));
+}
+
 export class Api {
   private readonly client: Client<paths>;
   private csrf: string | null = null;
@@ -125,6 +179,100 @@ export class Api {
   async signOut(): Promise<void> {
     settle(await this.client.POST('/api/v1/auth/logout'));
     this.csrf = null;
+  }
+
+  async projects(): Promise<Project[]> {
+    return whole(async (cursor) =>
+      paged<Project>(
+        await this.client.GET('/api/v1/projects', { params: { query: { limit: WHOLE, cursor } } }),
+      ),
+    );
+  }
+
+  async project(id: string): Promise<Project> {
+    return settle(await this.client.GET('/api/v1/projects/{project}', { params: { path: { project: id } } }));
+  }
+
+  async projectAt(organisation: string, slug: string): Promise<Project> {
+    return settle(
+      await this.client.GET('/api/v1/projects/{project}', {
+        params: { path: { project: `${organisation}/${slug}` } },
+        pathSerializer: bySlugs,
+      }),
+    );
+  }
+
+  async workflows(project: string): Promise<Workflow[]> {
+    return whole(async (cursor) =>
+      paged<Workflow>(
+        await this.client.GET('/api/v1/projects/{project}/workflows', {
+          params: { path: { project }, query: { limit: WHOLE, cursor } },
+        }),
+      ),
+    );
+  }
+
+  async runs(filters: RunFilters, limit: number, cursor: string | null): Promise<Page<Run>> {
+    return paged<Run>(
+      await this.client.GET('/api/v1/runs', {
+        params: { query: { ...filters, limit, cursor: cursor ?? undefined } },
+      }),
+    );
+  }
+
+  async run(id: string): Promise<Run> {
+    return settle(await this.client.GET('/api/v1/runs/{run}', { params: { path: { run: id } } }));
+  }
+
+  async jobs(run: string, attempt: number): Promise<Job[]> {
+    return whole(async (cursor) =>
+      paged<Job>(
+        await this.client.GET('/api/v1/runs/{run}/attempts/{attempt}/jobs', {
+          params: { path: { run, attempt }, query: { limit: WHOLE, cursor } },
+        }),
+      ),
+    );
+  }
+
+  async execution(id: string): Promise<Execution> {
+    return settle(
+      await this.client.GET('/api/v1/executions/{execution}', { params: { path: { execution: id } } }),
+    );
+  }
+
+  async queue(): Promise<QueuedJob[]> {
+    return whole(async (cursor) =>
+      paged<QueuedJob>(
+        await this.client.GET('/api/v1/queue', { params: { query: { limit: WHOLE, cursor } } }),
+      ),
+    );
+  }
+
+  async command(run: string, command: CommandRequest, key: string): Promise<RunEvent> {
+    return settle(
+      await this.client.POST('/api/v1/runs/{run}/commands', {
+        params: { path: { run }, header: { 'Idempotency-Key': key } },
+        body: command,
+      }),
+    );
+  }
+
+  async events(
+    filter: EventFilter,
+    last: string | null,
+    signal: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>> {
+    const body = settle(
+      await this.client.GET('/api/v1/events', {
+        params: { query: filter, header: last === null ? {} : { 'Last-Event-ID': last } },
+        parseAs: 'stream',
+        signal,
+      }),
+    );
+    if (body === null) {
+      throw new Error('the event stream has no body');
+    }
+    return body;
   }
 
   private remember(me: Me): Me {
