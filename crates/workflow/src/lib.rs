@@ -1,3 +1,4 @@
+pub mod github;
 mod graph;
 mod lower;
 mod surface;

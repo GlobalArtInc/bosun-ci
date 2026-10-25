@@ -21,7 +21,7 @@ use crate::{fixture, repository};
 
 type Check = fn(&Value) -> Result<Value, String>;
 
-const RUN_BY_OTHER_SUITES: &[&str] = &["expr"];
+const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github"];
 
 fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, String> {
     let typed: T = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;

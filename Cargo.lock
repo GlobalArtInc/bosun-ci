@@ -428,6 +428,7 @@ version = "0.1.0"
 dependencies = [
  "bosun-types",
  "saphyr-parser",
+ "serde",
  "serde_json",
 ]
 

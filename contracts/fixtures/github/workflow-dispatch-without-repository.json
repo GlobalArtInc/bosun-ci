@@ -1,0 +1,143 @@
+{
+  "event": "workflow_dispatch",
+  "produce": {
+    "workflow_dispatch": {
+      "inputs": {},
+      "ref": null,
+      "workflow": "backup",
+      "repository": null,
+      "organization": null,
+      "sender": null
+    }
+  },
+  "payload": {
+    "inputs": null,
+    "ref": null,
+    "workflow": "backup"
+  },
+  "facts": {
+    "repository": null,
+    "forge": null,
+    "ref": null,
+    "sha": null,
+    "ref_protected": false,
+    "workflow": {
+      "name": "Nightly backup",
+      "file": "backup"
+    },
+    "run": {
+      "id": 4032,
+      "number": 3,
+      "attempt": 1,
+      "retention_days": 30
+    },
+    "actor": {
+      "login": "mona",
+      "id": null
+    },
+    "triggering_actor": "mona",
+    "job": "backup",
+    "workspace": "/var/lib/bosun/agents/1/work/globalart.ops/ops"
+  },
+  "runner": {
+    "name": "runner1-1",
+    "os": "Linux",
+    "arch": "X64",
+    "temp": "/var/lib/bosun/agents/1/work/_temp",
+    "tool_cache": "/var/lib/bosun/agents/1/tools",
+    "workspace": "/var/lib/bosun/agents/1/work/globalart.ops"
+  },
+  "step": {
+    "action": "__run",
+    "id": "0192f3a4-5b6c-7d8e-9f01-000000000011"
+  },
+  "bosun": {
+    "url": "https://bosun.example.org",
+    "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "run_url": "https://bosun.example.org/runs/0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+    "draft": false
+  },
+  "context": {
+    "actor": "mona",
+    "actor_id": "",
+    "api_url": "https://api.github.com",
+    "base_ref": "",
+    "event_name": "workflow_dispatch",
+    "graphql_url": "https://api.github.com/graphql",
+    "head_ref": "",
+    "job": "backup",
+    "ref": "",
+    "ref_name": "",
+    "ref_protected": false,
+    "ref_type": "",
+    "repository": "",
+    "repositoryUrl": "",
+    "repository_id": "",
+    "repository_owner": "",
+    "repository_owner_id": "",
+    "retention_days": "30",
+    "run_attempt": "1",
+    "run_id": "4032",
+    "run_number": "3",
+    "server_url": "https://github.com",
+    "sha": "",
+    "triggering_actor": "mona",
+    "workflow": "Nightly backup",
+    "workflow_ref": "",
+    "workflow_sha": "",
+    "workspace": "/var/lib/bosun/agents/1/work/globalart.ops/ops"
+  },
+  "environment": {
+    "BOSUN_DRAFT": "false",
+    "BOSUN_JOB_ID": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+    "BOSUN_RUN_ID": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "BOSUN_RUN_URL": "https://bosun.example.org/runs/0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "BOSUN_URL": "https://bosun.example.org",
+    "CI": "true",
+    "GITHUB_ACTION": "__run",
+    "GITHUB_ACTIONS": "true",
+    "GITHUB_ACTION_REF": "",
+    "GITHUB_ACTION_REPOSITORY": "",
+    "GITHUB_ACTOR": "mona",
+    "GITHUB_ACTOR_ID": "",
+    "GITHUB_API_URL": "https://api.github.com",
+    "GITHUB_BASE_REF": "",
+    "GITHUB_ENV": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/set_env_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_EVENT_NAME": "workflow_dispatch",
+    "GITHUB_EVENT_PATH": "/var/lib/bosun/agents/1/work/_temp/_github_workflow/event.json",
+    "GITHUB_GRAPHQL_URL": "https://api.github.com/graphql",
+    "GITHUB_HEAD_REF": "",
+    "GITHUB_JOB": "backup",
+    "GITHUB_OUTPUT": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/set_output_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_PATH": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/add_path_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_REF": "",
+    "GITHUB_REF_NAME": "",
+    "GITHUB_REF_PROTECTED": "false",
+    "GITHUB_REF_TYPE": "",
+    "GITHUB_REPOSITORY": "",
+    "GITHUB_REPOSITORY_ID": "",
+    "GITHUB_REPOSITORY_OWNER": "",
+    "GITHUB_REPOSITORY_OWNER_ID": "",
+    "GITHUB_RETENTION_DAYS": "30",
+    "GITHUB_RUN_ATTEMPT": "1",
+    "GITHUB_RUN_ID": "4032",
+    "GITHUB_RUN_NUMBER": "3",
+    "GITHUB_SERVER_URL": "https://github.com",
+    "GITHUB_SHA": "",
+    "GITHUB_STATE": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/save_state_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_STEP_SUMMARY": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/step_summary_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_TRIGGERING_ACTOR": "mona",
+    "GITHUB_WORKFLOW": "Nightly backup",
+    "GITHUB_WORKFLOW_REF": "",
+    "GITHUB_WORKFLOW_SHA": "",
+    "GITHUB_WORKSPACE": "/var/lib/bosun/agents/1/work/globalart.ops/ops",
+    "RUNNER_ARCH": "X64",
+    "RUNNER_ENVIRONMENT": "self-hosted",
+    "RUNNER_NAME": "runner1-1",
+    "RUNNER_OS": "Linux",
+    "RUNNER_TEMP": "/var/lib/bosun/agents/1/work/_temp",
+    "RUNNER_TOOL_CACHE": "/var/lib/bosun/agents/1/tools",
+    "RUNNER_WORKSPACE": "/var/lib/bosun/agents/1/work/globalart.ops"
+  }
+}

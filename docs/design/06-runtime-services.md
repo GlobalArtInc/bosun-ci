@@ -46,26 +46,119 @@ pull request. A second forge implements the same trait ([13-decisions.md](13-dec
 
 ## The `github` context and the environment
 
-The `github` context of a run triggered by the forge is built from the webhook: `github.event` is
-the payload as delivered, and the scalar properties are derived from it exactly as the target does
-(`ref`, `ref_name`, `ref_type`, `sha`, `head_ref`, `base_ref`, `actor`, `actor_id`,
-`triggering_actor`, `repository`, `repository_id`, `repository_owner`, `repository_owner_id`,
-`event_name`, `workflow`, `workflow_ref`, `workflow_sha`, `job`, `run_id`, `run_number`,
-`run_attempt`, `retention_days`, `server_url`, `api_url`, `graphql_url`, `token`, `workspace`,
-`action`, `action_path`, `action_ref`, `action_repository`, `action_status`, and `env` and
-`path`, which name the file command files). For a run started in Bosun
-(dispatch, schedule, upstream, plugin), the payload is the one the target would produce for that
-event, with the actor taken from the linked forge account of the Bosun user when there is one.
+The `github` context and the variables of a step are derived by pure functions in the `github`
+module of `bosun-workflow`, so the server, the agent and the corpus share one derivation. The cases
+in `contracts/fixtures/github/` pin it, one or more per kind of event.
 
-Every step receives the environment variables of the target: `CI=true`, `GITHUB_ACTIONS=true`, the
-`GITHUB_*` variables that mirror the context (`GITHUB_WORKSPACE`, `GITHUB_REPOSITORY`,
-`GITHUB_SHA`, `GITHUB_REF`, `GITHUB_REF_NAME`, `GITHUB_EVENT_NAME`, `GITHUB_EVENT_PATH`,
-`GITHUB_RUN_ID`, `GITHUB_RUN_NUMBER`, `GITHUB_RUN_ATTEMPT`, `GITHUB_JOB`, `GITHUB_ACTOR`,
-`GITHUB_WORKFLOW`, `GITHUB_WORKFLOW_REF`, `GITHUB_SERVER_URL`, `GITHUB_API_URL`,
-`GITHUB_GRAPHQL_URL` and the rest), the file command paths, `RUNNER_OS`, `RUNNER_ARCH`,
-`RUNNER_NAME`, `RUNNER_TEMP`, `RUNNER_TOOL_CACHE`, `RUNNER_WORKSPACE`,
-`RUNNER_ENVIRONMENT=self-hosted`, `RUNNER_DEBUG` on a debug run, and the runtime service variables
-below. Bosun adds `BOSUN_URL`, `BOSUN_RUN_ID`, `BOSUN_RUN_URL`, `BOSUN_JOB_ID` and `BOSUN_DRAFT`.
+**The context of a job** is built from the event's name, its payload and the facts of the run: the
+repository (owner, name and their forge ids), the forge's addresses, the ref and the commit where
+the payload does not give them, whether the ref is protected, the workflow (its `name` and its file,
+which is the path in the repository or the name of a server-side workflow), the run's id, number
+and attempt and the days its logs are kept, the actor (login and forge id) and the triggering actor,
+the job's key, and the workspace. `github.event` is the payload as delivered. As in the target,
+every other property is a string, numbers included, except `ref_protected`, which is a boolean:
+
+| Property | Value |
+|----------|-------|
+| `actor`, `actor_id` | the actor's login and forge id; the id is empty for an actor without a forge account |
+| `triggering_actor` | the login of whoever started the attempt, which differs from `actor` on a re-run |
+| `event_name` | the event's name |
+| `ref`, `sha` | by event, in the table below |
+| `ref_name` | `ref` without `refs/heads/`, `refs/tags/` or `refs/pull/`, so a pull request's is `<number>/merge` |
+| `ref_type` | `branch` for `refs/heads/` and `refs/pull/`, `tag` for `refs/tags/`, otherwise empty |
+| `ref_protected` | whether a branch protection or a ruleset covers the ref |
+| `head_ref`, `base_ref` | the head and base branches of the pull request for `pull_request` and `pull_request_target`; empty for every other event, a push included even when its payload has a `base_ref` |
+| `repository`, `repository_id` | `<owner>/<name>` and the repository's forge id |
+| `repository_owner`, `repository_owner_id` | the owner's login and forge id |
+| `repositoryUrl` | `git://<host of server_url>/<owner>/<name>.git` |
+| `workflow` | the workflow's `name`, or its file when it has none |
+| `workflow_ref`, `workflow_sha` | `<owner>/<name>/<file>@<ref>`, and `sha` |
+| `run_id`, `run_number`, `run_attempt` | the run's global number, its number among the runs of its workflow, the attempt's number |
+| `retention_days` | how many days the run's logs are kept |
+| `job` | the job's key |
+| `workspace` | the job's working directory on the agent, `GITHUB_WORKSPACE` |
+| `server_url`, `api_url`, `graphql_url` | the forge's addresses |
+| `token` | the forge token, below |
+
+The ref and the commit follow the target's table of events:
+
+| Event | `ref` | `sha` |
+|-------|-------|-------|
+| `push` | `ref` | `after`; when `deleted` is true, both are the default branch and its last commit, from the facts |
+| `create` | `ref`, under `refs/heads/` or `refs/tags/` by `ref_type` | the created ref's last commit, from the facts |
+| `pull_request`, `pull_request_review`, `pull_request_review_comment` | `refs/pull/<number>/merge`; `refs/heads/<base>` once merged | the commit of the merge ref, from the facts; `merge_commit_sha` once merged |
+| `pull_request_target` | `refs/heads/<base>` | the base branch's last commit, from the facts |
+| `merge_group` | `merge_group.head_ref` | `merge_group.head_sha` |
+| `workflow_dispatch` | `ref` | the commit of that ref, from the facts |
+| `release` | `refs/tags/<release.tag_name>` | the tag's commit, from the facts |
+| `deployment`, `deployment_status` | the deployed branch or tag, from the facts; empty for a commit | `deployment.sha` |
+| every other event, `schedule` and `repository_dispatch` among them | the default branch, from the facts | its last commit, from the facts |
+
+A value its row takes from the payload comes from the facts when the payload lacks it. For a
+deletion, the row follows the target's statement that the commit "and its associated refs" revert to
+the default branch.
+
+**The context of a step** adds, on the agent, the properties of one step:
+
+- `action`: the step's `id`, or for a step without one `__run` for a script and `__<owner>_<repo>`
+  for an action, with every character other than a letter, a digit, `_` and `-` replaced by `_`,
+  and `_2`, `_3` and so on appended to a name already taken in the job, as the target names them;
+- `action_repository` and `action_ref`: empty for a script, the action's repository and ref for an
+  action, which also gets `action_path`, the directory the action was fetched into;
+- `event_path`: `<RUNNER_TEMP>/_github_workflow/event.json`, the file that holds the payload;
+- the file command files, fresh for each step under `<RUNNER_TEMP>/_runner_file_commands/`: `env`
+  (`set_env_<step>`), `path` (`add_path_<step>`), `output` (`set_output_<step>`), `state`
+  (`save_state_<step>`) and `step_summary` (`step_summary_<step>`), where `<step>` is the step's
+  identifier in place of the target's random GUID.
+
+Two properties of the target are absent: `secret_source`, which says which of the target's secret
+stores a run reads, while Bosun has one; and `action_status`, which exists inside composite actions
+and arrives with them in M2.
+
+**The variables of a step** are:
+
+- `CI=true` and `GITHUB_ACTIONS=true`;
+- `GITHUB_<PROPERTY>`, the name in upper case, for each property of the step's context in the
+  target's list whose value is a string or a boolean (`true` or `false`): `action`, `action_path`,
+  `action_ref`, `action_repository`, `actor`, `actor_id`, `api_url`, `base_ref`, `env`,
+  `event_name`, `event_path`, `graphql_url`, `head_ref`, `job`, `output`, `path`, `ref`,
+  `ref_name`, `ref_protected`, `ref_type`, `repository`, `repository_id`, `repository_owner`,
+  `repository_owner_id`, `retention_days`, `run_attempt`, `run_id`, `run_number`, `server_url`,
+  `sha`, `state`, `step_summary`, `triggering_actor`, `workflow`, `workflow_ref`, `workflow_sha` and
+  `workspace`. An empty property gives an empty variable; `event`, `repositoryUrl` and `token` give
+  none;
+- `RUNNER_OS`, `RUNNER_ARCH`, `RUNNER_NAME`, `RUNNER_TEMP`, `RUNNER_TOOL_CACHE` and
+  `RUNNER_WORKSPACE` from the facts of the runner, `RUNNER_ENVIRONMENT=self-hosted`, and
+  `RUNNER_DEBUG=1` on a debug run;
+- `BOSUN_URL`, `BOSUN_RUN_ID`, `BOSUN_RUN_URL`, `BOSUN_JOB_ID` and `BOSUN_DRAFT` (`true` or
+  `false`);
+- the runtime service variables below.
+
+**Payloads Bosun produces.** For a run started in Bosun, the payload has the shape the target gives
+the event, with the actor taken from the linked forge account of the Bosun user when there is one:
+
+- `workflow_dispatch`: `inputs`, every value as a string (`true` or `false` for a boolean, a number
+  as written), or `null` when the dispatch has no inputs; `ref`; `workflow`, the file; and
+  `repository`, `organization` and `sender` as the forge describes them, when Bosun has them. The
+  `inputs` context keeps the typed values.
+- `schedule`: `{ "schedule": "<cron>" }` and nothing else.
+- `repository_dispatch` sent through `POST /api/v1/projects/{project}/events`: `action`, the event
+  type; `branch`, the default branch; `client_payload` as sent; and `repository`, `organization`,
+  `sender` and `installation` as the forge describes them, when Bosun has them.
+
+`upstream` (M2) and trigger plugins (M5) define the payloads of their runs with their triggers.
+
+**A project without a repository** has no repository, ref or commit. Its `repository`,
+`repository_id`, `repository_owner`, `repository_owner_id`, `repositoryUrl`, `ref`, `ref_name`,
+`ref_type`, `sha`, `workflow_ref` and `workflow_sha` are empty and `ref_protected` is false. Its
+dispatch payload has `ref: null`, its repository dispatch payload `branch: null`, and neither has a
+`repository`. The values are empty rather than an invented `<org>/<project>`: `actions/checkout`
+clones `GITHUB_REPOSITORY` by default and the toolkit's `context.repo` reads it, so an invented name
+would clone or call whatever repository of that name exists on the forge, while an empty one fails
+at once with the toolkit's own error. The project's path is `bosun.project`
+([03-expressions.md](03-expressions.md)). Its forge addresses are the public forge's,
+`https://github.com`, `https://api.github.com` and `https://api.github.com/graphql`, for the reason
+that follows.
 
 **Why `GITHUB_SERVER_URL` is the forge and never Bosun.** The toolkit that actions are built on
 decides which protocol to speak from the host of `GITHUB_SERVER_URL`: for any host other than
@@ -73,8 +166,8 @@ decides which protocol to speak from the host of `GITHUB_SERVER_URL`: for any ho
 artifact client then refuses to work at all, while the cache client falls back to its older
 protocol. `actions/checkout` also clones from that
 address. So the variable stays the forge's address, and the runtime services are found through
-their own variables, which point at Bosun. For a repository-less project the value is
-`https://github.com` as well, for the same reason.
+their own variables, which point at Bosun. A project without a repository gets
+`https://github.com` for the same reason.
 
 ## The forge token
 

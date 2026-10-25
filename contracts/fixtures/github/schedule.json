@@ -1,0 +1,145 @@
+{
+  "event": "schedule",
+  "produce": {
+    "schedule": {
+      "cron": "0 3 * * *"
+    }
+  },
+  "payload": {
+    "schedule": "0 3 * * *"
+  },
+  "facts": {
+    "repository": {
+      "owner": "Codertocat",
+      "name": "Hello-World",
+      "id": 186853002,
+      "owner_id": 21031067
+    },
+    "forge": {
+      "server_url": "https://github.com",
+      "api_url": "https://api.github.com",
+      "graphql_url": "https://api.github.com/graphql"
+    },
+    "ref": "refs/heads/master",
+    "sha": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+    "ref_protected": true,
+    "workflow": {
+      "name": "Nightly",
+      "file": ".bosun/workflows/nightly.yml"
+    },
+    "run": {
+      "id": 4031,
+      "number": 12,
+      "attempt": 1,
+      "retention_days": 90
+    },
+    "actor": {
+      "login": "Codertocat",
+      "id": 21031067
+    },
+    "triggering_actor": "Codertocat",
+    "job": "build",
+    "workspace": "/var/lib/bosun/agents/1/work/codertocat.hello-world/Hello-World"
+  },
+  "runner": {
+    "name": "runner1-1",
+    "os": "Linux",
+    "arch": "X64",
+    "temp": "/var/lib/bosun/agents/1/work/_temp",
+    "tool_cache": "/var/lib/bosun/agents/1/tools",
+    "workspace": "/var/lib/bosun/agents/1/work/codertocat.hello-world"
+  },
+  "step": {
+    "action": "__run",
+    "id": "0192f3a4-5b6c-7d8e-9f01-000000000011"
+  },
+  "bosun": {
+    "url": "https://bosun.example.org",
+    "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "run_url": "https://bosun.example.org/runs/0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+    "draft": false
+  },
+  "context": {
+    "actor": "Codertocat",
+    "actor_id": "21031067",
+    "api_url": "https://api.github.com",
+    "base_ref": "",
+    "event_name": "schedule",
+    "graphql_url": "https://api.github.com/graphql",
+    "head_ref": "",
+    "job": "build",
+    "ref": "refs/heads/master",
+    "ref_name": "master",
+    "ref_protected": true,
+    "ref_type": "branch",
+    "repository": "Codertocat/Hello-World",
+    "repositoryUrl": "git://github.com/Codertocat/Hello-World.git",
+    "repository_id": "186853002",
+    "repository_owner": "Codertocat",
+    "repository_owner_id": "21031067",
+    "retention_days": "90",
+    "run_attempt": "1",
+    "run_id": "4031",
+    "run_number": "12",
+    "server_url": "https://github.com",
+    "sha": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+    "triggering_actor": "Codertocat",
+    "workflow": "Nightly",
+    "workflow_ref": "Codertocat/Hello-World/.bosun/workflows/nightly.yml@refs/heads/master",
+    "workflow_sha": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+    "workspace": "/var/lib/bosun/agents/1/work/codertocat.hello-world/Hello-World"
+  },
+  "environment": {
+    "BOSUN_DRAFT": "false",
+    "BOSUN_JOB_ID": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+    "BOSUN_RUN_ID": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "BOSUN_RUN_URL": "https://bosun.example.org/runs/0192f3a4-5b6c-7d8e-9f01-000000000007",
+    "BOSUN_URL": "https://bosun.example.org",
+    "CI": "true",
+    "GITHUB_ACTION": "__run",
+    "GITHUB_ACTIONS": "true",
+    "GITHUB_ACTION_REF": "",
+    "GITHUB_ACTION_REPOSITORY": "",
+    "GITHUB_ACTOR": "Codertocat",
+    "GITHUB_ACTOR_ID": "21031067",
+    "GITHUB_API_URL": "https://api.github.com",
+    "GITHUB_BASE_REF": "",
+    "GITHUB_ENV": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/set_env_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_EVENT_NAME": "schedule",
+    "GITHUB_EVENT_PATH": "/var/lib/bosun/agents/1/work/_temp/_github_workflow/event.json",
+    "GITHUB_GRAPHQL_URL": "https://api.github.com/graphql",
+    "GITHUB_HEAD_REF": "",
+    "GITHUB_JOB": "build",
+    "GITHUB_OUTPUT": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/set_output_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_PATH": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/add_path_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_REF": "refs/heads/master",
+    "GITHUB_REF_NAME": "master",
+    "GITHUB_REF_PROTECTED": "true",
+    "GITHUB_REF_TYPE": "branch",
+    "GITHUB_REPOSITORY": "Codertocat/Hello-World",
+    "GITHUB_REPOSITORY_ID": "186853002",
+    "GITHUB_REPOSITORY_OWNER": "Codertocat",
+    "GITHUB_REPOSITORY_OWNER_ID": "21031067",
+    "GITHUB_RETENTION_DAYS": "90",
+    "GITHUB_RUN_ATTEMPT": "1",
+    "GITHUB_RUN_ID": "4031",
+    "GITHUB_RUN_NUMBER": "12",
+    "GITHUB_SERVER_URL": "https://github.com",
+    "GITHUB_SHA": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+    "GITHUB_STATE": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/save_state_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_STEP_SUMMARY": "/var/lib/bosun/agents/1/work/_temp/_runner_file_commands/step_summary_0192f3a4-5b6c-7d8e-9f01-000000000011",
+    "GITHUB_TRIGGERING_ACTOR": "Codertocat",
+    "GITHUB_WORKFLOW": "Nightly",
+    "GITHUB_WORKFLOW_REF": "Codertocat/Hello-World/.bosun/workflows/nightly.yml@refs/heads/master",
+    "GITHUB_WORKFLOW_SHA": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+    "GITHUB_WORKSPACE": "/var/lib/bosun/agents/1/work/codertocat.hello-world/Hello-World",
+    "RUNNER_ARCH": "X64",
+    "RUNNER_ENVIRONMENT": "self-hosted",
+    "RUNNER_NAME": "runner1-1",
+    "RUNNER_OS": "Linux",
+    "RUNNER_TEMP": "/var/lib/bosun/agents/1/work/_temp",
+    "RUNNER_TOOL_CACHE": "/var/lib/bosun/agents/1/tools",
+    "RUNNER_WORKSPACE": "/var/lib/bosun/agents/1/work/codertocat.hello-world"
+  }
+}

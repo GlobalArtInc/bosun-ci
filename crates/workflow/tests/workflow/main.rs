@@ -1,6 +1,7 @@
 mod behaviour;
 mod documents;
 mod fixtures;
+mod github;
 
 use std::fs;
 use std::path::{Path, PathBuf};

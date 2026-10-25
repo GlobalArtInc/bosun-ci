@@ -12,6 +12,14 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   `working-directory`, `env` and the order of the output.
 - `fixtures/expr/`: expression cases and the availability table of contexts and functions per key,
   from step 2 of M1, in the format of `docs/design/03-expressions.md`.
+- `fixtures/github/`: the `github` context and the variables of a step, from step 7 of M1. Each case
+  holds the event's name, the `payload`, the facts of the run, the runner, the step and Bosun
+  (`facts`, `runner`, `step`, `bosun`), the expected `context` without `event`, which is the payload
+  itself, and the expected `environment` of the step. A payload Bosun produces also has `produce`,
+  what the producer is given, and the produced payload equals `payload`. Payloads are the forge's
+  documented webhook examples, the `payload-examples` of `octokit/webhooks`: `push-branch` is the
+  example of a push that creates a branch turned into an ordinary push, `push-tag` the example of a
+  tag deletion turned into a tag push, and the produced payloads keep the documented objects.
 - `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from M1.
 - `openapi.json`: the description of the REST API generated from the handlers, from M1.
 
