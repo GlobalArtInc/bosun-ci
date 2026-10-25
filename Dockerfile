@@ -20,6 +20,7 @@ RUN --mount=type=cache,id=bosun-corepack,target=/root/.cache/node/corepack,shari
     corepack pnpm install --frozen-lockfile --store-dir /pnpm-store
 COPY contracts/openapi.json /src/contracts/openapi.json
 COPY contracts/fixtures/api/ /src/contracts/fixtures/api/
+COPY contracts/fixtures/events/ /src/contracts/fixtures/events/
 COPY web/ ./
 RUN --mount=type=cache,id=bosun-corepack,target=/root/.cache/node/corepack,sharing=locked \
     corepack pnpm build

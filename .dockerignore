@@ -8,6 +8,7 @@
 !deploy/install-agent.sh
 !contracts/openapi.json
 !contracts/fixtures/api/
+!contracts/fixtures/events/
 !web/
 web/node_modules
 web/generated
