@@ -6,5 +6,7 @@
     "email": null,
     "owner": true,
     "created_at": "2026-10-24T18:34:50.078Z"
-  }
+  },
+  "csrf_token": "6vRzQ0Lk1JmXoBf2c7sTn9WdYpEh3aGuKqC5iV8xMrZ",
+  "password_change_required": false
 }

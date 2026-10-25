@@ -1,4 +1,4 @@
-use std::fs::DirBuilder;
+use std::fs::{self, DirBuilder};
 use std::io::{self, Write};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
@@ -7,8 +7,9 @@ use bosun_db::tokens::NewToken;
 use chrono::{TimeDelta, Utc};
 use sea_orm::DatabaseConnection;
 use tempfile::NamedTempFile;
-use tracing::info;
+use tracing::{info, warn};
 
+use crate::password::{self, Hasher};
 use crate::token::{PERSONAL, Token};
 use crate::{Error, slug};
 
@@ -19,9 +20,11 @@ const TOKEN_NAME: &str = "bootstrap";
 
 const TOKEN_LIFETIME: TimeDelta = TimeDelta::days(365);
 
-const FIRST_OWNER: &str = "admin";
+pub(crate) const FIRST_OWNER: &str = "admin";
 
 const TOKEN_FILE: &str = "admin.token";
+
+const PASSWORD_FILE: &str = "admin.password";
 
 pub(crate) fn is_login(text: &str) -> bool {
     slug::is_slug(text)
@@ -63,37 +66,69 @@ pub(crate) async fn bootstrap(db: &DatabaseConnection, login: &str) -> Result<()
     Ok(())
 }
 
-pub(crate) async fn first_start(db: &DatabaseConnection, data_dir: &Path) -> Result<(), Error> {
+pub(crate) async fn first_start(
+    db: &DatabaseConnection,
+    data_dir: &Path,
+    hasher: &Hasher,
+) -> Result<(), Error> {
     let (token, first) = first_token()?;
+    let password = password::generate().map_err(|failure| Error::Password(failure.to_string()))?;
+    let hash = hasher
+        .hash(password.clone())
+        .await
+        .map_err(|failure| Error::Password(failure.to_string()))?;
     let expires_at = first.expires_at;
-    if bosun_db::users::bootstrap_owner(db, FIRST_OWNER, first)
+    if bosun_db::users::first_owner(db, FIRST_OWNER, first, hash)
         .await
         .map_err(Error::FirstOwner)?
         .is_none()
     {
         return Ok(());
     }
-    let path = data_dir.join(TOKEN_FILE);
-    write_token(data_dir, &path, token).map_err(|source| Error::TokenFile {
-        path: path.clone(),
-        source,
-    })?;
+    let token_path = data_dir.join(TOKEN_FILE);
+    let password_path = data_dir.join(PASSWORD_FILE);
+    for (path, secret) in [(&token_path, token.as_str()), (&password_path, &password)] {
+        write_secret(data_dir, path, secret).map_err(|source| Error::FirstStartFile {
+            path: path.clone(),
+            source,
+        })?;
+    }
     info!(
         login = FIRST_OWNER,
-        path = %path.display(),
+        token = %token_path.display(),
+        password = %password_path.display(),
         %expires_at,
-        "created the owner admin on the first start and wrote its token to the data directory"
+        "created the owner admin on the first start and wrote its token and password to the \
+         data directory"
     );
     Ok(())
 }
 
-fn write_token(data_dir: &Path, path: &Path, token: Token) -> io::Result<()> {
+pub(crate) fn forget_first_start(data_dir: &Path) {
+    for name in [TOKEN_FILE, PASSWORD_FILE] {
+        let path = data_dir.join(name);
+        match fs::remove_file(&path) {
+            Ok(()) => info!(
+                path = %path.display(),
+                "removed a secret of the first start, since admin set a password"
+            ),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => warn!(
+                path = %path.display(),
+                %error,
+                "a secret of the first start could not be removed"
+            ),
+        }
+    }
+}
+
+fn write_secret(data_dir: &Path, path: &Path, secret: &str) -> io::Result<()> {
     DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(data_dir)?;
     let mut file = NamedTempFile::new_in(data_dir)?;
-    writeln!(file, "{}", token.into_string())?;
+    writeln!(file, "{secret}")?;
     file.as_file().sync_all()?;
     file.persist(path).map_err(|error| error.error)?;
     Ok(())

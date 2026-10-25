@@ -10,6 +10,7 @@ mod pools;
 mod queue;
 mod rows;
 mod runs;
+mod sessions;
 mod tenancy;
 mod transitions;
 mod users;

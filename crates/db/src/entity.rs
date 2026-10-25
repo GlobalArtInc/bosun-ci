@@ -14,6 +14,8 @@ pub mod registration_token;
 pub mod run;
 pub mod run_event;
 pub mod schema_version;
+pub mod session;
+pub mod sign_in_failure;
 pub mod step;
 pub mod user;
 pub mod workflow;

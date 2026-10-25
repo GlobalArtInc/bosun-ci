@@ -53,8 +53,10 @@ On its first start against a database without users the server:
 - generates the KEK, the key every secret is encrypted under, into `keys/kek` and logs a warning
   that asks for a backup of it;
 - uses the directory `store/` as its object store;
-- creates the owner `admin` and writes its personal token to `admin.token`, readable only by the
-  server's user (uid 210). The token expires after a year.
+- creates the owner `admin` and writes its personal token to `admin.token` and its generated
+  password to `admin.password`, both readable only by the server's user (uid 210). The token
+  expires after a year. The first sign-in with the password asks for a new one, and setting it
+  deletes both files; the token stays valid.
 
 Later starts with the same volume reuse all of it and write nothing new. `bosun-server check`,
 which the image runs as its health check, exits with 0 once the server answers `/readyz`.
@@ -84,6 +86,7 @@ current directory.
 | `keys/kek` | the KEK, generated on the first start when the configuration names none |
 | `store/` | the object store, unless `store.path` names another directory |
 | `admin.token` | the first owner's token |
+| `admin.password` | the first owner's password, until `admin` sets another |
 
 Back up `keys/kek` outside the host together with the database: without it every secret is lost.
 A KEK given by the configuration (`BOSUN_KEYS_KEK`, or `keys.kek_file`) is used instead, and then

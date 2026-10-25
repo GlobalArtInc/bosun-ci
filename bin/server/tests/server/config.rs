@@ -28,7 +28,7 @@ async fn variables_override_the_configuration_file() {
 
 #[tokio::test]
 async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fault() {
-    let cases: [Refused; 21] = [
+    let cases: [Refused; 26] = [
         (
             "[database]\nurll = \"postgres://bosun@db/bosun\"\n",
             &[],
@@ -156,6 +156,38 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             &[("BOSUN_STORE_PATH_STYLE", Some("yes"))],
             "the setting store.path_style (BOSUN_STORE_PATH_STYLE) is `yes`, which is neither \
              `true` nor `false`",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            &[("BOSUN_SERVER_DATA_DIR", Some(""))],
+            "the setting server.data_dir (BOSUN_SERVER_DATA_DIR) is empty",
+        ),
+        (
+            "[server]\ntrusted_proxies = [\"10.0.0.0/8\", \"proxy.example.org\"]\n",
+            &[],
+            "the setting server.trusted_proxies (BOSUN_SERVER_TRUSTED_PROXIES) holds \
+             `proxy.example.org`, which is neither an address nor a network such as 10.0.0.0/8",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            &[(
+                "BOSUN_SERVER_TRUSTED_PROXIES",
+                Some("127.0.0.1, 10.0.0.0/33"),
+            )],
+            "the setting server.trusted_proxies (BOSUN_SERVER_TRUSTED_PROXIES) holds \
+             `10.0.0.0/33`, which is neither an address nor a network",
+        ),
+        (
+            "[limits]\nfailed_sign_ins = 0\n",
+            &[],
+            "the setting limits.failed_sign_ins (BOSUN_LIMITS_FAILED_SIGN_INS) is 0, and a \
+             sign-in is locked only after at least one failure",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            &[("BOSUN_LIMITS_FAILED_SIGN_INS", Some("many"))],
+            "the setting limits.failed_sign_ins (BOSUN_LIMITS_FAILED_SIGN_INS) is `many`, which \
+             is not a number of failed sign-ins",
         ),
     ];
     for (config, variables, expected) in cases {

@@ -4,6 +4,7 @@ mod logs;
 mod openapi;
 mod planning;
 mod queue;
+mod sign_in;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;

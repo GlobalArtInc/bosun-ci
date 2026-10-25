@@ -4,8 +4,9 @@ use std::path::Path;
 
 use bosun_types::api::{
     Agent, CreateOrganisationRequest, CreateProjectRequest, CreateWorkflowRequest, DispatchRequest,
-    Execution, Job, LogEnd, LogLine, Me, Organisation, Page, Project, RegisterAgentRequest,
-    RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest, Revision, Run, Step,
+    Execution, Job, LogEnd, LogLine, Me, Organisation, Page, PasswordChangeRequest, Project,
+    RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
+    RegistrationTokenRequest, Revision, Run, SignInMethods, SignInRequest, Step,
     UpdateSourceRequest, Workflow,
 };
 use bosun_types::command::CommandRequest;
@@ -115,6 +116,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/me.json", round_trip::<Me>),
         ("api/organisation.json", round_trip::<Organisation>),
         ("api/page-jobs.json", round_trip::<Page<Job>>),
+        (
+            "api/password-change-request.json",
+            round_trip::<PasswordChangeRequest>,
+        ),
         ("api/project.json", round_trip::<Project>),
         (
             "api/register-agent-request.json",
@@ -134,6 +139,8 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         ("api/revision.json", round_trip::<Revision>),
         ("api/run.json", round_trip::<Run>),
+        ("api/sign-in-methods.json", round_trip::<SignInMethods>),
+        ("api/sign-in-request.json", round_trip::<SignInRequest>),
         ("api/step.json", round_trip::<Step>),
         (
             "api/update-source-request.json",

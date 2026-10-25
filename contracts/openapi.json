@@ -863,12 +863,23 @@
       },
       "Me": {
         "properties": {
+          "csrf_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password_change_required": {
+            "type": "boolean"
+          },
           "user": {
             "$ref": "#/components/schemas/User"
           }
         },
         "required": [
-          "user"
+          "user",
+          "csrf_token",
+          "password_change_required"
         ],
         "type": "object"
       },
@@ -912,6 +923,21 @@
         "required": [
           "items",
           "next"
+        ],
+        "type": "object"
+      },
+      "PasswordChangeRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
         ],
         "type": "object"
       },
@@ -1491,6 +1517,50 @@
         ],
         "type": "string"
       },
+      "SignInMethods": {
+        "properties": {
+          "password": {
+            "type": "boolean"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/SignInProvider"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "password",
+          "providers"
+        ],
+        "type": "object"
+      },
+      "SignInProvider": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "SignInRequest": {
+        "properties": {
+          "login": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "login",
+          "password"
+        ],
+        "type": "object"
+      },
       "Span": {
         "additionalProperties": false,
         "properties": {
@@ -1844,6 +1914,18 @@
         "description": "a personal token, `bst_…`",
         "scheme": "bearer",
         "type": "http"
+      },
+      "csrf": {
+        "description": "the CSRF token of the session, from `GET /api/v1/me`, which a request that the session authenticates and that changes something carries",
+        "in": "header",
+        "name": "X-Bosun-CSRF",
+        "type": "apiKey"
+      },
+      "session": {
+        "description": "a browser session, `bss_…`, which `POST /api/v1/auth/login` sets",
+        "in": "cookie",
+        "name": "__Host-bosun_session",
+        "type": "apiKey"
       }
     }
   },
@@ -1921,6 +2003,131 @@
           }
         },
         "security": []
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "description": "the session cookie `__Host-bosun_session`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "description": "the session cookie `__Host-bosun_session`, emptied",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/methods": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInMethods"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/auth/password": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/executions/{execution}": {
@@ -2126,7 +2333,16 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/organisations/{organisation}": {
@@ -2190,7 +2406,16 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/projects/{project}": {
@@ -2318,7 +2543,16 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/registration-tokens": {
@@ -2347,7 +2581,16 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/runs/{run}": {
@@ -2482,7 +2725,16 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/workflows/{workflow}": {
@@ -2557,7 +2809,16 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/workflows/{workflow}/revisions": {
@@ -2658,13 +2919,25 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ]
       }
     }
   },
   "security": [
     {
       "bearer": []
+    },
+    {
+      "session": []
     }
   ]
 }

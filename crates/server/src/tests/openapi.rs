@@ -96,6 +96,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
     ),
     ("me.json", "get", "/api/v1/me", Part::Response("200")),
     (
+        "password-change-request.json",
+        "post",
+        "/api/v1/auth/password",
+        Part::Request,
+    ),
+    (
         "organisation.json",
         "get",
         "/api/v1/organisations/{organisation}",
@@ -148,6 +154,18 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "get",
         "/api/v1/runs/{run}",
         Part::Response("200"),
+    ),
+    (
+        "sign-in-methods.json",
+        "get",
+        "/api/v1/auth/methods",
+        Part::Response("200"),
+    ),
+    (
+        "sign-in-request.json",
+        "post",
+        "/api/v1/auth/login",
+        Part::Request,
     ),
     (
         "step.json",

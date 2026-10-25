@@ -107,4 +107,5 @@ ids!(
     PoolId,
     AgentId,
     RegistrationTokenId,
+    SessionId,
 );

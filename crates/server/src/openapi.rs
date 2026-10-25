@@ -29,7 +29,8 @@ pub(crate) const IDEMPOTENCY_KEY: &str = "#/components/parameters/IdempotencyKey
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Access {
-    Token,
+    Authenticated,
+    Interim,
     Public,
 }
 
@@ -43,13 +44,18 @@ struct Operation {
 pub(crate) struct Api {
     access: Access,
     authenticated: Router<AppState>,
+    interim: Router<AppState>,
     public: Router<AppState>,
     operations: Vec<Operation>,
 }
 
 impl Api {
     pub(crate) fn new() -> Api {
-        Api::with(Access::Token)
+        Api::with(Access::Authenticated)
+    }
+
+    pub(crate) fn interim() -> Api {
+        Api::with(Access::Interim)
     }
 
     pub(crate) fn public() -> Api {
@@ -60,6 +66,7 @@ impl Api {
         Api {
             access,
             authenticated: Router::new(),
+            interim: Router::new(),
             public: Router::new(),
             operations: Vec::new(),
         }
@@ -114,7 +121,8 @@ impl Api {
 
     pub(crate) fn route(mut self, path: &str, router: MethodRouter<AppState>) -> Api {
         match self.access {
-            Access::Token => self.authenticated = self.authenticated.route(path, router),
+            Access::Authenticated => self.authenticated = self.authenticated.route(path, router),
+            Access::Interim => self.interim = self.interim.route(path, router),
             Access::Public => self.public = self.public.route(path, router),
         }
         self
@@ -122,6 +130,7 @@ impl Api {
 
     pub(crate) fn merge(mut self, other: Api) -> Api {
         self.authenticated = self.authenticated.merge(other.authenticated);
+        self.interim = self.interim.merge(other.interim);
         self.public = self.public.merge(other.public);
         self.operations.extend(other.operations);
         self
@@ -130,6 +139,10 @@ impl Api {
     pub(crate) fn into_router(self, state: &AppState) -> Router<AppState> {
         self.authenticated
             .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner))
+            .merge(
+                self.interim
+                    .route_layer(middleware::from_fn_with_state(state.clone(), auth::interim)),
+            )
             .merge(self.public)
     }
 
@@ -149,13 +162,16 @@ impl Api {
                 body: None,
                 responses: Map::new(),
             };
-            if operation.access == Access::Token {
-                spec.error();
-            }
+            spec.error();
             (operation.document)(&mut spec);
             let mut object = spec.finish();
             if operation.access == Access::Public {
                 object.insert("security".to_owned(), json!([]));
+            } else if operation.method != Method::GET {
+                object.insert(
+                    "security".to_owned(),
+                    json!([{ "bearer": [] }, { "session": [], "csrf": [] }]),
+                );
             }
             let method = operation.method.as_str().to_lowercase();
             let item = paths.entry(operation.path).or_default();
@@ -170,7 +186,7 @@ impl Api {
         json!({
             "openapi": VERSION,
             "info": { "title": "Bosun", "version": "v1" },
-            "security": [{ "bearer": [] }],
+            "security": [{ "bearer": [] }, { "session": [] }],
             "paths": paths,
             "components": {
                 "schemas": generator.take_definitions(true),
@@ -205,6 +221,18 @@ impl Api {
                         "type": "http",
                         "scheme": "bearer",
                         "description": "a personal token, `bst_…`"
+                    },
+                    "session": {
+                        "type": "apiKey",
+                        "in": "cookie",
+                        "name": "__Host-bosun_session",
+                        "description": "a browser session, `bss_…`, which `POST /api/v1/auth/login` sets"
+                    },
+                    "csrf": {
+                        "type": "apiKey",
+                        "in": "header",
+                        "name": "X-Bosun-CSRF",
+                        "description": "the CSRF token of the session, from `GET /api/v1/me`, which a request that the session authenticates and that changes something carries"
                     }
                 }
             }
@@ -320,6 +348,26 @@ impl Spec<'_> {
         );
     }
 
+    pub(crate) fn empty(&mut self, status: StatusCode) {
+        self.responses.insert(
+            status.as_str().to_owned(),
+            json!({ "description": status.canonical_reason().unwrap_or(status.as_str()) }),
+        );
+    }
+
+    pub(crate) fn header(&mut self, status: StatusCode, name: &str, description: &str) {
+        if let Some(Value::Object(response)) = self.responses.get_mut(status.as_str())
+            && let Value::Object(headers) = response
+                .entry("headers")
+                .or_insert_with(|| Value::Object(Map::new()))
+        {
+            headers.insert(
+                name.to_owned(),
+                json!({ "description": description, "schema": { "type": "string" } }),
+            );
+        }
+    }
+
     pub(crate) fn error(&mut self) {
         self.responses
             .insert("default".to_owned(), json!({ "$ref": ERROR }));
@@ -365,6 +413,17 @@ macro_rules! documented {
             }
         }
     };
+}
+
+impl<F, Fut, R> Documented<((),)> for F
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = R>,
+    R: Output,
+{
+    fn document(spec: &mut Spec<'_>) {
+        <R as Output>::output(spec);
+    }
 }
 
 documented!(T1);

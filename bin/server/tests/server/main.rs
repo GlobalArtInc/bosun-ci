@@ -16,6 +16,7 @@ mod proxy;
 mod queue;
 mod runs;
 mod shutdown;
+mod sign_in;
 mod start;
 mod workflows;
 

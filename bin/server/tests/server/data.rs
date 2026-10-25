@@ -10,8 +10,8 @@ use crate::{Launch, eventually, me, message, owner, strings};
 const GENERATED: &str = "generated the KEK, under which the server keeps every secret; back the \
                          file up outside this host, because every secret is lost without it";
 
-const FIRST_OWNER: &str =
-    "created the owner admin on the first start and wrote its token to the data directory";
+const FIRST_OWNER: &str = "created the owner admin on the first start and wrote its token and \
+                           password to the data directory";
 
 fn mode(path: &Path) -> u32 {
     fs::metadata(path)
@@ -87,7 +87,11 @@ async fn a_first_start_with_only_a_database_generates_the_kek_and_writes_the_own
         .find(|line| message(line) == FIRST_OWNER)
         .unwrap_or_else(|| panic!("no line that the owner was created: {lines:#?}"));
     assert_eq!(created["login"], "admin");
-    assert_eq!(created["path"], path.display().to_string());
+    assert_eq!(created["token"], path.display().to_string());
+    assert_eq!(
+        created["password"],
+        data.path().join("admin.password").display().to_string()
+    );
     assert!(
         !lines.iter().any(|line| line.to_string().contains(token)),
         "the token reached the log: {lines:#?}"

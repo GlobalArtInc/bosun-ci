@@ -60,6 +60,7 @@ binary on a host) holds what a single host needs and nothing else:
 | `keys/kek` | the KEK, generated on the first start when the configuration names none ([07-storage.md](07-storage.md)) |
 | `store/` | the directory backend of the object store, used when no S3 store is configured |
 | `admin.token` | the first owner's token, written on the first start ([08-access.md](08-access.md)) |
+| `admin.password` | the first owner's password, written next to `admin.token`; both go when that password changes ([08-access.md](08-access.md#local-sign-in)) |
 
 So a single host needs exactly two settings to start, the database address and the data directory,
 and a mounted volume to keep its state. The key and the token are written to a temporary file in
@@ -220,6 +221,7 @@ offline_after = "60s"
 assignment_lease = "30s"
 
 [limits]
+failed_sign_ins = 10
 max_queue_time = "24h"
 max_pause = "24h"
 max_hold = "2h"
@@ -246,6 +248,12 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   that is empty is refused.
 - `agents.binary_dir` is the directory of the agent binaries the server hands out,
   `/usr/lib/bosun/agent` by default, where the image puts them.
+- `server.trusted_proxies` lists the reverse proxies whose `X-Forwarded-For` names the address of
+  a sign-in, each an address such as `10.0.0.7` or a network such as `10.0.0.0/8`; it is empty by
+  default, so the header counts for nothing. Its variable is a list separated by commas, such as
+  `BOSUN_SERVER_TRUSTED_PROXIES=10.0.0.0/8,fd00::/8`.
+- `limits.failed_sign_ins`, 10 by default and at least 1, is the number of failed sign-ins of an
+  account or an address after which it is locked ([08-access.md](08-access.md#local-sign-in)).
 - `store.kind` is `directory`, the default, or `s3`. `store.path` is the root of the directory
   backend, `store/` in the data directory by default, so `/var/lib/bosun/store` on a host.
 - For `s3`, `store.endpoint` is the address of the S3 API, http or https with a host and maybe a

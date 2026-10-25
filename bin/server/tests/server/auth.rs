@@ -56,7 +56,12 @@ async fn a_request_without_a_well_formed_bearer_token_is_unauthenticated() {
     let mut server = Launch::serve(&database.url()).spawn();
     let address = server.listening().await;
 
-    refused(address, None, "the request carries no bearer token").await;
+    refused(
+        address,
+        None,
+        "the request carries neither a bearer token nor a session cookie",
+    )
+    .await;
     for authorization in ["Basic cm9tYW46c2VjcmV0", "Bearer", "Token abc", &token] {
         refused(
             address,

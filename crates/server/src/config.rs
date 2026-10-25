@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bosun_blob::S3Settings;
+use ipnet::IpNet;
 use serde::Deserialize;
 
 use crate::Error;
+use crate::address;
 use crate::owner::{self, LOGIN_RULE};
 
 const DEFAULT_LISTEN: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
@@ -36,6 +38,8 @@ const DATA_FILE: &str = "etc/bosun.toml";
 
 const STORE: &str = "store";
 
+const DEFAULT_FAILED_SIGN_INS: u32 = 10;
+
 const DIRECTORY: &str = "directory";
 
 const S3: &str = "s3";
@@ -51,6 +55,7 @@ const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m o
 pub struct Config {
     pub(crate) listen: SocketAddr,
     pub(crate) data_dir: PathBuf,
+    pub(crate) trusted_proxies: Vec<IpNet>,
     pub(crate) database: Database,
     pub(crate) keys: Keys,
     pub(crate) bootstrap_admin: Option<String>,
@@ -58,6 +63,7 @@ pub struct Config {
     pub(crate) queue: Queue,
     pub(crate) store: Store,
     pub(crate) agent_binaries: PathBuf,
+    pub(crate) failed_sign_ins: u32,
 }
 
 pub(crate) enum Store {
@@ -105,6 +111,7 @@ struct File {
 struct ServerFile {
     listen: Option<String>,
     data_dir: Option<PathBuf>,
+    trusted_proxies: Option<Vec<String>>,
 }
 
 #[derive(Default, Deserialize)]
@@ -154,6 +161,7 @@ struct StoreFile {
 struct LimitsFile {
     agent_grace: Option<String>,
     max_queue_time: Option<String>,
+    failed_sign_ins: Option<u32>,
 }
 
 impl Config {
@@ -186,6 +194,7 @@ impl Config {
         };
         let data_dir = path("server", "data_dir", file.server.data_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_DIR));
+        let trusted_proxies = trusted_proxies(file.server.trusted_proxies)?;
         let url = variable("database", "url")?
             .or(file.database.url)
             .ok_or_else(|| invalid("database", "url", "is not set".to_owned()))?;
@@ -267,12 +276,33 @@ impl Config {
             file.limits.max_queue_time,
             DEFAULT_MAX_QUEUE_TIME,
         )?;
+        let failed_sign_ins = match variable("limits", "failed_sign_ins")? {
+            Some(text) => text.parse().map_err(|_| {
+                invalid(
+                    "limits",
+                    "failed_sign_ins",
+                    format!("is `{text}`, which is not a number of failed sign-ins"),
+                )
+            })?,
+            None => file
+                .limits
+                .failed_sign_ins
+                .unwrap_or(DEFAULT_FAILED_SIGN_INS),
+        };
+        if failed_sign_ins == 0 {
+            return Err(invalid(
+                "limits",
+                "failed_sign_ins",
+                "is 0, and a sign-in is locked only after at least one failure".to_owned(),
+            ));
+        }
         let store = store(file.store, &data_dir)?;
         let agent_binaries = path("agents", "binary_dir", file.agents.binary_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_AGENT_BINARIES));
         Ok(Config {
             listen,
             data_dir,
+            trusted_proxies,
             database: Database {
                 url,
                 max_connections,
@@ -290,8 +320,36 @@ impl Config {
             },
             store,
             agent_binaries,
+            failed_sign_ins,
         })
     }
+}
+
+fn trusted_proxies(file: Option<Vec<String>>) -> Result<Vec<IpNet>, Error> {
+    let entries: Vec<String> = match variable("server", "trusted_proxies")? {
+        Some(text) => text
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        None => file.unwrap_or_default(),
+    };
+    entries
+        .iter()
+        .map(|entry| {
+            address::network(entry.trim()).ok_or_else(|| {
+                invalid(
+                    "server",
+                    "trusted_proxies",
+                    format!(
+                        "holds `{entry}`, which is neither an address nor a network such as \
+                         10.0.0.0/8"
+                    ),
+                )
+            })
+        })
+        .collect()
 }
 
 fn store(file: StoreFile, data_dir: &Path) -> Result<Store, Error> {

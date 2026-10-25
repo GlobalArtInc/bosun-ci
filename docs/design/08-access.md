@@ -43,10 +43,79 @@ for the owner, so the CLI works before any sign-in method is configured.
   with an error that says so, and `admin create` makes another owner. From M1, when local
   passwords exist,
   the server also writes `admin.password`, and the first sign-in with it asks for a new password
-  and deletes both files.
+  and deletes both files ([Local sign-in](#local-sign-in)).
 
 Failed sign-ins are rate-limited per account and per address, with an exponentially growing
 lockout.
+
+### Local sign-in
+
+Step 8 of M1 ([../plan.md](../plan.md)) settled the mechanisms below; the endpoints are in
+[11-api.md](11-api.md#sign-in-and-sessions).
+
+- **Passwords.** A password is 12 to 1024 characters. `user.password_hash` holds its argon2id hash
+  as a PHC string, with the parameters the OWASP guidance names as its minimum (19 MiB of memory,
+  2 passes, 1 lane, a random salt of 16 bytes). A check reads the parameters from the stored string,
+  so raising them later needs no migration. Hashing runs on blocking threads, at most one per CPU at
+  once, so a burst of sign-ins takes neither the memory of the server nor the threads that answer
+  requests. A user without a password, such as an owner made by `admin create`, cannot sign in with
+  one.
+- **Sign-in.** `POST /api/v1/auth/login` takes a login and a password. A wrong password, an unknown
+  login and a user without a password get the same `401` after the same work, since an unknown
+  login is checked against a decoy hash, so neither the answer nor its time tells whether a login
+  exists. A request that checks a password must have the content type `application/json`, which a
+  form of another site cannot send without a preflight the server never grants, so another site
+  cannot sign a browser in to an account of its choosing.
+- **Sessions.** A sign-in begins a session: a `bss_` credential in the format below, stored as its
+  SHA-256 in `session` with its user, the time it began and the time of its last request. The
+  answer sets `__Host-bosun_session=bss_…; Max-Age=2592000; Path=/; Secure; HttpOnly;
+  SameSite=Lax`. A session ends 12 hours after its last request and 30 days after it began,
+  whichever comes first; the time of the last request is written at most once a minute, so the idle
+  timeout holds to the minute. `POST /api/v1/auth/logout` deletes the session at once and empties
+  the cookie. Every minute a periodic task removes ended sessions
+  ([07-storage.md](07-storage.md#periodic-tasks)). A request with an `Authorization` header is
+  authenticated by that header alone and the cookie is not read.
+- **CSRF.** The CSRF token of a session is the SHA-256 of `bosun csrf`, a zero byte and the `bss_`
+  text, written as 43 base62 digits. It is bound to its session without being stored, and it does
+  not reveal the session. `GET /api/v1/me` and the sign-in return it as `csrf_token`, which is
+  `null` for a bearer token. A request that the cookie authenticates and whose method is not `GET`,
+  `HEAD` or `OPTIONS` must carry it in `X-Bosun-CSRF`; without the header, or with the token of
+  another session, it is `403 forbidden` before its handler runs. The comparison takes the same
+  time whatever the header holds.
+- **Lockout.** Every sign-in counts against the account, when the given login is a login at all,
+  and against the address it comes from, each a row of `sign_in_failure`. An attempt is counted as
+  a failure before its password is checked, in a transaction that locks both rows, so concurrent
+  attempts never get more tries than the limit. An attempt that succeeds then deletes the count of
+  its account and takes its own failure back from the count of its address, so sign-ins that
+  succeed never lock an address. After `limits.failed_sign_ins` failures (10 by default,
+  [12-operations.md](12-operations.md#configuration)) the account and the address are locked for a
+  minute, and each failure after a lock ended doubles the period, up to a day. During a lock a
+  sign-in is `429 rate_limited` with `Retry-After` in seconds and a message that names the account
+  or the address, and its password is not checked. A count is forgotten a day after its last
+  failure.
+- **The address.** The address of a request is the peer of its connection. When that peer is in
+  `server.trusted_proxies`, the server reads `X-Forwarded-For` from the right for as long as the
+  hop it has reached is a trusted proxy, and the first hop that is not one is the address; a hop
+  that is not an address ends the walk at the last trusted proxy. From any other peer the header is
+  ignored, so a client cannot choose the address it is counted under. An IPv4 address mapped into
+  IPv6 counts as the IPv4 address.
+- **Changing one's own password.** `POST /api/v1/auth/password` takes `current_password` and
+  `new_password`, from a session with its CSRF token or with a personal token. The current password
+  is required every time, so a stolen session or token cannot change the password and lock its
+  owner out, and a wrong one counts like a failed sign-in. The new password follows the rule above
+  and differs from the current one. The change ends every other session of the user, keeps the one
+  that made it, and clears `user.password_change_required`. A user without a password gets `409
+  invalid_state`: there is no password to change.
+- **A password that must change.** While `user.password_change_required` is set, a session of that
+  user may call only `GET /api/v1/me`, `POST /api/v1/auth/logout` and `POST /api/v1/auth/password`;
+  any other request is `403 forbidden` saying that a new password comes first. Personal tokens are
+  not restricted, so `admin.token` signs the CLI in before anyone sets a password.
+- **The first start.** The owner `admin` that the first start creates has a generated password of
+  43 base62 digits, and must change it. `admin.password` holds it next to `admin.token`, both
+  readable only by the server's user, in a data directory the server creates with mode `0700` when
+  it is missing. When `admin` changes that password, the server deletes both files from its data
+  directory; the token stays valid until it expires or is revoked. A replica whose data directory
+  does not hold the files deletes nothing.
 
 ## Sessions and tokens
 
@@ -66,9 +135,9 @@ followed by the CRC-32 (ISO-HDLC, the checksum of zlib) of the prefix and those 
 as exactly 6 base62 digits, so a credential with a four-character prefix such as `bst_` is 53
 characters long. The SHA-256 is that of the whole text. The server checks the prefix, the length,
 the digits and the checksum before it looks a credential up, so a mistyped, truncated or relabelled
-credential never costs a query. A mutating request authenticated by the cookie must carry
-`X-Bosun-CSRF` with the token bound to the session, which `GET /api/v1/me` returns; bearer tokens do
-not need it.
+credential never costs a query; a malformed session cookie is refused the same way. A mutating
+request authenticated by the cookie must carry `X-Bosun-CSRF` with the token bound to the session,
+which `GET /api/v1/me` returns; bearer tokens do not need it ([Local sign-in](#local-sign-in)).
 
 ## Organisations, projects and teams
 

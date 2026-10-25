@@ -60,7 +60,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 
 | Area | Tables |
 |------|--------|
-| identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `session` |
+| identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `session`, `sign_in_failure` |
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
 | runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
@@ -243,20 +243,24 @@ outside its pool.
 
 Periodic tasks run in every replica: the cron scheduler (minute resolution), lease expiry, offline
 detection of agents together with the end of their grace period, the queue timeout, log compaction,
-retention, cache eviction, the removal of idempotency keys older than 24 hours, and the expiry of
-tokens and sessions. Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
+retention, cache eviction, the removal of idempotency keys older than 24 hours, the expiry of
+tokens, and the removal of ended sessions together with forgotten failed sign-ins
+([08-access.md](08-access.md#local-sign-in)). Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
 work of each task, and each change it finds checks its condition again under the lock of what it
 changes. Outbox delivery is not a singleton: workers in every replica claim rows with
 `SKIP LOCKED`.
 
 Each task has a lock of its own, a transaction-level `pg_try_advisory_xact_lock` whose key spells
 the task in eight bytes (`bosunagt` for the sweep of agents, `bosunlse` for the lease expiry,
-`bosunqto` for the queue timeout, `bosunlog` for log compaction). A replica that finds the lock
-taken skips the round. The transaction that holds it only finds the rows to change; each change then
-runs in a transaction of its own under the lock of its run, or, for log compaction, which changes no
-run, under an advisory lock of its execution and then its execution's row, and checks its condition
-again, so a change never waits for a lock while holding the task's, and a round that overlaps another
-changes nothing twice.
+`bosunqto` for the queue timeout, `bosunlog` for log compaction, `bosunses` for the removal of
+sessions). A replica that finds the lock taken skips the round. The transaction that holds it only
+finds the rows to change; each change then runs in a transaction of its own under the lock of its
+run, or, for log compaction, which changes no run, under an advisory lock of its execution and then
+its execution's row, and checks its condition again, so a change never waits for a lock while holding
+the task's, and a round that overlaps another changes nothing twice. The removal of sessions changes
+no run and decides by time alone, so it deletes in the transaction that holds its lock: a session
+that ended stays ended, and a count of failed sign-ins whose last failure lies a day back and that
+holds no lock any more is forgotten whether or not the task removes it.
 
 ## The outbox
 

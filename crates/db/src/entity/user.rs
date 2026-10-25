@@ -10,6 +10,8 @@ pub struct Model {
     pub email: Option<String>,
     pub owner: bool,
     pub created_at: DateTimeUtc,
+    pub password_hash: Option<String>,
+    pub password_change_required: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

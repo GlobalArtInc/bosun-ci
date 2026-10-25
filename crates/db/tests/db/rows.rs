@@ -1,7 +1,7 @@
 use bosun_db::entity::{
     agent, api_token, attempt, control_message, execution, idempotency_key, job, log_chunk,
-    log_object, organisation, project, registration_token, run, run_event, step, user, workflow,
-    workflow_revision,
+    log_object, organisation, project, registration_token, run, run_event, session,
+    sign_in_failure, step, user, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -28,6 +28,7 @@ pub const AGENT: u8 = 0x0e;
 pub const REGISTRATION: u8 = 0x0f;
 pub const CONTROL: u8 = 0x10;
 pub const REPLICA: u8 = 0x11;
+pub const SESSION: u8 = 0x12;
 
 pub fn id(number: u8) -> Uuid {
     Uuid::from_bytes([
@@ -63,6 +64,8 @@ pub struct Rows {
     pub log_object: log_object::Model,
     pub control_message: control_message::Model,
     pub idempotency_key: idempotency_key::Model,
+    pub session: session::Model,
+    pub sign_in_failure: sign_in_failure::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -98,6 +101,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         name: ActiveValue::Set(format!("Roman {label}")),
         email: ActiveValue::Set(Some("roman@example.org".to_owned())),
         owner: ActiveValue::Set(true),
+        password_hash: ActiveValue::Set(Some(format!("$argon2id$v=19$m=19456,t=2,p=1${label}"))),
+        password_change_required: ActiveValue::Set(true),
         ..Default::default()
     }
     .insert(db)
@@ -344,6 +349,28 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("an idempotency key");
 
+    let session = session::ActiveModel {
+        id: ActiveValue::Set(id(SESSION)),
+        user_id: ActiveValue::Set(id(USER)),
+        sha256: ActiveValue::Set(vec![0x66; 32]),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:50.078Z")),
+        last_seen_at: ActiveValue::Set(at("2026-10-24T18:40:12.345Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a session");
+
+    let sign_in_failure = sign_in_failure::ActiveModel {
+        kind: ActiveValue::Set("account".to_owned()),
+        key: ActiveValue::Set(format!("roman-{label}")),
+        failures: ActiveValue::Set(3),
+        last_failed_at: ActiveValue::Set(at("2026-10-24T18:34:50.078Z")),
+        locked_until: ActiveValue::Set(Some(at("2026-10-24T18:35:50.078Z"))),
+    }
+    .insert(db)
+    .await
+    .expect("a failed sign-in");
+
     Rows {
         organisation,
         project,
@@ -363,6 +390,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         log_object,
         control_message,
         idempotency_key,
+        session,
+        sign_in_failure,
     }
 }
 
@@ -415,5 +444,11 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
             (format!("user:{}", id(USER)), "dispatch-1".to_owned()),
         )
         .await,
+        session: one::<_, session::Entity>(db, id(SESSION)).await,
+        sign_in_failure: sign_in_failure::Entity::find()
+            .one(db)
+            .await
+            .expect("a query")
+            .expect("a failed sign-in"),
     }
 }

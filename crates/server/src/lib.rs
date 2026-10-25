@@ -1,6 +1,8 @@
+mod address;
 mod agents;
 mod auth;
 mod check;
+mod clock;
 mod commands;
 mod config;
 mod dispatch;
@@ -16,13 +18,16 @@ mod me;
 mod openapi;
 mod organisations;
 mod owner;
+mod password;
 mod planner;
 mod projects;
 mod queue;
 mod reply;
 mod request;
 mod runs;
+mod sessions;
 mod shutdown;
+mod sign_in;
 mod slug;
 mod store;
 #[cfg(test)]
@@ -32,6 +37,7 @@ mod trace;
 mod workflows;
 
 use std::future::Future;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -57,6 +63,8 @@ struct AppState {
     followers: Arc<logs::Followers>,
     shutdown: shutdown::Shutdown,
     agent_binaries: Arc<Path>,
+    clock: clock::Clock,
+    sign_in: Arc<sign_in::Settings>,
 }
 
 pub async fn serve(
@@ -68,10 +76,16 @@ pub async fn serve(
     let store = Arc::new(store::open(&config.store).await?);
     let db = connect(&config).await?;
     bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
+    let sign_in = Arc::new(sign_in::Settings::new(
+        config.trusted_proxies.clone(),
+        config.failed_sign_ins,
+        config.data_dir.clone(),
+    ));
     match &config.bootstrap_admin {
         Some(login) => owner::bootstrap(&db, login).await?,
-        None => owner::first_start(&db, &config.data_dir).await?,
+        None => owner::first_start(&db, &config.data_dir, &sign_in.hasher).await?,
     }
+    let clock = clock::Clock::system();
     let replica = agents::Replica::new();
     let notifications = bosun_db::notify::Listener::connect(&config.database.url, replica.id())
         .await
@@ -88,6 +102,7 @@ pub async fn serve(
     );
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
     tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
+    tasks.spawn(sessions::sweep(db.clone(), clock.clone()));
     let connector =
         agents::Connector::new(db.clone(), Arc::clone(&replica), config.agents, dispatcher);
     let listen = config.listen;
@@ -109,15 +124,20 @@ pub async fn serve(
         followers,
         shutdown: shutdown.clone(),
         agent_binaries: Arc::from(config.agent_binaries.as_path()),
+        clock,
+        sign_in,
     };
-    axum::serve(listener, app(state, connector, shutdown))
-        .with_graceful_shutdown(async move {
-            let reason = stop.await;
-            info!(%reason, "shutting down");
-            closer.close(format!("the server is shutting down: {reason}"));
-        })
-        .await
-        .map_err(Error::Serve)?;
+    axum::serve(
+        listener,
+        app(state, connector, shutdown).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        let reason = stop.await;
+        info!(%reason, "shutting down");
+        closer.close(format!("the server is shutting down: {reason}"));
+    })
+    .await
+    .map_err(Error::Serve)?;
     tasks.stop().await;
     info!("stopped");
     Ok(())
@@ -146,8 +166,9 @@ async fn connect(config: &Config) -> Result<DatabaseConnection, Error> {
 }
 
 fn api() -> openapi::Api {
-    openapi::Api::new()
+    openapi::Api::interim()
         .get("/api/v1/me", me::show)
+        .merge(sign_in::routes())
         .merge(organisations::routes())
         .merge(projects::routes())
         .merge(workflows::routes())

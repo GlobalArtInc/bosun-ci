@@ -14,6 +14,8 @@ pub mod projects;
 pub mod queue;
 mod row;
 pub mod runs;
+pub mod sessions;
+pub mod sign_in;
 pub mod tokens;
 pub mod users;
 pub mod views;

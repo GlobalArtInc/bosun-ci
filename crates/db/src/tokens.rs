@@ -18,6 +18,7 @@ pub struct NewToken {
 pub struct PersonalToken {
     pub id: TokenId,
     pub user: User,
+    pub password_change_required: bool,
     pub expires_at: DateTimeUtc,
     pub revoked_at: Option<DateTimeUtc>,
 }
@@ -36,6 +37,7 @@ pub async fn find_personal<C: ConnectionTrait>(
     };
     Ok(Some(PersonalToken {
         id: row::id("api_token", token.id)?,
+        password_change_required: user.password_change_required,
         user: users::decode(user)?,
         expires_at: token.expires_at,
         revoked_at: token.revoked_at,

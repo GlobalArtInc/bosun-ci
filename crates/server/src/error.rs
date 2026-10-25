@@ -65,15 +65,17 @@ pub enum Error {
     #[error("could not create the first owner admin: {0}")]
     FirstOwner(#[source] bosun_db::Error),
     #[error(
-        "created the owner admin, but could not write its token to {}: {source}; create another \
-         owner with bosun-server admin create <login>",
+        "created the owner admin, but could not write {}: {source}; create another owner with \
+         bosun-server admin create <login>",
         path.display()
     )]
-    TokenFile {
+    FirstStartFile {
         path: PathBuf,
         #[source]
         source: io::Error,
     },
+    #[error("could not make the password of the first owner admin: {0}")]
+    Password(String),
     #[error("server.listen names port 0, so there is no port at which to check the server")]
     CheckAnyPort,
     #[error("the server at {address} does not answer: {reason}")]

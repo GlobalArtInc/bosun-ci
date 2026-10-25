@@ -1,0 +1,8 @@
+{
+  "password": true,
+  "providers": [
+    {
+      "name": "keycloak"
+    }
+  ]
+}

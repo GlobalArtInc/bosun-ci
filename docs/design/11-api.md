@@ -9,9 +9,10 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
 - Base path `/api/v1`, JSON bodies, UTF-8.
 - Authentication by the session cookie with `X-Bosun-CSRF`, or by `Authorization: Bearer bst_…`
   ([08-access.md](08-access.md)). A request to a served path under `/api/v1` without valid
-  credentials gets `401 unauthenticated` with `WWW-Authenticate: Bearer`, whether the token is
-  missing, malformed, unknown, revoked or expired; the message says which. The scheme is matched
-  without regard to case. A path the server does not serve, and a method a served path does not
+  credentials gets `401 unauthenticated` with `WWW-Authenticate: Bearer`, whether the token or the
+  session is missing, malformed, unknown, revoked, ended or expired; the message says which. The
+  scheme is matched without regard to case. A request with an `Authorization` header is
+  authenticated by it alone, and its cookie is not read. A path the server does not serve, and a method a served path does not
   accept, are `not_found` with or without credentials.
 - Resources are addressed by id; organisations and projects also by slug
   (`/api/v1/projects/globalart/keel`). `{organisation}` in a path is the organisation's id or slug,
@@ -27,9 +28,9 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
   A limit outside 1 to 500, a malformed cursor, and a query parameter the list does not take are
   `invalid_input`.
 - Writes that create something accept an `Idempotency-Key` header; a repeated request with the same
-  key and body returns the first response. The two whose answer holds a secret that is shown once,
-  `POST /registration-tokens` and `POST /agents/register`, take no key, since keeping their answer
-  would show it again. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
+  key and body returns the first response. The three whose answer holds a secret that is shown
+  once, `POST /registration-tokens`, `POST /agents/register` and `POST /auth/login`, take no key,
+  since keeping their answer would show it again. A key is 1 to 255 visible ASCII characters and belongs to the user who sent
   it. The request it stands for is its method, its path with the query and the bytes of its body;
   the same key with another request within 24 hours is `409 conflict`. The response is kept in the
   transaction of the write, and only when the write created something, so a request that failed can
@@ -80,8 +81,9 @@ fails when the generated document differs from the committed one ([below](#the-o
 
 | Path | Methods | Purpose |
 |------|---------|---------|
-| `/me` | GET | the current user as `{"user": …}`; its permissions and the CSRF token from M1 |
-| `/auth/login`, `/auth/logout`, `/auth/totp` | POST | local sign-in, sign-out, second factor |
+| `/me` | GET | the caller as `{"user", "csrf_token", "password_change_required"}`; its permissions from step 9 of M1 |
+| `/auth/login`, `/auth/logout`, `/auth/password`, `/auth/totp` | POST | local sign-in, sign-out, change of one's own password, second factor |
+| `/auth/methods` | GET | the sign-in methods the sign-in page offers |
 | `/auth/oidc/{provider}/start`, `/auth/oidc/{provider}/callback` | GET | OpenID Connect sign-in |
 | `/auth/forge/link`, `/auth/forge/callback` | GET | linking the user's forge account |
 | `/organisations`, `/organisations/{org}` | GET, POST, PATCH | organisations and their settings, among them the action policy |
@@ -121,6 +123,32 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
 `/healthz`, `/readyz`, `/metrics`, `/install-agent.sh` and the agent binaries at
 `/_runtime/agent/linux-<arch>` without a token ([12-operations.md](12-operations.md#agents)), and
 the gRPC services `bosun.agent.v1.Agent` and `bosun.plugin.v1.*` on the same listener.
+
+### Sign-in and sessions
+
+The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-sign-in).
+
+- `GET /me` answers `{"user", "csrf_token", "password_change_required"}`: the caller, the CSRF
+  token of its session or `null` for a bearer token, and whether its password must change before
+  its sessions may do anything else.
+- `POST /auth/login` takes `{"login", "password"}` with the content type `application/json`, and
+  needs no credentials. It answers `200` with the caller as `GET /me` answers it for the new
+  session, and sets the session cookie. A wrong login or password is `401 unauthenticated`, with
+  the message ``the login or the password is not right``, and a sign-in during a lockout is `429
+  rate_limited` with `Retry-After`. A body of another content type is `422 invalid_input`. It takes
+  no `Idempotency-Key`, since its answer holds a credential that is shown once.
+- `POST /auth/logout` ends the session of the request and answers `204` with the cookie emptied. A
+  request with a personal token is `409 invalid_state`, since a token has nothing to sign out.
+- `POST /auth/password` takes `{"current_password", "new_password"}`, with the content type
+  `application/json`, and answers `200` as `GET /me` does. A new password that breaks the rule or
+  equals the current one, and a wrong current password, are `422 invalid_input` naming
+  `new_password` or `current_password`; a wrong current password also counts as a failed sign-in,
+  and so may be `429 rate_limited`. A user without a password is `409 invalid_state`.
+- `GET /auth/methods` needs no credentials and answers `{"password": true, "providers": […]}`:
+  whether password sign-in is offered, and the configured identity providers, each as `{"name"}`.
+  The list stays empty until OpenID Connect arrives with step 11 of M1.
+- While the caller's password must change, a session reaches only `GET /me`, `POST /auth/logout`
+  and `POST /auth/password`; every other operation is `403 forbidden`.
 
 ### Projects and server-side workflows
 
@@ -240,15 +268,22 @@ How the document follows the handlers:
   `{project}` described as an id or `<organisation>/<project>`. A test sends a request with the
   owner's token to every operation of the document, with each `{project}` as an id and as
   `globalart%2Fops`, and fails on the `not_found` of an unserved path.
-- Operations behind the token require the `bearer` scheme from the document's root.
-  `POST /agents/register`, which the registration token in its body authenticates, has an empty
-  `security`.
+- The document's root requires the scheme `bearer` or the scheme `session`, the cookie
+  `__Host-bosun_session`. An operation behind credentials whose method is not `GET` requires
+  `bearer`, or `session` together with `csrf`, the header `X-Bosun-CSRF`, in its own `security`.
+  `POST /agents/register`, which the registration token in its body authenticates, and
+  `POST /auth/login` and `GET /auth/methods`, which need no credentials, have an empty `security`.
+- Routes are registered through `Api::new()` behind credentials, `Api::interim()` behind
+  credentials that a session whose password must change may also use (`/me`, `/auth/logout`,
+  `/auth/password`), and `Api::public()` without credentials. The sign-in answers with its own
+  response type, which documents the `Set-Cookie` header of the `200` of `POST /auth/login` and of
+  the `204` of `POST /auth/logout`.
 
 The shared parts are described once:
 
 - the error envelope is the schema `ErrorEnvelope`, and the response `Error` holds it; every
   operation's `default` response is `Error`, since every operation answers its failures, and those
-  behind the token their `401`, with the envelope;
+  behind credentials their `401`, with the envelope;
 - the cursor page is the schema `Page`, with `items` and `next`; a list answers with `allOf` of
   `Page` and the schema of its items, and a test checks that an operation answers with a page
   exactly when it takes a cursor;

@@ -9,6 +9,8 @@ pub(crate) const REGISTRATION: &str = "brt_";
 
 pub(crate) const AGENT: &str = "bat_";
 
+pub(crate) const SESSION: &str = "bss_";
+
 const SECRET_BYTES: usize = 32;
 
 const SECRET_DIGITS: usize = 43;
@@ -48,6 +50,10 @@ impl Token {
         Sha256::digest(self.0.as_bytes()).to_vec()
     }
 
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+
     pub(crate) fn into_string(self) -> String {
         self.0
     }
@@ -60,7 +66,7 @@ fn checksum(signed: &str) -> String {
     )
 }
 
-fn base62(bytes: &[u8], width: usize) -> String {
+pub(crate) fn base62(bytes: &[u8], width: usize) -> String {
     let mut number = bytes.to_vec();
     let mut digits = vec![BASE62[0]; width];
     for digit in digits.iter_mut().rev() {
