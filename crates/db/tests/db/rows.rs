@@ -1,7 +1,7 @@
 use bosun_db::entity::{
     agent, api_token, attempt, control_message, execution, idempotency_key, job, log_chunk,
-    log_object, organisation, project, registration_token, run, run_event, session,
-    sign_in_failure, step, user, workflow, workflow_revision,
+    log_object, organisation, project, registration_token, role, role_binding, run, run_event,
+    session, sign_in_failure, step, team, team_member, user, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -29,6 +29,9 @@ pub const REGISTRATION: u8 = 0x0f;
 pub const CONTROL: u8 = 0x10;
 pub const REPLICA: u8 = 0x11;
 pub const SESSION: u8 = 0x12;
+pub const TEAM: u8 = 0x13;
+pub const ROLE: u8 = 0x14;
+pub const BINDING: u8 = 0x15;
 
 pub fn id(number: u8) -> Uuid {
     Uuid::from_bytes([
@@ -66,6 +69,10 @@ pub struct Rows {
     pub idempotency_key: idempotency_key::Model,
     pub session: session::Model,
     pub sign_in_failure: sign_in_failure::Model,
+    pub team: team::Model,
+    pub team_member: team_member::Model,
+    pub role: role::Model,
+    pub role_binding: role_binding::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -378,6 +385,50 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a failed sign-in");
 
+    let team = team::ActiveModel {
+        id: ActiveValue::Set(id(TEAM)),
+        organisation_id: ActiveValue::Set(id(ORGANISATION)),
+        slug: ActiveValue::Set("platform".to_owned()),
+        name: ActiveValue::Set(format!("Platform {label}")),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a team");
+
+    let team_member = team_member::ActiveModel {
+        team_id: ActiveValue::Set(id(TEAM)),
+        user_id: ActiveValue::Set(id(USER)),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:50.078Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a team member");
+
+    let role = role::ActiveModel {
+        id: ActiveValue::Set(id(ROLE)),
+        organisation_id: ActiveValue::Set(Some(id(ORGANISATION))),
+        name: ActiveValue::Set(format!("releaser {label}")),
+        permissions: ActiveValue::Set(vec!["run.dispatch".to_owned(), "run.cancel".to_owned()]),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a role");
+
+    let role_binding = role_binding::ActiveModel {
+        id: ActiveValue::Set(id(BINDING)),
+        role_id: ActiveValue::Set(id(ROLE)),
+        organisation_id: ActiveValue::Set(id(ORGANISATION)),
+        project_id: ActiveValue::Set(Some(id(PROJECT))),
+        user_id: ActiveValue::Set(None),
+        team_id: ActiveValue::Set(Some(id(TEAM))),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a role binding");
+
     Rows {
         organisation,
         project,
@@ -399,6 +450,10 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         idempotency_key,
         session,
         sign_in_failure,
+        team,
+        team_member,
+        role,
+        role_binding,
     }
 }
 
@@ -457,5 +512,9 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
             .await
             .expect("a query")
             .expect("a failed sign-in"),
+        team: one::<_, team::Entity>(db, id(TEAM)).await,
+        team_member: one::<_, team_member::Entity>(db, (id(TEAM), id(USER))).await,
+        role: one::<_, role::Entity>(db, id(ROLE)).await,
+        role_binding: one::<_, role_binding::Entity>(db, id(BINDING)).await,
     }
 }

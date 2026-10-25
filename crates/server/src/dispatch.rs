@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use axum::Extension;
 use axum::extract::State;
 use bosun_db::runs::NewRun;
 use bosun_types::api::{DispatchRequest, Run};
@@ -8,7 +7,7 @@ use bosun_types::error::{ErrorBody, ErrorCode};
 use bosun_workflow::github::{self, Dispatch};
 use sea_orm::TransactionTrait;
 
-use crate::auth::Principal;
+use crate::access::{Caller, OnProject, RunDispatch};
 use crate::envelope::ApiError;
 use crate::reply::Created;
 use crate::request::{Faults, Idempotent, Segment, database, failed};
@@ -16,11 +15,11 @@ use crate::{AppState, idempotency, planner, workflows};
 
 pub(crate) async fn dispatch(
     State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
+    caller: Caller<OnProject<RunDispatch>>,
     Segment(reference): Segment,
     body: Result<Idempotent<DispatchRequest>, ApiError>,
 ) -> Result<Created<Run>, ApiError> {
-    let workflow = workflows::find(&state.db, &reference).await?;
+    let workflow = workflows::find(&state.db, &caller, &reference).await?;
     let body = body?;
     let request = &body.value;
     let mut faults = Faults::default();
@@ -105,7 +104,7 @@ pub(crate) async fn dispatch(
             revision_id,
             ir: &ir,
             payload: &payload,
-            actor: &principal.actor(),
+            actor: &caller.principal.actor(),
         },
         &parsed.warnings,
         &state.site,

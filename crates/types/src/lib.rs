@@ -7,5 +7,6 @@ pub mod event;
 pub mod id;
 pub mod ir;
 pub mod key;
+pub mod permission;
 pub mod slug;
 pub mod status;

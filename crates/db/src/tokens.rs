@@ -1,5 +1,5 @@
 use bosun_types::api::User;
-use bosun_types::id::TokenId;
+use bosun_types::id::{TokenId, UserId};
 use sea_orm::prelude::DateTimeUtc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
@@ -44,13 +44,23 @@ pub async fn find_personal<C: ConnectionTrait>(
     }))
 }
 
+pub async fn create<C: ConnectionTrait>(
+    db: &C,
+    user: UserId,
+    token: NewToken,
+) -> Result<TokenId, Error> {
+    let id = insert(db, user.into(), token).await?;
+    row::id("api_token", id)
+}
+
 pub(crate) async fn insert<C: ConnectionTrait>(
     db: &C,
     user_id: Uuid,
     token: NewToken,
-) -> Result<(), Error> {
+) -> Result<Uuid, Error> {
+    let id = Uuid::now_v7();
     api_token::ActiveModel {
-        id: ActiveValue::Set(Uuid::now_v7()),
+        id: ActiveValue::Set(id),
         user_id: ActiveValue::Set(user_id),
         name: ActiveValue::Set(token.name),
         sha256: ActiveValue::Set(token.sha256),
@@ -60,5 +70,5 @@ pub(crate) async fn insert<C: ConnectionTrait>(
     }
     .insert(db)
     .await?;
-    Ok(())
+    Ok(id)
 }

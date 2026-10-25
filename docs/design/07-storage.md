@@ -26,7 +26,8 @@ file that creates an index holds that one statement and opens with sqlmig's dire
 `-- migrator:no-transaction`, the only line of a migration that is not SQL to run.
 `bosun-db` creates the schema `bosun` before the first migration and sets `search_path` to it on
 every connection, so the ledger of sqlmig (`migrations` and `migrations_checksum`) lives there too.
-The migrations seed the trusted pool `default` ([05-execution.md](05-execution.md)). The future of
+The migrations seed the trusted pool `default` ([05-execution.md](05-execution.md)) and the four
+built-in roles ([08-access.md](08-access.md#roles-and-bindings)). The future of
 sqlmig's `apply` is not `Send`, so the server awaits the migrations on the task that starts it
 rather than spawning them.
 

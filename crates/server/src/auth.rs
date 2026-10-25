@@ -4,15 +4,15 @@ use axum::http::{HeaderMap, HeaderValue, Method};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use bosun_types::actor::Actor;
-use bosun_types::api::User;
+use bosun_types::api::{Permissions, User};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::{SessionId, TokenId};
 use tracing::{error, warn};
 
-use crate::AppState;
 use crate::envelope::ApiError;
 use crate::sessions::{self, IDLE, LIFETIME, TOUCH};
 use crate::token::{PERSONAL, SESSION, Token};
+use crate::{AppState, access};
 
 const BEARER: &str = "Bearer";
 
@@ -23,6 +23,13 @@ pub(crate) struct Principal {
     pub(crate) user: User,
     pub(crate) credential: Credential,
     pub(crate) password_change_required: bool,
+    pub(crate) permissions: Permissions,
+}
+
+struct Identity {
+    user: User,
+    credential: Credential,
+    password_change_required: bool,
 }
 
 #[derive(Clone)]
@@ -89,7 +96,11 @@ impl IntoResponse for Refusal {
     }
 }
 
-pub(crate) async fn owner(state: State<AppState>, request: Request, next: Next) -> Response {
+pub(crate) async fn authenticated(
+    state: State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
     guard(state, request, next, false).await
 }
 
@@ -103,27 +114,34 @@ async fn guard(
     next: Next,
     interim: bool,
 ) -> Response {
-    let principal = match authenticate(&state, request.method(), request.headers()).await {
-        Ok(principal) => principal,
+    let identity = match authenticate(&state, request.method(), request.headers()).await {
+        Ok(identity) => identity,
         Err(refusal) => return refusal.into_response(),
     };
-    if !interim && principal.password_change_required && principal.session().is_some() {
+    if !interim
+        && identity.password_change_required
+        && matches!(identity.credential, Credential::Session { .. })
+    {
         return Refusal::Forbidden(format!(
             "`{}` must set a new password before anything else; POST /api/v1/auth/password \
              sets it",
-            principal.user.login
+            identity.user.login
         ))
         .into_response();
     }
-    if !principal.user.owner {
-        return Refusal::Forbidden(format!(
-            "`{}` is not an owner of this installation, and only owners may act until roles \
-             exist",
-            principal.user.login
-        ))
-        .into_response();
-    }
-    request.extensions_mut().insert(principal);
+    let permissions = match access::load(&state.db, &identity.user).await {
+        Ok(permissions) => permissions,
+        Err(failure) => {
+            error!(error = %failure, login = %identity.user.login, "the permissions of a user could not be read");
+            return Refusal::Unchecked.into_response();
+        }
+    };
+    request.extensions_mut().insert(Principal {
+        user: identity.user,
+        credential: identity.credential,
+        password_change_required: identity.password_change_required,
+        permissions,
+    });
     next.run(request).await
 }
 
@@ -131,19 +149,19 @@ async fn authenticate(
     state: &AppState,
     method: &Method,
     headers: &HeaderMap,
-) -> Result<Principal, Refusal> {
+) -> Result<Identity, Refusal> {
     if let Some(header) = headers.get(AUTHORIZATION) {
-        return bearer_principal(state, header).await;
+        return bearer_identity(state, header).await;
     }
     match sessions::cookie(headers) {
-        Some(cookie) => session_principal(state, method, headers, cookie).await,
+        Some(cookie) => session_identity(state, method, headers, cookie).await,
         None => Err(Refusal::Unauthenticated(
             "the request carries neither a bearer token nor a session cookie",
         )),
     }
 }
 
-async fn bearer_principal(state: &AppState, header: &HeaderValue) -> Result<Principal, Refusal> {
+async fn bearer_identity(state: &AppState, header: &HeaderValue) -> Result<Identity, Refusal> {
     let credentials = header
         .to_str()
         .ok()
@@ -167,19 +185,19 @@ async fn bearer_principal(state: &AppState, header: &HeaderValue) -> Result<Prin
     if found.expires_at <= state.clock.now() {
         return Err(Refusal::Unauthenticated("the bearer token expired"));
     }
-    Ok(Principal {
+    Ok(Identity {
         user: found.user,
         credential: Credential::Token(found.id),
         password_change_required: found.password_change_required,
     })
 }
 
-async fn session_principal(
+async fn session_identity(
     state: &AppState,
     method: &Method,
     headers: &HeaderMap,
     cookie: &str,
-) -> Result<Principal, Refusal> {
+) -> Result<Identity, Refusal> {
     let token = Token::parse(SESSION, cookie).ok_or(Refusal::Unauthenticated(
         "the session cookie does not hold a well-formed session",
     ))?;
@@ -226,7 +244,7 @@ async fn session_principal(
     {
         warn!(error = %failure, session_id = %found.id, "the use of a session could not be recorded");
     }
-    Ok(Principal {
+    Ok(Identity {
         user: found.user,
         credential: Credential::Session { id: found.id, csrf },
         password_change_required: found.password_change_required,

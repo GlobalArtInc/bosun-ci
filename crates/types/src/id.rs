@@ -108,4 +108,7 @@ ids!(
     AgentId,
     RegistrationTokenId,
     SessionId,
+    TeamId,
+    RoleId,
+    RoleBindingId,
 );

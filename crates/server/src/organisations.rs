@@ -6,6 +6,7 @@ use bosun_types::id::OrganisationId;
 use sea_orm::{ConnectionTrait, TransactionTrait};
 
 use crate::AppState;
+use crate::access::{Caller, OnInstallation, OnOrganisation, OrganisationManage, ProjectView};
 use crate::envelope::ApiError;
 use crate::idempotency;
 use crate::openapi::Api;
@@ -36,8 +37,11 @@ pub(crate) fn missing(reference: &str) -> String {
 
 async fn create(
     State(state): State<AppState>,
-    body: Idempotent<CreateOrganisationRequest>,
+    caller: Caller<OnInstallation<OrganisationManage>>,
+    body: Result<Idempotent<CreateOrganisationRequest>, ApiError>,
 ) -> Result<Created<Organisation>, ApiError> {
+    caller.installation()?;
+    let body = body?;
     let request = &body.value;
     let mut faults = Faults::default();
     if slug::check_slug(&mut faults, "slug", "a slug", &request.slug)
@@ -73,10 +77,11 @@ async fn create(
 
 async fn show(
     State(state): State<AppState>,
+    caller: Caller<OnOrganisation<ProjectView>>,
     Segment(reference): Segment,
 ) -> Result<Json<Organisation>, ApiError> {
-    find(&state.db, &reference)
-        .await?
-        .map(Json)
-        .ok_or_else(|| ApiError::new(ErrorCode::NotFound, missing(&reference)))
+    let absent = || ApiError::new(ErrorCode::NotFound, missing(&reference));
+    let organisation = find(&state.db, &reference).await?.ok_or_else(absent)?;
+    caller.organisation(&organisation, absent)?;
+    Ok(Json(organisation))
 }

@@ -2,7 +2,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
 use axum::Json;
-use axum::extract::{ConnectInfo, Extension, FromRequest, Request, State};
+use axum::extract::{ConnectInfo, FromRequest, Request, State};
 use axum::http::header::{CONTENT_TYPE, RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -16,7 +16,8 @@ use sea_orm::TransactionTrait;
 use serde::de::DeserializeOwned;
 use tracing::info;
 
-use crate::auth::{Principal, Refusal};
+use crate::access::{self, Authenticated, Caller};
+use crate::auth::Refusal;
 use crate::envelope::ApiError;
 use crate::openapi::{Api, Input, Output, Spec};
 use crate::password::{self, Hasher};
@@ -219,6 +220,9 @@ async fn login(
     bosun_db::sign_in::release(&state.db, granted)
         .await
         .map_err(database)?;
+    let permissions = access::load(&state.db, &credentials.user)
+        .await
+        .map_err(database)?;
     let started = sessions::start(&state.db, credentials.user.id, now).await?;
     info!(
         login = %credentials.user.login,
@@ -233,6 +237,7 @@ async fn login(
             user: credentials.user,
             csrf_token: Some(sessions::csrf(&started.token)),
             password_change_required: credentials.password_change_required,
+            permissions,
         },
     })
 }
@@ -246,8 +251,9 @@ async fn methods() -> Json<SignInMethods> {
 
 async fn logout(
     State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
+    caller: Caller<Authenticated>,
 ) -> Result<SignedOut, ApiError> {
+    let principal = caller.principal;
     let session = principal.session().ok_or_else(|| {
         ApiError::new(
             ErrorCode::InvalidState,
@@ -263,9 +269,10 @@ async fn logout(
 
 async fn change_password(
     State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
+    caller: Caller<Authenticated>,
     attempt: Attempt<PasswordChangeRequest>,
 ) -> Result<Json<Me>, Failure> {
+    let principal = caller.principal;
     let Attempt {
         body: request,
         address,
@@ -327,6 +334,7 @@ async fn change_password(
         csrf_token: principal.csrf_token(),
         user: principal.user,
         password_change_required: false,
+        permissions: principal.permissions,
     }))
 }
 

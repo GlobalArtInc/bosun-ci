@@ -192,6 +192,37 @@ permission everywhere.
 Approving a gate or an environment is not a permission: the approvers are named in the gate or in
 the environment's rules. An approver must also hold `project.view`.
 
+### Roles and bindings
+
+Step 9 of M1 ([../plan.md](../plan.md)) settled how roles and bindings are kept and read; how the
+API answers is in [11-api.md](11-api.md#permissions).
+
+- **Roles** are rows of `role`, each a name and a set of permission keys. The four built-in roles
+  belong to no organisation; the migrations create them with the sets of the table above, with
+  `workflow.*` standing for the three `workflow.` keys. A custom role belongs to one organisation
+  and holds any set of keys. A key that the server does not know, which a newer minor version may
+  have written, is ignored.
+- **Teams** are rows of `team` in one organisation, with a slug and a name like a project's, and
+  their members are rows of `team_member`.
+- **Bindings** are rows of `role_binding`: a role, either a user or a team, the organisation the
+  binding belongs to, and either no project, for a binding on the organisation, or one of its
+  projects. Foreign keys on the pairs of project and organisation and of team and organisation keep
+  a binding's project and team inside its organisation; a binding of a custom role of another
+  organisation, which no foreign key can refuse, gives nothing.
+- **What a person holds.** On the installation, an owner holds every permission and nobody else
+  holds any. On an organisation, a person holds what they hold on the installation and what the
+  bindings on that organisation give them, their own and those of the teams they are members of.
+  On a project, they hold what they hold on its organisation and what the bindings on that project
+  give them. A binding on a project gives nothing on its organisation or on its other projects.
+- **When it is read.** The server reads the bindings of a person who is not an owner, with one
+  query, on every request their credentials authenticate, and keeps nothing between requests: a
+  binding removed, or a member removed from a team, is gone from their next request.
+- **Tokens.** A personal token acts with the permissions of its user, until step 10 of M1 restricts
+  tokens to the keys and the scopes they carry.
+- **The installation.** Bindings exist only on organisations and projects, so what is checked on
+  the installation is held by owners alone: creating organisations (`organisation.manage`), and the
+  pools, agents and registration tokens, which belong to the installation (`agent.manage`).
+
 ## Code from outside the team
 
 Every pool has a **trust level**.

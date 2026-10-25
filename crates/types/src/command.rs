@@ -2,6 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::id::{JobId, StepId};
+use crate::permission::Permission;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "args")]
@@ -10,6 +11,14 @@ pub enum Command {
     RunCancel,
     #[serde(rename = "job.cancel")]
     JobCancel,
+}
+
+impl Command {
+    pub fn permission(&self) -> Permission {
+        match self {
+            Command::RunCancel | Command::JobCancel => Permission::RunCancel,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -1,12 +1,45 @@
 {
   "user": {
     "id": "0192f3a4-5b6c-7d8e-9f01-000000000003",
-    "login": "roman",
-    "name": "roman",
+    "login": "dana",
+    "name": "dana",
     "email": null,
-    "owner": true,
+    "owner": false,
     "created_at": "2026-10-24T18:34:50.078Z"
   },
   "csrf_token": "6vRzQ0Lk1JmXoBf2c7sTn9WdYpEh3aGuKqC5iV8xMrZ",
-  "password_change_required": false
+  "password_change_required": false,
+  "permissions": {
+    "installation": [],
+    "organisations": {
+      "0192f3a4-5b6c-7d8e-9f01-000000000001": [
+        "project.view",
+        "run.dispatch",
+        "run.cancel",
+        "run.rerun",
+        "run.control"
+      ]
+    },
+    "projects": {
+      "0192f3a4-5b6c-7d8e-9f01-000000000002": [
+        "project.view",
+        "run.dispatch",
+        "run.cancel",
+        "run.rerun",
+        "run.control",
+        "run.override",
+        "job.debug",
+        "workflow.edit",
+        "workflow.commit",
+        "workflow.manage",
+        "secret.manage",
+        "variable.manage",
+        "environment.manage"
+      ],
+      "0192f3a4-5b6c-7d8e-9f01-00000000000d": [
+        "run.dispatch",
+        "run.cancel"
+      ]
+    }
+  }
 }

@@ -190,7 +190,7 @@ async fn the_checksum_of_a_token_is_verified_before_any_database_lookup() {
 }
 
 #[tokio::test]
-async fn a_token_of_a_user_who_is_not_an_owner_is_forbidden() {
+async fn a_token_of_a_user_without_bindings_reaches_its_own_account_and_nothing_else() {
     let database = TestDatabase::migrated().await;
     let token = owner(&database.url(), "someone").await;
     execute(
@@ -202,11 +202,35 @@ async fn a_token_of_a_user_who_is_not_an_owner_is_forbidden() {
     let address = server.listening().await;
 
     let (status, body) = me(address, Some(&bearer(&token))).await;
-    assert_eq!(status, 403, "{body}");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["permissions"],
+        serde_json::json!({ "installation": [], "organisations": {}, "projects": {} })
+    );
+
+    let projects = client()
+        .get(format!("http://{address}/api/v1/projects"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("GET /api/v1/projects");
+    assert_eq!(projects.status(), 200);
+    let projects: Value = projects.json().await.expect("a JSON body");
+    assert_eq!(projects["items"], Value::Array(Vec::new()));
+
+    let refused = client()
+        .post(format!("http://{address}/api/v1/organisations"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "slug": "globalart", "name": "GlobalArt" }))
+        .send()
+        .await
+        .expect("POST /api/v1/organisations");
+    assert_eq!(refused.status(), 403);
+    let body: Value = refused.json().await.expect("a JSON body");
     assert_eq!(body["error"]["code"], "forbidden");
     assert_eq!(
         body["error"]["message"],
-        "`someone` is not an owner of this installation, and only owners may act until roles \
-         exist"
+        "`someone` does not hold `organisation.manage` on this installation, which only its \
+         owners do"
     );
 }

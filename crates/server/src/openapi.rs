@@ -3,7 +3,7 @@ use std::future::Future;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Extension, Path, State};
+use axum::extract::{Path, State};
 use axum::handler::Handler;
 use axum::http::{Method, StatusCode, Uri};
 use axum::middleware;
@@ -26,6 +26,8 @@ pub(crate) const LIMIT: &str = "#/components/parameters/Limit";
 pub(crate) const CURSOR: &str = "#/components/parameters/Cursor";
 
 pub(crate) const IDEMPOTENCY_KEY: &str = "#/components/parameters/IdempotencyKey";
+
+const PERMISSION: &str = "x-bosun-permission";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Access {
@@ -138,7 +140,10 @@ impl Api {
 
     pub(crate) fn into_router(self, state: &AppState) -> Router<AppState> {
         self.authenticated
-            .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::authenticated,
+            ))
             .merge(
                 self.interim
                     .route_layer(middleware::from_fn_with_state(state.clone(), auth::interim)),
@@ -161,10 +166,24 @@ impl Api {
                 parameters: operation_parameters(operation.path),
                 body: None,
                 responses: Map::new(),
+                permission: None,
             };
             spec.error();
             (operation.document)(&mut spec);
+            let permission = match (operation.access, spec.permission.take()) {
+                (Access::Public, None) => json!({ "on": "anyone" }),
+                (Access::Public, Some(_)) => panic!(
+                    "{} {} takes no credentials and declares a permission",
+                    operation.method, operation.path
+                ),
+                (_, Some(permission)) => permission,
+                (_, None) => panic!(
+                    "{} {} is behind credentials and declares no permission",
+                    operation.method, operation.path
+                ),
+            };
             let mut object = spec.finish();
+            object.insert(PERMISSION.to_owned(), permission);
             if operation.access == Access::Public {
                 object.insert("security".to_owned(), json!([]));
             } else if operation.method != Method::GET {
@@ -310,6 +329,7 @@ pub(crate) struct Spec<'a> {
     parameters: Vec<Value>,
     body: Option<Value>,
     responses: Map<String, Value>,
+    permission: Option<Value>,
 }
 
 impl Spec<'_> {
@@ -319,6 +339,13 @@ impl Spec<'_> {
 
     pub(crate) fn parameter(&mut self, parameter: Value) {
         self.parameters.push(parameter);
+    }
+
+    pub(crate) fn permission(&mut self, declaration: Value) {
+        assert!(
+            self.permission.replace(declaration).is_none(),
+            "a handler declares two permissions"
+        );
     }
 
     pub(crate) fn reference(&mut self, component: &str) {
@@ -431,12 +458,9 @@ documented!(T1, T2);
 documented!(T1, T2, T3);
 documented!(T1, T2, T3, T4);
 documented!(T1, T2, T3, T4, T5);
+documented!(T1, T2, T3, T4, T5, T6);
 
 impl<S> Input for State<S> {
-    fn input(_: &mut Spec<'_>) {}
-}
-
-impl<T> Input for Extension<T> {
     fn input(_: &mut Spec<'_>) {}
 }
 

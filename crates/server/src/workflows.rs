@@ -1,5 +1,6 @@
 use axum::Json;
 use axum::extract::State;
+use bosun_db::projects::Holder;
 use bosun_db::workflows::NewWorkflow;
 use bosun_types::api::{CreateWorkflowRequest, Page, Revision, UpdateSourceRequest, Workflow};
 use bosun_types::diagnostic::Severity;
@@ -8,6 +9,7 @@ use bosun_types::id::WorkflowId;
 use sea_orm::{ConnectionTrait, TransactionTrait};
 use sha2::{Digest, Sha256};
 
+use crate::access::{Caller, Key, OnProject, ProjectView, WorkflowEdit};
 use crate::envelope::ApiError;
 use crate::openapi::Api;
 use crate::projects::ProjectPath;
@@ -31,20 +33,23 @@ pub(crate) fn routes() -> Api {
         .post("/api/v1/workflows/{workflow}/dispatch", dispatch::dispatch)
 }
 
-pub(crate) async fn find<C: ConnectionTrait>(
+pub(crate) async fn find<C: ConnectionTrait, K: Key>(
     db: &C,
+    caller: &Caller<OnProject<K>>,
     reference: &str,
 ) -> Result<Workflow, ApiError> {
-    let found = match reference.parse::<WorkflowId>() {
-        Ok(id) => bosun_db::workflows::find(db, id).await.map_err(database)?,
-        Err(_) => None,
-    };
-    found.ok_or_else(|| {
+    let missing = || {
         ApiError::new(
             ErrorCode::NotFound,
             format!("there is no workflow `{reference}`"),
         )
-    })
+    };
+    let id: WorkflowId = reference.parse().map_err(|_| missing())?;
+    caller.holding(db, Holder::Workflow(id), missing).await?;
+    bosun_db::workflows::find(db, id)
+        .await
+        .map_err(database)?
+        .ok_or_else(missing)
 }
 
 fn validate(name: &str, source: &str) -> Result<(), ApiError> {
@@ -70,10 +75,11 @@ fn validate(name: &str, source: &str) -> Result<(), ApiError> {
 
 pub(crate) async fn create(
     State(state): State<AppState>,
+    caller: Caller<OnProject<WorkflowEdit>>,
     project: ProjectPath,
     body: Result<Idempotent<CreateWorkflowRequest>, ApiError>,
 ) -> Result<Created<Workflow>, ApiError> {
-    let project = project.resolve(&state.db).await?;
+    let project = project.resolve(&state.db, &caller).await?;
     let body = body?;
     let request = &body.value;
     let mut faults = Faults::default();
@@ -101,10 +107,11 @@ pub(crate) async fn create(
 
 pub(crate) async fn list(
     State(state): State<AppState>,
+    caller: Caller<OnProject<ProjectView>>,
     project: ProjectPath,
     listing: Result<Listing<ByName>, ApiError>,
 ) -> Result<Json<Page<Workflow>>, ApiError> {
-    let project = project.resolve(&state.db).await?;
+    let project = project.resolve(&state.db, &caller).await?;
     let listing = listing?;
     let workflows = bosun_db::workflows::list(
         &state.db,
@@ -122,17 +129,19 @@ pub(crate) async fn list(
 
 async fn show(
     State(state): State<AppState>,
+    caller: Caller<OnProject<ProjectView>>,
     Segment(reference): Segment,
 ) -> Result<Json<Workflow>, ApiError> {
-    find(&state.db, &reference).await.map(Json)
+    find(&state.db, &caller, &reference).await.map(Json)
 }
 
 async fn save(
     State(state): State<AppState>,
+    caller: Caller<OnProject<WorkflowEdit>>,
     Segment(reference): Segment,
     body: Result<Body<UpdateSourceRequest>, ApiError>,
 ) -> Result<Saved<Revision>, ApiError> {
-    let workflow = find(&state.db, &reference).await?;
+    let workflow = find(&state.db, &caller, &reference).await?;
     let Body(UpdateSourceRequest { source }) = body?;
     validate(&workflow.name, &source)?;
     let transaction = state.db.begin().await.map_err(database)?;
@@ -149,10 +158,11 @@ async fn save(
 
 async fn revisions(
     State(state): State<AppState>,
+    caller: Caller<OnProject<ProjectView>>,
     Segment(reference): Segment,
     listing: Result<Listing, ApiError>,
 ) -> Result<Json<Page<Revision>>, ApiError> {
-    let workflow = find(&state.db, &reference).await?;
+    let workflow = find(&state.db, &caller, &reference).await?;
     let listing = listing?;
     let revisions =
         bosun_db::workflows::revisions(&state.db, workflow.id, listing.cursor(), listing.fetch())

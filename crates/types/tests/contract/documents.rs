@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::fs;
 
+use bosun_types::command::CommandRequest;
 use bosun_types::error::ErrorCode;
+use bosun_types::permission::Permission;
 use bosun_types::status::{
     ExecutionStatus, JobStatus, RunStatus, StatusReason, StepStatus, WaitingReason,
 };
@@ -178,6 +180,53 @@ fn command_fixtures_name_documented_commands() {
         assert!(
             documented.contains(&command),
             "{path}: `{command}` is not in the command table of docs/design/04-runs.md"
+        );
+    }
+}
+
+#[test]
+fn permission_keys_match_the_access_document() {
+    let documented: Vec<String> = table(&document("08-access.md"), "| Permission | Allows |")
+        .iter()
+        .flat_map(|row| quoted(&row[0]))
+        .collect();
+    let implemented: Vec<String> = Permission::ALL
+        .iter()
+        .map(|permission| permission.key().to_owned())
+        .collect();
+    assert_eq!(implemented, documented);
+    for permission in Permission::ALL {
+        assert_eq!(permission.key(), name(permission));
+        assert_eq!(Permission::from_key(permission.key()), Some(permission));
+    }
+    let mut ordered = Permission::ALL.to_vec();
+    ordered.sort();
+    assert_eq!(ordered, Permission::ALL);
+}
+
+#[test]
+fn commands_need_the_permissions_of_the_command_table() {
+    let documented: BTreeMap<String, Vec<String>> =
+        table(&document("04-runs.md"), "| Command | Valid when |")
+            .iter()
+            .flat_map(|row| {
+                let permissions = quoted(&row[3]);
+                quoted(&row[0])
+                    .into_iter()
+                    .map(move |command| (command, permissions.clone()))
+            })
+            .collect();
+    for path in ["api/command-run-cancel.json", "api/command-job-cancel.json"] {
+        let request: CommandRequest =
+            serde_json::from_value(fixture(path)).unwrap_or_else(|error| panic!("{path}: {error}"));
+        let command = fixture(path)["type"]
+            .as_str()
+            .expect("a command type")
+            .to_string();
+        assert_eq!(
+            documented[&command],
+            vec![name(request.command.permission())],
+            "{path}: `{command}` needs another permission in docs/design/04-runs.md"
         );
     }
 }

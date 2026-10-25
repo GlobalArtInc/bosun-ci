@@ -1,3 +1,4 @@
+mod access;
 mod cancel;
 mod evaluation;
 mod journal;
@@ -9,8 +10,11 @@ mod queue;
 mod sign_in;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
+use bosun_blob::Directory;
 use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_db::entity::{attempt, control_message, execution, job, run, step};
 use bosun_db::runs::NewRun;
@@ -40,9 +44,32 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::agents::progress::{self, JobEnd, Progress, Reporter};
+use crate::clock::Clock;
 use crate::commands::{self, Applied};
-use crate::planner;
 use crate::site::Site;
+use crate::store::Backend;
+use crate::{AppState, planner, shutdown};
+
+async fn state(
+    database: &TestDatabase,
+    directory: &Path,
+    clock: Clock,
+    settings: crate::sign_in::Settings,
+) -> AppState {
+    let store = Directory::open(directory.join("store"))
+        .await
+        .expect("a directory store");
+    AppState {
+        db: database.connection().clone(),
+        store: Arc::new(Backend::Directory(store)),
+        followers: Arc::new(crate::logs::Followers::default()),
+        shutdown: shutdown::channel().1,
+        agent_binaries: Arc::from(directory.join("agent")),
+        clock,
+        site: Site::default(),
+        sign_in: Arc::new(settings),
+    }
+}
 
 struct World {
     database: TestDatabase,

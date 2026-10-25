@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, Utc};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -13,6 +13,7 @@ use crate::id::{
     RevisionId, RunId, StepId, UserId, WorkflowId,
 };
 use crate::key::JobKey;
+use crate::permission::Permission;
 use crate::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, RunConclusion, RunStatus,
     StatusReason, StepStatus, WaitingReason,
@@ -85,6 +86,46 @@ pub struct Me {
     pub user: User,
     pub csrf_token: Option<String>,
     pub password_change_required: bool,
+    pub permissions: Permissions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Permissions {
+    pub installation: BTreeSet<Permission>,
+    #[schemars(extend("propertyNames" = { "format": "uuid" }))]
+    pub organisations: BTreeMap<OrganisationId, BTreeSet<Permission>>,
+    #[schemars(extend("propertyNames" = { "format": "uuid" }))]
+    pub projects: BTreeMap<ProjectId, BTreeSet<Permission>>,
+}
+
+impl Permissions {
+    pub fn everything() -> Permissions {
+        Permissions {
+            installation: Permission::ALL.into_iter().collect(),
+            organisations: BTreeMap::new(),
+            projects: BTreeMap::new(),
+        }
+    }
+
+    pub fn on_organisation(&self, organisation: OrganisationId) -> BTreeSet<Permission> {
+        let mut held = self.installation.clone();
+        if let Some(granted) = self.organisations.get(&organisation) {
+            held.extend(granted);
+        }
+        held
+    }
+
+    pub fn on_project(
+        &self,
+        organisation: OrganisationId,
+        project: ProjectId,
+    ) -> BTreeSet<Permission> {
+        let mut held = self.on_organisation(organisation);
+        if let Some(granted) = self.projects.get(&project) {
+            held.extend(granted);
+        }
+        held
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

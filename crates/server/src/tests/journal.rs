@@ -219,6 +219,64 @@ fn projected_statuses_always_equal_a_replay_of_the_journal() {
     }
 }
 
+#[tokio::test]
+async fn a_job_is_decided_by_its_ancestors_at_the_moment_its_needs_complete()
+-> Result<(), TestCaseError> {
+    let world = World::new().await;
+    let planned = |needs: &[usize], condition| Planned {
+        needs: needs.to_vec(),
+        steps: vec![false],
+        condition,
+        continue_on_error: false,
+        computed: false,
+    };
+    let case = Case {
+        jobs: vec![
+            planned(&[], Condition::Implicit),
+            planned(&[0], Condition::Implicit),
+            planned(&[1], Condition::Failure),
+        ],
+        order: vec![0, 1, 2],
+        commands: true,
+        cancel_after: None,
+        choices: Vec::new(),
+    };
+    let templates = case
+        .order
+        .iter()
+        .map(|&index| planned_template(index, &case.jobs[index]))
+        .collect();
+    let run = world.dispatch(&workflow(templates)).await;
+    let projection = consistent(&world, run).await?;
+    let (first, _) = projection.job("j0");
+    let (second, _) = projection.job("j1");
+    let execution = world.assign(run, first).await;
+    perform(&world, run, Action::Accept(execution)).await?;
+    perform(&world, run, Action::CancelJob(second)).await?;
+
+    let projection = consistent(&world, run).await?;
+    assert_eq!(projection.job("j0").1.status, JobStatus::InProgress);
+    assert_eq!(
+        projection.job("j1").1.conclusion,
+        Some(Conclusion::Cancelled)
+    );
+    assert_eq!(projection.job("j2").1.conclusion, Some(Conclusion::Skipped));
+
+    for action in [
+        Action::StartStep(execution, 0),
+        Action::FinishStep(execution, 0, Conclusion::Failure),
+        Action::FinishJob(execution, Conclusion::Failure),
+    ] {
+        perform(&world, run, action).await?;
+    }
+    let projection = consistent(&world, run).await?;
+    assert_eq!(
+        projection.run.as_ref().and_then(|run| run.conclusion),
+        Some(RunConclusion::Failure)
+    );
+    conditions_decided(&world, &case, run, &projection, None).await
+}
+
 async fn drive(world: &World, case: &Case) -> Result<(), TestCaseError> {
     let templates = case
         .order

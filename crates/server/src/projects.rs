@@ -5,21 +5,23 @@ use axum::http::request::Parts;
 use axum::http::{Method, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use bosun_types::api::{CreateProjectRequest, Project};
+use bosun_types::api::{CreateProjectRequest, Page, Project};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::ProjectId;
 use sea_orm::{ConnectionTrait, TransactionTrait};
 
+use crate::access::{Caller, Key, Listed, OnOrganisation, OnProject, ProjectManage, ProjectView};
 use crate::envelope::{self, ApiError};
 use crate::openapi::{Api, Input, Spec};
 use crate::reply::Created;
-use crate::request::{Faults, Idempotent, Segment, database};
+use crate::request::{Faults, Idempotent, Listing, Segment, database};
 use crate::{AppState, idempotency, organisations, slug, workflows};
 
 const WORKFLOWS: &str = "workflows";
 
 pub(crate) fn routes() -> Api {
     Api::new()
+        .get("/api/v1/projects", list)
         .post("/api/v1/projects", create)
         .route("/api/v1/projects/{*path}", get(read).post(write))
         .describe(Method::GET, "/api/v1/projects/{project}", show)
@@ -83,7 +85,11 @@ impl Input for ProjectPath {
 }
 
 impl ProjectPath {
-    pub(crate) async fn resolve<C: ConnectionTrait>(&self, db: &C) -> Result<Project, ApiError> {
+    pub(crate) async fn resolve<C: ConnectionTrait, K: Key>(
+        &self,
+        db: &C,
+        caller: &Caller<OnProject<K>>,
+    ) -> Result<Project, ApiError> {
         let (found, name) = match &self.0 {
             Reference::Id(id) => match id.parse::<ProjectId>() {
                 Ok(id) => (bosun_db::projects::find(db, id).await, id.to_string()),
@@ -94,17 +100,49 @@ impl ProjectPath {
                 format!("{organisation}/{project}"),
             ),
         };
-        found.map_err(database)?.ok_or_else(|| {
-            ApiError::new(ErrorCode::NotFound, format!("there is no project `{name}`"))
-        })
+        let missing =
+            || ApiError::new(ErrorCode::NotFound, format!("there is no project `{name}`"));
+        let project = found.map_err(database)?.ok_or_else(missing)?;
+        caller.project(&project, missing)?;
+        Ok(project)
     }
+}
+
+async fn list(
+    State(state): State<AppState>,
+    caller: Caller<Listed<ProjectView>>,
+    listing: Result<Listing, ApiError>,
+) -> Result<Json<Page<Project>>, ApiError> {
+    let listing = listing?;
+    let projects = bosun_db::projects::list(
+        &state.db,
+        &caller.reach(),
+        listing.cursor(),
+        listing.fetch(),
+    )
+    .await
+    .map_err(database)?;
+    Ok(Json(listing.page(projects, |project| project.id.as_uuid())))
 }
 
 async fn create(
     State(state): State<AppState>,
+    caller: Caller<OnOrganisation<ProjectManage>>,
     body: Idempotent<CreateProjectRequest>,
 ) -> Result<Created<Project>, ApiError> {
     let request = &body.value;
+    let absent = || {
+        let mut faults = Faults::default();
+        faults.add(
+            "organisation",
+            organisations::missing(&request.organisation),
+        );
+        faults.refuse("the project is not valid")
+    };
+    let organisation = organisations::find(&state.db, &request.organisation)
+        .await?
+        .ok_or_else(absent)?;
+    caller.organisation(&organisation, absent)?;
     let mut faults = Faults::default();
     slug::check_slug(&mut faults, "slug", "a slug", &request.slug);
     slug::check_name(&mut faults, "name", &request.name);
@@ -114,14 +152,6 @@ async fn create(
     if let Some(replayed) = idempotency::replay(&transaction, body.idempotency.as_ref()).await? {
         return Ok(replayed);
     }
-    let Some(organisation) = organisations::find(&transaction, &request.organisation).await? else {
-        let mut faults = Faults::default();
-        faults.add(
-            "organisation",
-            organisations::missing(&request.organisation),
-        );
-        return Err(faults.refuse("the project is not valid"));
-    };
     let project =
         bosun_db::projects::create(&transaction, organisation.id, &request.slug, &request.name)
             .await
@@ -131,9 +161,10 @@ async fn create(
 
 async fn show(
     State(state): State<AppState>,
+    caller: Caller<OnProject<ProjectView>>,
     project: ProjectPath,
 ) -> Result<Json<Project>, ApiError> {
-    project.resolve(&state.db).await.map(Json)
+    project.resolve(&state.db, &caller).await.map(Json)
 }
 
 async fn read(

@@ -1,11 +1,9 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{self, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
-use bosun_blob::Directory;
 use bosun_db::entity::session;
 use bosun_db::tokens::NewToken;
 use bosun_testkit::TestDatabase;
@@ -17,9 +15,8 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 
 use crate::clock::Clock;
-use crate::store::Backend;
 use crate::token::{PERSONAL, Token};
-use crate::{AppState, api, logs, sessions, shutdown, sign_in};
+use crate::{AppState, api, sessions, sign_in};
 
 const PASSWORD: &str = "correct horse battery staple";
 
@@ -52,27 +49,21 @@ impl Site {
     async fn new(failed_sign_ins: u32, trusted_proxies: &[&str]) -> Site {
         let database = TestDatabase::migrated().await;
         let directory = tempfile::tempdir().expect("a directory");
-        let store = Directory::open(directory.path().join("store"))
-            .await
-            .expect("a directory store");
         let clock = Clock::manual(Utc::now());
-        let state = AppState {
-            db: database.connection().clone(),
-            store: Arc::new(Backend::Directory(store)),
-            followers: Arc::new(logs::Followers::default()),
-            shutdown: shutdown::channel().1,
-            agent_binaries: Arc::from(directory.path().join("agent")),
-            clock: clock.clone(),
-            site: crate::site::Site::default(),
-            sign_in: Arc::new(sign_in::Settings::new(
+        let state = super::state(
+            &database,
+            directory.path(),
+            clock.clone(),
+            sign_in::Settings::new(
                 trusted_proxies
                     .iter()
                     .map(|text| text.parse().expect("a network"))
                     .collect(),
                 failed_sign_ins,
                 directory.path().join("data"),
-            )),
-        };
+            ),
+        )
+        .await;
         let router = api().into_router(&state).with_state(state.clone());
         Site {
             database,

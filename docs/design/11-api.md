@@ -84,7 +84,7 @@ fails when the generated document differs from the committed one ([below](#the-o
 
 | Path | Methods | Purpose |
 |------|---------|---------|
-| `/me` | GET | the caller as `{"user", "csrf_token", "password_change_required"}`; its permissions from step 9 of M1 |
+| `/me` | GET | the caller as `{"user", "csrf_token", "password_change_required", "permissions"}` |
 | `/auth/login`, `/auth/logout`, `/auth/password`, `/auth/totp` | POST | local sign-in, sign-out, change of one's own password, second factor |
 | `/auth/methods` | GET | the sign-in methods the sign-in page offers |
 | `/auth/oidc/{provider}/start`, `/auth/oidc/{provider}/callback` | GET | OpenID Connect sign-in |
@@ -132,9 +132,10 @@ path belongs to the web interface ([09-frontend.md](09-frontend.md#serving)).
 
 The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-sign-in).
 
-- `GET /me` answers `{"user", "csrf_token", "password_change_required"}`: the caller, the CSRF
-  token of its session or `null` for a bearer token, and whether its password must change before
-  its sessions may do anything else.
+- `GET /me` answers `{"user", "csrf_token", "password_change_required", "permissions"}`: the
+  caller, the CSRF token of its session or `null` for a bearer token, whether its password must
+  change before its sessions may do anything else, and the permissions it holds
+  ([Permissions](#permissions)).
 - `POST /auth/login` takes `{"login", "password"}` with the content type `application/json`, and
   needs no credentials. It answers `200` with the caller as `GET /me` answers it for the new
   session, and sets the session cookie. A wrong login or password is `401 unauthenticated`, with
@@ -154,8 +155,90 @@ The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-s
 - While the caller's password must change, a session reaches only `GET /me`, `POST /auth/logout`
   and `POST /auth/password`; every other operation is `403 forbidden`.
 
+### Permissions
+
+Step 9 of M1 ([../plan.md](../plan.md)) settled how the API applies the permissions and roles of
+[08-access.md](08-access.md#roles-and-bindings).
+
+- **`permissions` in `/me`** is `{"installation", "organisations", "projects"}`. `installation` lists
+  the permissions held on the whole installation, which are every permission for an owner and none
+  for anyone else. `organisations` maps the id of each organisation on which a binding gives the
+  caller a permission to the permissions those bindings give, and `projects` does the same for the
+  bindings on a project. Each list is ordered as the permission table of
+  [08-access.md](08-access.md#permissions-and-roles) and holds no key twice. The permissions on an
+  organisation are those of `installation` together with its entry; the permissions on a project are
+  those of its organisation together with its own entry, so a client computes them from `/me` and
+  the project's `organisation_id` without asking again. `contracts/fixtures/api/me.json` pins the
+  shape: a developer of an organisation, a maintainer of one of its projects through a team, and the
+  holder of a custom role on another.
+- **`403` or `404`.** A caller who holds no permission at all where an operation is checked gets the
+  answer the operation gives for a resource that does not exist: `404 not_found` with the same
+  message, or for the organisation named in `POST /projects` the same `invalid_input`, so ids and
+  slugs of other organisations and projects tell nothing. A caller who holds some permission there
+  but not the one the operation needs gets `403 forbidden`, whose message names the login, the
+  permission and the organisation or project, such as `` `dana` does not hold `run.dispatch` on
+  project `keel` ``. An operation checked on the installation answers `403` to everyone but owners.
+- **Order.** An operation checks the permission as soon as it has found the resource it is checked
+  on, before it validates the rest of the request, so a caller who may not act learns nothing about
+  what the request would need. `POST /projects` reads its body first, because the body names the
+  organisation; `POST /runs/{run}/commands` checks that the run is visible before it looks at the
+  body, and the permission of the command after.
+- **Lists** answer `200` to every caller and hold only the items on whose project the caller holds
+  the permission the list declares, `project.view` for every list served so far.
+
+Every operation declares what it needs, and the declaration is its `x-bosun-permission` in
+`contracts/openapi.json` ([The OpenAPI document](#the-openapi-document)), an object whose `on` says
+where it is checked:
+
+| `x-bosun-permission` | Means |
+|----------------------|-------|
+| `{"on": "anyone"}` | the operation takes no credentials |
+| `{"on": "authenticated"}` | any valid credentials; the operation acts on the caller alone |
+| `{"on": "installation", "key": K}` | `K` on the installation, which only owners hold |
+| `{"on": "organisation", "key": K}` | `K` on the organisation the path or the body names |
+| `{"on": "project", "key": K}` | `K` on the project the path names, or the project of the workflow, run, job or execution it names |
+| `{"on": "items", "key": K}` | a list of the items on whose project the caller holds `K` |
+| `{"on": "project", "by_command": {…}}` | the permission of the command in the body, on the run's project; the map gives it for each command the endpoint takes, as the command table of [04-runs.md](04-runs.md#operator-commands) does |
+
+The endpoints and what they need, which a test compares with `contracts/openapi.json`, and
+another, together with the role table of [08-access.md](08-access.md#permissions-and-roles),
+with the answers each built-in role gets:
+
+| Operation | Permission | On |
+|-----------|------------|----|
+| `GET /me` | — | `authenticated` |
+| `POST /auth/login` | — | `anyone` |
+| `POST /auth/logout` | — | `authenticated` |
+| `POST /auth/password` | — | `authenticated` |
+| `GET /auth/methods` | — | `anyone` |
+| `POST /organisations` | `organisation.manage` | `installation` |
+| `GET /organisations/{organisation}` | `project.view` | `organisation` |
+| `GET /projects` | `project.view` | `items` |
+| `POST /projects` | `project.manage` | `organisation` |
+| `GET /projects/{project}` | `project.view` | `project` |
+| `GET /projects/{project}/workflows` | `project.view` | `project` |
+| `POST /projects/{project}/workflows` | `workflow.edit` | `project` |
+| `GET /workflows/{workflow}` | `project.view` | `project` |
+| `PUT /workflows/{workflow}/source` | `workflow.edit` | `project` |
+| `GET /workflows/{workflow}/revisions` | `project.view` | `project` |
+| `POST /workflows/{workflow}/dispatch` | `run.dispatch` | `project` |
+| `GET /runs` | `project.view` | `items` |
+| `GET /runs/{run}` | `project.view` | `project` |
+| `GET /runs/{run}/attempts/{attempt}/jobs` | `project.view` | `project` |
+| `POST /runs/{run}/commands` | the command's ([04-runs.md](04-runs.md#operator-commands)) | `project` |
+| `GET /jobs/{job}` | `project.view` | `project` |
+| `GET /executions/{execution}` | `project.view` | `project` |
+| `GET /executions/{execution}/steps/{step}/log` | `project.view` | `project` |
+| `GET /agents` | `agent.manage` | `installation` |
+| `POST /registration-tokens` | `agent.manage` | `installation` |
+| `POST /agents/register` | — | `anyone` |
+
+A step that adds an endpoint adds its row here.
+
 ### Projects and server-side workflows
 
+- `GET /projects` lists the projects the caller may view, oldest first, as a cursor page without
+  filters.
 - `POST /organisations` takes `slug` and `name`; `POST /projects` takes `organisation` (an id or a
   slug), `slug` and `name`. Both answer `201` with the resource, a slug that is taken is
   `409 conflict`, and a slug or a name that breaks its rule ([08-access.md](08-access.md)) is
@@ -198,6 +281,9 @@ The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-s
 
 ### Runs, jobs and executions
 
+- `GET /runs` lists the runs of the projects the caller may view, newest first, as a cursor page of
+  runs in the shape of `GET /runs/{run}`; its filters arrive with step 38 of
+  [../plan.md](../plan.md).
 - `GET /runs/{run}` answers with the run, in the shape `POST /workflows/{workflow}/dispatch`
   returns; its `attempt` is the number of its latest attempt, and the list of its attempts is not
   served yet. `display_name` is the run's display name and `notices` its run notices in the order
@@ -271,6 +357,13 @@ How the document follows the handlers:
   `Created<T>` `201`, `Saved<T>` `201` or `200`, and `ApiError` the error envelope. A handler that
   reads a raw query, header map or body, or returns an untyped response, has no operation, and so
   cannot be registered.
+- A handler behind credentials takes the caller as `Caller<R>`, whose rule `R` names what it needs:
+  `Authenticated`, `OnInstallation<K>`, `OnOrganisation<K>`, `OnProject<K>`, `Listed<K>` or
+  `ByCommand`, with `K` a permission key. The rule contributes the operation's
+  `x-bosun-permission` ([Permissions](#permissions)), and the caller offers only the check of that
+  rule, so the declaration and the check cannot differ. An operation without credentials declares
+  `{"on": "anyone"}`, and an operation behind credentials whose handler takes no `Caller` fails the
+  generation of the document.
 - The path parameters come from the path template. Each name has its description and schema in
   `openapi.rs`, and a name without one fails the tests.
 - The routes of projects are one wildcard route that tells an id from two slugs

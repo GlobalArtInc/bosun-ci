@@ -11,6 +11,7 @@ use axum::http::request::Parts;
 use axum::http::{Method, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
+use bosun_db::projects::Holder;
 use bosun_types::api::{LogEnd, LogLine};
 use bosun_types::error::ErrorCode;
 use bosun_types::id::{ExecutionId, StepId};
@@ -23,6 +24,7 @@ use tracing::warn;
 use super::followers::Subscription;
 use super::reader::{Failure, Read, Reader};
 use crate::AppState;
+use crate::access::{Caller, OnProject, ProjectView};
 use crate::envelope::{self, ApiError};
 use crate::openapi::{Api, Input, Output, Spec};
 use crate::request::{failed, invalid};
@@ -59,6 +61,7 @@ pub(crate) fn routes() -> Api {
 
 async fn show(
     State(state): State<AppState>,
+    caller: Caller<OnProject<ProjectView>>,
     method: Method,
     uri: Uri,
     path: Result<Path<(String, String)>, PathRejection>,
@@ -75,6 +78,9 @@ async fn show(
     };
     let execution_id: ExecutionId = execution.parse().map_err(|_| missing())?;
     let step_id: StepId = step.parse().map_err(|_| missing())?;
+    caller
+        .holding(&state.db, Holder::Execution(execution_id), missing)
+        .await?;
     let asked = asked?;
     let subscription = asked
         .follow

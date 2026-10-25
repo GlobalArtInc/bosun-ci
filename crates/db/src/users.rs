@@ -31,6 +31,10 @@ pub async fn create_owner<C: TransactionTrait>(
     Ok(owner)
 }
 
+pub async fn create<C: ConnectionTrait>(db: &C, login: &str) -> Result<User, Error> {
+    decode(insert(db, login, false, None).await?)
+}
+
 pub async fn bootstrap_owner<C: TransactionTrait>(
     db: &C,
     login: &str,
@@ -112,13 +116,24 @@ async fn insert_owner<C: ConnectionTrait>(
     token: NewToken,
     password_hash: Option<String>,
 ) -> Result<User, Error> {
+    let owner = insert(db, login, true, password_hash).await?;
+    tokens::insert(db, owner.id, token).await?;
+    decode(owner)
+}
+
+async fn insert<C: ConnectionTrait>(
+    db: &C,
+    login: &str,
+    owner: bool,
+    password_hash: Option<String>,
+) -> Result<user::Model, Error> {
     let password_change_required = password_hash.is_some();
-    let owner = user::ActiveModel {
+    user::ActiveModel {
         id: ActiveValue::Set(Uuid::now_v7()),
         login: ActiveValue::Set(login.to_owned()),
         name: ActiveValue::Set(login.to_owned()),
         email: ActiveValue::Set(None),
-        owner: ActiveValue::Set(true),
+        owner: ActiveValue::Set(owner),
         created_at: ActiveValue::NotSet,
         password_hash: ActiveValue::Set(password_hash),
         password_change_required: ActiveValue::Set(password_change_required),
@@ -128,9 +143,7 @@ async fn insert_owner<C: ConnectionTrait>(
     .map_err(|error| match error.sql_err() {
         Some(SqlErr::UniqueConstraintViolation(_)) => Error::LoginTaken(login.to_owned()),
         _ => Error::Database(error),
-    })?;
-    tokens::insert(db, owner.id, token).await?;
-    decode(owner)
+    })
 }
 
 fn credentials_of(found: user::Model) -> Result<Credentials, Error> {

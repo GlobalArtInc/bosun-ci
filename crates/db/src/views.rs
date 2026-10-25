@@ -8,6 +8,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 use serde_json::Value;
 
 use crate::entity::{attempt, execution, job, run, run_event, step};
+use crate::projects::Reach;
 use crate::row::statement;
 use crate::{Error, row};
 
@@ -15,51 +16,98 @@ pub async fn run<C: ConnectionTrait>(db: &C, id: RunId) -> Result<Option<Run>, E
     let Some(found) = run::Entity::find_by_id(Uuid::from(id)).one(db).await? else {
         return Ok(None);
     };
-    let latest = attempt::Entity::find()
-        .filter(attempt::Column::RunId.eq(found.id))
-        .order_by_desc(attempt::Column::Number)
-        .one(db)
+    Ok(decode_runs(db, vec![found]).await?.pop())
+}
+
+pub async fn runs<C: ConnectionTrait>(
+    db: &C,
+    reach: &Reach,
+    before: Option<Uuid>,
+    limit: u64,
+) -> Result<Vec<Run>, Error> {
+    let mut query = run::Entity::find()
+        .order_by_desc(run::Column::Id)
+        .limit(limit);
+    if let Some(condition) = reach.condition(run::Column::ProjectId) {
+        query = query.filter(condition);
+    }
+    if let Some(before) = before {
+        query = query.filter(run::Column::Id.lt(before));
+    }
+    let found = query.all(db).await?;
+    decode_runs(db, found).await
+}
+
+async fn decode_runs<C: ConnectionTrait>(
+    db: &C,
+    found: Vec<run::Model>,
+) -> Result<Vec<Run>, Error> {
+    if found.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<Uuid> = found.iter().map(|run| run.id).collect();
+    let mut latest: HashMap<Uuid, i32> = HashMap::new();
+    for attempt in db
+        .query_all(statement(
+            "SELECT run_id, max(number) AS number FROM attempt WHERE run_id = ANY($1) \
+             GROUP BY run_id",
+            [ids.clone().into()],
+        ))
         .await?
-        .ok_or_else(|| Error::Vanished(format!("the attempts of run {id}")))?;
-    let actor: Actor = row::json(
-        "run",
-        found.trigger.get("actor").cloned().unwrap_or(Value::Null),
-    )?;
-    let notices = run_event::Entity::find()
-        .filter(run_event::Column::RunId.eq(found.id))
+    {
+        latest.insert(
+            attempt.try_get::<Uuid>("", "run_id")?,
+            attempt.try_get::<i32>("", "number")?,
+        );
+    }
+    let mut notices: HashMap<Uuid, Vec<Notice>> = HashMap::new();
+    for event in run_event::Entity::find()
+        .filter(run_event::Column::RunId.is_in(ids))
         .filter(run_event::Column::Kind.eq("run.notice"))
         .order_by_asc(run_event::Column::Seq)
         .all(db)
         .await?
+    {
+        notices.entry(event.run_id).or_default().push(Notice {
+            job_id: row::optional_id("run_event", event.job_id)?,
+            diagnostic: row::json("run_event", event.data)?,
+        });
+    }
+    found
         .into_iter()
-        .map(|event| {
-            Ok(Notice {
-                job_id: row::optional_id("run_event", event.job_id)?,
-                diagnostic: row::json("run_event", event.data)?,
+        .map(|found| {
+            let id: RunId = row::id("run", found.id)?;
+            let attempt = latest
+                .get(&found.id)
+                .copied()
+                .ok_or_else(|| Error::Vanished(format!("the attempts of run {id}")))?;
+            let actor: Actor = row::json(
+                "run",
+                found.trigger.get("actor").cloned().unwrap_or(Value::Null),
+            )?;
+            Ok(Run {
+                id,
+                project_id: row::id("run", found.project_id)?,
+                workflow_id: row::id("run", found.workflow_id)?,
+                revision_id: row::id("run", found.revision_id)?,
+                number: row::unsigned("run", found.number)?,
+                global_number: row::unsigned("run", found.global_number)?,
+                display_name: found.display_name.unwrap_or_default(),
+                event: found.event,
+                status: row::name("run", found.status)?,
+                conclusion: found
+                    .conclusion
+                    .map(|conclusion| row::name("run", conclusion))
+                    .transpose()?,
+                attempt: whole("attempt", attempt)?,
+                actor,
+                notices: notices.remove(&found.id).unwrap_or_default(),
+                created_at: found.created_at,
+                started_at: found.started_at,
+                completed_at: found.completed_at,
             })
         })
-        .collect::<Result<Vec<Notice>, Error>>()?;
-    Ok(Some(Run {
-        id,
-        project_id: row::id("run", found.project_id)?,
-        workflow_id: row::id("run", found.workflow_id)?,
-        revision_id: row::id("run", found.revision_id)?,
-        number: row::unsigned("run", found.number)?,
-        global_number: row::unsigned("run", found.global_number)?,
-        display_name: found.display_name.unwrap_or_default(),
-        event: found.event,
-        status: row::name("run", found.status)?,
-        conclusion: found
-            .conclusion
-            .map(|conclusion| row::name("run", conclusion))
-            .transpose()?,
-        attempt: whole("attempt", latest.number)?,
-        actor,
-        notices,
-        created_at: found.created_at,
-        started_at: found.started_at,
-        completed_at: found.completed_at,
-    }))
+        .collect()
 }
 
 pub async fn jobs<C: ConnectionTrait>(

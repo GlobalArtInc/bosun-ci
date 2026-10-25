@@ -54,6 +54,9 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   `fixtures/workflows/template-condition.yml`, and the data of `run-notice.json` with the error
   notice of the run of `fixtures/workflows/timeout-minutes.yml`, both dispatched as the server-side
   workflow `ci`.
+- `fixtures/api/me.json`: from step 9 of M1, the server's tests compare its `permissions` with
+  those `GET /api/v1/me` lists for a user bound as the fixture describes
+  ([../docs/design/11-api.md](../docs/design/11-api.md#permissions)).
 - `openapi.json`: the description of the REST API generated from the handlers, from step 1 of M1.
   `hack/openapi.sh` writes it, a test fails when it differs from the generated document, and it is
   never edited or merged by hand

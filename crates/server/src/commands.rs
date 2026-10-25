@@ -1,5 +1,5 @@
-use axum::Extension;
 use axum::extract::State;
+use bosun_db::projects::Holder;
 use bosun_db::runs::{JobState, Locked};
 use bosun_types::actor::Actor;
 use bosun_types::command::{Command, CommandRequest};
@@ -9,13 +9,15 @@ use bosun_types::id::RunId;
 use bosun_types::status::{JobStatus, RunStatus, StatusReason};
 use sea_orm::TransactionTrait;
 
-use crate::auth::Principal;
+use crate::access::{ByCommand, Caller};
 use crate::envelope::ApiError;
 use crate::openapi::Api;
 use crate::reply::Created;
 use crate::request::{Faults, Idempotent, Segment, database};
 use crate::site::Site;
 use crate::{AppState, idempotency, planner};
+
+pub(crate) const COMMANDS: [Command; 2] = [Command::RunCancel, Command::JobCancel];
 
 pub(crate) fn routes() -> Api {
     Api::new().post("/api/v1/runs/{run}/commands", command)
@@ -34,7 +36,7 @@ enum Target<'a> {
 
 async fn command(
     State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
+    caller: Caller<ByCommand>,
     Segment(reference): Segment,
     body: Result<Idempotent<CommandRequest>, ApiError>,
 ) -> Result<Created<RunEvent>, ApiError> {
@@ -45,6 +47,11 @@ async fn command(
         )
     };
     let run_id: RunId = reference.parse().map_err(|_| missing())?;
+    let project = caller
+        .holding(&state.db, Holder::Run(run_id), missing)
+        .await?;
+    let body = body?;
+    caller.command(&body.value.command, &project)?;
     let transaction = state.db.begin().await.map_err(database)?;
     let Some(mut run) = bosun_db::runs::lock(&transaction, run_id)
         .await
@@ -52,11 +59,17 @@ async fn command(
     else {
         return Err(missing());
     };
-    let body = body?;
     if let Some(replayed) = idempotency::replay(&transaction, body.idempotency.as_ref()).await? {
         return Ok(replayed);
     }
-    match apply(&mut run, &principal.actor(), &body.value, &state.site).await? {
+    match apply(
+        &mut run,
+        &caller.principal.actor(),
+        &body.value,
+        &state.site,
+    )
+    .await?
+    {
         Applied::Accepted(event) => {
             idempotency::commit(&state.db, transaction, body.idempotency.as_ref(), *event).await
         }
@@ -238,7 +251,7 @@ async fn cancel(run: &Locked<'_>, job: &JobState, actor: &Actor) -> Result<(), b
         .map(|_| ())
 }
 
-fn name(command: &Command) -> &'static str {
+pub(crate) fn name(command: &Command) -> &'static str {
     match command {
         Command::RunCancel => "run.cancel",
         Command::JobCancel => "job.cancel",

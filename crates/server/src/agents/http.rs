@@ -14,6 +14,7 @@ use tracing::{error, info};
 
 use super::{LABEL_RULE, NAME_RULE, valid_label, valid_name};
 use crate::AppState;
+use crate::access::{AgentManage, Caller, OnInstallation};
 use crate::auth::Refusal;
 use crate::envelope::ApiError;
 use crate::openapi::{self, Input, Output, Spec};
@@ -95,8 +96,11 @@ pub(crate) async fn register(
 
 pub(crate) async fn create_token(
     State(state): State<AppState>,
-    Body(request): Body<RegistrationTokenRequest>,
+    caller: Caller<OnInstallation<AgentManage>>,
+    body: Result<Body<RegistrationTokenRequest>, ApiError>,
 ) -> Result<Created<RegistrationTokenCreated>, Failure> {
+    caller.installation().map_err(Failure::Api)?;
+    let Body(request) = body.map_err(Failure::Api)?;
     let now = Utc::now();
     let expires_at = request.expires_at.unwrap_or(now + DEFAULT_LIFETIME);
     let mut fields = Vec::new();
@@ -203,8 +207,11 @@ impl Input for Paging {
 
 pub(crate) async fn list(
     State(state): State<AppState>,
-    paging: Paging,
+    caller: Caller<OnInstallation<AgentManage>>,
+    paging: Result<Paging, Failure>,
 ) -> Result<Json<Page<Agent>>, Failure> {
+    caller.installation().map_err(Failure::Api)?;
+    let paging = paging?;
     let mut items = bosun_db::agents::list(&state.db, paging.cursor, paging.limit + 1)
         .await
         .map_err(internal)?;
@@ -218,7 +225,7 @@ pub(crate) async fn list(
 }
 
 pub(crate) enum Failure {
-    Invalid(ApiError),
+    Api(ApiError),
     Refused(Refusal),
     Internal,
 }
@@ -232,7 +239,7 @@ impl Output for Failure {
 impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         match self {
-            Failure::Invalid(error) => error.into_response(),
+            Failure::Api(error) => error.into_response(),
             Failure::Refused(refusal) => refusal.into_response(),
             Failure::Internal => {
                 ApiError::new(ErrorCode::Internal, "the request could not be completed")
@@ -252,7 +259,7 @@ fn field(name: &str, message: &str) -> FieldError {
 fn invalid(message: &str, fields: Vec<FieldError>) -> Failure {
     let mut body = ErrorBody::new(ErrorCode::InvalidInput, message);
     body.fields = fields;
-    Failure::Invalid(ApiError::from(body))
+    Failure::Api(ApiError::from(body))
 }
 
 fn internal(failure: impl std::fmt::Display) -> Failure {

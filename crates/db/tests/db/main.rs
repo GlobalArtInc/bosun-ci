@@ -8,6 +8,7 @@ mod migrations;
 mod parallel;
 mod pools;
 mod queue;
+mod roles;
 mod rows;
 mod runs;
 mod sessions;
