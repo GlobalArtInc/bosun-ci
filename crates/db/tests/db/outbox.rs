@@ -10,7 +10,7 @@ use bosun_types::api::{Repository, Workflow};
 use bosun_types::id::{JobId, RunId};
 use bosun_types::ir;
 use bosun_types::status::{Conclusion, RunConclusion, StatusReason, WaitingReason};
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, SubsecRound, TimeDelta, Utc};
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 use serde_json::{Value, json};
 
@@ -261,7 +261,7 @@ async fn claim(db: &DatabaseConnection, now: DateTime<Utc>) -> Option<Claimed> {
 }
 
 fn later() -> DateTime<Utc> {
-    Utc::now() + TimeDelta::seconds(1)
+    Utc::now().trunc_subsecs(6) + TimeDelta::seconds(1)
 }
 
 #[tokio::test]
