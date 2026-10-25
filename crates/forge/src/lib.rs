@@ -44,11 +44,17 @@ pub trait Forge: Send + Sync {
         head: &str,
     ) -> impl Future<Output = Result<Comparison, Error>> + Send;
 
+    fn parents(
+        &self,
+        repository: &Repository,
+        commit: &str,
+    ) -> impl Future<Output = Result<Option<Vec<String>>, Error>> + Send;
+
     fn pull_request_files(
         &self,
         repository: &Repository,
         number: u64,
-    ) -> impl Future<Output = Result<Vec<String>, Error>> + Send;
+    ) -> impl Future<Output = Result<Comparison, Error>> + Send;
 
     fn installation_repositories(
         &self,

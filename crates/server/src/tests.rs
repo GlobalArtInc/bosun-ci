@@ -1,5 +1,6 @@
 mod access;
 mod actions;
+mod admission;
 mod cancel;
 mod evaluation;
 mod events;
@@ -28,7 +29,7 @@ use std::time::Duration;
 use bosun_blob::Directory;
 use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_db::entity::{attempt, control_message, execution, job, run, step};
-use bosun_db::runs::NewRun;
+use bosun_db::runs::{NewRun, Trust};
 use bosun_db::workflows::NewWorkflow;
 use bosun_testkit::TestDatabase;
 use bosun_types::actor::Actor;
@@ -240,6 +241,22 @@ impl World {
         workflow: &ir::Workflow,
         warnings: &[Diagnostic],
     ) -> RunId {
+        self.create(stored, workflow, warnings, Trust::Trusted)
+            .await
+    }
+
+    async fn dispatch_from_fork(&self, workflow: &ir::Workflow, admitted: bool) -> RunId {
+        self.create(&self.workflow, workflow, &[], Trust::Untrusted { admitted })
+            .await
+    }
+
+    async fn create(
+        &self,
+        stored: &Workflow,
+        workflow: &ir::Workflow,
+        warnings: &[Diagnostic],
+        trust: Trust,
+    ) -> RunId {
         let transaction = self.db().begin().await.expect("a transaction");
         let payload = json!({ "inputs": null, "ref": null, "workflow": stored.name });
         let run = planner::dispatch(
@@ -253,6 +270,7 @@ impl World {
                 sha: None,
                 payload: &payload,
                 actor: &operator(),
+                trust,
             },
             warnings,
             &site(),

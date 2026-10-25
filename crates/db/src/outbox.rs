@@ -21,15 +21,23 @@ const CHECK_RUNS: &str = "forge_check_run";
 
 const EXTENSIONS: [&str; 2] = [".yml", ".yaml"];
 
+const PULL_REQUESTS: [&str; 4] = [
+    "pull_request",
+    "pull_request_target",
+    "pull_request_review",
+    "pull_request_review_comment",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     CheckRun,
     CommitStatus,
+    ForkStatus,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 2] = [Kind::CheckRun, Kind::CommitStatus];
+    pub const ALL: [Kind; 3] = [Kind::CheckRun, Kind::CommitStatus, Kind::ForkStatus];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +49,12 @@ pub struct Report {
     pub workflow: String,
     pub name: String,
     pub state: State,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForkStatus {
+    pub repository_id: u64,
+    pub sha: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,7 +120,8 @@ fn reported(status: JobStatus, conclusion: Option<RunConclusion>) -> Option<Stat
     }
 }
 
-const TARGET: &str = "r.id AS run_id, r.sha, p.repository_id, p.report, \
+const TARGET: &str = "r.id AS run_id, r.sha, r.event, \
+     r.trigger #>> '{payload,pull_request,head,sha}' AS head_sha, p.repository_id, p.report, \
      r.ir ->> 'name' AS workflow_name, w.name AS workflow FROM run r \
      JOIN project p ON p.id = r.project_id JOIN workflow w ON w.id = r.workflow_id \
      JOIN forge_repository f ON f.id = p.repository_id";
@@ -184,9 +199,14 @@ async fn store<C: ConnectionTrait>(
         Reporting::Checks => Kind::CheckRun,
         Reporting::Statuses => Kind::CommitStatus,
     };
+    let event: String = found.try_get("", "event")?;
+    let sha = match found.try_get::<Option<String>>("", "head_sha")? {
+        Some(head) if PULL_REQUESTS.contains(&event.as_str()) => head,
+        _ => found.try_get("", "sha")?,
+    };
     let report = Report {
         repository_id: row::unsigned(TABLE, found.try_get("", "repository_id")?)?,
-        sha: found.try_get("", "sha")?,
+        sha,
         run_id: run,
         job_id: job,
         workflow: workflow(found)?,
@@ -197,6 +217,25 @@ async fn store<C: ConnectionTrait>(
         Some(job) => format!("job/{job}"),
         None => format!("run/{run}"),
     };
+    insert(db, kind, &subject, serde_json::to_value(&report)?).await
+}
+
+pub async fn refuse_fork<C: ConnectionTrait>(db: &C, status: &ForkStatus) -> Result<(), Error> {
+    insert(
+        db,
+        Kind::ForkStatus,
+        &format!("{}/{}", status.repository_id, status.sha),
+        serde_json::to_value(status)?,
+    )
+    .await
+}
+
+async fn insert<C: ConnectionTrait>(
+    db: &C,
+    kind: Kind,
+    subject: &str,
+    payload: Value,
+) -> Result<(), Error> {
     let kind = row::text(TABLE, kind)?;
     db.execute(statement(
         "WITH stored AS (INSERT INTO outbox (kind, collapse_key, payload) VALUES ($1, $2, $3) \
@@ -204,7 +243,7 @@ async fn store<C: ConnectionTrait>(
         [
             kind.as_str().into(),
             format!("{kind}/{subject}").into(),
-            serde_json::to_value(&report)?.into(),
+            payload.into(),
             CHANNEL.into(),
         ],
     ))

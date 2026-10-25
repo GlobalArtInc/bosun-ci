@@ -6,7 +6,7 @@ use bosun_types::command::{Command, CommandRequest};
 use bosun_types::error::ErrorCode;
 use bosun_types::event::{CommandAccepted, CommandRefused, Event, RunEvent};
 use bosun_types::id::RunId;
-use bosun_types::status::{JobStatus, RunStatus, StatusReason};
+use bosun_types::status::{JobStatus, RunStatus, StatusReason, WaitingReason};
 use sea_orm::TransactionTrait;
 
 use crate::access::{ByCommand, Caller};
@@ -17,7 +17,8 @@ use crate::request::{Faults, Idempotent, Segment, database};
 use crate::site::Site;
 use crate::{AppState, idempotency, planner};
 
-pub(crate) const COMMANDS: [Command; 2] = [Command::RunCancel, Command::JobCancel];
+pub(crate) const COMMANDS: [Command; 3] =
+    [Command::RunCancel, Command::JobCancel, Command::RunAdmit];
 
 pub(crate) fn routes() -> Api {
     Api::new().post("/api/v1/runs/{run}/commands", command)
@@ -88,6 +89,34 @@ pub(crate) async fn apply(
 ) -> Result<Applied, ApiError> {
     let jobs = run.jobs().await.map_err(database)?;
     match target(run, &jobs, request)? {
+        Target::Run if request.command == Command::RunAdmit => {
+            if run.state().status == RunStatus::Completed || !run.state().awaiting_admission {
+                let state = if run.state().status == RunStatus::Completed {
+                    "the run is completed"
+                } else {
+                    "the run does not wait for admission"
+                };
+                return refuse(
+                    run,
+                    None,
+                    actor,
+                    request,
+                    format!("{state}; `run.admit` needs a run from a fork that waits for it"),
+                )
+                .await;
+            }
+            let accepted = accept(run, None, actor, request).await?;
+            run.admit().await.map_err(database)?;
+            for job in &jobs {
+                if job.status == JobStatus::Waiting
+                    && job.waiting_reason == Some(WaitingReason::Untrusted)
+                {
+                    run.release_job(job.id, actor).await.map_err(database)?;
+                }
+            }
+            planner::plan(run, site).await.map_err(database)?;
+            Ok(Applied::Accepted(Box::new(accepted)))
+        }
         Target::Run => {
             if run.state().status == RunStatus::Completed {
                 return refuse(
@@ -172,8 +201,8 @@ fn target<'a>(
         faults.add("target.step", format!("`{command}` acts on no step"));
     }
     let target = match (&request.command, request.target.job) {
-        (Command::RunCancel, None) => Some(Target::Run),
-        (Command::RunCancel, Some(_)) => {
+        (Command::RunCancel | Command::RunAdmit, None) => Some(Target::Run),
+        (Command::RunCancel | Command::RunAdmit, Some(_)) => {
             faults.add(
                 "target.job",
                 format!("`{command}` acts on the whole run and names no job"),
@@ -255,5 +284,6 @@ pub(crate) fn name(command: &Command) -> &'static str {
     match command {
         Command::RunCancel => "run.cancel",
         Command::JobCancel => "job.cancel",
+        Command::RunAdmit => "run.admit",
     }
 }

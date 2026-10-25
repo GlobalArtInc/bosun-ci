@@ -1,7 +1,7 @@
 use bosun_db::installations::{self, Account};
 use bosun_db::outbox::{self, Claimed, Kind, Report, State};
 use bosun_db::pools::Placement;
-use bosun_db::runs::{self, NewRun};
+use bosun_db::runs::{self, NewRun, Trust};
 use bosun_db::workflows::{self, NewWorkflow};
 use bosun_db::{organisations, projects};
 use bosun_testkit::TestDatabase;
@@ -89,6 +89,7 @@ async fn dispatch(db: &DatabaseConnection, workflow: &Workflow, sha: Option<&str
             sha,
             payload: &payload,
             actor: &Actor::System,
+            trust: Trust::Trusted,
         },
     )
     .await

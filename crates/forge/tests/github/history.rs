@@ -1,5 +1,5 @@
 use bosun_forge::Forge;
-use bosun_testkit::forge::COMPARE_FILES;
+use bosun_testkit::forge::{COMPARE_FILES, PULL_REQUEST_FILES};
 
 use crate::{FULL_NAME, setup};
 
@@ -82,5 +82,52 @@ async fn pagination_returns_every_file_of_a_pull_request() {
         .pull_request_files(&setup.repository, number)
         .await
         .unwrap_or_else(|error| panic!("the pull request's files are not listed: {error}"));
-    assert_eq!(files, changed);
+    assert_eq!(files.files, changed);
+    assert!(!files.truncated);
+}
+
+#[tokio::test]
+async fn the_files_of_a_pull_request_beyond_the_forge_limit_are_truncated() {
+    let setup = setup().await;
+    setup
+        .forge
+        .commit(FULL_NAME, "main", [("README.md", "readme")]);
+    setup.forge.commit(
+        FULL_NAME,
+        "feature",
+        (0..=PULL_REQUEST_FILES).map(|index| (format!("src/{index:04}.rs"), "x")),
+    );
+    let number = setup.forge.open_pull_request(FULL_NAME, "main", "feature");
+    let files = setup
+        .app
+        .pull_request_files(&setup.repository, number)
+        .await
+        .unwrap_or_else(|error| panic!("the pull request's files are not listed: {error}"));
+    assert_eq!(files.files.len(), PULL_REQUEST_FILES);
+    assert!(files.truncated);
+}
+
+#[tokio::test]
+async fn a_commit_names_its_parents_and_a_merge_commit_its_base_and_head() {
+    let setup = setup().await;
+    let repository = &setup.repository;
+    let first = setup.forge.commit(FULL_NAME, "main", [("a.txt", "a")]);
+    let second = setup.forge.commit(FULL_NAME, "main", [("a.txt", "b")]);
+    let head = setup.forge.commit(FULL_NAME, "feature", [("b.txt", "b")]);
+    let number = setup.forge.open_pull_request(FULL_NAME, "main", "feature");
+    let merge = setup.forge.merge_commit(FULL_NAME, number);
+    for (commit, expected) in [
+        (first.as_str(), Some(Vec::new())),
+        (second.as_str(), Some(vec![first.clone()])),
+        (head.as_str(), Some(vec![second.clone()])),
+        (merge.as_str(), Some(vec![second.clone(), head.clone()])),
+        ("0000000000000000000000000000000000000000", None),
+    ] {
+        let parents = setup
+            .app
+            .parents(repository, commit)
+            .await
+            .unwrap_or_else(|error| panic!("the parents of {commit} are not read: {error}"));
+        assert_eq!(parents, expected, "{commit}");
+    }
 }

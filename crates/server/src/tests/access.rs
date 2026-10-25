@@ -16,6 +16,7 @@ use bosun_db::tokens::NewToken;
 use bosun_db::workflows::NewWorkflow;
 use bosun_testkit::oidc::{FakeIdentityProvider, Person};
 use bosun_types::api::{Annotation, AnnotationKind, Permissions, Project, Workflow};
+use bosun_types::command::Command;
 use bosun_types::id::{
     AgentId, ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, TokenId,
     UserId,
@@ -531,6 +532,15 @@ impl Site {
         let run = self
             .world
             .dispatch(&workflow(vec![template("build", &[], 1)]))
+            .await;
+        let (job, _) = self.world.project(run).await.job("build");
+        (run, job)
+    }
+
+    pub(super) async fn run_from_fork(&self) -> (RunId, JobId) {
+        let run = self
+            .world
+            .dispatch_from_fork(&workflow(vec![template("build", &[], 1)]), false)
             .await;
         let (job, _) = self.world.project(run).await.job("build");
         (run, job)
@@ -1079,7 +1089,11 @@ async fn calls(
         "/api/v1/runs/{run}/commands" => {
             let mut calls = Vec::new();
             for command in COMMANDS {
-                let (run, job) = site.run().await;
+                let (run, job) = if command == Command::RunAdmit {
+                    site.run_from_fork().await
+                } else {
+                    site.run().await
+                };
                 let name = commands::name(&command);
                 let target = if name.starts_with("run.") {
                     json!({ "attempt": null, "job": null, "step": null })

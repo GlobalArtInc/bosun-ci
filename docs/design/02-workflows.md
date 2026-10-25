@@ -49,8 +49,8 @@ repository-bound project's files.
   `installation`, `installation_repositories` and `repository` events and `ping`, belongs to the
   project bound to the payload's `repository.id`, if any; a repository that no installation sees
   receives nothing. `pull_request`, `pull_request_target`, `pull_request_review`,
-  `pull_request_review_comment` and `merge_group` are planned with the pull requests (step 29),
-  since they run at a merge ref under the fork policy, and a delivered `workflow_dispatch`, which
+  `pull_request_review_comment` and `merge_group` are planned as [Pull requests and merge
+  groups](#pull-requests-and-merge-groups) says, and a delivered `workflow_dispatch`, which
   the forge sends for a dispatch of one of its own workflows, starts no run: dispatches of Bosun's
   workflows come through its API.
 - **Bosun's own events.** An event whose `sender` has the id of the App's bot starts no run, unless
@@ -105,6 +105,49 @@ repository-bound project's files.
   - a comparison the forge truncated, and one it cannot make because it does not know a commit,
     changes files the server does not list: path filters are then met, and every file counts as
     changed for the rule of broken files.
+
+### Pull requests and merge groups
+
+Step 29 of M1 ([../plan.md](../plan.md)) settled the events of pull requests and merge groups. Each
+reads its files at the commit its `github` context names
+([06-runtime-services.md](06-runtime-services.md#the-github-context-and-the-environment)), and the
+run records that ref and that commit:
+
+- `pull_request`, `pull_request_review` and `pull_request_review_comment` run at
+  `refs/pull/<number>/merge`, at the commit the server resolves it to through the forge, which is
+  the merge commit the forge made of the pull request's head and its base. The forge makes that
+  commit again in the background once the head moves, so the event of a push can come while the
+  merge ref still names the merge of the previous head, and a run there would test code other than
+  the head its checks are reported on. The server therefore reads the parents of the commit, and
+  while they do not include `pull_request.head.sha`, the delivery fails as one that may pass and is
+  tried again ([06-runtime-services.md](06-runtime-services.md#deliveries)). At its tenth attempt,
+  about eight and a half minutes after the first, the event starts no run at the merge ref, as for
+  a pull request with conflicts, whose merge ref the forge no longer moves; a pull request whose
+  merge ref resolves to nothing starts none either. Either way the `pull_request_target` runs of
+  the delivery are planned as usual. A merged pull request (`pull_request.merged`) runs at
+  `refs/heads/<base>` and its `merge_commit_sha`, the commit the merge left on the base branch.
+- `pull_request_target` runs at `refs/heads/<base>` and the base branch's last commit, so the
+  files are the base branch's, whatever the pull request changes in them. The forge delivers no
+  event of that name: a `pull_request` delivery is planned twice, as `pull_request` and as
+  `pull_request_target`, with the same payload and actor, and a delivery named
+  `pull_request_target` is planned as nothing.
+- `merge_group` runs at `merge_group.head_ref` and `merge_group.head_sha`.
+
+`branches` match `refs/heads/<base>` of the pull request, and for a merge group its
+`merge_group.base_ref`. `paths` of `pull_request` and `pull_request_target` match the files of the
+pull request, which the server lists through the forge only for an event that a file read for it
+filters by paths, so most events cost no such request. The forge lists at most 3000 files of a pull
+request and does not say whether it stopped there, so a list of 3000 counts as truncated, and as
+for a push whose comparison the forge truncated, the files are then not listed and every path
+filter is met. These events are not pushes, so no file of theirs counts as changed for the rule of
+broken files. A pull request from a fork meets the project's fork policy before any run is created
+([08-access.md](08-access.md#code-from-outside-the-team)).
+
+The case `contracts/fixtures/github/pull-request-merged.json` pins the `github` context of a
+merged pull request, and the server's tests in `bin/server/tests/server/pull_requests.rs` pin
+against the fake forge the ref and the commit each of these events runs at: a merged pull request,
+one the forge made no merge commit of, one whose merge ref lags behind its head, which the fake
+shows by holding its merge commits back, and one with more files than the forge lists.
 
 ## Parsing
 
@@ -495,7 +538,9 @@ the first two.
   instead.
 - A push whose comparison the forge truncated at 300 files meets every path filter. The target
   judges such a push by the 300 files it lists, and so skips a workflow whose files come later;
-  Bosun would rather run a workflow too many than skip one silently.
+  Bosun would rather run a workflow too many than skip one silently. For the same reason the path
+  filters of a pull request see every file the forge lists of it, up to 3000, and a pull request of
+  3000 files or more meets them all, where the target sees the first 300 files of its diff.
 - The `matrix` context lists the properties of a member in the order of their names, since the
   member's combination is stored as a JSON object ([07-storage.md](07-storage.md)), rather than in
   the order of the workflow; it shows only in `toJSON(matrix)` and `matrix.*`, and the member's

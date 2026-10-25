@@ -446,6 +446,18 @@
               "type"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "run.admit",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
           }
         ],
         "properties": {
@@ -5787,6 +5799,7 @@
         "x-bosun-permission": {
           "by_command": {
             "job.cancel": "run.cancel",
+            "run.admit": "run.override",
             "run.cancel": "run.cancel"
           },
           "on": "project"

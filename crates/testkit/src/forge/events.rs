@@ -72,6 +72,69 @@ impl FakeForge {
         )
     }
 
+    pub fn pull_request_event(
+        &self,
+        full_name: &str,
+        number: u64,
+        action: &str,
+        sender: Sender<'_>,
+    ) -> Value {
+        let pull_request = {
+            let state = self.shared.lock();
+            let repository = state
+                .repositories
+                .get(full_name)
+                .unwrap_or_else(|| panic!("the fake forge has no repository {full_name}"));
+            let pull = repository
+                .pulls
+                .get(&number)
+                .unwrap_or_else(|| panic!("{full_name} has no pull request {number}"));
+            let base_repository = self::repository(&self.shared, &state, repository);
+            let head_repository = match &pull.fork {
+                Some(fork) => json!({
+                    "id": fork.id,
+                    "node_id": node_id("R", fork.id),
+                    "name": repository.name,
+                    "full_name": format!("{}/{}", fork.owner, repository.name),
+                    "private": false,
+                    "fork": true,
+                    "owner": { "login": fork.owner, "id": fork.id, "type": "User" },
+                }),
+                None => base_repository.clone(),
+            };
+            let owner = pull
+                .fork
+                .as_ref()
+                .map_or(repository.owner.as_str(), |fork| fork.owner.as_str());
+            let commit = |reference: &str| repository.refs.get(reference).cloned();
+            json!({
+                "number": number,
+                "state": "open",
+                "merged": false,
+                "merge_commit_sha": commit(&format!("refs/pull/{number}/merge")),
+                "user": user(sender),
+                "head": {
+                    "label": format!("{owner}:{}", pull.head),
+                    "ref": pull.head,
+                    "sha": commit(&format!("refs/pull/{number}/head")),
+                    "repo": head_repository,
+                },
+                "base": {
+                    "label": format!("{}:{}", repository.owner, pull.base),
+                    "ref": pull.base,
+                    "sha": commit(&format!("refs/heads/{}", pull.base)),
+                    "repo": base_repository,
+                },
+            })
+        };
+        self.event(
+            full_name,
+            Some(action),
+            json!({ "number": number, "pull_request": pull_request }),
+            sender,
+        )
+    }
+
     pub fn installation_event(&self, installation: u64, action: &str) -> Value {
         let state = self.shared.lock();
         let repositories: Vec<Value> = state

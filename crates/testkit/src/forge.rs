@@ -41,6 +41,8 @@ pub const FOREIGN_KEY: &str = include_str!("../keys/foreign.pem");
 
 pub const COMPARE_FILES: usize = 300;
 
+pub const PULL_REQUEST_FILES: usize = 3000;
+
 const DEFAULT_BRANCH: &str = "main";
 
 const ALL_REPOSITORIES: &str = "all";
@@ -156,13 +158,21 @@ struct Repository {
     public: bool,
     refs: BTreeMap<String, String>,
     commits: HashMap<String, Tree>,
+    parents: HashMap<String, Vec<String>>,
     blobs: HashMap<String, Vec<u8>>,
     pulls: BTreeMap<u64, Pull>,
+    merges_held: bool,
 }
 
 struct Pull {
     base: String,
     head: String,
+    fork: Option<Fork>,
+}
+
+struct Fork {
+    id: u64,
+    owner: String,
 }
 
 struct Bucket {
@@ -264,8 +274,10 @@ impl FakeForge {
                 public: false,
                 refs: BTreeMap::new(),
                 commits: HashMap::new(),
+                parents: HashMap::new(),
                 blobs: HashMap::new(),
                 pulls: BTreeMap::new(),
+                merges_held: false,
             },
         );
         id
@@ -334,7 +346,19 @@ impl FakeForge {
         }
         let sha = git::commit_sha(parent.as_deref(), &tree, repository.commits.len());
         repository.commits.insert(sha.clone(), tree);
+        repository
+            .parents
+            .insert(sha.clone(), parent.into_iter().collect());
         repository.refs.insert(reference, sha.clone());
+        let touched: Vec<u64> = repository
+            .pulls
+            .iter()
+            .filter(|(_, pull)| pull.base == branch || pull.head == branch)
+            .map(|(number, _)| *number)
+            .collect();
+        for number in touched {
+            repository.merge(number);
+        }
         sha
     }
 
@@ -351,16 +375,57 @@ impl FakeForge {
     }
 
     pub fn open_pull_request(&self, repository: &str, base: &str, head: &str) -> u64 {
+        self.open(repository, base, head, None)
+    }
+
+    pub fn open_fork_pull_request(
+        &self,
+        repository: &str,
+        owner: &str,
+        base: &str,
+        head: &str,
+    ) -> u64 {
+        self.open(repository, base, head, Some(owner))
+    }
+
+    fn open(&self, repository: &str, base: &str, head: &str, fork: Option<&str>) -> u64 {
         let mut state = self.shared.lock();
         let number = state.allocate();
-        state.repository(repository).pulls.insert(
+        let fork = fork.map(|owner| Fork {
+            id: state.allocate(),
+            owner: owner.to_owned(),
+        });
+        let repository = state.repository(repository);
+        repository.pulls.insert(
             number,
             Pull {
                 base: base.to_owned(),
                 head: head.to_owned(),
+                fork,
             },
         );
+        repository.merge(number);
         number
+    }
+
+    pub fn hold_merges(&self, repository: &str, held: bool) {
+        let mut state = self.shared.lock();
+        let repository = state.repository(repository);
+        repository.merges_held = held;
+        let numbers: Vec<u64> = repository.pulls.keys().copied().collect();
+        for number in numbers {
+            repository.merge(number);
+        }
+    }
+
+    pub fn merge_commit(&self, repository: &str, number: u64) -> String {
+        let mut state = self.shared.lock();
+        state
+            .repository(repository)
+            .refs
+            .get(&format!("refs/pull/{number}/merge"))
+            .cloned()
+            .unwrap_or_else(|| panic!("pull request {number} has no merge commit"))
     }
 
     pub fn limit_rate(&self, installation: u64, remaining: u32, reset: DateTime<Utc>) {
@@ -482,6 +547,38 @@ impl Repository {
             .iter()
             .find_map(|candidate| self.refs.get(candidate))
             .map(String::as_str)
+    }
+
+    fn merge(&mut self, number: u64) {
+        let Some(pull) = self.pulls.get(&number) else {
+            return;
+        };
+        let branch = |name: &str| self.refs.get(&format!("refs/heads/{name}")).cloned();
+        let (Some(base), Some(head)) = (branch(&pull.base), branch(&pull.head)) else {
+            return;
+        };
+        self.refs
+            .insert(format!("refs/pull/{number}/head"), head.clone());
+        let merged = self
+            .refs
+            .get(&format!("refs/pull/{number}/merge"))
+            .and_then(|merge| self.parents.get(merge))
+            .is_some_and(|parents| *parents == [base.clone(), head.clone()]);
+        if self.merges_held || merged {
+            return;
+        }
+        let mut tree = self.commits.get(&base).cloned().unwrap_or_default();
+        if let Some(changed) = self.commits.get(&head) {
+            tree.extend(
+                changed
+                    .iter()
+                    .map(|(path, sha)| (path.clone(), sha.clone())),
+            );
+        }
+        let merge = git::commit_sha(Some(&base), &tree, self.commits.len());
+        self.commits.insert(merge.clone(), tree);
+        self.parents.insert(merge.clone(), vec![base, head]);
+        self.refs.insert(format!("refs/pull/{number}/merge"), merge);
     }
 
     fn tree(&self, reference: &str) -> Option<(&str, &Tree)> {

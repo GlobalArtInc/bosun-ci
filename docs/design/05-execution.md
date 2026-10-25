@@ -47,11 +47,12 @@ access list of the agent's pool again ([07-storage.md](07-storage.md#the-queue))
 that is narrowed later keeps the queued jobs of a project it no longer admits from that pool's
 agents at once.
 
-**Trust.** A run is trusted or not (`run.trusted`); every run is trusted until step 29 of
-[../plan.md](../plan.md) marks the runs from forks. The claim matches the trust of a job's run with
-the trust level of the agent's pool in both directions, whatever the labels say: a job of a trusted
-run, which carries secrets, never reaches an untrusted pool, and a job of an untrusted run never
-reaches a trusted one ([08-access.md](08-access.md#code-from-outside-the-team)).
+**Trust.** A run is trusted or not (`run.trusted`); the runs of pull requests from forks are
+untrusted, as step 29 of [../plan.md](../plan.md) settled, and every other run is trusted. The
+claim matches the trust of a job's run with the trust level of the agent's pool in both directions,
+whatever the labels say: a job of a trusted run, which carries secrets, never reaches an untrusted
+pool, and a job of an untrusted run never reaches a trusted one
+([08-access.md](08-access.md#code-from-outside-the-team)).
 
 **Capabilities.** A job needs the capabilities its label aliases name, stored in the job's
 `capabilities`. The claim offers a job only to an agent that holds each of them, and a job that
@@ -324,8 +325,9 @@ project of the run, a project's secret shadowing its organisation's of the same 
 else ([07-storage.md](07-storage.md#secrets-at-rest)). `vars` holds every variable of the
 organisation and the project, as the server's own expressions see them
 ([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)). `GITHUB_TOKEN` arrives
-with the forge token (step 34 of [../plan.md](../plan.md)), and keeping secrets from untrusted runs
-with step 29.
+with the forge token (step 34 of [../plan.md](../plan.md)). The assignment of a job of an untrusted
+run reads no secret at all, so its `secrets` is empty whatever the job references, and its `vars`
+are those of any run ([08-access.md](08-access.md#code-from-outside-the-team)).
 
 **Encoding.** The identity travels in fields of `Assignment`. Everything else travels in four JSON
 documents beside it, which the agent reads with every field it does not know refused:

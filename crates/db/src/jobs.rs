@@ -135,7 +135,7 @@ impl Locked<'_> {
         self.place(job, placement, Some(reason)).await
     }
 
-    pub async fn release_job(&self, job: JobId) -> Result<(), Error> {
+    pub async fn release_job(&self, job: JobId, actor: &Actor) -> Result<(), Error> {
         let (from, _) = self.job(job).await?;
         if from != JobStatus::Waiting {
             return Err(refuse("job", job, from, JobStatus::Queued));
@@ -154,7 +154,7 @@ impl Locked<'_> {
             Some(job),
             None,
             None,
-            &Actor::System,
+            actor,
             job_moved(from, JobStatus::Queued),
         )
         .await?;

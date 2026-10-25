@@ -1,6 +1,6 @@
 use bosun_db::entity::{attempt, job, run, run_event};
 use bosun_db::journal;
-use bosun_db::runs::{self, NewRun};
+use bosun_db::runs::{self, NewRun, Trust};
 use bosun_db::workflows::{self, NewWorkflow};
 use bosun_db::{organisations, projects};
 use bosun_testkit::TestDatabase;
@@ -85,6 +85,7 @@ async fn a_dispatch_creates_the_run_its_first_attempt_its_pending_jobs_and_their
             sha: None,
             payload: &payload,
             actor: &actor,
+            trust: Trust::Trusted,
         },
     )
     .await
@@ -252,6 +253,7 @@ async fn run_numbers_count_per_workflow_and_a_rolled_back_dispatch_uses_none() {
                     sha: None,
                     payload: &json!({}),
                     actor: &actor,
+                    trust: Trust::Trusted,
                 },
             )
             .await
@@ -273,6 +275,7 @@ async fn run_numbers_count_per_workflow_and_a_rolled_back_dispatch_uses_none() {
             sha: None,
             payload: &json!({}),
             actor: &actor,
+            trust: Trust::Trusted,
         },
     )
     .await

@@ -52,7 +52,12 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   what the producer is given, and the produced payload equals `payload`. Payloads are the forge's
   documented webhook examples, the `payload-examples` of `octokit/webhooks`: `push-branch` is the
   example of a push that creates a branch turned into an ordinary push, `push-tag` the example of a
-  tag deletion turned into a tag push, and the produced payloads keep the documented objects.
+  tag deletion turned into a tag push, `pull-request-fork` the example of a pull request whose head
+  and sender were moved to a fork of another account, `pull-request-merged` the example of a pull
+  request turned into one that was closed by merging it, and the produced payloads keep the
+  documented objects. From step 29 of M1, the server's tests read `pull-request`,
+  `pull-request-fork` and `pull-request-target` to tell a pull request from a fork, and
+  `pull-request-merged` for the merge commit of a merged pull request.
 - `fixtures/triggers/`: event matching, from step 5 of M1. Each file is a list of cases, each with a
   `description`, an `on` block written as JSON, an `event` (`name`, `action`, `ref`, `base_ref` and
   `changed_files`, each optional but the name) and whether it `matches`. `bosun-workflow` runs them.

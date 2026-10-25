@@ -18,7 +18,7 @@ organisation, and each repository the App can see may be bound to a project.
 | Contents: read and write | read workflow files and actions; commits from the editor |
 | Pull requests: read and write | changed files for path filters; pull requests from the editor |
 | Checks: read and write | one check run per job |
-| Commit statuses: read and write | the fallback when checks are switched off |
+| Commit statuses: read and write | the fallback when checks are switched off, and the status of the fork policy ([08-access.md](08-access.md#code-from-outside-the-team)) |
 | Metadata: read | required |
 | Deployments: read and write | `forge_deployments` |
 | every other repository permission a workflow's `permissions` can name (issues, discussions, actions, attestations, pages, security events, and the rest), read and write | so that the job token can carry what the workflow asks for |
@@ -42,12 +42,12 @@ workflow from triggering itself. The server compares the id of the payload's `se
 the bot, which it reads from the forge once per process.
 
 The forge sits behind the trait `Forge` in `bosun-forge`. In M1 it reads a file and a directory at
-a commit with their blob hashes, resolves a ref to a commit, compares two commits and says whether
-the forge truncated the list of changed files, lists the files of a pull request, lists the
-repositories an installation can see with their default branches, reads the App's own identity
-(its slug and the account of its bot), mints an installation token for given repositories and
-permissions and revokes a token, creates and updates a check run, creates a commit status, and
-downloads a repository's tarball at a commit. It also resolves a ref and downloads a tarball
+a commit with their blob hashes, resolves a ref to a commit, reads the parents of a commit, compares
+two commits and says whether the forge truncated the list of changed files, lists the files of a
+pull request and says the same of them, lists the repositories an installation can see with their
+default branches, reads the App's own identity (its slug and the account of its bot), mints an
+installation token for given repositories and permissions and revokes a token, creates and updates a
+check run, creates a commit status, and downloads a repository's tarball at a commit. It also resolves a ref and downloads a tarball
 without credentials, which reaches public repositories only and serves the organisations that have
 no installation ([05-execution.md](05-execution.md#actions-and-tools)). Creating a commit and a pull request join
 it with the editor in M4. A second forge implements the same trait
@@ -87,10 +87,11 @@ processes it inside a savepoint of that transaction:
 - when the processing succeeds, its changes and `processed_at` commit together, so a delivery is
   processed exactly once whichever replicas stored and took it, and a replica that dies while it
   processes leaves the delivery to the next worker;
-- when it fails for a reason that may pass (the database, the forge unreachable, a `5xx` or a rate
-  limit), the savepoint is rolled back and the delivery waits 1 second after its first attempt,
-  twice as long after each further one, up to an hour, and at least until a rate limit resets;
-  `attempts` and `last_error` record it;
+- when it fails for a reason that may pass (the database, the forge unreachable, a `5xx`, a rate
+  limit, or the merge ref of a pull request that does not merge its head yet,
+  [02-workflows.md](02-workflows.md#pull-requests-and-merge-groups)), the savepoint is rolled back
+  and the delivery waits 1 second after its first attempt, twice as long after each further one, up
+  to an hour, and at least until a rate limit resets; `attempts` and `last_error` record it;
 - when it cannot succeed (a payload without the fields its event has, a forge that refuses with
   `4xx`), the savepoint is rolled back and the delivery is marked processed with its
   `last_error`, and a warning names it.
@@ -99,8 +100,9 @@ A worker holds one database connection while it processes. Each processed delive
 `processed a webhook delivery` with its `delivery`, `event` and `duration_ms`.
 
 The worker handles `installation`, `installation_repositories` and `repository` itself, and plans
-the runs of every other event as [02-workflows.md](02-workflows.md#repository-workflows) says; the
-pull request events and merge groups are processed as nothing until step 29 of M1 plans them.
+the runs of every other event as [02-workflows.md](02-workflows.md#repository-workflows) says, the
+pull request events and merge groups among them
+([02-workflows.md](02-workflows.md#pull-requests-and-merge-groups)).
 
 ### Installations and repositories
 
@@ -178,7 +180,12 @@ server or the fake below.
 - **Comparisons.** The forge lists at most 300 changed files and does not say whether it stopped
   there, so a comparison with 300 files counts as truncated, one of exactly 300 changes included.
   What a truncated comparison means for path filters is settled with the planning of pushes
-  ([02-workflows.md](02-workflows.md)).
+  ([02-workflows.md](02-workflows.md)). The forge lists at most 3000 files of a pull request, again
+  without saying whether it stopped there, so a list of 3000 counts as truncated.
+- **Parents.** The parents of a commit come from `git/commits/<sha>`, which takes a commit's hash
+  only; `404` and `422` mean that the forge knows no such commit. The planning of pull requests
+  reads them to tell the merge commit of a pull request's head from one of an earlier head
+  ([02-workflows.md](02-workflows.md#pull-requests-and-merge-groups)).
 - **Tarballs** are requested with the installation token, or with no token for a public
   repository, and streamed from wherever the forge redirects, without the `Authorization` header
   when that is another origin. Transport errors of a download leave out its address, which may
@@ -196,11 +203,21 @@ with a path. It holds, in memory:
 
 - installations with their account and permissions; repositories of an installation's account,
   each with an id, branches, tags, commits and pull requests between two branches, and private
-  unless a test publishes it. A public repository is read like the forge's: without a token, or
+  unless a test publishes it. A pull request keeps `refs/pull/<number>/head` at its head branch's
+  commit and `refs/pull/<number>/merge` at a merge commit, whose tree is the base branch's with
+  every file of the head laid over it and whose parents are the base's commit and the head's, made
+  again whenever either branch moves. A test may hold a repository's merge commits back: the head
+  refs still move, the merge refs stay where they are, and a pull request opened meanwhile has
+  none, as on the forge while it computes a merge or when a pull request has conflicts; letting
+  them go makes every merge commit that lags. A pull request may
+  come from a fork: its head branch is kept in the repository, as the forge keeps the head of every
+  pull request, and its events name a repository of the fork's owner with an id of its own as the
+  head's. A public repository is read like the forge's: without a token, or
   with the live token of any installation, whose rate limit the request then counts against; a
   request without a token for a private repository is answered `404`, as the forge answers it. A commit is the
-  full tree of paths and blob hashes, the hashes being git's own, and a commit to a new branch
-  starts from the default branch. A test renames a repository, which keeps its id;
+  full tree of paths and blob hashes, the hashes being git's own, with its parents, which
+  `git/commits/<sha>` serves, and a commit to a new branch starts from the default branch. A test
+  renames a repository, which keeps its id;
 - the token endpoints. `/app` and the access token endpoint accept only a JWT that verifies against
   the public key of the App's fixture key and whose claims keep the forge's limits. A minted token
   is recorded with its installation, repositories and permissions; a request for a repository or a
@@ -217,17 +234,18 @@ with a path. It holds, in memory:
   test sets, which counts every answer but a `304` and, once spent, refuses with the forge's `403`
   and its headers;
 - check runs and commit statuses, recorded for assertions;
-- comparisons cut at 300 files, pull request files in pages of 30 by default and 100 at most with
-  `Link` headers, and tarballs that redirect to a download path and hold the tree under
-  `<owner>-<repo>-<short commit>/`, each download recorded with its repository and commit for
+- comparisons cut at 300 files, pull request files cut at 3000 and in pages of 30 by default and
+  100 at most with `Link` headers, and tarballs that redirect to a download path and hold the tree
+  under `<owner>-<repo>-<short commit>/`, each download recorded with its repository and commit for
   assertions;
 - a sender of webhooks, signed with `X-Hub-Signature-256` under a secret drawn for each fake, with
   `X-GitHub-Event` and a fresh `X-GitHub-Delivery`. Sending the same webhook twice is a
   redelivery. The payloads of `installation`, `installation_repositories` and `repository` events
   are built from the fake's state in the forge's shape, and so are the `repository`,
   `installation` and `sender` of any other event a test sends: a push between two commits, with
-  `created` and `deleted` set when either is the commit of zeros, or an event of any name with the
-  fields the test gives it. A sender is a login and an id; `BOT` is the App's bot;
+  `created` and `deleted` set when either is the commit of zeros, a pull request event with the
+  pull request's number, refs, commits and repositories, or an event of any name with the fields
+  the test gives it. A sender is a login and an id; `BOT` is the App's bot;
 - a delay a test sets, by which every answer of the API is held back, so that tests make the
   forge slow;
 - a failure a test switches on and off, under which every request is answered `502`, and a log of
@@ -514,6 +532,12 @@ title, and its details address opens the approval.
 When the project switches checks off, its setting `report` being `statuses`
 ([11-api.md](11-api.md#project-settings)), the same information goes out as commit statuses with
 the context `bosun/<workflow>/<job>`.
+
+The runs of `pull_request`, `pull_request_target`, `pull_request_review` and
+`pull_request_review_comment` are reported on the head commit of their pull request,
+`pull_request.head.sha`, which is the commit whose checks the pull request shows, while they run at
+the merge commit or the base branch (step 29 of M1, [../plan.md](../plan.md)); every other run is
+reported on its own commit.
 
 Runs started from a draft are not reported unless the person who started them asks for it, so an
 experiment does not decorate a pull request. All reports go through the outbox

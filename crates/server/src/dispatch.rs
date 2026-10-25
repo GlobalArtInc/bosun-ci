@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use axum::extract::State;
-use bosun_db::runs::NewRun;
+use bosun_db::runs::{NewRun, Trust};
 use bosun_types::api::{DispatchRequest, Run, WorkflowSource};
 use bosun_types::error::{ErrorBody, ErrorCode};
 use bosun_workflow::github::{self, Dispatch};
@@ -119,6 +119,7 @@ pub(crate) async fn dispatch(
             sha: None,
             payload: &payload,
             actor: &caller.principal.actor(),
+            trust: Trust::Trusted,
         },
         &parsed.warnings,
         &state.site,

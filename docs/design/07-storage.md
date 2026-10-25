@@ -80,8 +80,8 @@ The central columns:
 workflow     id, project_id, name, source_kind, enabled, revision_id, last_run_number, created_at
 run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_number,
              display_name, event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
-             trusted, status, conclusion, cancel_requested_at, created_at, started_at,
-             completed_at
+             trusted, admitted_at, status, conclusion, cancel_requested_at, created_at,
+             started_at, completed_at
 attempt      id, run_id, number, reason, actor jsonb, created_at
 job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, needs text[], kind,
              status, waiting_reason, conclusion, conclusion_source, continue_on_error,
@@ -108,7 +108,11 @@ describes, which `github.event` shows. A run's `display_name` is its rendered `r
 default name ([04-runs.md](04-runs.md#planning)); runs created before the column existed got the
 workflow's name. A run's `cancel_requested_at` is the time an accepted `run.cancel` reached it, and
 `trusted` whether its jobs may go to trusted pools only or to untrusted pools only
-([05-execution.md](05-execution.md#pools-and-label-aliases)). A job is created with its key, display
+([05-execution.md](05-execution.md#pools-and-label-aliases)). An untrusted run's `admitted_at` is
+the time it was admitted: its creation under the fork policy `automatic`, an accepted `run.admit`
+under `approval`, and `null` while it waits; a trusted run's is `null`
+([08-access.md](08-access.md#code-from-outside-the-team)). The column arrived with step 29 of
+[../plan.md](../plan.md). A job is created with its key, display
 name and `needs`; its `labels`, `pool_ids` and `capabilities` are written when the planner evaluates
 `runs-on` as the job becomes ready ([04-runs.md](04-runs.md)), together with its rendered `name`,
 its `continue-on-error`, which the conclusion of the run reads, and in `evaluated` the values its
@@ -427,13 +431,22 @@ administration pages. When a newer row with the same collapse key exists, an old
 without delivery, so a job that changes state five times while the forge is down is reported once,
 with its latest state.
 
-Step 28 of M1 ([../plan.md](../plan.md)) settled how. In M1 every row is a report to the forge
-([06-runtime-services.md](06-runtime-services.md#reporting-to-the-forge)), of kind `check_run` or
-`commit_status`, and `journal::append` writes it right after the event that causes it, so no code
-path that changes a run can forget it. The collapse key is the kind and the subject of the report,
-`check_run/job/<job>` or `commit_status/run/<run>`; since the rows of one job are written under its
-run's lock, the order of their ids, drawn from a sequence, is the order of their commits, as for the
-journal ([The journal](#the-journal)). Each row inserts with a notification on `bosun_outbox`.
+Step 28 of M1 ([../plan.md](../plan.md)) settled how. In M1 every row a run causes is a report to
+the forge ([06-runtime-services.md](06-runtime-services.md#reporting-to-the-forge)), of kind
+`check_run` or `commit_status`, and `journal::append` writes it right after the event that causes
+it, so no code path that changes a run can forget it. The collapse key is the kind and the subject
+of the report, `check_run/job/<job>` or `commit_status/run/<run>`; since the rows of one job are
+written under its run's lock, the order of their ids, drawn from a sequence, is the order of their
+commits, as for the journal ([The journal](#the-journal)). Each row inserts with a notification on
+`bosun_outbox`.
+
+Step 29 of M1 added the kind `fork_status`, the one kind that comes from a webhook delivery rather
+than from a run: the commit status that tells a pull request from a fork why the fork policy
+`disabled` created no run for it ([08-access.md](08-access.md#code-from-outside-the-team)). No run
+and no journal event causes it, so the processing of its webhook delivery writes it, in the
+transaction that marks the delivery processed: a delivery that is tried again writes it once. Its
+collapse key is `fork_status/<repository>/<commit>`, with the forge's id of the repository and the
+head commit of the pull request, which its payload holds.
 
 Every replica with a GitHub App runs one outbox worker, woken by `bosun_outbox` and otherwise every
 second, which is the resolution of the backoff. One delivery is two short transactions, the claim

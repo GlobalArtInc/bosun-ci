@@ -3,7 +3,7 @@ use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use bosun_db::installations::Account;
-use bosun_db::runs::NewRun;
+use bosun_db::runs::{NewRun, Trust};
 use bosun_testkit::forge::{APP_ID, APP_KEY, FakeForge, RecordedCheckRun, RecordedStatus};
 use bosun_types::api::{Annotation, AnnotationKind, Reporting, Repository};
 use bosun_types::event::Event;
@@ -123,6 +123,7 @@ impl Scene {
                 sha: Some(&self.sha),
                 payload: &payload,
                 actor: &operator(),
+                trust: Trust::Trusted,
             },
             &[],
             &site(),
@@ -377,6 +378,7 @@ async fn with_statuses_a_run_reports_commit_statuses_with_bosun_contexts_and_no_
             sha: Some(&scene.sha),
             payload: &payload,
             actor: &operator(),
+            trust: Trust::Trusted,
         },
         &[],
     )
@@ -428,6 +430,7 @@ async fn a_startup_failure_is_reported_as_a_settled_check_run_named_after_its_wo
             sha: Some(&scene.sha),
             payload: &payload,
             actor: &operator(),
+            trust: Trust::Trusted,
         },
         &[],
     )

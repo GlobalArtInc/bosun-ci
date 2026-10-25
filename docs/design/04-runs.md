@@ -43,7 +43,7 @@ who may give which command is in [08-access.md](08-access.md).
 |--------|--------|---------|
 | run | `queued` | created, no job has started |
 | | `in_progress` | at least one job has started and not all are complete |
-| | `waiting` | every remaining job waits for an approval, a timer or a policy |
+| | `waiting` | no job is queued or on an agent, and at least one waits, for admission, an approval, a timer or a policy; the others are pending behind it |
 | | `paused` | an operator paused the run |
 | | `completed` | every job is complete; the conclusion is set |
 | job | `pending` | its `needs` are not complete |
@@ -102,10 +102,10 @@ state table. The transitions of a run, exhaustively:
 | From | To | Cause |
 |------|----|-------|
 | `queued` | `in_progress` | a job started |
-| `queued` | `waiting` | every job that is not complete waits |
+| `queued` | `waiting` | every job that is not complete waits, or is pending behind one that waits |
 | `queued`, `in_progress`, `waiting` | `paused` | `run.pause` |
 | `queued`, `in_progress`, `waiting`, `paused` | `completed` | every job is complete, `startup_failure`, cancellation |
-| `in_progress` | `waiting` | every job that is not complete waits |
+| `in_progress` | `waiting` | every job that is not complete waits, or is pending behind one that waits |
 | `waiting` | `queued` | a job left `waiting` and no job has started yet |
 | `waiting` | `in_progress` | a job left `waiting` after another job had started |
 | `paused` | `queued`, `in_progress`, `waiting` | `run.resume`, to whatever the jobs imply |
@@ -328,7 +328,12 @@ its forge id and login), a JSON payload, and the time. The status columns of run
 and steps are a projection of the journal, written in the same transaction as the event, so reading
 a status never requires replaying events and the journal never disagrees with it; a run's
 `cancel_requested_at` belongs to the projection too, set by the `command.accepted` of a
-`run.cancel`. A property test drives random job graphs with random step results, commands, lost
+`run.cancel`. A run's `admitted_at` does not, any more than its `trusted`: both are facts of the
+run's creation under the project's fork policy, which `run.created` does not record, so a replay
+cannot tell a run admitted at its creation under `automatic` from a trusted one. An accepted
+`run.admit` sets `admitted_at` in the transaction of its `command.accepted`, so the change is in
+the journal all the same, and the projection holds its effect: the jobs that wait with the reason
+`untrusted` and the `job.status` events that release them. A property test drives random job graphs with random step results, commands, lost
 agents, expired leases, rejected assignments and queue timeouts, and checks after every transaction
 that the columns equal a replay of the journal.
 
@@ -455,8 +460,18 @@ the actor `system`. A refused one answers `409 invalid_state` with the reason, a
 `command.refused` event is committed all the same. A target the command does not take is
 `422 invalid_input` naming the field, and is not recorded: a job or a step for `run.cancel`, no job
 or a job of another run for `job.cancel`, a step for `job.cancel`, and an attempt other than the
-current one. M0 serves `run.cancel` and `job.cancel`; the other commands arrive with the milestones
-that give them their effects.
+current one. M0 serves `run.cancel` and `job.cancel`, step 29 of M1 ([../plan.md](../plan.md))
+`run.admit`; the other commands arrive with the milestones that give them their effects.
+
+`run.admit` is valid for a run from a fork that waits for admission
+([08-access.md](08-access.md#code-from-outside-the-team)): untrusted, not admitted and not
+completed. It takes no job. Any other run refuses it with ``the run does not wait for admission``,
+or ``the run is completed``, followed by ``; `run.admit` needs a run from a fork that waits for
+it``. An accepted admission sets the run's `admitted_at` and queues every job that waits with the
+reason `untrusted`, each `job.status` event carrying the command's actor. Until then a member of a
+job group that `max-parallel` would hold back waits with `max_parallel` rather than `untrusted`,
+and no member is released for room, so the members that wait with `untrusted` are at most
+`max-parallel` and the admission queues them all; the others follow as room frees.
 
 A cancellation completes a job that is not on an agent at once, and an assigned one together with
 its execution, as `cancelled` with the reason `command`; a job running on an agent is cancelled

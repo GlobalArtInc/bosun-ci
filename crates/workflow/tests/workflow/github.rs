@@ -180,18 +180,15 @@ fn a_tag_push_names_its_tag() {
 
 #[test]
 fn a_merged_pull_request_runs_on_its_base_branch_at_the_merge_commit() {
-    let mut merged = case("pull-request");
-    merged.payload["action"] = json!("closed");
-    merged.payload["pull_request"]["merged"] = json!(true);
-    merged.payload["pull_request"]["merge_commit_sha"] =
-        json!("c4295bd74fb0f4fda03689c3df3f2803b658fd85");
+    let mut merged = case("pull-request-merged");
+    merged.facts.git_ref = None;
     merged.facts.sha = None;
     let context = derived(&merged);
     assert_eq!(property(&context, "ref"), "refs/heads/master");
     assert_eq!(property(&context, "ref_name"), "master");
     assert_eq!(
         property(&context, "sha"),
-        "c4295bd74fb0f4fda03689c3df3f2803b658fd85"
+        "7638417db6d59f3c431d3e1f261cc637155684cd"
     );
     assert_eq!(property(&context, "head_ref"), "changes");
 }

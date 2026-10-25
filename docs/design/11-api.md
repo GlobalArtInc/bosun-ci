@@ -480,11 +480,11 @@ projects returns, or the requests that create one.
 
 - `POST /runs/{run}/commands` takes a command, `{ "type", "target", "reason" }` with
   `"target": { "attempt", "job", "step" }` (each `null` when it does not apply) and, for commands
-  that take them, `"args"`; M0 takes `run.cancel` and `job.cancel`
-  ([04-runs.md](04-runs.md#operator-commands)). An accepted command answers `201` with its
-  `command.accepted` event. A command the state of its target refuses answers `409 invalid_state`
-  with the reason, such as ``the run is completed; `run.cancel` needs a run that is not completed``,
-  and is recorded as `command.refused`. A type the endpoint does not take, and a target the command
+  that take them, `"args"`; M0 takes `run.cancel` and `job.cancel`, and step 29 of M1
+  `run.admit` ([04-runs.md](04-runs.md#operator-commands)). An accepted command answers `201` with
+  its `command.accepted` event. A command the state of its target refuses answers
+  `409 invalid_state` with the reason, such as ``the run is completed; `run.cancel` needs a run that
+  is not completed``, and is recorded as `command.refused`. A type the endpoint does not take, and a target the command
   does not take, are `422 invalid_input`, the latter naming `target.job`, `target.step` or
   `target.attempt`, and neither is recorded. `{run}` is a run's id; any other segment, and a run
   that does not exist, are `404 not_found`. A repeated `Idempotency-Key` returns the first
@@ -1098,6 +1098,9 @@ What M1 settles of these commands:
   A skipped run did nothing, so it is not a success to a script that waits for its work. A failure
   of the command while it follows the run, such as a server that stays away for more than 60
   seconds, exits with 1, as every failure does. `--json` is a usage error with `watch`.
+- `bosun run admit <run>` sends `run.admit` to the commands of the run and prints that the admission
+  is accepted, or with `--json` the `command.accepted` event; a run that does not wait for admission
+  fails with the server's reason ([04-runs.md](04-runs.md#operator-commands)).
 - `bosun job cancel <job>` sends `job.cancel` for the job to the commands of its run and prints that
   the cancellation is accepted, or with `--json` the `command.accepted` event. The job ends
   `cancelled`, a job group with every member, and the jobs that need it see `cancelled` in

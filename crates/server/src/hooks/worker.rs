@@ -24,6 +24,10 @@ impl From<Failed> for Failure {
             Failed::Payload(error) => Failure::Refused(format!(
                 "the payload does not have the shape of its event: {error}"
             )),
+            Failed::Unmerged(error) => Failure::Retry {
+                error,
+                at_least: Duration::ZERO,
+            },
         }
     }
 }
@@ -131,6 +135,7 @@ async fn process(
             &planning.site,
             event,
             &delivery.payload,
+            delivery.attempts,
         )
         .await
         .map_err(Failure::from),

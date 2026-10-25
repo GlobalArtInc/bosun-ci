@@ -78,6 +78,7 @@ pub(crate) async fn receive(
         action: Some(&request.event_type),
         payload: &payload,
         actor: &actor,
+        attempt: 0,
     };
     let runs = match &binding.project.repository {
         None => server_runs(&transaction, &state.site, &binding, &occurrence)
@@ -129,7 +130,7 @@ pub(crate) async fn receive(
 fn refused(failure: Failed, full_name: &str) -> ApiError {
     match failure {
         Failed::Database(error) => database(error),
-        Failed::Payload(message) => failed(message),
+        Failed::Payload(message) | Failed::Unmerged(message) => failed(message),
         Failed::Forge(bosun_forge::Error::RateLimited { reset }) => ApiError::new(
             ErrorCode::RateLimited,
             format!(

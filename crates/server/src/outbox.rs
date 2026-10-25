@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bosun_blob::{Key, Store as _};
-use bosun_db::outbox::{Claimed, Kind, Report, ReportedCheckRun, State};
+use bosun_db::outbox::{Claimed, ForkStatus, Kind, Report, ReportedCheckRun, State};
 use bosun_forge::{
     ANNOTATIONS_PER_REQUEST, CheckOutput, CheckRun, CheckStatus, CommitStatus, Forge as _,
     Repository, SUMMARY_LIMIT, StatusState,
@@ -12,6 +12,7 @@ use bosun_types::id::JobId;
 use bosun_types::status::{Conclusion, RunConclusion};
 use chrono::TimeDelta;
 use sea_orm::{DatabaseConnection, TransactionTrait};
+use serde::de::DeserializeOwned;
 use tokio::io::AsyncReadExt;
 use tokio::sync::Notify;
 use tracing::{error, info, warn};
@@ -36,6 +37,10 @@ const NO_SUMMARY: &str = "The steps of this job wrote no summary.";
 
 const CUT_NOTICE: &str = "\n\n---\n\nThe summaries of this job are longer than a check run \
      holds, so they end here; the job's page on Bosun shows them whole.\n";
+
+const FORK_POLICY: &str = "bosun/fork-policy";
+
+const FORK_REFUSED: &str = "Bosun runs no workflow for pull requests from forks in this project";
 
 pub(crate) struct Outbox {
     pub(crate) db: DatabaseConnection,
@@ -168,64 +173,100 @@ fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::CheckRun => "check_run",
         Kind::CommitStatus => "commit_status",
+        Kind::ForkStatus => "fork_status",
     }
 }
 
-async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<(), Failure> {
-    let report: Report = serde_json::from_value(claimed.payload.clone()).map_err(|error| {
+fn payload<T: DeserializeOwned>(claimed: &Claimed) -> Result<T, Failure> {
+    serde_json::from_value(claimed.payload.clone()).map_err(|error| {
         Failure::Refused(format!("the payload of the row cannot be read: {error}"))
-    })?;
-    let Some(seen) = bosun_db::installations::seen(&outbox.db, report.repository_id).await? else {
+    })
+}
+
+async fn repository(outbox: &Outbox, id: u64) -> Result<Repository, Failure> {
+    let Some(seen) = bosun_db::installations::seen(&outbox.db, id).await? else {
         return Err(Failure::Refused(format!(
-            "no installation of the GitHub App sees the repository {}",
-            report.repository_id
+            "no installation of the GitHub App sees the repository {id}"
         )));
     };
-    let repository = Repository {
+    Ok(Repository {
         installation: seen.installation,
         owner: seen.owner,
         name: seen.name,
-    };
+    })
+}
+
+async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<(), Failure> {
+    match claimed.kind {
+        Kind::CheckRun => check_run(outbox, payload(claimed)?).await,
+        Kind::CommitStatus => commit_status(outbox, payload(claimed)?).await,
+        Kind::ForkStatus => fork_status(outbox, payload(claimed)?).await,
+    }
+}
+
+fn details(outbox: &Outbox, report: &Report) -> Option<String> {
     let address = match report.job_id {
         Some(job) => outbox.site.job_url(report.run_id, job),
         None => outbox.site.run_url(report.run_id),
     };
-    let details = Some(address).filter(|address| !address.is_empty());
+    Some(address).filter(|address| !address.is_empty())
+}
+
+async fn check_run(outbox: &Outbox, report: Report) -> Result<(), Failure> {
+    let repository = repository(outbox, report.repository_id).await?;
     let app = &outbox.forge.app;
-    match claimed.kind {
-        Kind::CheckRun => {
-            let check_run = CheckRun {
-                name: report.name.clone(),
-                details_url: details,
-                status: check_status(report.state),
-                output: None,
-            };
-            let Some(job) = report.job_id else {
-                app.create_check_run(&repository, &report.sha, &check_run)
-                    .await?;
-                return Ok(());
-            };
-            let output = match report.state {
-                State::Completed(_) => results(outbox, job, &report.name).await?,
-                State::Queued | State::InProgress => None,
-            };
-            check_run_of_job(outbox, &repository, &report.sha, job, check_run, output).await
-        }
-        Kind::CommitStatus => {
-            let context = match report.job_id {
-                Some(_) => format!("bosun/{}/{}", report.workflow, report.name),
-                None => format!("bosun/{}", report.workflow),
-            };
-            let status = CommitStatus {
-                context,
-                state: status_state(report.state),
-                description: Some(description(report.state).to_owned()),
-                target_url: details,
-            };
-            app.create_status(&repository, &report.sha, &status).await?;
-            Ok(())
-        }
-    }
+    let check_run = CheckRun {
+        name: report.name.clone(),
+        details_url: details(outbox, &report),
+        status: check_status(report.state),
+        output: None,
+    };
+    let Some(job) = report.job_id else {
+        app.create_check_run(&repository, &report.sha, &check_run)
+            .await?;
+        return Ok(());
+    };
+    let output = match report.state {
+        State::Completed(_) => results(outbox, job, &report.name).await?,
+        State::Queued | State::InProgress => None,
+    };
+    check_run_of_job(outbox, &repository, &report.sha, job, check_run, output).await
+}
+
+async fn commit_status(outbox: &Outbox, report: Report) -> Result<(), Failure> {
+    let repository = repository(outbox, report.repository_id).await?;
+    let context = match report.job_id {
+        Some(_) => format!("bosun/{}/{}", report.workflow, report.name),
+        None => format!("bosun/{}", report.workflow),
+    };
+    let status = CommitStatus {
+        context,
+        state: status_state(report.state),
+        description: Some(description(report.state).to_owned()),
+        target_url: details(outbox, &report),
+    };
+    outbox
+        .forge
+        .app
+        .create_status(&repository, &report.sha, &status)
+        .await?;
+    Ok(())
+}
+
+async fn fork_status(outbox: &Outbox, refused: ForkStatus) -> Result<(), Failure> {
+    let repository = repository(outbox, refused.repository_id).await?;
+    let status = CommitStatus {
+        context: FORK_POLICY.to_owned(),
+        state: StatusState::Error,
+        description: Some(FORK_REFUSED.to_owned()),
+        target_url: None,
+    };
+    outbox
+        .forge
+        .app
+        .create_status(&repository, &refused.sha, &status)
+        .await?;
+    Ok(())
 }
 
 async fn check_run_of_job(

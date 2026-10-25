@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
-scenarios="$scenarios log-search secrets lint interface"
+scenarios="$scenarios log-search secrets lint admission interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -1151,6 +1151,65 @@ YAML
     fail "bosun job logs --grep failed after the compaction: $(cat "$after")"
   cmp -s "$before" "$after" ||
     fail "the search changed with the compaction: before $(cat "$before"), after $(cat "$after")"
+  passed
+}
+
+member() {
+  local login="$1" role="$2" keys="$3" headers="$work/out/sign-in-$1.txt" cookie csrf expires token
+  api POST /api/v1/users --data "$(jq -cn --arg login "$login" \
+    '{login: $login, name: $login, email: ($login + "@example.org"), password: "correct horse battery staple"}')" \
+    >/dev/null || fail "the user $login could not be created"
+  api POST /api/v1/role-bindings --data "$(jq -cn --arg login "$login" --arg role "$role" \
+    '{role: $role, user: $login, team: null, organisation: "e2e", project: null}')" \
+    >/dev/null || fail "the role $role could not be bound to $login"
+  csrf="$(curl -sS --noproxy '*' --fail-with-body -D "$headers" -H 'Content-Type: application/json' \
+    --data "$(jq -cn --arg login "$login" '{login: $login, password: "correct horse battery staple"}')" \
+    "http://$address_a/api/v1/auth/login" | jq -r .csrf_token)" || fail "$login could not sign in"
+  cookie="$(sed -n 's/^[Ss]et-[Cc]ookie: \([^;]*\).*/\1/p' "$headers" | head -n 1)"
+  [ -n "$cookie" ] || fail "the sign-in of $login set no cookie: $(cat "$headers")"
+  curl -sS --noproxy '*' --fail-with-body -H "Cookie: $cookie" -H "X-Bosun-CSRF: $csrf" \
+    -H 'Content-Type: application/json' \
+    --data '{"current_password": "correct horse battery staple", "new_password": "correct horse battery stapler"}' \
+    "http://$address_a/api/v1/auth/password" >/dev/null || fail "$login could not set a password"
+  expires="$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc) + d.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
+  token="$(curl -sS --noproxy '*' --fail-with-body -H "Cookie: $cookie" -H "X-Bosun-CSRF: $csrf" \
+    -H 'Content-Type: application/json' \
+    --data "$(jq -cn --arg expires "$expires" --argjson keys "$keys" \
+      '{name: "e2e", permissions: $keys, organisations: [], projects: [], expires_at: $expires}')" \
+    "http://$address_a/api/v1/tokens" | jq -r .token)" || fail "$login could not create a token"
+  printf '%s\n' "$token" | cli --profile "$login" login --server "http://$address_a" >/dev/null ||
+    fail "bosun login of $login failed"
+}
+
+scenario_admission() {
+  begin admission \
+    "bosun run admit is refused to a developer, and a maintainer's reaches the state of the run"
+  local run refused="$work/out/admission-refused.txt"
+  member e2e-developer developer '["project.view", "run.dispatch", "run.cancel"]'
+  member e2e-maintainer maintainer '["project.view", "run.dispatch", "run.cancel", "run.override"]'
+  push admission <<'EOF'
+name: admission
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, nowhere]
+    steps:
+      - run: echo never
+EOF
+  run="$(cli --profile a --json workflow dispatch e2e/m0/admission | jq -r .id)" ||
+    fail "the dispatch of admission failed"
+  if cli --profile e2e-developer run admit "$run" >"$refused" 2>&1; then
+    fail "a developer admitted a run: $(cat "$refused")"
+  fi
+  expect_line "$refused" 'error: `e2e-developer` does not hold `run.override` on project `m0`' \
+    "the refusal of the developer's admission did not say why"
+  if cli --profile e2e-maintainer run admit "$run" >"$refused" 2>&1; then
+    fail "a run that is not from a fork was admitted: $(cat "$refused")"
+  fi
+  expect_line "$refused" \
+    'error: the run does not wait for admission; `run.admit` needs a run from a fork that waits for it' \
+    "the refusal of the maintainer's admission did not give the state of the run"
+  cli --profile a run cancel "$run" >/dev/null || fail "the run of the scenario could not be cancelled"
   passed
 }
 

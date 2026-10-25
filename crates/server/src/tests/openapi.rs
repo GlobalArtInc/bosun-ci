@@ -35,6 +35,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Request,
     ),
     (
+        "command-run-admit.json",
+        "post",
+        "/api/v1/runs/{run}/commands",
+        Part::Request,
+    ),
+    (
         "command-run-cancel.json",
         "post",
         "/api/v1/runs/{run}/commands",

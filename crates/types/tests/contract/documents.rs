@@ -197,7 +197,11 @@ fn event_kinds_match_the_design_and_the_fixtures() {
 #[test]
 fn command_fixtures_name_documented_commands() {
     let documented = first_column(&document("04-runs.md"), "| Command | Valid when |");
-    for path in ["api/command-run-cancel.json", "api/command-job-cancel.json"] {
+    for path in [
+        "api/command-run-cancel.json",
+        "api/command-job-cancel.json",
+        "api/command-run-admit.json",
+    ] {
         let command = fixture(path)["type"]
             .as_str()
             .expect("a command type")
@@ -241,7 +245,11 @@ fn commands_need_the_permissions_of_the_command_table() {
                     .map(move |command| (command, permissions.clone()))
             })
             .collect();
-    for path in ["api/command-run-cancel.json", "api/command-job-cancel.json"] {
+    for path in [
+        "api/command-run-cancel.json",
+        "api/command-job-cancel.json",
+        "api/command-run-admit.json",
+    ] {
         let request: CommandRequest =
             serde_json::from_value(fixture(path)).unwrap_or_else(|error| panic!("{path}: {error}"));
         let command = fixture(path)["type"]

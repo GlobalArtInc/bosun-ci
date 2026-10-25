@@ -19,9 +19,9 @@ use uuid::Uuid;
 
 use super::git::{self, Node};
 use super::{
-    APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedAnnotation,
-    RecordedCheckRun, RecordedDownload, RecordedOutput, RecordedRequest, RecordedStatus,
-    Repository, Shared, State as Model, events, jwt,
+    APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, PULL_REQUEST_FILES,
+    RecordedAnnotation, RecordedCheckRun, RecordedDownload, RecordedOutput, RecordedRequest,
+    RecordedStatus, Repository, Shared, State as Model, events, jwt,
 };
 
 type Fake = State<Arc<Shared>>;
@@ -146,6 +146,10 @@ pub(super) fn router(shared: Arc<Shared>) -> Router {
             get(contents_path),
         )
         .route("/api/v3/repos/{owner}/{repo}/git/blobs/{sha}", get(blob))
+        .route(
+            "/api/v3/repos/{owner}/{repo}/git/commits/{sha}",
+            get(git_commit),
+        )
         .route(
             "/api/v3/repos/{owner}/{repo}/commits/{*reference}",
             get(commit),
@@ -430,6 +434,30 @@ async fn blob(
     )
 }
 
+async fn git_commit(
+    State(shared): Fake,
+    Path((owner, repo, sha)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    read(
+        &shared,
+        &headers,
+        &owner,
+        &repo,
+        "contents",
+        |_, repository| match repository.parents.get(&sha) {
+            Some(parents) => {
+                let parents: Vec<Value> = parents
+                    .iter()
+                    .map(|parent| json!({ "sha": parent }))
+                    .collect();
+                Answer::json(StatusCode::OK, &json!({ "sha": sha, "parents": parents }))
+            }
+            None => Answer::not_found(),
+        },
+    )
+}
+
 async fn commit(
     State(shared): Fake,
     Path((owner, repo, reference)): Path<(String, String, String)>,
@@ -521,6 +549,7 @@ async fn pull_request_files(
             };
             let files: Vec<Value> = git::diff(base, head)
                 .iter()
+                .take(PULL_REQUEST_FILES)
                 .map(|(path, change)| json!({ "filename": path, "status": change.name() }))
                 .collect();
             let number = number.to_string();

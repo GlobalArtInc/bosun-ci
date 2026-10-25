@@ -92,6 +92,16 @@ pub(super) struct Changed {
 }
 
 #[derive(Deserialize)]
+pub(super) struct Commit {
+    pub(super) parents: Vec<Parent>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct Parent {
+    pub(super) sha: String,
+}
+
+#[derive(Deserialize)]
 pub(super) struct Created {
     pub(super) id: u64,
 }

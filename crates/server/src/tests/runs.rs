@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use axum::http::{Method, StatusCode};
 use bosun_db::roles::Subject;
-use bosun_db::runs::NewRun;
+use bosun_db::runs::{NewRun, Trust};
 use bosun_types::actor::Actor;
 use bosun_types::api::{Project, Workflow};
 use bosun_types::id::RunId;
@@ -76,6 +76,7 @@ async fn plant(site: &Site, workflow: &Workflow, planted: &Planted) -> RunId {
             sha: None,
             payload: &json!({}),
             actor: &planted.actor,
+            trust: Trust::Trusted,
         },
     )
     .await

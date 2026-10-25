@@ -18,6 +18,7 @@ mod owner;
 mod pools;
 mod projects;
 mod proxy;
+mod pull_requests;
 mod queue;
 mod reports;
 mod results;

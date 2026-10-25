@@ -53,7 +53,7 @@ pub(super) async fn connected(
     connected_in(world, pool.id, name, labels, &[Capability::Shell], replica).await
 }
 
-async fn connected_in(
+pub(super) async fn connected_in(
     world: &World,
     pool: PoolId,
     name: &str,
@@ -947,7 +947,12 @@ async fn a_job_that_becomes_queued_is_announced_on_the_queue_channel() {
     assert_eq!(announced(&mut listener).await, build);
 }
 
-async fn pool(world: &World, name: &str, trust: TrustLevel, access: &[Access]) -> PoolId {
+pub(super) async fn pool(
+    world: &World,
+    name: &str,
+    trust: TrustLevel,
+    access: &[Access],
+) -> PoolId {
     bosun_db::pools::create(
         world.db(),
         NewPool {

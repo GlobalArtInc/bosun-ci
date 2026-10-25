@@ -112,6 +112,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         ("api/agent.json", round_trip::<Agent>),
         ("api/command-job-cancel.json", round_trip::<CommandRequest>),
+        ("api/command-run-admit.json", round_trip::<CommandRequest>),
         ("api/command-run-cancel.json", round_trip::<CommandRequest>),
         (
             "api/create-organisation-request.json",

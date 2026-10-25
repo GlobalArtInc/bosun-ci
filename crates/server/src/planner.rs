@@ -204,6 +204,9 @@ async fn advance(run: &Locked<'_>, jobs: &[JobState]) -> Result<bool, Error> {
             }
             continue;
         }
+        if run.state().awaiting_admission {
+            continue;
+        }
         let room = usize::try_from(strategy.max_parallel)
             .unwrap_or(usize::MAX)
             .saturating_sub(active(&members));
@@ -217,7 +220,7 @@ async fn advance(run: &Locked<'_>, jobs: &[JobState]) -> Result<bool, Error> {
             .map(|member| member.id)
             .collect();
         for member in &held {
-            run.release_job(*member).await?;
+            run.release_job(*member, &Actor::System).await?;
         }
         if !held.is_empty() {
             return Ok(true);
@@ -240,6 +243,17 @@ fn active(members: &[&JobState]) -> usize {
             )
         })
         .count()
+}
+
+fn occupied(members: &[&JobState]) -> usize {
+    active(members)
+        + members
+            .iter()
+            .filter(|member| {
+                member.status == JobStatus::Waiting
+                    && member.waiting_reason == Some(WaitingReason::Untrusted)
+            })
+            .count()
 }
 
 fn failed(job: &JobState) -> bool {
@@ -379,14 +393,18 @@ pub(crate) async fn assign(
         return fail_assigned(run, site, world, execution, StatusReason::ActionUnavailable).await;
     }
     let template = world.template(&job.key)?;
-    let read = secrets::read(
-        run.transaction(),
-        keys,
-        world.facts.organisation_id,
-        world.facts.project_id,
-        &template.secrets,
-    )
-    .await?;
+    let read = if run.state().trusted {
+        secrets::read(
+            run.transaction(),
+            keys,
+            world.facts.organisation_id,
+            world.facts.project_id,
+            &template.secrets,
+        )
+        .await?
+    } else {
+        Ok(BTreeMap::new())
+    };
     let secrets = match read {
         Ok(secrets) => secrets,
         Err(unopened) => {
@@ -882,18 +900,21 @@ async fn decide(
             .iter()
             .filter(|member| member.group == Some(group))
             .collect();
-        active(&members) >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
+        occupied(&members) >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
     });
     let waiting_reason = if full {
-        run.hold_job(job.id, &placement, WaitingReason::MaxParallel)
-            .await?;
         Some(WaitingReason::MaxParallel)
+    } else if run.state().awaiting_admission {
+        Some(WaitingReason::Untrusted)
     } else {
-        run.queue_job(job.id, &placement).await?;
         None
     };
+    match waiting_reason {
+        Some(reason) => run.hold_job(job.id, &placement, reason).await?,
+        None => run.queue_job(job.id, &placement).await?,
+    }
     Ok(Some(Decided {
-        status: if full {
+        status: if waiting_reason.is_some() {
             JobStatus::Waiting
         } else {
             JobStatus::Queued
@@ -1373,6 +1394,8 @@ async fn settle(run: &mut Locked<'_>, jobs: &[JobState]) -> Result<(), Error> {
             RunStatus::Completed,
             Some(conclude(run.state().cancel_requested, jobs)),
         )
+    } else if waits(jobs) {
+        (RunStatus::Waiting, None)
     } else if jobs.iter().any(|job| job.started) {
         (RunStatus::InProgress, None)
     } else {
@@ -1382,6 +1405,20 @@ async fn settle(run: &mut Locked<'_>, jobs: &[JobState]) -> Result<(), Error> {
         run.set_status(to, conclusion).await?;
     }
     Ok(())
+}
+
+fn waits(jobs: &[JobState]) -> bool {
+    jobs.iter().any(|job| job.status == JobStatus::Waiting)
+        && !jobs.iter().any(|job| {
+            matches!(
+                job.status,
+                JobStatus::Queued
+                    | JobStatus::Assigned
+                    | JobStatus::InProgress
+                    | JobStatus::Paused
+                    | JobStatus::Held
+            )
+        })
 }
 
 fn conclude(cancel_requested: bool, jobs: &[JobState]) -> RunConclusion {

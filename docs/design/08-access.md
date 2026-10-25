@@ -400,12 +400,45 @@ pull request:
 | Policy | Effect |
 |--------|--------|
 | `disabled` (default) | no run is created; the pull request gets a status saying so |
-| `approval` | the run is created and its jobs wait with reason `untrusted` until a maintainer admits it from the run page (`run.admit`) |
+| `approval` | the run is created and its jobs wait with reason `untrusted` until a maintainer admits it (`run.admit`), from the run page or with `bosun run admit` |
 | `automatic` | the run is created at once |
 
 An untrusted run receives no secrets and no environment secrets; variables are passed, since they
 are not meant to be secret. Its forge token is read-only. `pull_request_target` runs are trusted, because they run the base
 branch's workflow, and the validator warns when such a workflow checks out the pull request's head.
+
+Step 29 of M1 ([../plan.md](../plan.md)) settled how the policy applies:
+
+- **From a fork.** A pull request is from a fork when the repository of its head
+  (`pull_request.head.repo.id`) is not the repository of its base, or when its head names no
+  repository, as when the fork was deleted. The policy applies to the events that run the pull
+  request's own code at its merge ref: `pull_request`, `pull_request_review` and
+  `pull_request_review_comment`. `pull_request_target` runs the base branch's files and
+  `merge_group` the queue's commit in the repository itself, so their runs are trusted whoever
+  opened the pull request.
+- **`disabled`** creates no run, not even a `startup_failure`, and reads nothing of the fork: the
+  server reads the workflows of the base branch's last commit, the files the project has reviewed,
+  and matches the event against them with the pull request's files. When one of them would run,
+  the pull request gets a commit status on its head commit through the outbox
+  ([07-storage.md](07-storage.md#the-outbox)): the context `bosun/fork-policy`, the state `error`,
+  since nothing ran rather than something failed, the description `Bosun runs no workflow for pull
+  requests from forks in this project`, and no target address. A fork that adds a workflow file
+  of its own therefore gets no status for it, since that file never runs. An event that no
+  workflow of the base branch matches, such as a label added under the default `types`, posts
+  nothing, and one that matches again posts the same status again, which the forge keeps once per
+  context and commit.
+- **`approval`** creates the run untrusted, `run.trusted` false and `run.admitted_at` empty. Each
+  job that becomes ready waits with reason `untrusted`, and the run is `waiting`
+  ([04-runs.md](04-runs.md#states)). `run.admit` needs `run.override`, sets `admitted_at`, and
+  queues the waiting jobs with the command's actor; jobs that become ready afterwards are queued as
+  in any run. The interface shows the command on the run page from step 42.
+- **`automatic`** creates the run untrusted and admitted at once, so its jobs are queued as they
+  become ready.
+- **The untrusted run** goes to untrusted pools only
+  ([05-execution.md](05-execution.md#pools-and-label-aliases)). Its assignment holds no secret of
+  the organisation or the project, whatever the job references, so an expression that reads one
+  gives an empty string; `vars` holds every variable as for any run. The read-only forge token,
+  `secrets.GITHUB_TOKEN`, arrives with step 34.
 
 The organisations of this installation keep agents in internal networks, so the default fork
 policy is `disabled`, and a project that wants fork builds needs an untrusted pool first.

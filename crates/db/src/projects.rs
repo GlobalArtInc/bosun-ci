@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bosun_types::api::{Project, ProjectSettings, Repository};
+use bosun_types::api::{ForkPolicy, Project, ProjectSettings, Repository};
 use bosun_types::id::{ExecutionId, JobId, OrganisationId, ProjectId, RunId, WorkflowId};
 use sea_orm::prelude::Uuid;
 use sea_orm::sea_query::{Expr, Query};
@@ -57,6 +57,7 @@ pub struct Binding {
     pub project: Project,
     pub installation: Option<u64>,
     pub github_workflows: bool,
+    pub fork_policy: ForkPolicy,
 }
 
 pub enum Holder {
@@ -180,6 +181,7 @@ async fn binding_of<C: ConnectionTrait>(
         return Ok(None);
     };
     let github_workflows = found.github_workflows;
+    let fork_policy = row::name(TABLE, found.fork_policy.clone())?;
     let installation = match found.repository_id {
         Some(repository) => forge_repository::Entity::find_by_id(repository)
             .one(db)
@@ -193,6 +195,7 @@ async fn binding_of<C: ConnectionTrait>(
         project,
         installation,
         github_workflows,
+        fork_policy,
     }))
 }
 

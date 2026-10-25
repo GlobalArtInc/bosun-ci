@@ -11,12 +11,15 @@ pub enum Command {
     RunCancel,
     #[serde(rename = "job.cancel")]
     JobCancel,
+    #[serde(rename = "run.admit")]
+    RunAdmit,
 }
 
 impl Command {
     pub fn permission(&self) -> Permission {
         match self {
             Command::RunCancel | Command::JobCancel => Permission::RunCancel,
+            Command::RunAdmit => Permission::RunOverride,
         }
     }
 }

@@ -91,6 +91,14 @@ pub(crate) enum Command {
         #[arg(help = "The id of the run")]
         run: String,
     },
+    #[command(
+        about = "Admit a run from a fork that waits for admission: its jobs go on to the agents \
+                 of untrusted pools"
+    )]
+    Admit {
+        #[arg(help = "The id of the run")]
+        run: String,
+    },
 }
 
 struct Filters {
@@ -137,25 +145,51 @@ pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode,
             watch(&client, &workflow, run).await
         }
         Command::Cancel { run } => {
-            let id = id(&run)?;
-            let accepted: RunEvent = client
-                .post(
-                    &format!("/api/v1/runs/{id}/commands"),
-                    &CommandRequest {
-                        command: Operation::RunCancel,
-                        target: Target::default(),
-                        reason: None,
-                    },
-                )
-                .await?;
-            if context.json() {
-                output::json(&accepted)?;
-            } else {
-                println!("the cancellation of run {id} is accepted");
-            }
-            Ok(ExitCode::SUCCESS)
+            operate(
+                context,
+                &client,
+                id(&run)?,
+                Operation::RunCancel,
+                "cancellation",
+            )
+            .await
+        }
+        Command::Admit { run } => {
+            operate(
+                context,
+                &client,
+                id(&run)?,
+                Operation::RunAdmit,
+                "admission",
+            )
+            .await
         }
     }
+}
+
+async fn operate(
+    context: &Context,
+    client: &Client,
+    id: RunId,
+    operation: Operation,
+    what: &str,
+) -> Result<ExitCode, Failure> {
+    let accepted: RunEvent = client
+        .post(
+            &format!("/api/v1/runs/{id}/commands"),
+            &CommandRequest {
+                command: operation,
+                target: Target::default(),
+                reason: None,
+            },
+        )
+        .await?;
+    if context.json() {
+        output::json(&accepted)?;
+    } else {
+        println!("the {what} of run {id} is accepted");
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn id(text: &str) -> Result<RunId, Failure> {

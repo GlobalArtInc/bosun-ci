@@ -47,6 +47,8 @@ pub struct RunState {
     pub status: RunStatus,
     pub conclusion: Option<RunConclusion>,
     pub cancel_requested: bool,
+    pub trusted: bool,
+    pub awaiting_admission: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,7 +142,8 @@ pub struct ExecutionState {
 }
 
 pub(crate) const RUN_STATE: &str = "r.status, r.conclusion, \
-     r.cancel_requested_at IS NOT NULL AS cancel_requested, a.id AS attempt_id, \
+     r.cancel_requested_at IS NOT NULL AS cancel_requested, r.trusted, \
+     NOT r.trusted AND r.admitted_at IS NULL AS awaiting_admission, a.id AS attempt_id, \
      a.number AS attempt";
 
 pub async fn lock(
@@ -195,6 +198,8 @@ pub(crate) fn decode_state(run: RunId, found: &QueryResult) -> Result<RunState, 
             .map(|conclusion| row::name(RUNS, conclusion))
             .transpose()?,
         cancel_requested: found.try_get("", "cancel_requested")?,
+        trusted: found.try_get("", "trusted")?,
+        awaiting_admission: found.try_get("", "awaiting_admission")?,
     })
 }
 
@@ -411,6 +416,17 @@ impl<'a> Locked<'a> {
         Ok(())
     }
 
+    pub async fn admit(&mut self) -> Result<(), Error> {
+        self.transaction
+            .execute(statement(
+                "UPDATE run SET admitted_at = coalesce(admitted_at, now()) WHERE id = $1",
+                [Uuid::from(self.state.id).into()],
+            ))
+            .await?;
+        self.state.awaiting_admission = false;
+        Ok(())
+    }
+
     pub async fn request_cancel(&mut self) -> Result<(), Error> {
         self.transaction
             .execute(statement(
@@ -525,6 +541,12 @@ fn decode_execution(found: &QueryResult) -> Result<ExecutionState, Error> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trust {
+    Trusted,
+    Untrusted { admitted: bool },
+}
+
 pub struct NewRun<'a> {
     pub workflow: &'a Workflow,
     pub revision_id: RevisionId,
@@ -534,6 +556,7 @@ pub struct NewRun<'a> {
     pub sha: Option<&'a str>,
     pub payload: &'a Value,
     pub actor: &'a Actor,
+    pub trust: Trust,
 }
 
 pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run, Error> {
@@ -564,11 +587,19 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         started_at: ActiveValue::Set(None),
         completed_at: ActiveValue::Set(None),
         cancel_requested_at: ActiveValue::Set(None),
-        trusted: ActiveValue::Set(true),
+        trusted: ActiveValue::Set(new.trust == Trust::Trusted),
+        admitted_at: ActiveValue::Set(None),
     }
     .insert(db)
     .await?;
     let run_id: RunId = row::id(RUNS, created.id)?;
+    if new.trust == (Trust::Untrusted { admitted: true }) {
+        db.execute(statement(
+            "UPDATE run SET admitted_at = created_at WHERE id = $1",
+            [created.id.into()],
+        ))
+        .await?;
+    }
     let number = row::unsigned(RUNS, created.number)?;
     let global_number = row::unsigned(RUNS, created.global_number)?;
     record(

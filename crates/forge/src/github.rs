@@ -39,6 +39,8 @@ const PAGE_SIZE: &str = "100";
 
 const COMPARE_FILES: usize = 300;
 
+const PULL_REQUEST_FILES: usize = 3000;
+
 const TOKEN_MARGIN: TimeDelta = TimeDelta::minutes(5);
 
 const SECONDARY_WAIT: TimeDelta = TimeDelta::minutes(1);
@@ -432,11 +434,42 @@ impl Forge for GitHubApp {
         })
     }
 
+    async fn parents(
+        &self,
+        repository: &Repository,
+        commit: &str,
+    ) -> Result<Option<Vec<String>>, Error> {
+        let url = self.repository_url(repository, &["git", "commits", commit], "");
+        let reply = self
+            .request(
+                Credential::Installation(repository.installation),
+                Method::GET,
+                url,
+                JSON,
+                None,
+            )
+            .await?;
+        if matches!(
+            reply.status,
+            StatusCode::NOT_FOUND | StatusCode::UNPROCESSABLE_ENTITY
+        ) {
+            return Ok(None);
+        }
+        let commit: wire::Commit = reply.json()?;
+        Ok(Some(
+            commit
+                .parents
+                .into_iter()
+                .map(|parent| parent.sha)
+                .collect(),
+        ))
+    }
+
     async fn pull_request_files(
         &self,
         repository: &Repository,
         number: u64,
-    ) -> Result<Vec<String>, Error> {
+    ) -> Result<Comparison, Error> {
         let number = number.to_string();
         let mut url = self.repository_url(repository, &["pulls", &number, "files"], "");
         url.query_pairs_mut().append_pair("per_page", PAGE_SIZE);
@@ -460,7 +493,8 @@ impl Forge for GitHubApp {
                 .map(|link| self.page(link))
                 .transpose()?;
         }
-        Ok(files)
+        let truncated = files.len() >= PULL_REQUEST_FILES;
+        Ok(Comparison { files, truncated })
     }
 
     async fn installation_repositories(
