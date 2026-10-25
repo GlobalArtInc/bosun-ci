@@ -1259,7 +1259,8 @@ address of the test store), `.github/workflows/ci.yml`, `CLAUDE.md`, `docs/desig
 It evaluates `run-name` when the run is created. When a job's `needs` are complete, it evaluates the
 job's `if`, with the status functions over its ancestors and the implicit `success() &&`. It then
 evaluates `name`, `runs-on`, `timeout-minutes`, `continue-on-error`, the job's `env` and `defaults`,
-and stores them for the assignment.
+and stores them for the assignment. Dispatch stops refusing a job's `if`, an expression in `runs-on`
+and a job's `continue-on-error`, which it refuses until then (design/11-api.md).
 
 During cancellation `cancelled()` is true, so a pending job whose `if` admits cancellation still
 runs after `run.cancel`, as in the target. An evaluation error fails the job, with a reason the step
@@ -1331,7 +1332,8 @@ The group fails when the matrix is empty, naming the empty vector, and when it h
 the installation's limit of 256. `fail-fast`, true by default, cancels the remaining members when
 one fails. `max-parallel` keeps the members beyond it `waiting`, with reason `max_parallel`. The
 group's conclusion follows design/04-runs.md, taking each member's `continue-on-error` into account.
-Expansion cases live in `contracts/fixtures/matrix/`.
+Expansion cases live in `contracts/fixtures/matrix/`. Dispatch stops refusing `strategy`, which it
+refuses until then (design/11-api.md).
 
 **Touches.** `crates/server/`, `crates/db/`, `crates/types/`, `contracts/fixtures/matrix/` (new),
 `contracts/fixtures/events/`, `contracts/fixtures/api/`, `contracts/openapi.json`,
@@ -1361,7 +1363,8 @@ every job, members included; the graph (step 42).
 
 **Goal.** The concurrency groups of design/04-runs.md. The workflow-level group applies to runs and
 is evaluated when the run is created; the job-level group applies to jobs and is evaluated when the
-job is ready. `cancel-in-progress` is evaluated together with its group.
+job is ready. `cancel-in-progress` is evaluated together with its group. Dispatch stops refusing
+`concurrency`, which it refuses until then (design/11-api.md).
 
 - A group has at most one running member.
 - With `queue: single`, it has at most one pending member; a newer arrival cancels it.
@@ -2092,6 +2095,8 @@ their own in the journal.
 
 The agent sets `GITHUB_ACTION_PATH`, `GITHUB_ACTION`, `GITHUB_ACTION_REPOSITORY`,
 `GITHUB_ACTION_REF` and the `github.action*` properties. Outputs come through `GITHUB_OUTPUT`.
+
+Dispatch stops refusing a step that uses an action, which it refuses until then (design/11-api.md).
 
 The fixture actions are small JavaScript actions built with the published toolkit. They are
 committed with their bundled `dist/`, so tests need no package registry. They live under

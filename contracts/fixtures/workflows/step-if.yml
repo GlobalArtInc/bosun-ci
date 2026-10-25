@@ -1,0 +1,14 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - id: build
+        run: make
+      - if: failure() && steps.build.outcome == 'failure'
+        run: cat build.log
+      - if: ${{ always() }}
+        run: make clean
+      - if: ${{ hashFiles('Cargo.lock') != '' }}
+        run: cargo fetch

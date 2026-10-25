@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "expression_syntax",
+  "message": "the expression ends after `==`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 34,
+    "end_line": 7,
+    "end_column": 36
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    0,
+    "run"
+  ]
+}

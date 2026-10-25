@@ -1,0 +1,272 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "version",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {
+        "channel": [
+          {
+            "text": "stable"
+          }
+        ],
+        "version": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "steps",
+                            "span": {
+                              "line": 7,
+                              "column": 20,
+                              "end_line": 7,
+                              "end_column": 25
+                            }
+                          }
+                        },
+                        "name": "read",
+                        "span": {
+                          "line": 7,
+                          "column": 20,
+                          "end_line": 7,
+                          "end_column": 30
+                        }
+                      }
+                    },
+                    "name": "outputs",
+                    "span": {
+                      "line": 7,
+                      "column": 20,
+                      "end_line": 7,
+                      "end_column": 38
+                    }
+                  }
+                },
+                "name": "version",
+                "span": {
+                  "line": 7,
+                  "column": 20,
+                  "end_line": 7,
+                  "end_column": 46
+                }
+              }
+            }
+          }
+        ]
+      },
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": "read",
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo \"version=$(cat VERSION)\" >> \"$GITHUB_OUTPUT\""
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 10,
+              "column": 9,
+              "end_line": 11,
+              "end_column": 63
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 11,
+        "end_column": 63
+      }
+    },
+    {
+      "key": "release",
+      "name": null,
+      "needs": [
+        "version"
+      ],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "./release.sh "
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "property": {
+                            "target": {
+                              "property": {
+                                "target": {
+                                  "context": {
+                                    "name": "needs",
+                                    "span": {
+                                      "line": 17,
+                                      "column": 31,
+                                      "end_line": 17,
+                                      "end_column": 36
+                                    }
+                                  }
+                                },
+                                "name": "version",
+                                "span": {
+                                  "line": 17,
+                                  "column": 31,
+                                  "end_line": 17,
+                                  "end_column": 44
+                                }
+                              }
+                            },
+                            "name": "outputs",
+                            "span": {
+                              "line": 17,
+                              "column": 31,
+                              "end_line": 17,
+                              "end_column": 52
+                            }
+                          }
+                        },
+                        "name": "version",
+                        "span": {
+                          "line": 17,
+                          "column": 31,
+                          "end_line": 17,
+                          "end_column": 60
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 17,
+              "column": 9,
+              "end_line": 17,
+              "end_column": 63
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 13,
+        "column": 3,
+        "end_line": 17,
+        "end_column": 63
+      }
+    }
+  ]
+}

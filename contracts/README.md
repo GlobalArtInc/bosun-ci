@@ -5,7 +5,8 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/`: golden fixtures that tests load, from step 2 of M0.
 - `fixtures/workflows/`: workflow sources, from step 3 of M0. Each one lowers to the IR of the same
   name in `fixtures/ir/`, or produces exactly the diagnostic of the same name in
-  `fixtures/diagnostics/`.
+  `fixtures/diagnostics/`. From step 4 of M1, a source that lowers with a warning has both: its IR,
+  and the warning as its diagnostic.
 - `fixtures/steps/`: jobs of `run` steps on the host, from step 12 of M0, each with the conclusion,
   the outcome of every step that starts and the output lines the execution engine must produce.
   They pin the shell rules of the target: the default and the named shells, custom templates,

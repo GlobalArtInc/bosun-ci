@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "scope `models` in `permissions` of job `build` must be `read` or `none`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 15,
+    "end_line": 7,
+    "end_column": 20
+  },
+  "path": [
+    "jobs",
+    "build",
+    "permissions",
+    "models"
+  ]
+}

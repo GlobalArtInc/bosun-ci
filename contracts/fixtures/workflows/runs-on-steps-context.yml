@@ -1,0 +1,8 @@
+on: push
+
+jobs:
+  build:
+    runs-on: ${{ steps.a.outputs.x }}
+    steps:
+      - id: a
+        run: make

@@ -1,0 +1,154 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 7,
+              "column": 9,
+              "end_line": 7,
+              "end_column": 18
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": {
+              "template": [
+                {
+                  "expression": {
+                    "property": {
+                      "target": {
+                        "context": {
+                          "name": "github",
+                          "span": {
+                            "line": 8,
+                            "column": 18,
+                            "end_line": 8,
+                            "end_column": 24
+                          }
+                        }
+                      },
+                      "name": "ref",
+                      "span": {
+                        "line": 8,
+                        "column": 18,
+                        "end_line": 8,
+                        "end_column": 28
+                      }
+                    }
+                  }
+                },
+                {
+                  "text": " == 'refs/heads/main'"
+                }
+              ]
+            },
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "./publish.sh"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 8,
+              "column": 9,
+              "end_line": 9,
+              "end_column": 26
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 9,
+        "end_column": 26
+      }
+    }
+  ]
+}

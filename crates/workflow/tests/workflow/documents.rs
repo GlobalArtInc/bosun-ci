@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::fs;
 
 use bosun_types::diagnostic::PathSegment;
@@ -78,8 +78,8 @@ pub(crate) fn arrivals() -> Vec<(String, String, String)> {
     arrivals
 }
 
-fn implemented(place: &str, milestone: &str) -> bool {
-    milestone == "M1" && matches!(place, "on" | "workflow_dispatch")
+fn implemented(milestone: &str) -> bool {
+    milestone == "M1"
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn keys_of_later_milestones_are_refused_naming_their_milestone() {
             continue;
         }
         let source = workflow_with(&place, &key);
-        if implemented(&place, &milestone) {
+        if implemented(&milestone) {
             let diagnostics = bosun_workflow::parse(FILE, &source)
                 .err()
                 .unwrap_or_default();
@@ -127,17 +127,25 @@ fn keys_of_later_milestones_are_refused_naming_their_milestone() {
 
 #[test]
 fn diagnostic_codes_match_the_design_and_the_fixtures() {
-    let documented: BTreeSet<String> = table(&workflows_document(), "| Code | Meaning |")
-        .iter()
-        .flat_map(|row| quoted(&row[0]))
-        .collect();
+    let mut documented = BTreeMap::new();
+    for row in table(&workflows_document(), "| Code | Severity | Meaning |") {
+        for code in quoted(&row[0]) {
+            documented.insert(code, row[1].clone());
+        }
+    }
     let directory = repository().join("contracts/fixtures/diagnostics");
-    let mut pinned = BTreeSet::new();
+    let mut pinned = BTreeMap::new();
     for entry in fs::read_dir(&directory).expect("the diagnostic fixtures are readable") {
         let path = entry.expect("a directory entry").path();
         let value: Value = serde_json::from_str(&read(&path))
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-        pinned.insert(value["code"].as_str().expect("a code").to_string());
+        let code = value["code"].as_str().expect("a code").to_string();
+        let severity = value["severity"].as_str().expect("a severity").to_string();
+        let previous = pinned.insert(code.clone(), severity.clone());
+        assert!(
+            previous.is_none_or(|previous| previous == severity),
+            "`{code}` is pinned with two severities"
+        );
     }
     assert_eq!(pinned, documented);
 }

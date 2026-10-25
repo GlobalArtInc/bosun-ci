@@ -1,0 +1,17 @@
+on: push
+
+jobs:
+  version:
+    runs-on: shell
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      channel: stable
+    steps:
+      - id: read
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: version
+    runs-on: shell
+    steps:
+      - run: ./release.sh ${{ needs.version.outputs.version }}

@@ -18,7 +18,8 @@ The value of `if` is an expression with or without the delimiters: when the whol
 whitespace around it, is one `${{ }}`, its content is the expression; when there are no delimiters,
 the whole value is. An `if` that is empty or holds only whitespace sets no condition. An `if` with
 text around a `${{ }}`, or with several of them, is a template: it evaluates to a string, which is
-true unless it is empty, so with text around it is always true; the linter warns about it.
+true unless it is empty, so with text around it is always true; the parser warns about it with
+`template_condition` ([02-workflows.md](02-workflows.md)).
 
 Literals: `null`, `true`, `false`, numbers (integer, decimal, exponent, hexadecimal with `0x`,
 octal with `0o`, `NaN`, `Infinity`), and strings in single quotes, where `''` stands for one quote.
@@ -184,7 +185,9 @@ everywhere. Bosun reproduces this availability table of the target syntax as dat
 pinned by `contracts/fixtures/expr/availability.json`, and validation rejects an expression that
 names a context or calls a function unavailable at its key. Keys are named as the target names
 them, from the root of the file: `jobs.<job_id>.steps.run` is the `run` of any step. The table in
-the crate holds the keys of the milestones reached so far ([../plan.md](../plan.md)).
+the crate holds the keys of the milestones reached so far ([../plan.md](../plan.md)). A key the
+table does not list takes no expression, such as a step's `shell` or `uses`, as in the target
+([02-workflows.md](02-workflows.md)).
 
 The table also decides which side evaluates the expression, by one rule: **an expression whose key
 can see `job`, `runner` or `steps` is evaluated on the agent; every other expression is evaluated

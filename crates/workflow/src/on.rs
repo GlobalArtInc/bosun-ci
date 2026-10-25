@@ -61,7 +61,7 @@ impl Lowering<'_> {
         } else {
             let mut seen = BTreeSet::new();
             for item in self.strings(entry.value, &entry.path, "`on`")? {
-                match EVENTS.find(&item.text, &item.node.value) {
+                match EVENTS.find(&item.text) {
                     Known::Now if !seen.insert(item.text.clone()) => {
                         complete = false;
                         self.error(

@@ -1,0 +1,16 @@
+{
+  "severity": "error",
+  "code": "unknown_key",
+  "message": "unknown scope `content` in `permissions` of the workflow; did you mean `contents`?",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 4,
+    "column": 3,
+    "end_line": 4,
+    "end_column": 10
+  },
+  "path": [
+    "permissions",
+    "content"
+  ]
+}

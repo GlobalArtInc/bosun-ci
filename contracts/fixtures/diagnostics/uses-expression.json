@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`uses` of step 1 of job `build` takes no expressions",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 15,
+    "end_line": 7,
+    "end_column": 47
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    0,
+    "uses"
+  ]
+}

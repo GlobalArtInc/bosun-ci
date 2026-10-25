@@ -1,0 +1,21 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Restore the cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target
+          key: cargo-${{ hashFiles('Cargo.lock') }}
+        env:
+          ACTIONS_STEP_DEBUG: true
+        continue-on-error: true
+        timeout-minutes: 5
+      - run: cargo build

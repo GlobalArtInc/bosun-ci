@@ -139,7 +139,12 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
   `queued` when the response leaves ([04-runs.md](04-runs.md)). A project without a repository has
   no refs, so `ref` must be `null`; until `workflow_dispatch` inputs arrive in M1, every input is an
   `invalid_input` naming `inputs.<name>`. A disabled workflow, and a current revision that this
-  server's parser refuses, are `409 invalid_state`, the latter with its diagnostics.
+  server's parser refuses, are `409 invalid_state`, the latter with its diagnostics. So is, until
+  the planner applies it, a revision that uses a key the planner would otherwise ignore, so that a
+  run never quietly differs from its workflow: a job's `if`, an expression in `runs-on` and a job's
+  `continue-on-error` until step 15 of [../plan.md](../plan.md), `strategy` until step 16,
+  `concurrency` until step 17 and a step that uses an action until step 33, because the assignment
+  carries no such step before. The message names the key and the step that brings it.
 
 ### Commands
 

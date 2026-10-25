@@ -1,0 +1,164 @@
+{
+  "name": "Deploy",
+  "run_name": [
+    {
+      "text": "Deploy "
+    },
+    {
+      "expression": {
+        "property": {
+          "target": {
+            "context": {
+              "name": "inputs",
+              "span": {
+                "line": 2,
+                "column": 22,
+                "end_line": 2,
+                "end_column": 28
+              }
+            }
+          },
+          "name": "target",
+          "span": {
+            "line": 2,
+            "column": 22,
+            "end_line": 2,
+            "end_column": 35
+          }
+        }
+      }
+    },
+    {
+      "text": " by @"
+    },
+    {
+      "expression": {
+        "property": {
+          "target": {
+            "context": {
+              "name": "github",
+              "span": {
+                "line": 2,
+                "column": 47,
+                "end_line": 2,
+                "end_column": 53
+              }
+            }
+          },
+          "name": "actor",
+          "span": {
+            "line": 2,
+            "column": 47,
+            "end_line": 2,
+            "end_column": 59
+          }
+        }
+      }
+    }
+  ],
+  "triggers": [
+    {
+      "workflow_dispatch": {
+        "inputs": [
+          {
+            "name": "target",
+            "description": null,
+            "required": false,
+            "kind": {
+              "choice": {
+                "options": [
+                  "staging",
+                  "production"
+                ],
+                "default": null
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "deploy",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "./deploy.sh"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 15,
+              "column": 9,
+              "end_line": 15,
+              "end_column": 25
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 12,
+        "column": 3,
+        "end_line": 15,
+        "end_column": 25
+      }
+    }
+  ]
+}

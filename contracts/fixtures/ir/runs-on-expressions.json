@@ -1,0 +1,347 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "matrix",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "template": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "matrix",
+                    "span": {
+                      "line": 5,
+                      "column": 18,
+                      "end_line": 5,
+                      "end_column": 24
+                    }
+                  }
+                },
+                "name": "os",
+                "span": {
+                  "line": 5,
+                  "column": 18,
+                  "end_line": 5,
+                  "end_column": 27
+                }
+              }
+            }
+          }
+        ]
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "literal": {
+          "matrix": {
+            "literal": {
+              "vectors": [
+                {
+                  "name": "os",
+                  "values": {
+                    "literal": [
+                      {
+                        "string": [
+                          {
+                            "text": "linux"
+                          }
+                        ]
+                      },
+                      {
+                        "string": [
+                          {
+                            "text": "macos"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "include": null,
+              "exclude": null
+            }
+          },
+          "fail_fast": {
+            "literal": true
+          },
+          "max_parallel": null
+        }
+      },
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 10,
+              "column": 9,
+              "end_line": 10,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 10,
+        "end_column": 18
+      }
+    },
+    {
+      "key": "labels",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "self-hosted"
+              }
+            ],
+            [
+              {
+                "expression": {
+                  "property": {
+                    "target": {
+                      "context": {
+                        "name": "vars",
+                        "span": {
+                          "line": 13,
+                          "column": 33,
+                          "end_line": 13,
+                          "end_column": 37
+                        }
+                      }
+                    },
+                    "name": "ARCH",
+                    "span": {
+                      "line": 13,
+                      "column": 33,
+                      "end_line": 13,
+                      "end_column": 42
+                    }
+                  }
+                }
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 15,
+              "column": 9,
+              "end_line": 15,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 12,
+        "column": 3,
+        "end_line": 15,
+        "end_column": 18
+      }
+    },
+    {
+      "key": "group",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "vars",
+                      "span": {
+                        "line": 19,
+                        "column": 18,
+                        "end_line": 19,
+                        "end_column": 22
+                      }
+                    }
+                  },
+                  "name": "POOL",
+                  "span": {
+                    "line": 19,
+                    "column": 18,
+                    "end_line": 19,
+                    "end_column": 27
+                  }
+                }
+              }
+            }
+          ],
+          "labels": [
+            [
+              {
+                "text": "linux"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 22,
+              "column": 9,
+              "end_line": 22,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 17,
+        "column": 3,
+        "end_line": 22,
+        "end_column": 18
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+on: push
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  deploy:
+    runs-on: shell
+    concurrency:
+      group: deploy
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+      queue: max
+    steps:
+      - run: ./deploy.sh
+
+  docs:
+    runs-on: shell
+    concurrency: docs-${{ github.ref }}
+    steps:
+      - run: make docs

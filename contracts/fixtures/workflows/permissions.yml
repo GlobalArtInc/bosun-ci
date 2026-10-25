@@ -1,0 +1,26 @@
+on: push
+
+permissions: read-all
+
+jobs:
+  release:
+    permissions: write-all
+    runs-on: shell
+    steps:
+      - run: make release
+
+  isolated:
+    permissions: {}
+    runs-on: shell
+    steps:
+      - run: make test
+
+  publish:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      pull-requests: none
+    runs-on: shell
+    steps:
+      - run: make publish

@@ -1,0 +1,16 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "scope `id-token` in `permissions` of the workflow must be `write` or `none`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 4,
+    "column": 13,
+    "end_line": 4,
+    "end_column": 17
+  },
+  "path": [
+    "permissions",
+    "id-token"
+  ]
+}

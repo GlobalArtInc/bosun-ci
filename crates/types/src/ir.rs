@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
@@ -227,9 +227,121 @@ pub enum Evaluable<T> {
 #[serde(deny_unknown_fields)]
 pub struct Workflow {
     pub name: Option<String>,
+    pub run_name: Option<Template>,
     pub triggers: Vec<Trigger>,
+    pub permissions: Option<Permissions>,
     pub env: BTreeMap<String, Template>,
+    pub defaults: Defaults,
+    pub concurrency: Option<Concurrency>,
     pub jobs: Vec<JobTemplate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Permissions {
+    ReadAll,
+    WriteAll,
+    Scopes(BTreeMap<Scope, Access>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Scope {
+    Actions,
+    Attestations,
+    Checks,
+    Contents,
+    Deployments,
+    Discussions,
+    IdToken,
+    Issues,
+    Models,
+    Packages,
+    Pages,
+    PullRequests,
+    RepositoryProjects,
+    SecurityEvents,
+    Statuses,
+}
+
+impl Scope {
+    pub const ALL: [Scope; 15] = [
+        Scope::Actions,
+        Scope::Attestations,
+        Scope::Checks,
+        Scope::Contents,
+        Scope::Deployments,
+        Scope::Discussions,
+        Scope::IdToken,
+        Scope::Issues,
+        Scope::Models,
+        Scope::Packages,
+        Scope::Pages,
+        Scope::PullRequests,
+        Scope::RepositoryProjects,
+        Scope::SecurityEvents,
+        Scope::Statuses,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Scope::Actions => "actions",
+            Scope::Attestations => "attestations",
+            Scope::Checks => "checks",
+            Scope::Contents => "contents",
+            Scope::Deployments => "deployments",
+            Scope::Discussions => "discussions",
+            Scope::IdToken => "id-token",
+            Scope::Issues => "issues",
+            Scope::Models => "models",
+            Scope::Packages => "packages",
+            Scope::Pages => "pages",
+            Scope::PullRequests => "pull-requests",
+            Scope::RepositoryProjects => "repository-projects",
+            Scope::SecurityEvents => "security-events",
+            Scope::Statuses => "statuses",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    Read,
+    Write,
+    None,
+}
+
+impl Access {
+    pub fn name(self) -> &'static str {
+        match self {
+            Access::Read => "read",
+            Access::Write => "write",
+            Access::None => "none",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Defaults {
+    pub shell: Option<Evaluable<Shell>>,
+    pub working_directory: Option<Template>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Concurrency {
+    pub group: Template,
+    pub cancel_in_progress: Evaluable<bool>,
+    pub queue: Queue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Queue {
+    Single,
+    Max,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -356,8 +468,17 @@ pub struct JobTemplate {
     pub key: JobKey,
     pub name: Option<Template>,
     pub needs: Vec<JobKey>,
+    pub r#if: Option<Condition>,
     pub runs_on: Evaluable<RunsOn>,
+    pub permissions: Option<Permissions>,
+    pub concurrency: Option<Concurrency>,
+    pub strategy: Option<Evaluable<Strategy>>,
     pub env: BTreeMap<String, Template>,
+    pub defaults: Defaults,
+    pub timeout_minutes: Evaluable<u32>,
+    pub continue_on_error: Evaluable<bool>,
+    pub outputs: BTreeMap<String, Template>,
+    pub secrets: SecretReferences,
     pub kind: JobKind,
     pub span: Span,
 }
@@ -365,8 +486,56 @@ pub struct JobTemplate {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunsOn {
-    pub group: Option<String>,
-    pub labels: Vec<String>,
+    pub group: Option<Template>,
+    pub labels: Vec<Template>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Strategy {
+    pub matrix: Option<Evaluable<Matrix>>,
+    pub fail_fast: Evaluable<bool>,
+    pub max_parallel: Option<Evaluable<u32>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Matrix {
+    pub vectors: Vec<Vector>,
+    pub include: Option<Evaluable<Vec<Vec<MatrixField>>>>,
+    pub exclude: Option<Evaluable<Vec<Vec<MatrixField>>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Vector {
+    pub name: String,
+    pub values: Evaluable<Vec<MatrixValue>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MatrixField {
+    pub name: String,
+    pub value: MatrixValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum MatrixValue {
+    Null,
+    Boolean(bool),
+    Number(Number),
+    String(Template),
+    List(Vec<MatrixValue>),
+    Object(Vec<MatrixField>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SecretReferences {
+    Named(BTreeSet<String>),
+    All,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -380,10 +549,14 @@ pub enum JobKind {
 pub struct Step {
     pub key: Option<StepKey>,
     pub name: Option<Template>,
+    pub r#if: Option<Condition>,
     pub action: Action,
     pub shell: Option<Shell>,
     pub working_directory: Option<Template>,
+    pub with: BTreeMap<String, Template>,
     pub env: BTreeMap<String, Template>,
+    pub continue_on_error: Evaluable<bool>,
+    pub timeout_minutes: Option<Evaluable<u32>>,
     pub span: Span,
 }
 
@@ -391,6 +564,26 @@ pub struct Step {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
     Run { script: Template },
+    Uses(ActionReference),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionReference {
+    pub owner: String,
+    pub repository: String,
+    pub path: Option<String>,
+    pub r#ref: String,
+}
+
+impl fmt::Display for ActionReference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.owner, self.repository)?;
+        if let Some(path) = &self.path {
+            write!(f, "/{path}")?;
+        }
+        write!(f, "@{}", self.r#ref)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

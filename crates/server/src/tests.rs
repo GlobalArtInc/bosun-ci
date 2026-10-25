@@ -17,8 +17,8 @@ use bosun_types::command::{Command, CommandRequest, Target};
 use bosun_types::event::{Event, RunEvent};
 use bosun_types::id::{AgentId, ExecutionId, JobId, RunId, StepId, TokenId, UserId};
 use bosun_types::ir::{
-    self, Action, Evaluable, JobKind, JobTemplate, RunsOn, Span, Step, Template, Trigger,
-    WorkflowDispatch,
+    self, Action, Defaults, Evaluable, JobKind, JobTemplate, RunsOn, SecretReferences, Span, Step,
+    Template, Trigger, WorkflowDispatch,
 };
 use bosun_types::key::JobKey;
 use bosun_types::status::{
@@ -609,22 +609,35 @@ fn template(name: &str, needs: &[&str], steps: usize) -> JobTemplate {
         key: key(name),
         name: None,
         needs: needs.iter().map(|need| key(need)).collect(),
+        r#if: None,
         runs_on: Evaluable::Literal(RunsOn {
             group: None,
-            labels: vec!["Self-Hosted".to_owned(), "Linux".to_owned()],
+            labels: vec![Template::text("Self-Hosted"), Template::text("Linux")],
         }),
+        permissions: None,
+        concurrency: None,
+        strategy: None,
         env: BTreeMap::new(),
+        defaults: Defaults::default(),
+        timeout_minutes: Evaluable::Literal(360),
+        continue_on_error: Evaluable::Literal(false),
+        outputs: BTreeMap::new(),
+        secrets: SecretReferences::Named(BTreeSet::new()),
         kind: JobKind::Steps(
             (0..steps)
                 .map(|index| Step {
                     key: None,
                     name: None,
+                    r#if: None,
                     action: Action::Run {
                         script: Template::text(format!("echo {name} {index}\n")),
                     },
                     shell: None,
                     working_directory: None,
+                    with: BTreeMap::new(),
                     env: BTreeMap::new(),
+                    continue_on_error: Evaluable::Literal(false),
+                    timeout_minutes: None,
                     span,
                 })
                 .collect(),
@@ -636,8 +649,12 @@ fn template(name: &str, needs: &[&str], steps: usize) -> JobTemplate {
 fn workflow(jobs: Vec<JobTemplate>) -> ir::Workflow {
     ir::Workflow {
         name: Some("ci".to_owned()),
+        run_name: None,
         triggers: vec![Trigger::WorkflowDispatch(WorkflowDispatch::default())],
+        permissions: None,
         env: BTreeMap::new(),
+        defaults: Defaults::default(),
+        concurrency: None,
         jobs,
     }
 }

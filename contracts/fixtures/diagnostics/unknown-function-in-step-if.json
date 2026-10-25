@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "unknown_function",
+  "message": "unknown function `succeeded`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 17,
+    "end_line": 7,
+    "end_column": 28
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    0,
+    "if"
+  ]
+}

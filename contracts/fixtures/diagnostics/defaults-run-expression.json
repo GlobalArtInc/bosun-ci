@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`shell` of `defaults.run` of the workflow takes no expressions",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 5,
+    "column": 12,
+    "end_line": 5,
+    "end_column": 29
+  },
+  "path": [
+    "defaults",
+    "run",
+    "shell"
+  ]
+}

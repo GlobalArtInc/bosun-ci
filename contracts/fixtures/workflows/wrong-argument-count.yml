@@ -1,0 +1,8 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - if: contains(github.ref)
+        run: make

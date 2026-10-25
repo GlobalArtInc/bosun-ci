@@ -1,0 +1,9 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make
+      - if: "${{ github.ref }} == 'refs/heads/main'"
+        run: ./publish.sh

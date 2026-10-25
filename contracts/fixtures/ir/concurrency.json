@@ -1,0 +1,342 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": {
+    "group": [
+      {
+        "text": "ci-"
+      },
+      {
+        "expression": {
+          "property": {
+            "target": {
+              "context": {
+                "name": "github",
+                "span": {
+                  "line": 4,
+                  "column": 17,
+                  "end_line": 4,
+                  "end_column": 23
+                }
+              }
+            },
+            "name": "ref",
+            "span": {
+              "line": 4,
+              "column": 17,
+              "end_line": 4,
+              "end_column": 27
+            }
+          }
+        }
+      }
+    ],
+    "cancel_in_progress": {
+      "template": [
+        {
+          "expression": {
+            "compare": {
+              "operator": "!=",
+              "left": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "github",
+                      "span": {
+                        "line": 5,
+                        "column": 27,
+                        "end_line": 5,
+                        "end_column": 33
+                      }
+                    }
+                  },
+                  "name": "ref",
+                  "span": {
+                    "line": 5,
+                    "column": 27,
+                    "end_line": 5,
+                    "end_column": 37
+                  }
+                }
+              },
+              "right": {
+                "string": {
+                  "value": "refs/heads/main",
+                  "span": {
+                    "line": 5,
+                    "column": 41,
+                    "end_line": 5,
+                    "end_column": 58
+                  }
+                }
+              },
+              "span": {
+                "line": 5,
+                "column": 27,
+                "end_line": 5,
+                "end_column": 58
+              }
+            }
+          }
+        }
+      ]
+    },
+    "queue": "single"
+  },
+  "jobs": [
+    {
+      "key": "deploy",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": {
+        "group": [
+          {
+            "text": "deploy"
+          }
+        ],
+        "cancel_in_progress": {
+          "template": [
+            {
+              "expression": {
+                "compare": {
+                  "operator": "!=",
+                  "left": {
+                    "property": {
+                      "target": {
+                        "context": {
+                          "name": "github",
+                          "span": {
+                            "line": 12,
+                            "column": 31,
+                            "end_line": 12,
+                            "end_column": 37
+                          }
+                        }
+                      },
+                      "name": "ref",
+                      "span": {
+                        "line": 12,
+                        "column": 31,
+                        "end_line": 12,
+                        "end_column": 41
+                      }
+                    }
+                  },
+                  "right": {
+                    "string": {
+                      "value": "refs/heads/main",
+                      "span": {
+                        "line": 12,
+                        "column": 45,
+                        "end_line": 12,
+                        "end_column": 62
+                      }
+                    }
+                  },
+                  "span": {
+                    "line": 12,
+                    "column": 31,
+                    "end_line": 12,
+                    "end_column": 62
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "queue": "max"
+      },
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "./deploy.sh"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 15,
+              "column": 9,
+              "end_line": 15,
+              "end_column": 25
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 8,
+        "column": 3,
+        "end_line": 15,
+        "end_column": 25
+      }
+    },
+    {
+      "key": "docs",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": {
+        "group": [
+          {
+            "text": "docs-"
+          },
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 19,
+                      "column": 27,
+                      "end_line": 19,
+                      "end_column": 33
+                    }
+                  }
+                },
+                "name": "ref",
+                "span": {
+                  "line": 19,
+                  "column": 27,
+                  "end_line": 19,
+                  "end_column": 37
+                }
+              }
+            }
+          }
+        ],
+        "cancel_in_progress": {
+          "literal": false
+        },
+        "queue": "single"
+      },
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make docs"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 21,
+              "column": 9,
+              "end_line": 21,
+              "end_column": 23
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 17,
+        "column": 3,
+        "end_line": 21,
+        "end_column": 23
+      }
+    }
+  ]
+}

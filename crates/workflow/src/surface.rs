@@ -1,5 +1,3 @@
-use crate::yaml::Value;
-
 pub(crate) struct Shape {
     pub(crate) noun: &'static str,
     pub(crate) now: &'static [&'static str],
@@ -14,12 +12,12 @@ pub(crate) enum Known {
 }
 
 impl Shape {
-    pub(crate) fn find(&self, name: &str, value: &Value) -> Known {
+    pub(crate) fn find(&self, name: &str) -> Known {
         if self.now.contains(&name) {
             return Known::Now;
         }
         match self.later.iter().find(|(key, _)| *key == name) {
-            Some(&(_, milestone)) => Known::Later(arrives(name, value, milestone)),
+            Some(&(_, milestone)) => Known::Later(milestone),
             None => Known::Unknown(suggest(
                 name,
                 self.now
@@ -31,29 +29,19 @@ impl Shape {
     }
 }
 
-fn arrives(name: &str, value: &Value, milestone: &'static str) -> &'static str {
-    match (name, value) {
-        ("uses", Value::String(reference))
-            if reference.starts_with("./") || reference.starts_with("docker://") =>
-        {
-            "M2"
-        }
-        _ => milestone,
-    }
-}
-
 pub(crate) const WORKFLOW: Shape = Shape {
     noun: "key",
-    now: &["name", "on", "env", "jobs"],
-    later: &[
-        ("run-name", "M1"),
-        ("permissions", "M1"),
-        ("defaults", "M1"),
-        ("concurrency", "M1"),
-        ("cache-mode", "M2"),
-        ("priority", "M2"),
-        ("notify", "M5"),
+    now: &[
+        "name",
+        "run-name",
+        "on",
+        "permissions",
+        "env",
+        "defaults",
+        "concurrency",
+        "jobs",
     ],
+    later: &[("cache-mode", "M2"), ("priority", "M2"), ("notify", "M5")],
     required: &["on", "jobs"],
 };
 
@@ -167,16 +155,22 @@ pub(crate) const INPUT: Shape = Shape {
 
 pub(crate) const JOB: Shape = Shape {
     noun: "key",
-    now: &["name", "needs", "runs-on", "env", "steps"],
+    now: &[
+        "name",
+        "needs",
+        "if",
+        "runs-on",
+        "permissions",
+        "concurrency",
+        "strategy",
+        "env",
+        "defaults",
+        "timeout-minutes",
+        "continue-on-error",
+        "outputs",
+        "steps",
+    ],
     later: &[
-        ("if", "M1"),
-        ("permissions", "M1"),
-        ("concurrency", "M1"),
-        ("outputs", "M1"),
-        ("defaults", "M1"),
-        ("timeout-minutes", "M1"),
-        ("continue-on-error", "M1"),
-        ("strategy", "M1"),
         ("container", "M2"),
         ("services", "M2"),
         ("cache-mode", "M2"),
@@ -202,17 +196,49 @@ pub(crate) const RUNS_ON: Shape = Shape {
 
 pub(crate) const STEP: Shape = Shape {
     noun: "key",
-    now: &["id", "name", "run", "shell", "working-directory", "env"],
-    later: &[
-        ("if", "M1"),
-        ("uses", "M1"),
-        ("with", "M1"),
-        ("continue-on-error", "M1"),
-        ("timeout-minutes", "M1"),
-        ("retry", "M3"),
-        ("pause", "M3"),
+    now: &[
+        "id",
+        "name",
+        "if",
+        "uses",
+        "run",
+        "shell",
+        "working-directory",
+        "with",
+        "env",
+        "continue-on-error",
+        "timeout-minutes",
     ],
-    required: &["run"],
+    later: &[("retry", "M3"), ("pause", "M3")],
+    required: &[],
+};
+
+pub(crate) const DEFAULTS: Shape = Shape {
+    noun: "key",
+    now: &["run"],
+    later: &[],
+    required: &[],
+};
+
+pub(crate) const DEFAULTS_RUN: Shape = Shape {
+    noun: "key",
+    now: &["shell", "working-directory"],
+    later: &[],
+    required: &[],
+};
+
+pub(crate) const CONCURRENCY: Shape = Shape {
+    noun: "key",
+    now: &["group", "cancel-in-progress", "queue"],
+    later: &[],
+    required: &["group"],
+};
+
+pub(crate) const STRATEGY: Shape = Shape {
+    noun: "key",
+    now: &["matrix", "fail-fast", "max-parallel"],
+    later: &[],
+    required: &[],
 };
 
 pub(crate) fn suggest<'a>(

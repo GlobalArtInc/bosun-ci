@@ -78,10 +78,12 @@ it, such as a step; a fault in the YAML itself has an empty path; every other sp
 at fault.
 
 Severities are `error`, which prevents a run, and `warning`, which is shown in the editor, in
-`bosun workflow lint` and on the run page. A workflow file with errors produces a run that ends at once with
-conclusion `startup_failure` when a trigger matches it, so a broken file is visible instead of
-silent. Whether it matched is decided from the `on` block alone, which is parsed first; when `on`
-itself cannot be parsed, the file produces such a run for every push that changes it.
+`bosun workflow lint` and on the run page. `bosun_workflow::parse` returns the IR together with the
+file's warnings when the file has no error, and every diagnostic of the file, warnings included, in
+the order of their position when it has one. A workflow file with errors produces a run that ends
+at once with conclusion `startup_failure` when a trigger matches it, so a broken file is visible
+instead of silent. Whether it matched is decided from the `on` block alone, which is parsed first;
+when `on` itself cannot be parsed, the file produces such a run for every push that changes it.
 
 Default limits, configurable per installation: 1 MiB of source per file, 256 job templates per
 workflow, 256 jobs per matrix, 10 levels of nested reusable workflows, 50 distinct reusable
@@ -216,6 +218,72 @@ default image.
 shells `bash`, `sh`, `pwsh`, `python` and custom templates with `{0}` are specified in
 [05-execution.md](05-execution.md).
 
+### Lowering jobs and steps
+
+Every value a key reads as text becomes a `Template`, and every `if` a `Condition`. Each expression
+in them is checked against the availability of its key ([03-expressions.md](03-expressions.md)).
+The keys that table does not list take no expressions: a `${{` in a step's `shell` or `uses`, or in
+the workflow's `defaults.run`, is `invalid_value`. The workflow's `name` is never evaluated, as in
+the target, and keeps a `${{` as text. `id`, `needs`, `permissions` and the keys under `on` hold
+names and patterns, in which a `${{` is not valid anyway.
+
+Expressions in the IR carry their place in the file. `bosun-workflow` maps every character of a
+scalar's value back to the source, through quotes, escape sequences, indentation and folded line
+breaks, so a diagnostic or a run-time error points at the context or the call at fault.
+
+- **`if`**, of a job or a step: the three forms of [03-expressions.md](03-expressions.md). An empty
+  value or null sets no condition. A template, an `if` with text around its `${{ }}` or with several
+  of them, is lowered as written and produces the warning `template_condition`.
+- **`runs-on`**: a string with an expression is one template, evaluated as a whole to a label, a
+  list of labels or a mapping with `group` and `labels`. A list or a mapping keeps its structure,
+  and each label and the group is a template of its own.
+- **`permissions`**, of the workflow and of a job: `read-all`, `write-all`, or a mapping of scopes
+  to `read`, `write` or `none`, where `{}` grants nothing. The scopes are the target's: `actions`,
+  `attestations`, `checks`, `contents`, `deployments`, `discussions`, `id-token`, `issues`,
+  `models`, `packages`, `pages`, `pull-requests`, `repository-projects`, `security-events` and
+  `statuses`. `id-token` takes only `write` or `none`, and `models` only `read` or `none`, as in the
+  target; another scope is `unknown_key` with a suggestion. Without `permissions` the IR holds
+  none, and the project's default set applies ([06-runtime-services.md](06-runtime-services.md)).
+- **`defaults.run`** has `shell` and `working-directory`. At the workflow they are literal, as in
+  the target; at a job they take expressions (`jobs.<job_id>.defaults.run`).
+- **`concurrency`**, of the workflow and of a job: a string is the group; a mapping has `group`,
+  which is required, `cancel-in-progress`, a boolean or an expression that defaults to `false`, and
+  `queue`, `single` (the default) or `max`. A literal `cancel-in-progress: true` together with
+  `queue: max` is `invalid_value` at `cancel-in-progress`; an expression there is checked when the
+  group is evaluated ([04-runs.md](04-runs.md)). An empty group is `invalid_value`.
+- **`timeout-minutes`**, of a job and of a step, is a whole number of minutes or an expression; a
+  job without it has 360, a step without it none. **`continue-on-error`**, of both, is a boolean or
+  an expression and defaults to `false`. A string that holds no expression, such as `'true'` or
+  `'10'`, is `invalid_type`, as in the target.
+- **`strategy`** is a mapping or one expression. Its `matrix` is a mapping or one expression; in the
+  mapping, every key but `include` and `exclude` is a vector, a list or one expression, and
+  `include` and `exclude` are each a list of mappings or one expression. Values are any YAML value,
+  with strings as templates and the order of mappings kept, since the order of vectors names the
+  jobs a matrix expands to. `fail-fast` is a boolean or an expression and defaults to `true`;
+  `max-parallel` is a whole number from 1 or an expression. An empty vector or matrix is refused when
+  it is expanded ([04-runs.md](04-runs.md)), since a computed one can be empty too.
+- **`outputs`** of a job and **`with`** of a step map names to templates; an empty name is
+  `invalid_value`.
+- **A step** has `run` or `uses`. Both together are `invalid_value` at `uses`, neither is
+  `missing_key` at the step. `with` applies only to a step that uses an action, `shell` and
+  `working-directory` only to one that runs a script; each is `invalid_value` at its value on the
+  other kind of step, as in the target.
+- **`uses`** is `owner/repo@ref` or `owner/repo/path@ref`: the owner holds letters, digits and `-`,
+  the repository letters, digits, `-`, `_` and `.`, the path non-empty parts that are not `.` or
+  `..`, and the ref is non-empty and holds no whitespace. Anything else is `invalid_value`, so
+  `actions/checkout` without a ref is refused with a hint. `./path` and `docker://image` are
+  `not_implemented` and name M2.
+
+Each job template also records the secrets its expressions read, together with those of the
+workflow's `env`, which every job receives under its own. `secrets.NAME` and `secrets['NAME']` name
+a secret; names compare ignoring case, as the target's secret names do, so the IR keeps them in
+upper case. An index by another literal is converted to a string first, as the target's index is:
+`secrets[true]` names `TRUE`, and `secrets[null]`, whose string is empty, names none. An index
+computed by an expression, such as `secrets[format('TOKEN_{0}', matrix.env)]`, or the whole
+context, such as `toJSON(secrets)` or `secrets.*`, makes the job read every secret in scope, and
+produces the warning `all_secrets` at that expression. The assignment carries only the secrets the
+job reads ([05-execution.md](05-execution.md)).
+
 ### Actions
 
 `action.yml` and `action.yaml` with `name`, `description`, `inputs` (`description`, `required`,
@@ -269,6 +337,9 @@ their table below.
   documented per known action in the compatibility corpus rather than emulated.
 - `jobs.<id>.environment` does not create a deployment object on the forge unless the project
   setting `forge_deployments` is on.
+- `timeout-minutes` and `max-parallel` take whole numbers. The target truncates a fraction such as
+  `0.5` to `0`, which for a step means no timeout at all; Bosun refuses it with `invalid_value`
+  instead.
 
 ## Extensions
 
@@ -427,18 +498,32 @@ on the server and the execution engine works from the job part of it on the agen
 YAML.
 
 ```
-Workflow   { name, run_name: Template?, triggers: [Trigger], permissions, env: Map<Template>,
-             defaults, concurrency: Concurrency?, cache_mode, priority, notify: [Route],
-             jobs: [JobTemplate] }
-JobTemplate{ key, name: Template?, needs: [JobKey], if: Condition?, kind: Steps | Call | Gate,
-             runs_on: Evaluable<RunsOn>, environment: Evaluable<Environment>?,
-             concurrency, strategy: Evaluable<Strategy>?, container, services, env, defaults,
-             timeout_minutes: Evaluable<u32>, continue_on_error: Evaluable<bool>,
-             outputs: Map<Template>, cache_mode, retry, hold_on_failure, cache_volumes, priority,
-             span }
-Step       { key: StepKey?, name: Template?, if: Condition?, action: Run | Uses, shell,
-             working_directory, with: Map<Template>, env: Map<Template>,
+Workflow   { name, run_name: Template?, triggers: [Trigger], permissions: Permissions?,
+             env: Map<Template>, defaults: Defaults, concurrency: Concurrency?, cache_mode, priority,
+             notify: [Route], jobs: [JobTemplate] }
+JobTemplate{ key, name: Template?, needs: [JobKey], if: Condition?, runs_on: Evaluable<RunsOn>,
+             permissions: Permissions?, concurrency: Concurrency?, strategy: Evaluable<Strategy>?,
+             env: Map<Template>, defaults: Defaults, timeout_minutes: Evaluable<u32>,
+             continue_on_error: Evaluable<bool>, outputs: Map<Template>,
+             secrets: SecretReferences,
+             kind: Steps | Call | Gate, environment: Evaluable<Environment>?, container, services,
+             cache_mode, retry, hold_on_failure, cache_volumes, priority, span }
+Step       { key: StepKey?, name: Template?, if: Condition?,
+             action: Run { script } | Uses(ActionReference),
+             shell: Shell?, working_directory: Template?, with: Map<Template>, env: Map<Template>,
              continue_on_error: Evaluable<bool>, timeout_minutes: Evaluable<u32>?, retry, pause, span }
+RunsOn     { group: Template?, labels: [Template] }
+Permissions= ReadAll | WriteAll | Scopes(Map<Scope, Read | Write | None>)
+Defaults   { shell: Evaluable<Shell>?, working_directory: Template? }
+Concurrency{ group: Template, cancel_in_progress: Evaluable<bool>, queue: Single | Max }
+Strategy   { matrix: Evaluable<Matrix>?, fail_fast: Evaluable<bool>, max_parallel: Evaluable<u32>? }
+Matrix     { vectors: [Vector], include: Evaluable<[[MatrixField]]>?,
+             exclude: Evaluable<[[MatrixField]]>? }
+Vector     { name, values: Evaluable<[MatrixValue]> }
+MatrixField{ name, value: MatrixValue }
+MatrixValue= Null | Boolean | Number | String(Template) | List [MatrixValue] | Object [MatrixField]
+SecretReferences = Named [name] | All
+ActionReference { owner, repository, path: String?, ref }
 Trigger    = Push { branches: Filter?, tags: Filter?, paths: Filter? }
            | PullRequest | PullRequestTarget { types: [String]?, branches: Filter?, paths: Filter? }
            | MergeGroup { types: [String]?, branches: Filter? }
@@ -450,6 +535,11 @@ Cron       { expression, minutes, hours, days_of_month, months, days_of_week: [u
 Input      { name, description: String?, required: bool,
              kind: String | Boolean | Choice { options } | Number | Environment, each with its default? }
 ```
+
+The fields of later milestones (`cache_mode`, `priority`, `notify`, `environment`, `container`,
+`services`, `retry`, `pause`, the hold and the cache volumes, and the kinds `Call` and `Gate`) join
+the IR with the milestone that implements them; until then deserialising the IR refuses them like
+any unknown field.
 
 `JobKey` and `StepKey` are the ids a workflow gives its jobs and steps (`jobs.<key>`,
 `steps.<key>`); the identifiers of the database rows are a separate kind. Jobs and steps keep the
@@ -464,6 +554,12 @@ The IR is serialised as JSON for storage in the run snapshot and for the job ass
 agent. Its shape is pinned by golden fixtures in `contracts/fixtures/ir/`. Deserialising the IR
 refuses unknown fields: an agent that does not know a field must refuse the job rather than run it
 as if the field were absent.
+
+A run snapshot outlives the build that stored it, and a run is planned, re-run and shown from its
+snapshot. From the first release on, the IR therefore changes only in ways that keep every stored
+snapshot readable with the meaning it had: a new field has a default that means what its absence
+meant, and a field keeps its type and its meaning. Before the first release the shape changes
+freely, and a snapshot an earlier build stored may no longer deserialise.
 
 ## Validation
 
@@ -483,8 +579,11 @@ Warnings:
 
 - extension keys in `.github/workflows/`;
 - deprecated workflow commands or Node runtimes;
-- secrets accessed by a computed name (`secrets[format(...)]`), which forces the job to receive
-  every secret in scope instead of only the referenced ones ([08-access.md](08-access.md));
+- an `if` with text around its `${{ }}`, or with several of them, which is a string and so true
+  unless it is empty ([03-expressions.md](03-expressions.md));
+- secrets accessed by a computed name (`secrets[format(...)]`) or as a whole (`toJSON(secrets)`),
+  which forces the job to receive every secret in scope instead of only the referenced ones
+  ([08-access.md](08-access.md));
 - `pull_request_target` combined with a checkout of the pull request's head, which runs untrusted
   code with secrets.
 
@@ -493,20 +592,30 @@ Warnings:
 ### Diagnostic codes
 
 Every diagnostic carries one of these codes, and every code is pinned by a case in
-`contracts/fixtures/workflows/`:
+`contracts/fixtures/workflows/`. The codes of the static checks of expressions are those of
+[03-expressions.md](03-expressions.md), raised at the expression in the file; `limit_exceeded` and
+`not_implemented` serve both. A case of a warning lowers to its IR and has the warning beside it.
 
-| Code | Meaning |
-|------|---------|
-| `yaml_syntax` | the source is not well-formed YAML |
-| `unsupported_yaml` | a merge key, a tag, or more than one document |
-| `limit_exceeded` | a limit of the parser or of the installation is exceeded |
-| `duplicate_key` | a key appears twice in one mapping, or an event twice in the list form of `on` |
-| `invalid_type` | a value of the wrong type, such as a mapping where a string or a list is expected |
-| `invalid_value` | a value of the right type that the key does not accept, such as an empty `steps` or a custom shell without `{0}` |
-| `missing_key` | a required key is absent; not reported for a mapping in which another key is already at fault |
-| `unknown_key` | a key or an event that is neither in the compatibility surface nor an extension; the message suggests the closest known one |
-| `not_implemented` | a key, an event or a form of the compatibility surface that a later milestone implements; the message names the milestone |
-| `invalid_job_key`, `invalid_step_key` | a job id or a step id that does not match `^[A-Za-z_][A-Za-z0-9_-]*$` |
-| `repeated_step_key` | two steps of one job with the same id |
-| `unknown_job` | `needs` names a job that does not exist |
-| `needs_cycle` | `needs` forms a cycle |
+| Code | Severity | Meaning |
+|------|----------|---------|
+| `yaml_syntax` | error | the source is not well-formed YAML |
+| `unsupported_yaml` | error | a merge key, a tag, or more than one document |
+| `limit_exceeded` | error | a limit of the parser, of the installation or of an expression is exceeded |
+| `duplicate_key` | error | a key appears twice in one mapping, or an event twice in the list form of `on` |
+| `invalid_type` | error | a value of the wrong type, such as a mapping where a string or a list is expected |
+| `invalid_value` | error | a value of the right type that the key does not accept, such as an empty `steps`, a custom shell without `{0}`, a `uses` without a ref, or an expression in a key that takes none |
+| `missing_key` | error | a required key is absent; not reported for a mapping in which another key is already at fault |
+| `unknown_key` | error | a key or an event that is neither in the compatibility surface nor an extension; the message suggests the closest known one |
+| `not_implemented` | error | a key, an event or a form of the compatibility surface that a later milestone implements, or a call of `plugin()`; the message names the milestone |
+| `invalid_job_key`, `invalid_step_key` | error | a job id or a step id that does not match `^[A-Za-z_][A-Za-z0-9_-]*$` |
+| `repeated_step_key` | error | two steps of one job with the same id |
+| `unknown_job` | error | `needs` names a job that does not exist |
+| `needs_cycle` | error | `needs` forms a cycle |
+| `expression_syntax` | error | an expression or a template does not parse, or a `${{` is not closed |
+| `unknown_context` | error | an expression names something that is no context |
+| `unavailable_context` | error | an expression uses a context its key cannot see, such as `steps` in `runs-on` |
+| `unknown_function` | error | an expression calls a function the language does not have |
+| `unavailable_function` | error | a status function outside `if`, or `hashFiles` outside the keys of a step |
+| `wrong_argument_count` | error | a call with a number of arguments the function does not take |
+| `template_condition` | warning | an `if` that is a template, and therefore true unless it is empty |
+| `all_secrets` | warning | a job reads secrets by a computed name or as a whole, and so receives every secret in scope |

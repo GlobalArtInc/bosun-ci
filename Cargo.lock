@@ -465,6 +465,7 @@ dependencies = [
 name = "bosun-workflow"
 version = "0.1.0"
 dependencies = [
+ "bosun-expr",
  "bosun-types",
  "chrono-tz",
  "saphyr-parser",

@@ -1,0 +1,22 @@
+on: push
+
+jobs:
+  matrix:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [linux, macos]
+    steps:
+      - run: make
+
+  labels:
+    runs-on: [self-hosted, '${{ vars.ARCH }}']
+    steps:
+      - run: make
+
+  group:
+    runs-on:
+      group: ${{ vars.POOL }}
+      labels: [linux]
+    steps:
+      - run: make

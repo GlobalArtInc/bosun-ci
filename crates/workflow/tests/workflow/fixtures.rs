@@ -42,35 +42,49 @@ fn every_workflow_fixture_lowers_to_its_snapshot_or_its_diagnostic() {
         let source = read(&root.join("workflows").join(format!("{case}.yml")));
         let ir = root.join("ir").join(format!("{case}.json"));
         let diagnostic = root.join("diagnostics").join(format!("{case}.json"));
-        let result = bosun_workflow::parse(FILE, &source);
-        let produced = match &result {
-            Ok(workflow) => serde_json::to_value(workflow),
-            Err(diagnostics) => serde_json::to_value(diagnostics),
-        }
-        .expect("serialisable");
-        match (ir.exists(), diagnostic.exists(), result.is_ok()) {
-            (true, false, true) => {
+        let expected = |path: &Path| Value::Array(vec![json(path)]);
+        match (
+            bosun_workflow::parse(FILE, &source),
+            ir.exists(),
+            diagnostic.exists(),
+        ) {
+            (Ok(parsed), true, warned) => {
+                let produced = serde_json::to_value(&parsed.workflow).expect("serialisable");
                 assert_eq!(
                     produced,
                     json(&ir),
                     "{case}: the IR differs from ir/{case}.json; it is now\n{}",
                     pretty(&produced)
                 );
+                let warnings = serde_json::to_value(&parsed.warnings).expect("serialisable");
+                let committed = if warned {
+                    expected(&diagnostic)
+                } else {
+                    Value::Array(Vec::new())
+                };
+                assert_eq!(
+                    warnings,
+                    committed,
+                    "{case}: the warnings differ from diagnostics/{case}.json; they are now\n{}",
+                    pretty(&warnings)
+                );
             }
-            (false, true, false) => {
+            (Err(diagnostics), false, true) => {
+                let produced = serde_json::to_value(&diagnostics).expect("serialisable");
                 assert_eq!(
                     produced,
-                    Value::Array(vec![json(&diagnostic)]),
+                    expected(&diagnostic),
                     "{case}: the diagnostics differ from diagnostics/{case}.json; they are now\n{}",
                     pretty(&produced)
                 );
             }
-            (true, false, false) => panic!("{case}: expected the IR, got {}", pretty(&produced)),
-            (false, true, true) => {
-                panic!("{case}: expected a diagnostic, got {}", pretty(&produced))
-            }
-            _ => panic!(
-                "{case}: exactly one of ir/{case}.json and diagnostics/{case}.json must exist"
+            (Ok(parsed), false, _) => panic!(
+                "{case}: lowered without an ir/{case}.json, to {}",
+                pretty(&serde_json::to_value(&parsed.workflow).expect("serialisable"))
+            ),
+            (Err(diagnostics), _, _) => panic!(
+                "{case}: expected the IR, got {}",
+                pretty(&serde_json::to_value(&diagnostics).expect("serialisable"))
             ),
         }
     }

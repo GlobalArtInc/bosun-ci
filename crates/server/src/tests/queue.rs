@@ -12,7 +12,7 @@ use bosun_types::api::Capability;
 use bosun_types::event::{Event, JobStatusChanged, RunEvent};
 use bosun_types::id::{AgentId, JobId};
 use bosun_types::ir::{
-    Action, Evaluable, Expr, JobKind, JobTemplate, RunsOn, Segment, Span, Template,
+    Action, ActionReference, Evaluable, Expr, JobKind, JobTemplate, RunsOn, Segment, Span, Template,
 };
 use bosun_types::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, RunConclusion, RunStatus,
@@ -33,8 +33,8 @@ const LABELS: [&str; 4] = ["self-hosted", "linux", "x64", "shell"];
 
 fn runs_on(mut job: JobTemplate, group: Option<&str>, labels: &[&str]) -> JobTemplate {
     job.runs_on = Evaluable::Literal(RunsOn {
-        group: group.map(str::to_owned),
-        labels: labels.iter().map(|label| (*label).to_owned()).collect(),
+        group: group.map(Template::text),
+        labels: labels.iter().copied().map(Template::text).collect(),
     });
     job
 }
@@ -199,6 +199,36 @@ async fn a_claim_takes_the_first_queued_job_by_priority_then_age_that_the_agent_
 }
 
 #[tokio::test]
+async fn a_claimed_job_with_a_step_that_uses_an_action_is_not_offered_to_the_agent() {
+    let world = World::new().await;
+    let db = world.db();
+    let replica = Uuid::now_v7();
+    let mut build = template("build", &[], 2);
+    let JobKind::Steps(steps) = &mut build.kind;
+    steps[1].action = Action::Uses(ActionReference {
+        owner: "actions".to_owned(),
+        repository: "checkout".to_owned(),
+        path: None,
+        r#ref: "v4".to_owned(),
+    });
+    world.dispatch(&workflow(vec![build])).await;
+    let agent = connected(&world, "runner1-1", &LABELS, replica).await;
+    let claimed = claim(db, agent.id, replica, LEASE, &[])
+        .await
+        .expect("a claim");
+    assert_eq!(
+        queue::offer(claimed)
+            .map(|_| ())
+            .map_err(|error| error.to_string()),
+        Err(
+            "a row of run holds a value bosun-types does not accept: step 1 of job `build` uses \
+             an action, which an agent runs from M1 step 33"
+                .to_owned()
+        )
+    );
+}
+
+#[tokio::test]
 async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment_needs() {
     let world = World::new().await;
     let db = world.db();
@@ -235,7 +265,10 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
     assert_eq!(claimed.name, "build");
     assert_eq!(claimed.job, ir.jobs[0]);
     assert_eq!(claimed.env, ir.env);
-    let Some(Message::Assignment(assignment)) = queue::offer(claimed.clone()).message.message
+    let Some(Message::Assignment(assignment)) = queue::offer(claimed.clone())
+        .expect("an offer")
+        .message
+        .message
     else {
         panic!("the offer of a claim is not an assignment");
     };
@@ -332,7 +365,9 @@ async fn an_assignment_carries_no_expression_the_server_has_not_evaluated() {
         script: Template::new(vec![Segment::Text("echo ".to_owned()), expression]),
     };
 
-    let Some(Message::Assignment(assignment)) = queue::offer(claimed).message.message else {
+    let Some(Message::Assignment(assignment)) =
+        queue::offer(claimed).expect("an offer").message.message
+    else {
         panic!("the offer of a claim is not an assignment");
     };
     assert_eq!(

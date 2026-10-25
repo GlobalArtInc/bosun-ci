@@ -1,0 +1,19 @@
+{
+  "severity": "warning",
+  "code": "template_condition",
+  "message": "`if` of step 2 of job `build` has text around its `${{ }}`, or several of them, so it is a string, which is true unless it is empty; write the whole condition inside one `${{ }}`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 8,
+    "column": 13,
+    "end_line": 8,
+    "end_column": 53
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    1,
+    "if"
+  ]
+}

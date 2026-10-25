@@ -1,0 +1,278 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 30
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": {
+              "literal": 10
+            },
+            "span": {
+              "line": 8,
+              "column": 9,
+              "end_line": 9,
+              "end_column": 28
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make test"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": {
+              "template": [
+                {
+                  "expression": {
+                    "call": {
+                      "function": "fromJSON",
+                      "arguments": [
+                        {
+                          "property": {
+                            "target": {
+                              "context": {
+                                "name": "vars",
+                                "span": {
+                                  "line": 11,
+                                  "column": 39,
+                                  "end_line": 11,
+                                  "end_column": 43
+                                }
+                              }
+                            },
+                            "name": "TEST_MINUTES",
+                            "span": {
+                              "line": 11,
+                              "column": 39,
+                              "end_line": 11,
+                              "end_column": 56
+                            }
+                          }
+                        }
+                      ],
+                      "span": {
+                        "line": 11,
+                        "column": 30,
+                        "end_line": 11,
+                        "end_column": 57
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "span": {
+              "line": 10,
+              "column": 9,
+              "end_line": 11,
+              "end_column": 60
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 11,
+        "end_column": 60
+      }
+    },
+    {
+      "key": "slow",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "template": [
+          {
+            "expression": {
+              "call": {
+                "function": "fromJSON",
+                "arguments": [
+                  {
+                    "property": {
+                      "target": {
+                        "context": {
+                          "name": "vars",
+                          "span": {
+                            "line": 15,
+                            "column": 35,
+                            "end_line": 15,
+                            "end_column": 39
+                          }
+                        }
+                      },
+                      "name": "SLOW_MINUTES",
+                      "span": {
+                        "line": 15,
+                        "column": 35,
+                        "end_line": 15,
+                        "end_column": 52
+                      }
+                    }
+                  }
+                ],
+                "span": {
+                  "line": 15,
+                  "column": 26,
+                  "end_line": 15,
+                  "end_column": 53
+                }
+              }
+            }
+          }
+        ]
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make slow"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 17,
+              "column": 9,
+              "end_line": 17,
+              "end_column": 23
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 13,
+        "column": 3,
+        "end_line": 17,
+        "end_column": 23
+      }
+    }
+  ]
+}

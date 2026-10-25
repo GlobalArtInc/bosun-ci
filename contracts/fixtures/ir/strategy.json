@@ -1,0 +1,797 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "setup",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {
+        "matrix": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "steps",
+                            "span": {
+                              "line": 8,
+                              "column": 19,
+                              "end_line": 8,
+                              "end_column": 24
+                            }
+                          }
+                        },
+                        "name": "list",
+                        "span": {
+                          "line": 8,
+                          "column": 19,
+                          "end_line": 8,
+                          "end_column": 29
+                        }
+                      }
+                    },
+                    "name": "outputs",
+                    "span": {
+                      "line": 8,
+                      "column": 19,
+                      "end_line": 8,
+                      "end_column": 37
+                    }
+                  }
+                },
+                "name": "matrix",
+                "span": {
+                  "line": 8,
+                  "column": 19,
+                  "end_line": 8,
+                  "end_column": 44
+                }
+              }
+            }
+          }
+        ],
+        "versions": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "steps",
+                            "span": {
+                              "line": 7,
+                              "column": 21,
+                              "end_line": 7,
+                              "end_column": 26
+                            }
+                          }
+                        },
+                        "name": "list",
+                        "span": {
+                          "line": 7,
+                          "column": 21,
+                          "end_line": 7,
+                          "end_column": 31
+                        }
+                      }
+                    },
+                    "name": "outputs",
+                    "span": {
+                      "line": 7,
+                      "column": 21,
+                      "end_line": 7,
+                      "end_column": 39
+                    }
+                  }
+                },
+                "name": "versions",
+                "span": {
+                  "line": 7,
+                  "column": 21,
+                  "end_line": 7,
+                  "end_column": 48
+                }
+              }
+            }
+          }
+        ]
+      },
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": "list",
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo 'versions=[\"3.12\",\"3.13\"]' >> \"$GITHUB_OUTPUT\"\necho 'matrix={\"os\":[\"linux\"]}' >> \"$GITHUB_OUTPUT\"\n"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 10,
+              "column": 9,
+              "end_line": 13,
+              "end_column": 61
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 13,
+        "end_column": 61
+      }
+    },
+    {
+      "key": "test",
+      "name": null,
+      "needs": [
+        "setup"
+      ],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "literal": {
+          "matrix": {
+            "literal": {
+              "vectors": [
+                {
+                  "name": "os",
+                  "values": {
+                    "literal": [
+                      {
+                        "string": [
+                          {
+                            "text": "linux"
+                          }
+                        ]
+                      },
+                      {
+                        "string": [
+                          {
+                            "text": "macos"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "python",
+                  "values": {
+                    "template": [
+                      {
+                        "expression": {
+                          "call": {
+                            "function": "fromJSON",
+                            "arguments": [
+                              {
+                                "property": {
+                                  "target": {
+                                    "property": {
+                                      "target": {
+                                        "property": {
+                                          "target": {
+                                            "context": {
+                                              "name": "needs",
+                                              "span": {
+                                                "line": 23,
+                                                "column": 30,
+                                                "end_line": 23,
+                                                "end_column": 35
+                                              }
+                                            }
+                                          },
+                                          "name": "setup",
+                                          "span": {
+                                            "line": 23,
+                                            "column": 30,
+                                            "end_line": 23,
+                                            "end_column": 41
+                                          }
+                                        }
+                                      },
+                                      "name": "outputs",
+                                      "span": {
+                                        "line": 23,
+                                        "column": 30,
+                                        "end_line": 23,
+                                        "end_column": 49
+                                      }
+                                    }
+                                  },
+                                  "name": "versions",
+                                  "span": {
+                                    "line": 23,
+                                    "column": 30,
+                                    "end_line": 23,
+                                    "end_column": 58
+                                  }
+                                }
+                              }
+                            ],
+                            "span": {
+                              "line": 23,
+                              "column": 21,
+                              "end_line": 23,
+                              "end_column": 59
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "node",
+                  "values": {
+                    "literal": [
+                      {
+                        "number": 20.0
+                      },
+                      {
+                        "number": 22.5
+                      }
+                    ]
+                  }
+                }
+              ],
+              "include": {
+                "literal": [
+                  [
+                    {
+                      "name": "os",
+                      "value": {
+                        "string": [
+                          {
+                            "text": "linux"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "experimental",
+                      "value": {
+                        "boolean": true
+                      }
+                    },
+                    {
+                      "name": "extra",
+                      "value": {
+                        "object": [
+                          {
+                            "name": "arch",
+                            "value": {
+                              "string": [
+                                {
+                                  "text": "arm64"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "tags",
+                            "value": {
+                              "list": [
+                                {
+                                  "string": [
+                                    {
+                                      "text": "a"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "string": [
+                                    {
+                                      "text": "b"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                ]
+              },
+              "exclude": {
+                "literal": [
+                  [
+                    {
+                      "name": "os",
+                      "value": {
+                        "string": [
+                          {
+                            "text": "macos"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "node",
+                      "value": {
+                        "number": 20.0
+                      }
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          "fail_fast": {
+            "literal": false
+          },
+          "max_parallel": {
+            "literal": 2
+          }
+        }
+      },
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make test PYTHON="
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "matrix",
+                            "span": {
+                              "line": 33,
+                              "column": 35,
+                              "end_line": 33,
+                              "end_column": 41
+                            }
+                          }
+                        },
+                        "name": "python",
+                        "span": {
+                          "line": 33,
+                          "column": 35,
+                          "end_line": 33,
+                          "end_column": 48
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 33,
+              "column": 9,
+              "end_line": 33,
+              "end_column": 51
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 15,
+        "column": 3,
+        "end_line": 33,
+        "end_column": 51
+      }
+    },
+    {
+      "key": "computed",
+      "name": null,
+      "needs": [
+        "setup"
+      ],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "literal": {
+          "matrix": {
+            "template": [
+              {
+                "expression": {
+                  "call": {
+                    "function": "fromJSON",
+                    "arguments": [
+                      {
+                        "property": {
+                          "target": {
+                            "property": {
+                              "target": {
+                                "property": {
+                                  "target": {
+                                    "context": {
+                                      "name": "needs",
+                                      "span": {
+                                        "line": 39,
+                                        "column": 28,
+                                        "end_line": 39,
+                                        "end_column": 33
+                                      }
+                                    }
+                                  },
+                                  "name": "setup",
+                                  "span": {
+                                    "line": 39,
+                                    "column": 28,
+                                    "end_line": 39,
+                                    "end_column": 39
+                                  }
+                                }
+                              },
+                              "name": "outputs",
+                              "span": {
+                                "line": 39,
+                                "column": 28,
+                                "end_line": 39,
+                                "end_column": 47
+                              }
+                            }
+                          },
+                          "name": "matrix",
+                          "span": {
+                            "line": 39,
+                            "column": 28,
+                            "end_line": 39,
+                            "end_column": 54
+                          }
+                        }
+                      }
+                    ],
+                    "span": {
+                      "line": 39,
+                      "column": 19,
+                      "end_line": 39,
+                      "end_column": 55
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "fail_fast": {
+            "template": [
+              {
+                "expression": {
+                  "compare": {
+                    "operator": "==",
+                    "left": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "github",
+                            "span": {
+                              "line": 40,
+                              "column": 22,
+                              "end_line": 40,
+                              "end_column": 28
+                            }
+                          }
+                        },
+                        "name": "ref",
+                        "span": {
+                          "line": 40,
+                          "column": 22,
+                          "end_line": 40,
+                          "end_column": 32
+                        }
+                      }
+                    },
+                    "right": {
+                      "string": {
+                        "value": "refs/heads/main",
+                        "span": {
+                          "line": 40,
+                          "column": 36,
+                          "end_line": 40,
+                          "end_column": 53
+                        }
+                      }
+                    },
+                    "span": {
+                      "line": 40,
+                      "column": 22,
+                      "end_line": 40,
+                      "end_column": 53
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "max_parallel": null
+        }
+      },
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 42,
+              "column": 9,
+              "end_line": 42,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 35,
+        "column": 3,
+        "end_line": 42,
+        "end_column": 18
+      }
+    },
+    {
+      "key": "whole",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "template": [
+          {
+            "expression": {
+              "call": {
+                "function": "fromJSON",
+                "arguments": [
+                  {
+                    "property": {
+                      "target": {
+                        "context": {
+                          "name": "vars",
+                          "span": {
+                            "line": 46,
+                            "column": 28,
+                            "end_line": 46,
+                            "end_column": 32
+                          }
+                        }
+                      },
+                      "name": "STRATEGY",
+                      "span": {
+                        "line": 46,
+                        "column": 28,
+                        "end_line": 46,
+                        "end_column": 41
+                      }
+                    }
+                  }
+                ],
+                "span": {
+                  "line": 46,
+                  "column": 19,
+                  "end_line": 46,
+                  "end_column": 42
+                }
+              }
+            }
+          }
+        ]
+      },
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 48,
+              "column": 9,
+              "end_line": 48,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 44,
+        "column": 3,
+        "end_line": 48,
+        "end_column": 18
+      }
+    }
+  ]
+}

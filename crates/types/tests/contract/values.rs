@@ -65,7 +65,7 @@ fn the_ir_refuses_unknown_fields() {
     serde_json::from_value::<ir::Workflow>(workflow.clone()).expect("the fixture itself is valid");
 
     let mut top = workflow.clone();
-    top["concurrency"] = json!({ "group": "ci" });
+    top["priority"] = json!("high");
     refuses::<ir::Workflow>(top);
 
     let mut job = workflow.clone();
@@ -79,6 +79,28 @@ fn the_ir_refuses_unknown_fields() {
     let mut runs_on = workflow.clone();
     runs_on["jobs"][0]["runs_on"]["literal"]["pool"] = json!("default");
     refuses::<ir::Workflow>(runs_on);
+
+    let mut defaults = workflow.clone();
+    defaults["jobs"][0]["defaults"]["run"] = json!({});
+    refuses::<ir::Workflow>(defaults);
+
+    let mut secrets = workflow.clone();
+    secrets["jobs"][0]["secrets"] = json!({ "named": ["A"], "inherit": true });
+    refuses::<ir::Workflow>(secrets);
+
+    let mut uses = workflow.clone();
+    uses["jobs"][0]["kind"]["steps"][0]["action"] = json!({ "uses": {
+        "owner": "actions", "repository": "checkout", "path": null, "ref": "v4"
+    } });
+    serde_json::from_value::<ir::Workflow>(uses.clone()).expect("a step that uses an action");
+    uses["jobs"][0]["kind"]["steps"][0]["action"]["uses"]["sha"] = json!("0");
+    refuses::<ir::Workflow>(uses);
+
+    let mut scope = workflow.clone();
+    scope["permissions"] = json!({ "scopes": { "contents": "read", "id-token": "write" } });
+    serde_json::from_value::<ir::Workflow>(scope.clone()).expect("permissions by scope");
+    scope["permissions"]["scopes"]["metadata"] = json!("read");
+    refuses::<ir::Workflow>(scope);
 
     let mut span = workflow.clone();
     span["jobs"][0]["span"]["offset"] = json!(120);

@@ -1,0 +1,19 @@
+on: push
+
+jobs:
+  test:
+    runs-on: shell
+    strategy:
+      matrix:
+        toolchain: [stable, nightly]
+        experimental: [false]
+        include:
+          - toolchain: nightly
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+    steps:
+      - run: cargo +${{ matrix.toolchain }} test
+      - run: cargo +${{ matrix.toolchain }} clippy
+        continue-on-error: true
+      - run: ./lint.sh
+        continue-on-error: ${{ github.event_name == 'pull_request' }}

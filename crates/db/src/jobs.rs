@@ -6,7 +6,7 @@ use bosun_types::event::{
     StepStatusChanged,
 };
 use bosun_types::id::{AgentId, ExecutionId, JobId, PoolId, StepId};
-use bosun_types::ir::{self, Action, JobKind, Template};
+use bosun_types::ir::{self, Action, JobKind, Segment, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, StatusReason, StepStatus,
@@ -703,17 +703,35 @@ fn job_moved(from: JobStatus, to: JobStatus) -> Event {
     })
 }
 
+fn text(template: &Template) -> String {
+    template
+        .segments()
+        .iter()
+        .filter_map(|segment| match segment {
+            Segment::Text(text) => Some(text.as_str()),
+            Segment::Expression(_) => None,
+        })
+        .collect()
+}
+
 fn step_name(step: &ir::Step) -> String {
-    if let Some(name) = step.name.as_ref().and_then(Template::as_literal) {
-        return name;
+    if let Some(name) = step.name.as_ref().map(text) {
+        let name = name.trim();
+        if !name.is_empty() {
+            return name.to_owned();
+        }
     }
     match &step.action {
         Action::Run { script } => {
-            let script = script.as_literal().unwrap_or_default();
-            match script.lines().map(str::trim).find(|line| !line.is_empty()) {
+            match text(script)
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+            {
                 Some(line) => format!("Run {line}"),
                 None => "Run".to_owned(),
             }
         }
+        Action::Uses(reference) => format!("Run {reference}"),
     }
 }

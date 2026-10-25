@@ -1,0 +1,19 @@
+on: push
+
+defaults:
+  run:
+    shell: bash
+    working-directory: crates
+
+jobs:
+  build:
+    runs-on: shell
+    strategy:
+      matrix:
+        shell: [bash, sh]
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+        working-directory: ${{ github.workspace }}/crates
+    steps:
+      - run: cargo build

@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "unknown_context",
+  "message": "unknown context `gihub`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 23,
+    "end_line": 7,
+    "end_column": 28
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    0,
+    "run"
+  ]
+}

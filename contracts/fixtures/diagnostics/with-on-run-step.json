@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`with` of step 1 of job `build` applies only to a step that uses an action",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 9,
+    "column": 11,
+    "end_line": 9,
+    "end_column": 22
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    0,
+    "with"
+  ]
+}

@@ -1,0 +1,345 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "test",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "literal": {
+          "matrix": {
+            "literal": {
+              "vectors": [
+                {
+                  "name": "toolchain",
+                  "values": {
+                    "literal": [
+                      {
+                        "string": [
+                          {
+                            "text": "stable"
+                          }
+                        ]
+                      },
+                      {
+                        "string": [
+                          {
+                            "text": "nightly"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "experimental",
+                  "values": {
+                    "literal": [
+                      {
+                        "boolean": false
+                      }
+                    ]
+                  }
+                }
+              ],
+              "include": {
+                "literal": [
+                  [
+                    {
+                      "name": "toolchain",
+                      "value": {
+                        "string": [
+                          {
+                            "text": "nightly"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "experimental",
+                      "value": {
+                        "boolean": true
+                      }
+                    }
+                  ]
+                ]
+              },
+              "exclude": null
+            }
+          },
+          "fail_fast": {
+            "literal": true
+          },
+          "max_parallel": null
+        }
+      },
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "template": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "matrix",
+                    "span": {
+                      "line": 13,
+                      "column": 28,
+                      "end_line": 13,
+                      "end_column": 34
+                    }
+                  }
+                },
+                "name": "experimental",
+                "span": {
+                  "line": 13,
+                  "column": 28,
+                  "end_line": 13,
+                  "end_column": 47
+                }
+              }
+            }
+          }
+        ]
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo +"
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "matrix",
+                            "span": {
+                              "line": 15,
+                              "column": 25,
+                              "end_line": 15,
+                              "end_column": 31
+                            }
+                          }
+                        },
+                        "name": "toolchain",
+                        "span": {
+                          "line": 15,
+                          "column": 25,
+                          "end_line": 15,
+                          "end_column": 41
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "text": " test"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 15,
+              "column": 9,
+              "end_line": 15,
+              "end_column": 49
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo +"
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "matrix",
+                            "span": {
+                              "line": 16,
+                              "column": 25,
+                              "end_line": 16,
+                              "end_column": 31
+                            }
+                          }
+                        },
+                        "name": "toolchain",
+                        "span": {
+                          "line": 16,
+                          "column": 25,
+                          "end_line": 16,
+                          "end_column": 41
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "text": " clippy"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": true
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 16,
+              "column": 9,
+              "end_line": 17,
+              "end_column": 32
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "./lint.sh"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "template": [
+                {
+                  "expression": {
+                    "compare": {
+                      "operator": "==",
+                      "left": {
+                        "property": {
+                          "target": {
+                            "context": {
+                              "name": "github",
+                              "span": {
+                                "line": 19,
+                                "column": 32,
+                                "end_line": 19,
+                                "end_column": 38
+                              }
+                            }
+                          },
+                          "name": "event_name",
+                          "span": {
+                            "line": 19,
+                            "column": 32,
+                            "end_line": 19,
+                            "end_column": 49
+                          }
+                        }
+                      },
+                      "right": {
+                        "string": {
+                          "value": "pull_request",
+                          "span": {
+                            "line": 19,
+                            "column": 53,
+                            "end_line": 19,
+                            "end_column": 67
+                          }
+                        }
+                      },
+                      "span": {
+                        "line": 19,
+                        "column": 32,
+                        "end_line": 19,
+                        "end_column": 67
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 18,
+              "column": 9,
+              "end_line": 19,
+              "end_column": 70
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 19,
+        "end_column": 70
+      }
+    }
+  ]
+}

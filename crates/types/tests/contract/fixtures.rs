@@ -81,6 +81,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         ("api/workflow.json", round_trip::<Workflow>),
         ("diagnostics/alias-bomb.json", round_trip::<Diagnostic>),
+        ("diagnostics/all-secrets.json", round_trip::<Diagnostic>),
         (
             "diagnostics/branches-and-branches-ignore.json",
             round_trip::<Diagnostic>,
@@ -89,14 +90,29 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "diagnostics/choice-default-outside-options.json",
             round_trip::<Diagnostic>,
         ),
+        (
+            "diagnostics/continue-on-error-string.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/defaults-run-expression.json",
+            round_trip::<Diagnostic>,
+        ),
         ("diagnostics/duplicate-key.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/expression-syntax.json",
+            round_trip::<Diagnostic>,
+        ),
         ("diagnostics/invalid-cron.json", round_trip::<Diagnostic>),
         ("diagnostics/invalid-job-key.json", round_trip::<Diagnostic>),
         (
             "diagnostics/invalid-step-key.json",
             round_trip::<Diagnostic>,
         ),
-        ("diagnostics/job-if.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/matrix-in-workflow-env.json",
+            round_trip::<Diagnostic>,
+        ),
         ("diagnostics/merge-key.json", round_trip::<Diagnostic>),
         ("diagnostics/missing-runs-on.json", round_trip::<Diagnostic>),
         ("diagnostics/needs-cycle.json", round_trip::<Diagnostic>),
@@ -106,17 +122,84 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<Diagnostic>,
         ),
         (
+            "diagnostics/permissions-id-token-read.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/permissions-models-write.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/permissions-unknown-scope.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/queue-max-cancel-in-progress.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
             "diagnostics/repeated-step-key.json",
+            round_trip::<Diagnostic>,
+        ),
+        ("diagnostics/run-and-uses.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/runs-on-steps-context.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/shell-on-uses-step.json",
             round_trip::<Diagnostic>,
         ),
         (
             "diagnostics/shell-without-placeholder.json",
             round_trip::<Diagnostic>,
         ),
+        (
+            "diagnostics/step-shell-expression.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/template-condition.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/timeout-minutes-fraction.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/timeout-minutes-string.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/unavailable-function.json",
+            round_trip::<Diagnostic>,
+        ),
+        ("diagnostics/unknown-context.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/unknown-function-in-step-if.json",
+            round_trip::<Diagnostic>,
+        ),
         ("diagnostics/unknown-key.json", round_trip::<Diagnostic>),
         ("diagnostics/unknown-needs.json", round_trip::<Diagnostic>),
         (
             "diagnostics/unknown-time-zone.json",
+            round_trip::<Diagnostic>,
+        ),
+        ("diagnostics/uses-expression.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/uses-local-action.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/uses-without-ref.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/with-on-run-step.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/wrong-argument-count.json",
             round_trip::<Diagnostic>,
         ),
         ("diagnostics/yaml-syntax.json", round_trip::<Diagnostic>),
@@ -132,7 +215,13 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/step-created.json", round_trip::<RunEvent>),
         ("events/step-status.json", round_trip::<RunEvent>),
         ("ir/aliases.json", round_trip::<ir::Workflow>),
+        ("ir/all-secrets.json", round_trip::<ir::Workflow>),
+        ("ir/concurrency.json", round_trip::<ir::Workflow>),
+        ("ir/continue-on-error.json", round_trip::<ir::Workflow>),
+        ("ir/defaults.json", round_trip::<ir::Workflow>),
         ("ir/flow-style.json", round_trip::<ir::Workflow>),
+        ("ir/job-if.json", round_trip::<ir::Workflow>),
+        ("ir/job-outputs.json", round_trip::<ir::Workflow>),
         ("ir/on-generic-events.json", round_trip::<ir::Workflow>),
         ("ir/on-list.json", round_trip::<ir::Workflow>),
         ("ir/on-merge-group.json", round_trip::<ir::Workflow>),
@@ -143,7 +232,16 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("ir/on-schedule.json", round_trip::<ir::Workflow>),
         ("ir/on-string.json", round_trip::<ir::Workflow>),
         ("ir/on-workflow-dispatch.json", round_trip::<ir::Workflow>),
+        ("ir/permissions.json", round_trip::<ir::Workflow>),
+        ("ir/run-name.json", round_trip::<ir::Workflow>),
+        ("ir/runs-on-expressions.json", round_trip::<ir::Workflow>),
         ("ir/scalars.json", round_trip::<ir::Workflow>),
+        ("ir/secrets.json", round_trip::<ir::Workflow>),
+        ("ir/step-if.json", round_trip::<ir::Workflow>),
+        ("ir/step-uses.json", round_trip::<ir::Workflow>),
+        ("ir/strategy.json", round_trip::<ir::Workflow>),
+        ("ir/template-condition.json", round_trip::<ir::Workflow>),
+        ("ir/timeout-minutes.json", round_trip::<ir::Workflow>),
         ("ir/two-jobs.json", round_trip::<ir::Workflow>),
     ]
 }

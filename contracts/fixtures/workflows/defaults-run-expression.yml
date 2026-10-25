@@ -1,0 +1,11 @@
+on: push
+
+defaults:
+  run:
+    shell: ${{ vars.SHELL }}
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

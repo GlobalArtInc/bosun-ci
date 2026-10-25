@@ -1,0 +1,320 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": "build",
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 7,
+              "column": 9,
+              "end_line": 8,
+              "end_column": 18
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": {
+              "expression": {
+                "and": {
+                  "operands": [
+                    {
+                      "call": {
+                        "function": "failure",
+                        "arguments": [],
+                        "span": {
+                          "line": 9,
+                          "column": 13,
+                          "end_line": 9,
+                          "end_column": 22
+                        }
+                      }
+                    },
+                    {
+                      "compare": {
+                        "operator": "==",
+                        "left": {
+                          "property": {
+                            "target": {
+                              "property": {
+                                "target": {
+                                  "context": {
+                                    "name": "steps",
+                                    "span": {
+                                      "line": 9,
+                                      "column": 26,
+                                      "end_line": 9,
+                                      "end_column": 31
+                                    }
+                                  }
+                                },
+                                "name": "build",
+                                "span": {
+                                  "line": 9,
+                                  "column": 26,
+                                  "end_line": 9,
+                                  "end_column": 37
+                                }
+                              }
+                            },
+                            "name": "outcome",
+                            "span": {
+                              "line": 9,
+                              "column": 26,
+                              "end_line": 9,
+                              "end_column": 45
+                            }
+                          }
+                        },
+                        "right": {
+                          "string": {
+                            "value": "failure",
+                            "span": {
+                              "line": 9,
+                              "column": 49,
+                              "end_line": 9,
+                              "end_column": 58
+                            }
+                          }
+                        },
+                        "span": {
+                          "line": 9,
+                          "column": 26,
+                          "end_line": 9,
+                          "end_column": 58
+                        }
+                      }
+                    }
+                  ],
+                  "span": {
+                    "line": 9,
+                    "column": 13,
+                    "end_line": 9,
+                    "end_column": 58
+                  }
+                }
+              }
+            },
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cat build.log"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 9,
+              "column": 9,
+              "end_line": 10,
+              "end_column": 27
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": {
+              "expression": {
+                "call": {
+                  "function": "always",
+                  "arguments": [],
+                  "span": {
+                    "line": 11,
+                    "column": 17,
+                    "end_line": 11,
+                    "end_column": 25
+                  }
+                }
+              }
+            },
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make clean"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 11,
+              "column": 9,
+              "end_line": 12,
+              "end_column": 24
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": {
+              "expression": {
+                "compare": {
+                  "operator": "!=",
+                  "left": {
+                    "call": {
+                      "function": "hashFiles",
+                      "arguments": [
+                        {
+                          "string": {
+                            "value": "Cargo.lock",
+                            "span": {
+                              "line": 13,
+                              "column": 27,
+                              "end_line": 13,
+                              "end_column": 39
+                            }
+                          }
+                        }
+                      ],
+                      "span": {
+                        "line": 13,
+                        "column": 17,
+                        "end_line": 13,
+                        "end_column": 40
+                      }
+                    }
+                  },
+                  "right": {
+                    "string": {
+                      "value": "",
+                      "span": {
+                        "line": 13,
+                        "column": 44,
+                        "end_line": 13,
+                        "end_column": 46
+                      }
+                    }
+                  },
+                  "span": {
+                    "line": 13,
+                    "column": 17,
+                    "end_line": 13,
+                    "end_column": 46
+                  }
+                }
+              }
+            },
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo fetch"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 13,
+              "column": 9,
+              "end_line": 14,
+              "end_column": 25
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 14,
+        "end_column": 25
+      }
+    }
+  ]
+}

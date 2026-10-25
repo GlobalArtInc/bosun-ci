@@ -1,0 +1,9 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    permissions:
+      models: write
+    steps:
+      - run: make

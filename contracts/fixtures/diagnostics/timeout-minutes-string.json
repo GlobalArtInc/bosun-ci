@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_type",
+  "message": "`timeout-minutes` of job `build` must be a number or an expression",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 6,
+    "column": 22,
+    "end_line": 6,
+    "end_column": 26
+  },
+  "path": [
+    "jobs",
+    "build",
+    "timeout-minutes"
+  ]
+}

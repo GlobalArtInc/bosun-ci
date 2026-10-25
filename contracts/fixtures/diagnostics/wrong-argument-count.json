@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "wrong_argument_count",
+  "message": "`contains` takes 2 arguments, not 1",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 13,
+    "end_line": 7,
+    "end_column": 33
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    0,
+    "if"
+  ]
+}

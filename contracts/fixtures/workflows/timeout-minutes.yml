@@ -1,0 +1,17 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    timeout-minutes: 30
+    steps:
+      - run: make
+        timeout-minutes: 10
+      - run: make test
+        timeout-minutes: ${{ fromJSON(vars.TEST_MINUTES) }}
+
+  slow:
+    runs-on: shell
+    timeout-minutes: ${{ fromJSON(vars.SLOW_MINUTES) }}
+    steps:
+      - run: make slow

@@ -1,0 +1,8 @@
+on: push
+
+jobs:
+  build:
+    if: hashFiles('Cargo.lock') != ''
+    runs-on: shell
+    steps:
+      - run: make

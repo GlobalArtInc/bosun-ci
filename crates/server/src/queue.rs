@@ -81,7 +81,20 @@ impl Dispatcher {
                         execution_id = %claimed.execution_id,
                         "assigned a job to an agent"
                     );
-                    Turned::Offered(Box::new(offer(*claimed)))
+                    let job_id = claimed.job_id;
+                    match offer(*claimed) {
+                        Ok(offer) => Turned::Offered(Box::new(offer)),
+                        Err(error) => {
+                            warn!(
+                                agent_id = %agent,
+                                %job_id,
+                                %error,
+                                "a claimed job cannot be offered"
+                            );
+                            contended = 0;
+                            Turned::Nothing
+                        }
+                    }
                 }
                 Ok(Claimed::Contended) => {
                     contended += 1;
@@ -212,7 +225,7 @@ pub(crate) async fn cancel_unclaimed(
     Ok(true)
 }
 
-pub(crate) fn offer(claimed: ClaimedJob) -> Offer {
+pub(crate) fn offer(claimed: ClaimedJob) -> Result<Offer, Error> {
     let merged: HashMap<&String, &Template> = claimed.env.iter().chain(&claimed.job.env).collect();
     let env = merged
         .into_iter()
@@ -221,23 +234,33 @@ pub(crate) fn offer(claimed: ClaimedJob) -> Offer {
     let JobKind::Steps(steps) = claimed.job.kind;
     let steps = (0..)
         .zip(steps)
-        .map(|(index, step)| proto::Step {
-            index,
-            key: step.key.map(|key| key.to_string()),
-            name: step.name.as_ref().map(template),
-            action: Some(match &step.action {
-                Action::Run { script } => Offered::Run(template(script)),
-            }),
-            shell: step.shell.map(|shell| shell.to_string()),
-            working_directory: step.working_directory.as_ref().map(template),
-            env: step
-                .env
-                .iter()
-                .map(|(name, value)| (name.clone(), template(value)))
-                .collect(),
+        .map(|(index, step)| {
+            let Action::Run { script } = &step.action else {
+                return Err(Error::Row {
+                    table: "run",
+                    message: format!(
+                        "step {index} of job `{}` uses an action, which an agent runs from M1 \
+                         step 33",
+                        claimed.key
+                    ),
+                });
+            };
+            Ok(proto::Step {
+                index,
+                key: step.key.map(|key| key.to_string()),
+                name: step.name.as_ref().map(template),
+                action: Some(Offered::Run(template(script))),
+                shell: step.shell.map(|shell| shell.to_string()),
+                working_directory: step.working_directory.as_ref().map(template),
+                env: step
+                    .env
+                    .iter()
+                    .map(|(name, value)| (name.clone(), template(value)))
+                    .collect(),
+            })
         })
-        .collect();
-    Offer {
+        .collect::<Result<Vec<_>, Error>>()?;
+    Ok(Offer {
         job: claimed.job_id,
         execution: claimed.execution_id,
         message: ServerMessage {
@@ -254,7 +277,7 @@ pub(crate) fn offer(claimed: ClaimedJob) -> Offer {
                 project: claimed.project,
             })),
         },
-    }
+    })
 }
 
 fn template(template: &Template) -> proto::Template {

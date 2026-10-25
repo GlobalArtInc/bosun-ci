@@ -21,7 +21,12 @@ who may give which command is in [08-access.md](08-access.md).
 - A **step** belongs to an execution. Steps of composite actions are nested under the step that
   used the action; pre and post steps of actions are steps of their own. The steps of an execution
   are created `pending` when its agent starts the job, one per step of the job template, each named
-  by its `name` or else by `Run ` and the first line of its script.
+  by its `name`, or else by `Run ` and the first line of its script, or by `Run ` and the `uses` of
+  a step that uses an action, such as `Run actions/checkout@v4`, as in the target. Until the agent
+  renders names (step 21 of [../plan.md](../plan.md)), these names are taken before anything is
+  evaluated: an expression in the `name` or in that line is left out, and a `name` that holds
+  nothing else counts as none, so `name: Build ${{ matrix.os }}` names the step `Build` and
+  `run: echo ${{ github.sha }}` names it `Run echo`.
 
 ## States
 

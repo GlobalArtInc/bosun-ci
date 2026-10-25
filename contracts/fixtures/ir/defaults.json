@@ -1,0 +1,193 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": {
+      "literal": "bash"
+    },
+    "working_directory": [
+      {
+        "text": "crates"
+      }
+    ]
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "literal": {
+          "matrix": {
+            "literal": {
+              "vectors": [
+                {
+                  "name": "shell",
+                  "values": {
+                    "literal": [
+                      {
+                        "string": [
+                          {
+                            "text": "bash"
+                          }
+                        ]
+                      },
+                      {
+                        "string": [
+                          {
+                            "text": "sh"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "include": null,
+              "exclude": null
+            }
+          },
+          "fail_fast": {
+            "literal": true
+          },
+          "max_parallel": null
+        }
+      },
+      "env": {},
+      "defaults": {
+        "shell": {
+          "template": [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "matrix",
+                      "span": {
+                        "line": 16,
+                        "column": 20,
+                        "end_line": 16,
+                        "end_column": 26
+                      }
+                    }
+                  },
+                  "name": "shell",
+                  "span": {
+                    "line": 16,
+                    "column": 20,
+                    "end_line": 16,
+                    "end_column": 32
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "working_directory": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "github",
+                    "span": {
+                      "line": 17,
+                      "column": 32,
+                      "end_line": 17,
+                      "end_column": 38
+                    }
+                  }
+                },
+                "name": "workspace",
+                "span": {
+                  "line": 17,
+                  "column": 32,
+                  "end_line": 17,
+                  "end_column": 48
+                }
+              }
+            }
+          },
+          {
+            "text": "/crates"
+          }
+        ]
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo build"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 19,
+              "column": 9,
+              "end_line": 19,
+              "end_column": 25
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 9,
+        "column": 3,
+        "end_line": 19,
+        "end_column": 25
+      }
+    }
+  ]
+}

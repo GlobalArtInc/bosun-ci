@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`uses` of step 1 of job `build` cannot be used together with `run`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 8,
+    "column": 15,
+    "end_line": 8,
+    "end_column": 34
+  },
+  "path": [
+    "jobs",
+    "build",
+    "steps",
+    0,
+    "uses"
+  ]
+}

@@ -1,12 +1,14 @@
+use bosun_db::runs::NewRun;
 use bosun_types::event::Event;
-use bosun_types::ir::{Evaluable, RunsOn};
+use bosun_types::ir::{Action, ActionReference, Evaluable, JobKind, RunsOn, Template};
 use bosun_types::status::{
     Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason, StepStatus,
 };
-use sea_orm::{ConnectionTrait, Statement};
+use sea_orm::{ConnectionTrait, Statement, TransactionTrait};
 
-use super::{World, replay, template, workflow};
+use super::{World, operator, replay, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
+use crate::planner;
 
 async fn strings(world: &World, sql: &str) -> Vec<String> {
     world
@@ -27,12 +29,12 @@ async fn jobs_without_needs_are_queued_at_dispatch_with_their_labels_and_the_poo
     let world = World::new().await;
     let mut grouped = template("grouped", &[], 1);
     grouped.runs_on = Evaluable::Literal(RunsOn {
-        group: Some("default".to_owned()),
-        labels: vec!["Shell".to_owned()],
+        group: Some(Template::text("default")),
+        labels: vec![Template::text("Shell")],
     });
     let mut nowhere = template("nowhere", &[], 1);
     nowhere.runs_on = Evaluable::Literal(RunsOn {
-        group: Some("nowhere".to_owned()),
+        group: Some(Template::text("nowhere")),
         labels: Vec::new(),
     });
     let run = world
@@ -159,6 +161,188 @@ async fn a_job_waits_for_every_job_it_needs_and_the_run_succeeds_when_all_do() {
             true,
             true
         )
+    );
+}
+
+#[tokio::test]
+async fn a_step_that_uses_an_action_is_named_after_the_action() {
+    let world = World::new().await;
+    let mut build = template("build", &[], 2);
+    let JobKind::Steps(steps) = &mut build.kind;
+    steps[1].action = Action::Uses(ActionReference {
+        owner: "actions".to_owned(),
+        repository: "cache".to_owned(),
+        path: Some("restore".to_owned()),
+        r#ref: "v4".to_owned(),
+    });
+    let run = world.dispatch(&workflow(vec![build])).await;
+    let (build, _) = world.project(run).await.job("build");
+    let execution = world.assign(run, build).await;
+    progress::accepted(world.db(), world.agent(), execution)
+        .await
+        .expect("an acceptance");
+    let projection = world.project(run).await;
+    let names: Vec<&str> = projection
+        .steps_of(execution)
+        .into_iter()
+        .map(|step| step.name.as_str())
+        .collect();
+    assert_eq!(names, ["Run echo build 0", "Run actions/cache/restore@v4"]);
+}
+
+#[tokio::test]
+async fn steps_are_named_from_the_text_around_their_expressions() {
+    let world = World::new().await;
+    let source = "\
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - name: Build ${{ github.ref_name }}
+        run: make
+      - run: echo ${{ github.sha }}
+      - name: ${{ github.ref_name }}
+        run: |
+          ${{ github.workspace }}
+          make check
+";
+    let ir = bosun_workflow::parse("ci", source)
+        .expect("a valid workflow")
+        .workflow;
+    let run = world.dispatch(&ir).await;
+    let (build, _) = world.project(run).await.job("build");
+    let execution = world.assign(run, build).await;
+    progress::accepted(world.db(), world.agent(), execution)
+        .await
+        .expect("an acceptance");
+    let projection = world.project(run).await;
+    let names: Vec<&str> = projection
+        .steps_of(execution)
+        .into_iter()
+        .map(|step| step.name.as_str())
+        .collect();
+    assert_eq!(names, ["Build", "Run echo", "Run make check"]);
+}
+
+#[tokio::test]
+async fn a_job_placed_by_an_expression_is_never_queued_without_it() {
+    let world = World::new().await;
+    for runs_on in [
+        "[self-hosted, '${{ vars.ARCH }}']",
+        "{ group: '${{ vars.POOL }}', labels: [linux] }",
+        "${{ vars.LABEL }}",
+    ] {
+        let source = format!(
+            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: {runs_on}\n    steps:\n      \
+             - run: make\n"
+        );
+        let ir = bosun_workflow::parse("ci", &source)
+            .expect("a valid workflow")
+            .workflow;
+        assert_eq!(
+            planner::unapplied(&ir).as_deref(),
+            Some(
+                "an expression in `runs-on` of job `build`, which the planner applies from M1 \
+                 step 15"
+            ),
+            "{runs_on}"
+        );
+        let transaction = world.db().begin().await.expect("a transaction");
+        let refused = planner::dispatch(
+            &transaction,
+            NewRun {
+                workflow: &world.workflow,
+                revision_id: world.workflow.revision_id.expect("a current revision"),
+                ir: &ir,
+                actor: &operator(),
+            },
+        )
+        .await
+        .map(|run| run.id);
+        assert_eq!(
+            refused.map_err(|error| error.to_string()),
+            Err(
+                "a row of run holds a value bosun-types does not accept: the IR of the run \
+                 places job `build` by an expression in `runs-on`, which the planner evaluates \
+                 from M1 step 15"
+                    .to_owned()
+            ),
+            "{runs_on}"
+        );
+    }
+    assert_eq!(
+        strings(&world, "SELECT count(*)::text AS value FROM bosun.job").await,
+        ["0"]
+    );
+}
+
+#[test]
+fn keys_the_planner_does_not_apply_yet_are_named_with_the_step_that_brings_them() {
+    let job = |keys: &str| {
+        let source = format!(
+            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: self-hosted\n{keys}    \
+             steps:\n      - run: make\n"
+        );
+        let ir = bosun_workflow::parse("ci", &source)
+            .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
+            .workflow;
+        planner::unapplied(&ir)
+    };
+    let cases = [
+        ("    if: false\n", "`if` of job `build`", 15),
+        (
+            "    continue-on-error: true\n",
+            "`continue-on-error` of job `build`",
+            15,
+        ),
+        (
+            "    strategy:\n      matrix:\n        os: [linux]\n",
+            "`strategy` of job `build`",
+            16,
+        ),
+        (
+            "    concurrency: deploy\n",
+            "`concurrency` of job `build`",
+            17,
+        ),
+    ];
+    for (keys, what, step) in cases {
+        assert_eq!(
+            job(keys),
+            Some(format!(
+                "{what}, which the planner applies from M1 step {step}"
+            )),
+            "{keys}"
+        );
+    }
+    assert_eq!(
+        job(
+            "    continue-on-error: false\n    timeout-minutes: 10\n    env:\n      A: ${{ github.sha }}\n"
+        ),
+        None
+    );
+    let uses = bosun_workflow::parse(
+        "ci",
+        "on: workflow_dispatch\njobs:\n  build:\n    runs-on: self-hosted\n    steps:\n      \
+         - run: make\n      - uses: actions/checkout@v4\n",
+    )
+    .expect("a valid workflow")
+    .workflow;
+    assert_eq!(
+        planner::unapplied(&uses).as_deref(),
+        Some("a `uses` step of job `build`, which the planner applies from M1 step 33")
+    );
+    let workflow = bosun_workflow::parse(
+        "ci",
+        "on: workflow_dispatch\nconcurrency: ci\njobs:\n  build:\n    runs-on: self-hosted\n    \
+         steps:\n      - run: make\n",
+    )
+    .expect("a valid workflow")
+    .workflow;
+    assert_eq!(
+        planner::unapplied(&workflow).as_deref(),
+        Some("`concurrency` of the workflow, which the planner applies from M1 step 17")
     );
 }
 

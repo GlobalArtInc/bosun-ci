@@ -1,0 +1,48 @@
+on: push
+
+jobs:
+  setup:
+    runs-on: shell
+    outputs:
+      versions: ${{ steps.list.outputs.versions }}
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - id: list
+        run: |
+          echo 'versions=["3.12","3.13"]' >> "$GITHUB_OUTPUT"
+          echo 'matrix={"os":["linux"]}' >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: setup
+    runs-on: shell
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [linux, macos]
+        python: ${{ fromJSON(needs.setup.outputs.versions) }}
+        node: [20, 22.5]
+        include:
+          - os: linux
+            experimental: true
+            extra: { arch: arm64, tags: [a, b] }
+        exclude:
+          - os: macos
+            node: 20
+    steps:
+      - run: make test PYTHON=${{ matrix.python }}
+
+  computed:
+    needs: setup
+    runs-on: shell
+    strategy:
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+      fail-fast: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - run: make
+
+  whole:
+    runs-on: shell
+    strategy: ${{ fromJSON(vars.STRATEGY) }}
+    steps:
+      - run: make

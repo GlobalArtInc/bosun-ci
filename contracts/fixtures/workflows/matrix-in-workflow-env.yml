@@ -1,0 +1,10 @@
+on: push
+
+env:
+  TARGET: ${{ matrix.target }}
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

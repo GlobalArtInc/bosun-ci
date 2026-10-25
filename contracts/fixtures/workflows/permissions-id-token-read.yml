@@ -1,0 +1,10 @@
+on: push
+
+permissions:
+  id-token: read
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

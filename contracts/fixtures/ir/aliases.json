@@ -1,5 +1,6 @@
 {
   "name": null,
+  "run_name": null,
   "triggers": [
     {
       "workflow_dispatch": {
@@ -7,6 +8,7 @@
       }
     }
   ],
+  "permissions": null,
   "env": {
     "LANG": [
       {
@@ -14,26 +16,57 @@
       }
     ]
   },
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
   "jobs": [
     {
       "key": "first",
       "name": null,
       "needs": [],
+      "if": null,
       "runs_on": {
         "literal": {
           "group": null,
           "labels": [
-            "self-hosted",
-            "Linux"
+            [
+              {
+                "text": "self-hosted"
+              }
+            ],
+            [
+              {
+                "text": "Linux"
+              }
+            ]
           ]
         }
       },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
       "env": {
         "LANG": [
           {
             "text": "C.UTF-8"
           }
         ]
+      },
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
       },
       "kind": {
         "steps": [
@@ -44,6 +77,7 @@
                 "text": "Hello"
               }
             ],
+            "if": null,
             "action": {
               "run": {
                 "script": [
@@ -55,7 +89,12 @@
             },
             "shell": null,
             "working_directory": null,
+            "with": {},
             "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
             "span": {
               "line": 13,
               "column": 9,
@@ -78,16 +117,42 @@
       "needs": [
         "first"
       ],
+      "if": null,
       "runs_on": {
         "literal": {
           "group": null,
           "labels": [
-            "self-hosted",
-            "Linux"
+            [
+              {
+                "text": "self-hosted"
+              }
+            ],
+            [
+              {
+                "text": "Linux"
+              }
+            ]
           ]
         }
       },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
       "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
       "kind": {
         "steps": [
           {
@@ -97,6 +162,7 @@
                 "text": "Hello"
               }
             ],
+            "if": null,
             "action": {
               "run": {
                 "script": [
@@ -108,7 +174,12 @@
             },
             "shell": null,
             "working_directory": null,
+            "with": {},
             "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
             "span": {
               "line": 19,
               "column": 9,
@@ -119,6 +190,7 @@
           {
             "key": null,
             "name": null,
+            "if": null,
             "action": {
               "run": {
                 "script": [
@@ -130,7 +202,12 @@
             },
             "shell": null,
             "working_directory": null,
+            "with": {},
             "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
             "span": {
               "line": 20,
               "column": 9,

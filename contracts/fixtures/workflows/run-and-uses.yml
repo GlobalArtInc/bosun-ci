@@ -1,0 +1,8 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make
+        uses: actions/checkout@v4

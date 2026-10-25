@@ -4,7 +4,7 @@ use bosun_db::Error;
 use bosun_db::runs::{JobState, Locked, NewRun};
 use bosun_types::actor::Actor;
 use bosun_types::api::Run;
-use bosun_types::ir::{self, Evaluable};
+use bosun_types::ir::{self, Evaluable, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason};
 use sea_orm::DatabaseTransaction;
@@ -79,6 +79,59 @@ fn ancestors_succeeded(jobs: &[JobState], index: usize) -> bool {
     true
 }
 
+pub(crate) fn unapplied(workflow: &ir::Workflow) -> Option<String> {
+    let (what, step) = match &workflow.concurrency {
+        Some(_) => ("`concurrency` of the workflow".to_owned(), 17),
+        None => workflow.jobs.iter().find_map(|job| {
+            [
+                (job.r#if.is_some(), "`if`", 15),
+                (
+                    placement(&job.runs_on).is_none(),
+                    "an expression in `runs-on`",
+                    15,
+                ),
+                (
+                    job.continue_on_error != Evaluable::Literal(false),
+                    "`continue-on-error`",
+                    15,
+                ),
+                (job.strategy.is_some(), "`strategy`", 16),
+                (job.concurrency.is_some(), "`concurrency`", 17),
+                (uses_an_action(job), "a `uses` step", 33),
+            ]
+            .into_iter()
+            .find(|(used, ..)| *used)
+            .map(|(_, key, step)| (format!("{key} of job `{}`", job.key), step))
+        })?,
+    };
+    Some(format!(
+        "{what}, which the planner applies from M1 step {step}"
+    ))
+}
+
+fn uses_an_action(job: &ir::JobTemplate) -> bool {
+    let ir::JobKind::Steps(steps) = &job.kind;
+    steps
+        .iter()
+        .any(|step| matches!(step.action, ir::Action::Uses(_)))
+}
+
+fn placement(runs_on: &Evaluable<ir::RunsOn>) -> Option<(Vec<String>, Option<String>)> {
+    let Evaluable::Literal(runs_on) = runs_on else {
+        return None;
+    };
+    let labels = runs_on
+        .labels
+        .iter()
+        .map(Template::as_literal)
+        .collect::<Option<Vec<_>>>()?;
+    let group = match &runs_on.group {
+        Some(group) => Some(group.as_literal()?),
+        None => None,
+    };
+    Some((labels, group))
+}
+
 fn runs_on(workflow: &ir::Workflow, key: &JobKey) -> Result<(Vec<String>, Option<String>), Error> {
     let template = workflow
         .jobs
@@ -88,9 +141,12 @@ fn runs_on(workflow: &ir::Workflow, key: &JobKey) -> Result<(Vec<String>, Option
             table: "run",
             message: format!("the IR of the run has no job `{key}`"),
         })?;
-    Ok(match &template.runs_on {
-        Evaluable::Literal(runs_on) => (runs_on.labels.clone(), runs_on.group.clone()),
-        Evaluable::Template(label) => (label.as_literal().into_iter().collect(), None),
+    placement(&template.runs_on).ok_or_else(|| Error::Row {
+        table: "run",
+        message: format!(
+            "the IR of the run places job `{key}` by an expression in `runs-on`, which the \
+             planner evaluates from M1 step 15"
+        ),
     })
 }
 

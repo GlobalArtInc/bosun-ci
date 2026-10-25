@@ -64,18 +64,30 @@ pub(crate) async fn dispatch(
         .await
         .map_err(database)?
         .ok_or_else(|| failed(format!("revision {revision_id} of a workflow is missing")))?;
-    let ir = bosun_workflow::parse(&workflow.name, &revision.source).map_err(|diagnostics| {
-        let mut body = ErrorBody::new(
+    let parsed =
+        bosun_workflow::parse(&workflow.name, &revision.source).map_err(|diagnostics| {
+            let mut body = ErrorBody::new(
+                ErrorCode::InvalidState,
+                format!(
+                    "the current revision of workflow `{}` is not valid for this server, so it \
+                 cannot be dispatched until a valid source is saved",
+                    workflow.name
+                ),
+            );
+            body.diagnostics = diagnostics;
+            ApiError(body)
+        })?;
+    let ir = parsed.workflow;
+    if let Some(unapplied) = planner::unapplied(&ir) {
+        return Err(ApiError::new(
             ErrorCode::InvalidState,
             format!(
-                "the current revision of workflow `{}` is not valid for this server, so it \
-                 cannot be dispatched until a valid source is saved",
+                "the current revision of workflow `{}` uses {unapplied}, so it cannot be \
+                 dispatched yet",
                 workflow.name
             ),
-        );
-        body.diagnostics = diagnostics;
-        ApiError(body)
-    })?;
+        ));
+    }
     let run = planner::dispatch(
         &transaction,
         NewRun {

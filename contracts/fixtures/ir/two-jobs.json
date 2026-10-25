@@ -1,5 +1,6 @@
 {
   "name": "ci",
+  "run_name": null,
   "triggers": [
     {
       "workflow_dispatch": {
@@ -7,6 +8,7 @@
       }
     }
   ],
+  "permissions": null,
   "env": {
     "CARGO_TERM_COLOR": [
       {
@@ -14,6 +16,11 @@
       }
     ]
   },
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
   "jobs": [
     {
       "key": "build",
@@ -23,17 +30,47 @@
         }
       ],
       "needs": [],
+      "if": null,
       "runs_on": {
         "literal": {
           "group": null,
           "labels": [
-            "self-hosted",
-            "Linux",
-            "X64"
+            [
+              {
+                "text": "self-hosted"
+              }
+            ],
+            [
+              {
+                "text": "Linux"
+              }
+            ],
+            [
+              {
+                "text": "X64"
+              }
+            ]
           ]
         }
       },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
       "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
       "kind": {
         "steps": [
           {
@@ -43,6 +80,7 @@
                 "text": "Compile"
               }
             ],
+            "if": null,
             "action": {
               "run": {
                 "script": [
@@ -54,6 +92,7 @@
             },
             "shell": "bash",
             "working_directory": null,
+            "with": {},
             "env": {
               "RUSTFLAGS": [
                 {
@@ -61,6 +100,10 @@
                 }
               ]
             },
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
             "span": {
               "line": 13,
               "column": 9,
@@ -71,6 +114,7 @@
           {
             "key": null,
             "name": null,
+            "if": null,
             "action": {
               "run": {
                 "script": [
@@ -86,7 +130,12 @@
                 "text": "crates"
               }
             ],
+            "with": {},
             "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
             "span": {
               "line": 20,
               "column": 9,
@@ -109,20 +158,47 @@
       "needs": [
         "build"
       ],
+      "if": null,
       "runs_on": {
         "literal": {
-          "group": "default",
+          "group": [
+            {
+              "text": "default"
+            }
+          ],
           "labels": [
-            "shell"
+            [
+              {
+                "text": "shell"
+              }
+            ]
           ]
         }
       },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
       "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
       "kind": {
         "steps": [
           {
             "key": "unit",
             "name": null,
+            "if": null,
             "action": {
               "run": {
                 "script": [
@@ -136,7 +212,12 @@
               "custom": "perl {0}"
             },
             "working_directory": null,
+            "with": {},
             "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
             "span": {
               "line": 30,
               "column": 9,

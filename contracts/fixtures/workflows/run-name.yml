@@ -1,0 +1,15 @@
+name: Deploy
+run-name: Deploy ${{ inputs.target }} by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        options: [staging, production]
+
+jobs:
+  deploy:
+    runs-on: shell
+    steps:
+      - run: ./deploy.sh

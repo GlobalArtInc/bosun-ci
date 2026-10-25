@@ -1,7 +1,7 @@
-use bosun_types::diagnostic::{Diagnostic, PathSegment};
+use bosun_types::diagnostic::Diagnostic;
 use bosun_types::ir::{JobKind, Span, Trigger, WorkflowDispatch};
 
-use crate::{invalid, valid};
+use crate::{invalid, only, path, valid};
 
 const JOBS: &str = "jobs:\n  build:\n    runs-on: shell\n    steps:\n      - run: make\n";
 
@@ -9,22 +9,6 @@ fn codes(diagnostics: &[Diagnostic]) -> Vec<&str> {
     diagnostics
         .iter()
         .map(|diagnostic| diagnostic.code.as_str())
-        .collect()
-}
-
-fn only(source: &str) -> Diagnostic {
-    let mut diagnostics = invalid(source);
-    assert_eq!(diagnostics.len(), 1, "{source}\nproduced {diagnostics:#?}");
-    diagnostics.remove(0)
-}
-
-fn path(segments: &[&str]) -> Vec<PathSegment> {
-    segments
-        .iter()
-        .map(|segment| match segment.parse() {
-            Ok(index) => PathSegment::Index(index),
-            Err(_) => PathSegment::Key((*segment).to_string()),
-        })
         .collect()
 }
 
@@ -49,96 +33,10 @@ fn on_parses_as_a_trigger_not_a_boolean() {
 }
 
 #[test]
-fn expressions_arrive_in_m1_wherever_a_value_is_read() {
-    let cases = [
-        (
-            "on: workflow_dispatch\nenv:\n  A: ${{ github.sha }}\njobs:\n  build:\n    runs-on: shell\n    steps:\n      - run: make\n",
-            "env.A",
-        ),
-        (
-            "on: workflow_dispatch\njobs:\n  build:\n    name: ${{ github.ref }}\n    runs-on: shell\n    steps:\n      - run: make\n",
-            "jobs.build.name",
-        ),
-        (
-            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: [shell, '${{ matrix.os }}']\n    steps:\n      - run: make\n",
-            "jobs.build.runs-on.1",
-        ),
-        (
-            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: { group: '${{ vars.pool }}' }\n    steps:\n      - run: make\n",
-            "jobs.build.runs-on.group",
-        ),
-        (
-            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: shell\n    env:\n      B: x${{ 1 }}\n    steps:\n      - run: make\n",
-            "jobs.build.env.B",
-        ),
-        (
-            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: shell\n    steps:\n      - run: echo ${{ github.sha }}\n",
-            "jobs.build.steps.0.run",
-        ),
-        (
-            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: shell\n    steps:\n      - run: make\n        name: ${{ env.NAME }}\n        shell: ${{ env.SHELL }}\n        working-directory: ${{ env.DIR }}\n        env:\n          C: ${{ env.C }}\n",
-            "jobs.build.steps.0.name jobs.build.steps.0.shell jobs.build.steps.0.working-directory jobs.build.steps.0.env.C",
-        ),
-    ];
-    for (source, paths) in cases {
-        let diagnostics = invalid(source);
-        let expected: Vec<Vec<PathSegment>> = paths
-            .split(' ')
-            .map(|dotted| path(&dotted.split('.').collect::<Vec<_>>()))
-            .collect();
-        let produced: Vec<Vec<PathSegment>> = diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.path.clone())
-            .collect();
-        assert_eq!(produced, expected, "{source}");
-        for diagnostic in &diagnostics {
-            assert_eq!(diagnostic.code, "not_implemented");
-            assert_eq!(
-                diagnostic.message,
-                "expressions are not supported yet; they arrive in M1"
-            );
-        }
-    }
-}
-
-#[test]
 fn the_name_of_a_workflow_is_never_evaluated() {
-    let workflow = valid(&format!(
-        "name: Deploy ${{{{ inputs.target }}}}\non: workflow_dispatch\n{JOBS}"
-    ));
-    assert_eq!(
-        workflow.name.as_deref(),
-        Some("Deploy ${{ inputs.target }}")
-    );
-}
-
-#[test]
-fn uses_names_the_milestone_of_its_form() {
-    let step = |reference: &str| {
-        format!(
-            "on: workflow_dispatch\njobs:\n  build:\n    runs-on: shell\n    steps:\n      - uses: {reference}\n"
-        )
-    };
-    for (source, milestone) in [
-        (step("actions/checkout@v4"), "M1"),
-        (step("actions/cache/restore@v4"), "M1"),
-        (step("./.github/actions/setup"), "M2"),
-        (step("docker://alpine:3.20"), "M2"),
-        (
-            "on: workflow_dispatch\njobs:\n  call:\n    uses: ./.github/workflows/build.yml\n"
-                .to_string(),
-            "M2",
-        ),
-    ] {
-        let diagnostic = only(&source);
-        assert_eq!(diagnostic.code, "not_implemented", "{source}");
-        assert!(
-            diagnostic
-                .message
-                .ends_with(&format!("it arrives in {milestone}")),
-            "{source}\n{}",
-            diagnostic.message
-        );
+    for name in ["Deploy ${{ inputs.target }}", "${{ nothing( }}"] {
+        let workflow = valid(&format!("name: {name}\non: workflow_dispatch\n{JOBS}"));
+        assert_eq!(workflow.name.as_deref(), Some(name));
     }
 }
 
@@ -348,7 +246,10 @@ fn a_required_key_is_reported_where_its_mapping_is() {
     let step = only(
         "on: workflow_dispatch\njobs:\n  build:\n    runs-on: shell\n    steps:\n      - name: Build\n",
     );
-    assert_eq!(step.message, "missing key `run` in step 1 of job `build`");
+    assert_eq!(
+        step.message,
+        "missing key `run` or `uses` in step 1 of job `build`"
+    );
     assert_eq!(
         step.span,
         Span {

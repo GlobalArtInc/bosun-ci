@@ -1,11 +1,21 @@
+mod concurrency;
+mod defaults;
+mod expression;
 pub mod github;
 mod graph;
+mod job;
 mod lower;
 mod matching;
 mod on;
 mod pattern;
+mod permissions;
+mod place;
 mod schedule;
+mod secrets;
+mod step;
+mod strategy;
 mod surface;
+mod uses;
 mod yaml;
 
 use bosun_types::diagnostic::Diagnostic;
@@ -31,6 +41,8 @@ pub(crate) enum Code {
     RepeatedStepKey,
     UnknownJob,
     NeedsCycle,
+    TemplateCondition,
+    AllSecrets,
 }
 
 impl Code {
@@ -50,13 +62,21 @@ impl Code {
             Code::RepeatedStepKey => "repeated_step_key",
             Code::UnknownJob => "unknown_job",
             Code::NeedsCycle => "needs_cycle",
+            Code::TemplateCondition => "template_condition",
+            Code::AllSecrets => "all_secrets",
         }
     }
 }
 
+#[derive(Debug)]
+pub struct Parsed {
+    pub workflow: Workflow,
+    pub warnings: Vec<Diagnostic>,
+}
+
 fn lower<'f>(file: &'f str, source: &str) -> (Lowering<'f>, Option<Workflow>) {
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
-    let mut lowering = Lowering::new(file);
+    let mut lowering = Lowering::new(file, source);
     let workflow = match yaml::load(source) {
         Ok(root) => lowering.workflow(&root),
         Err(fault) => {
@@ -67,7 +87,7 @@ fn lower<'f>(file: &'f str, source: &str) -> (Lowering<'f>, Option<Workflow>) {
     (lowering, workflow)
 }
 
-pub fn parse(file: &str, source: &str) -> Result<Workflow, Vec<Diagnostic>> {
+pub fn parse(file: &str, source: &str) -> Result<Parsed, Vec<Diagnostic>> {
     let (lowering, workflow) = lower(file, source);
     lowering.finish(workflow)
 }
