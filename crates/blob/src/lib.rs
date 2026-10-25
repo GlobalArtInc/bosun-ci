@@ -1,5 +1,6 @@
 mod directory;
 mod key;
+mod s3;
 
 use std::fmt;
 use std::future::Future;
@@ -12,6 +13,7 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 pub use directory::Directory;
 pub use key::{Key, KeyError};
+pub use s3::{S3, S3Settings};
 
 pub trait Store: Send + Sync {
     fn put<R>(&self, key: &Key, body: R) -> impl Future<Output = Result<(), Error>> + Send
@@ -76,6 +78,11 @@ pub enum Error {
         target: String,
         source: io::Error,
     },
+    Request {
+        target: String,
+        problem: String,
+    },
+    Settings(String),
 }
 
 impl fmt::Display for Error {
@@ -103,6 +110,13 @@ impl fmt::Display for Error {
             Self::Io { target, source } => {
                 write!(f, "object store I/O failed on `{target}`: {source}")
             }
+            Self::Request { target, problem } => {
+                write!(
+                    f,
+                    "the object store request on `{target}` failed: {problem}"
+                )
+            }
+            Self::Settings(problem) => write!(f, "the S3 settings cannot be used: {problem}"),
         }
     }
 }
@@ -111,7 +125,10 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::NotFound(_) | Self::InvalidRange { .. } => None,
+            Self::NotFound(_)
+            | Self::InvalidRange { .. }
+            | Self::Request { .. }
+            | Self::Settings(_) => None,
         }
     }
 }

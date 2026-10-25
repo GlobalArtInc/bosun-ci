@@ -18,6 +18,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt", "json", "std"] }
 
 [dev-dependencies]
+bosun-blob.workspace = true
 bosun-db.workspace = true
 bosun-proto.workspace = true
 bosun-testkit.workspace = true

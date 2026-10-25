@@ -3,7 +3,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bosun_blob::{Directory, Key, Store};
+use bosun_blob::{Key, Store};
 use bosun_db::logs::{Compacted, Compaction, NewObject};
 use bosun_types::id::{ExecutionId, StepId};
 use chrono::DateTime;
@@ -13,6 +13,7 @@ use tracing::{info, warn};
 
 use super::notice;
 use super::object::Encoder;
+use crate::store::Backend;
 
 const SWEEP: Duration = Duration::from_secs(5);
 
@@ -34,7 +35,7 @@ pub(crate) enum Failure {
     Key(#[from] bosun_blob::KeyError),
 }
 
-pub(crate) async fn sweep(db: DatabaseConnection, store: Arc<Directory>) {
+pub(crate) async fn sweep(db: DatabaseConnection, store: Arc<Backend>) {
     let mut ticks = interval(SWEEP);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {

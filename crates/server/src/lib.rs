@@ -34,7 +34,6 @@ use axum::Router;
 use axum::extract::Request;
 use axum::middleware;
 use axum::routing::get;
-use bosun_blob::Directory;
 use bosun_proto::agent::v1::agent_server::AgentServer;
 use sea_orm::DatabaseConnection;
 use tokio::net::TcpListener;
@@ -48,7 +47,7 @@ pub use error::Error;
 #[derive(Clone)]
 struct AppState {
     db: DatabaseConnection,
-    store: Arc<Directory>,
+    store: Arc<store::Backend>,
     followers: Arc<logs::Followers>,
     shutdown: shutdown::Shutdown,
 }

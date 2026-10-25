@@ -15,9 +15,10 @@ them in the same change.
 - Push straight to `main`. One task is one change; do not split a task across branches.
 - Verify with the same commands CI runs before pushing: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` against a local
-  Postgres (`BOSUN_TEST_DATABASE_URL`), the `wasm32-unknown-unknown` build of the pure crates once
-  step 3 adds it, `hack/check-deps.sh` and `hack/test-check-deps.sh`, and `hack/e2e.sh` once it
-  exists; `pnpm lint && pnpm test && pnpm build` in `web/` once it exists.
+  Postgres (`BOSUN_TEST_DATABASE_URL`) and the local S3 server (`BOSUN_TEST_S3_URL`, see below),
+  the `wasm32-unknown-unknown` build of the pure crates once step 3 adds it, `hack/check-deps.sh`
+  and `hack/test-check-deps.sh`, and `hack/e2e.sh` once it exists; `pnpm lint && pnpm test &&
+  pnpm build` in `web/` once it exists.
 - A new crate gets its rule in `hack/check-deps.sh` and its row in `docs/design/01-overview.md` in
   the same change.
 - Postgres is the only database. Tests get a database per test from a template; no in-memory
@@ -27,6 +28,23 @@ them in the same change.
 - Other CI products are named only where the compatibility contract requires it: the GitHub Actions
   syntax, the toolkit's protocols and the environment variable names actions read. Everything else
   uses Bosun's own vocabulary.
+
+## Test services
+
+Tests need a Postgres server and an S3-compatible server, the same ones CI runs as services. The
+S3 server is RustFS ([docs/design/07-storage.md](docs/design/07-storage.md#tests)); start it in a
+container on a free port and point the tests at it:
+
+```sh
+podman run -d --rm --name bosun-s3 -p 127.0.0.1::9000 \
+  -e RUSTFS_ACCESS_KEY=bosun -e RUSTFS_SECRET_KEY=bosun-secret docker.io/rustfs/rustfs:1.0.1
+export BOSUN_TEST_S3_URL="http://bosun:bosun-secret@$(podman port bosun-s3 9000/tcp)"
+export BOSUN_TEST_DATABASE_URL=postgres://localhost/postgres
+```
+
+`docker` takes the same arguments. Each test creates a database and a bucket of its own and drops
+them when it ends, so one Postgres and one S3 server serve every checkout at once; a new container
+starts without the buckets a killed test process left.
 
 ## Boundaries that CI enforces
 

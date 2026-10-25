@@ -4,6 +4,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use bosun_blob::S3Settings;
 use serde::Deserialize;
 
 use crate::Error;
@@ -29,6 +30,14 @@ const DEFAULT_STORE_PATH: &str = "/var/lib/bosun/store";
 
 const DIRECTORY: &str = "directory";
 
+const S3: &str = "s3";
+
+const DEFAULT_REGION: &str = "us-east-1";
+
+const AWS_ACCESS_KEY_ID: &str = "AWS_ACCESS_KEY_ID";
+
+const AWS_SECRET_ACCESS_KEY: &str = "AWS_SECRET_ACCESS_KEY";
+
 const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m or h, such as 30s";
 
 pub struct Config {
@@ -41,8 +50,9 @@ pub struct Config {
     pub(crate) store: Store,
 }
 
-pub(crate) struct Store {
-    pub(crate) path: PathBuf,
+pub(crate) enum Store {
+    Directory(PathBuf),
+    S3(S3Settings),
 }
 
 #[derive(Clone, Copy)]
@@ -119,6 +129,12 @@ struct AgentsFile {
 struct StoreFile {
     kind: Option<String>,
     path: Option<PathBuf>,
+    endpoint: Option<String>,
+    bucket: Option<String>,
+    region: Option<String>,
+    path_style: Option<bool>,
+    access_key_id: Option<String>,
+    secret_access_key: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -227,22 +243,7 @@ impl Config {
             file.limits.max_queue_time,
             DEFAULT_MAX_QUEUE_TIME,
         )?;
-        if let Some(kind) = variable("store", "kind")?
-            .or(file.store.kind)
-            .filter(|kind| kind != DIRECTORY)
-        {
-            return Err(invalid(
-                "store",
-                "kind",
-                format!("is `{kind}`, and the only kind of object store is `{DIRECTORY}`"),
-            ));
-        }
-        let store = Store {
-            path: variable("store", "path")?
-                .map(PathBuf::from)
-                .or(file.store.path)
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_STORE_PATH)),
-        };
+        let store = store(file.store)?;
         Ok(Config {
             listen,
             database: Database {
@@ -262,6 +263,138 @@ impl Config {
             },
             store,
         })
+    }
+}
+
+fn store(file: StoreFile) -> Result<Store, Error> {
+    let kind = variable("store", "kind")?
+        .or(file.kind)
+        .unwrap_or_else(|| DIRECTORY.to_owned());
+    let path = variable("store", "path")?.map(PathBuf::from).or(file.path);
+    let endpoint = variable("store", "endpoint")?.or(file.endpoint);
+    let bucket = variable("store", "bucket")?.or(file.bucket);
+    let region = variable("store", "region")?.or(file.region);
+    let path_style = match variable("store", "path_style")? {
+        Some(text) => Some(boolean("store", "path_style", &text)?),
+        None => file.path_style,
+    };
+    let access_key_id = variable("store", "access_key_id")?.or(file.access_key_id);
+    let secret_access_key = variable("store", "secret_access_key")?.or(file.secret_access_key);
+    match kind.as_str() {
+        DIRECTORY => {
+            let s3 = [
+                ("endpoint", endpoint.is_some()),
+                ("bucket", bucket.is_some()),
+                ("region", region.is_some()),
+                ("path_style", path_style.is_some()),
+                ("access_key_id", access_key_id.is_some()),
+                ("secret_access_key", secret_access_key.is_some()),
+            ];
+            if let Some((key, _)) = s3.into_iter().find(|(_, set)| *set) {
+                return Err(misplaced(key, S3, DIRECTORY));
+            }
+            Ok(Store::Directory(
+                path.unwrap_or_else(|| PathBuf::from(DEFAULT_STORE_PATH)),
+            ))
+        }
+        S3 => {
+            if path.is_some() {
+                return Err(misplaced("path", DIRECTORY, S3));
+            }
+            let endpoint = endpoint.ok_or_else(|| needed("endpoint"))?;
+            let bucket = bucket.ok_or_else(|| needed("bucket"))?;
+            let (access_key_id, secret_access_key) = credentials(access_key_id, secret_access_key)?;
+            Ok(Store::S3(S3Settings {
+                endpoint,
+                bucket,
+                region: region.unwrap_or_else(|| DEFAULT_REGION.to_owned()),
+                path_style: path_style.unwrap_or(false),
+                access_key_id,
+                secret_access_key,
+            }))
+        }
+        _ => Err(invalid(
+            "store",
+            "kind",
+            format!("is `{kind}`, and the kind of object store is `{DIRECTORY}` or `{S3}`"),
+        )),
+    }
+}
+
+fn credentials(
+    access_key_id: Option<String>,
+    secret_access_key: Option<String>,
+) -> Result<(String, String), Error> {
+    match (access_key_id, secret_access_key) {
+        (Some(access_key_id), Some(secret_access_key)) => Ok((access_key_id, secret_access_key)),
+        (Some(_), None) => Err(invalid(
+            "store",
+            "secret_access_key",
+            "is not set, and store.access_key_id is: the two are set together".to_owned(),
+        )),
+        (None, Some(_)) => Err(invalid(
+            "store",
+            "access_key_id",
+            "is not set, and store.secret_access_key is: the two are set together".to_owned(),
+        )),
+        (None, None) => match (
+            environment(AWS_ACCESS_KEY_ID)?,
+            environment(AWS_SECRET_ACCESS_KEY)?,
+        ) {
+            (Some(access_key_id), Some(secret_access_key)) => {
+                Ok((access_key_id, secret_access_key))
+            }
+            (None, None) => Err(invalid(
+                "store",
+                "access_key_id",
+                format!(
+                    "is not set, and neither are {AWS_ACCESS_KEY_ID} and \
+                     {AWS_SECRET_ACCESS_KEY}, so the kind `{S3}` has no credentials"
+                ),
+            )),
+            (Some(_), None) => Err(invalid(
+                "store",
+                "access_key_id",
+                format!(
+                    "is not set, and {AWS_ACCESS_KEY_ID} is set without {AWS_SECRET_ACCESS_KEY}"
+                ),
+            )),
+            (None, Some(_)) => Err(invalid(
+                "store",
+                "access_key_id",
+                format!(
+                    "is not set, and {AWS_SECRET_ACCESS_KEY} is set without {AWS_ACCESS_KEY_ID}"
+                ),
+            )),
+        },
+    }
+}
+
+fn misplaced(key: &str, kind: &str, configured: &str) -> Error {
+    invalid(
+        "store",
+        key,
+        format!("applies to the kind `{kind}`, and store.kind is `{configured}`"),
+    )
+}
+
+fn needed(key: &str) -> Error {
+    invalid(
+        "store",
+        key,
+        format!("is not set, and the kind `{S3}` needs it"),
+    )
+}
+
+fn boolean(section: &str, key: &str, text: &str) -> Result<bool, Error> {
+    match text {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(invalid(
+            section,
+            key,
+            format!("is `{text}`, which is neither `true` nor `false`"),
+        )),
     }
 }
 
@@ -319,6 +452,18 @@ fn variable(section: &str, key: &str) -> Result<Option<String>, Error> {
         Ok(value) => Ok(Some(value)),
         Err(VarError::NotPresent) => Ok(None),
         Err(VarError::NotUnicode(_)) => Err(invalid(section, key, "is not UTF-8".to_owned())),
+    }
+}
+
+fn environment(variable: &str) -> Result<Option<String>, Error> {
+    match env::var(variable) {
+        Ok(value) => Ok(Some(value)),
+        Err(VarError::NotPresent) => Ok(None),
+        Err(VarError::NotUnicode(_)) => Err(invalid(
+            "store",
+            "access_key_id",
+            format!("is not set, and {variable} is not UTF-8"),
+        )),
     }
 }
 

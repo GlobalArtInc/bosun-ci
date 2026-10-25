@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 axum = { workspace = true, features = ["http1", "json", "query", "tokio"] }
 base64.workspace = true
+bosun-blob.workspace = true
 bosun-db.workspace = true
 bosun-proto.workspace = true
 bosun-types.workspace = true

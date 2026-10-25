@@ -23,6 +23,7 @@ use crate::logs::compaction::compact;
 use crate::logs::reader::{Line, Read, Reader};
 use crate::logs::{Followers, LIMIT, notice};
 use crate::queue::Dispatcher;
+use crate::store::Backend;
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -32,7 +33,7 @@ struct Logged {
     world: World,
     execution: ExecutionId,
     steps: Vec<StepId>,
-    store: Arc<Directory>,
+    store: Arc<Backend>,
     _directory: TempDir,
 }
 
@@ -66,7 +67,7 @@ impl Logged {
             world,
             execution,
             steps: steps.into_iter().map(|(_, id)| id).collect(),
-            store: Arc::new(store),
+            store: Arc::new(Backend::Directory(store)),
             _directory: directory,
         }
     }
@@ -121,7 +122,7 @@ impl Logged {
 }
 
 struct Gated {
-    store: Arc<Directory>,
+    store: Arc<Backend>,
     reached: Notify,
     open: Notify,
 }

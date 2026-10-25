@@ -331,8 +331,17 @@ dependencies = [
 name = "bosun-blob"
 version = "0.1.0"
 dependencies = [
+ "bosun-testkit",
+ "chrono",
+ "hmac",
+ "quick-xml",
+ "reqwest",
+ "serde",
+ "sha2",
  "tempfile",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
 ]
 
 [[package]]
@@ -459,6 +468,7 @@ dependencies = [
 name = "bosun-server-bin"
 version = "0.1.0"
 dependencies = [
+ "bosun-blob",
  "bosun-db",
  "bosun-proto",
  "bosun-server",
@@ -483,6 +493,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "bosun-blob",
  "bosun-db",
  "bosun-proto",
  "bosun-types",
@@ -2320,6 +2331,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84bbb29c624230c4bd1047bbdb2aa47e41c860e9665ce62ba9504eebe91bf867"
 dependencies = [
  "pulldown-cmark",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+ "serde",
 ]
 
 [[package]]

@@ -1,4 +1,5 @@
 pub mod agent;
+mod bucket;
 pub mod forge;
 
 use std::collections::HashSet;
@@ -17,6 +18,8 @@ use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, OnceCell, oneshot};
 use url::Url;
 use uuid::Uuid;
+
+pub use bucket::TestBucket;
 
 const VARIABLE: &str = "BOSUN_TEST_DATABASE_URL";
 const PREFIX: &str = "bosun_test_";

@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
+use bosun_blob::S3Settings;
 use sea_orm::{ConnectionTrait, Statement};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -62,7 +63,8 @@ impl Launch {
         };
         let mut launch = launch.config(CONFIG);
         for (name, _) in env::vars_os() {
-            if name.to_string_lossy().starts_with("BOSUN_") {
+            let text = name.to_string_lossy();
+            if text.starts_with("BOSUN_") || text.starts_with("AWS_") {
                 launch.command.env_remove(name);
             }
         }
@@ -106,6 +108,17 @@ impl Launch {
     pub fn env_remove(mut self, name: &str) -> Launch {
         self.command.env_remove(name);
         self
+    }
+
+    pub fn s3(self, settings: &S3Settings) -> Launch {
+        self.env_remove("BOSUN_STORE_PATH")
+            .env("BOSUN_STORE_KIND", "s3")
+            .env("BOSUN_STORE_ENDPOINT", &settings.endpoint)
+            .env("BOSUN_STORE_BUCKET", &settings.bucket)
+            .env("BOSUN_STORE_REGION", &settings.region)
+            .env("BOSUN_STORE_PATH_STYLE", &settings.path_style.to_string())
+            .env("BOSUN_STORE_ACCESS_KEY_ID", &settings.access_key_id)
+            .env("BOSUN_STORE_SECRET_ACCESS_KEY", &settings.secret_access_key)
     }
 
     pub async fn finish(mut self) -> Finished {

@@ -89,8 +89,9 @@ terminates TLS); requests whose content type is `application/grpc` go to the gRP
 answer `UNIMPLEMENTED` for a service they do not have. It refuses to start when the schema belongs
 to a newer major version, when a configured KEK is unreadable or malformed, or when the object
 store cannot be used: before it connects to the database, it opens the store, writes the empty
-object `probes/start` and deletes it again. It says which in an error line of its log before it
-exits with status 1.
+object `probes/start` and deletes it again, so an S3 endpoint that does not answer, a bucket that
+does not exist and credentials the store refuses all stop it. It says which in an error line of its
+log before it exits with status 1.
 
 On `SIGTERM` or `SIGINT` the server logs the signal, stops accepting connections, ends every gRPC
 stream with the status `UNAVAILABLE` and the message `the server is shutting down: received
@@ -139,8 +140,9 @@ max_connections = 32
 
 [store]
 kind = "s3"
-bucket = "bosun"
 endpoint = "https://s3.example.org"
+bucket = "bosun"
+region = "us-east-1"
 path_style = true
 
 [keys]
@@ -190,9 +192,24 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   neither, the server uses `keys/kek` in the data directory and generates it on the first start.
   Surrounding whitespace, such as the newline at the end of a file, does not count.
 - `server.data_dir` defaults to `/var/lib/bosun`; the image sets `/bosun-data`.
-- `store.kind` is `directory`, the default, or, from M1, `s3`. `store.path` is the root of the
-  directory backend, `store/` in the data directory by default, so `/var/lib/bosun/store` on a
-  host.
+- `store.kind` is `directory`, the default, or `s3`. `store.path` is the root of the directory
+  backend, `store/` in the data directory by default, so `/var/lib/bosun/store` on a host.
+- For `s3`, `store.endpoint` is the address of the S3 API, http or https with a host and maybe a
+  port but no path, such as `https://s3.eu-central-1.amazonaws.com`, and `store.bucket` a bucket
+  that exists; neither has a default. `store.region` is the region requests are signed for,
+  `us-east-1` by default. `store.path_style`, `false` by default, names the bucket in the path
+  rather than in the host, which most self-hosted S3 servers and every endpoint given as an IP
+  address need. `store.access_key_id` and `store.secret_access_key` are set together, usually as
+  `BOSUN_STORE_ACCESS_KEY_ID` and `BOSUN_STORE_SECRET_ACCESS_KEY` from a secret; with neither, the
+  server takes `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from its environment, and with
+  neither of those it refuses to start. A key of one kind set while `store.kind` is the other is
+  refused too, so a bucket configured without `kind = "s3"` cannot leave the server on the
+  directory backend unnoticed. The certificate of an https endpoint is verified against the public
+  web PKI built into the binary.
+- The bucket of an S3 store has a lifecycle rule that aborts incomplete multipart uploads after a
+  day, which removes the uploads of a replica that died while it wrote
+  ([07-storage.md](07-storage.md#the-object-store)), and its credentials allow `s3:GetObject`,
+  `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` and `s3:AbortMultipartUpload` on it.
 - `bootstrap.admin` has no default. When it is set it is the login of the owner that `serve`
   creates on a start against a database without users ([08-access.md](08-access.md)), and a value
   that is not a login is refused like any other setting the server cannot use.

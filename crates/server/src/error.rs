@@ -39,8 +39,8 @@ pub enum Error {
     },
     #[error("the KEK in {origin} is not 32 bytes written as 64 hexadecimal digits")]
     MalformedKek { origin: String },
-    #[error("the object store in {} cannot be used: {problem}", path.display())]
-    Store { path: PathBuf, problem: String },
+    #[error("the object store {location} cannot be used: {problem}")]
+    Store { location: String, problem: String },
     #[error("could not connect to the database: {0}")]
     Connect(#[source] bosun_db::Error),
     #[error("the schema could not be brought up to date: {0}")]

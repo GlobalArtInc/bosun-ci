@@ -32,6 +32,10 @@ impl Key {
     pub(crate) fn segments(&self) -> std::str::Split<'_, char> {
         self.0.split('/')
     }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl fmt::Display for Key {

@@ -1,5 +1,6 @@
 use std::ops::Bound;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bosun_blob::{Error, Key, Store};
 use tokio::sync::Notify;
@@ -7,7 +8,16 @@ use tokio::sync::Notify;
 use crate::bodies::{Failing, Stalling, bytes, read};
 
 macro_rules! conformance {
-    ($open:path) => {
+    (@uploads $open:path, $uploads:path; $($case:ident),+ $(,)?) => {
+        $(
+            #[tokio::test]
+            async fn $case() {
+                let (backend, store) = $open().await;
+                crate::cases::$case(&store, async || $uploads(&backend).await).await;
+            }
+        )+
+    };
+    ($open:path, $uploads:path) => {
         conformance!(
             $open;
             put_then_get_returns_the_body,
@@ -21,12 +31,18 @@ macro_rules! conformance {
             delete_of_a_missing_key_succeeds,
             list_returns_the_keys_under_a_prefix_in_order,
             list_by_a_prefix_no_key_can_have_is_empty,
+            keys_with_reserved_characters_round_trip,
             a_deleted_key_frees_its_place,
             a_put_that_fails_halfway_leaves_no_object,
             a_put_that_fails_halfway_keeps_the_earlier_object,
             an_abandoned_put_leaves_no_object,
             an_abandoned_put_keeps_the_earlier_object,
             concurrent_puts_to_one_key_leave_one_whole_body,
+        );
+        conformance!(
+            @uploads $open, $uploads;
+            a_multipart_put_that_fails_is_aborted_and_leaves_no_object,
+            an_abandoned_multipart_put_is_aborted_and_leaves_no_object,
         );
     };
     ($open:path; $($case:ident),+ $(,)?) => {
@@ -41,6 +57,8 @@ macro_rules! conformance {
 }
 
 const LARGE: usize = 10 * 1024 * 1024 + 12_345;
+
+const ABORTED: Duration = Duration::from_secs(30);
 
 pub fn key(key: &str) -> Key {
     Key::new(key).unwrap_or_else(|error| panic!("{error}"))
@@ -291,6 +309,33 @@ pub async fn list_by_a_prefix_no_key_can_have_is_empty(store: &impl Store) {
     }
 }
 
+pub async fn keys_with_reserved_characters_round_trip(store: &impl Store) {
+    let names = [
+        "a b/c+d",
+        "p%41/%2F",
+        "q?x=1&y=2#z",
+        "s:t;u,v/!*'()~$@[]",
+        "\u{e9}/\u{fc}/\u{65e5}\u{672c}",
+    ];
+    for name in names {
+        put(store, name, name.as_bytes()).await;
+    }
+    for name in names {
+        assert_eq!(get(store, name).await, name.as_bytes(), "{name}");
+    }
+
+    let mut all = names.to_vec();
+    all.sort();
+    assert_eq!(list(store, "").await, keys(&all));
+    assert_eq!(list(store, "p%4").await, keys(&["p%41/%2F"]));
+    assert_eq!(list(store, "q?x=1&").await, keys(&["q?x=1&y=2#z"]));
+
+    for name in names {
+        store.delete(&key(name)).await.unwrap();
+    }
+    assert_eq!(list(store, "").await, keys(&[]));
+}
+
 pub async fn a_deleted_key_frees_its_place(store: &impl Store) {
     put(store, "x/y/z", b"deep").await;
     store.delete(&key("x/y/z")).await.unwrap();
@@ -384,4 +429,61 @@ pub async fn concurrent_puts_to_one_key_leave_one_whole_body(store: &impl Store)
         bodies.contains(&stored),
         "the object is not one of the bodies"
     );
+}
+
+pub async fn a_multipart_put_that_fails_is_aborted_and_leaves_no_object(
+    store: &impl Store,
+    uploads: impl AsyncFn() -> Vec<String>,
+) {
+    let result = store
+        .put(&key("artifacts/p/failed"), Failing::after(bytes(LARGE, 12)))
+        .await;
+
+    assert!(
+        matches!(result, Err(Error::Io { .. })),
+        "the put did not fail: {result:?}"
+    );
+    assert_missing(store, "artifacts/p/failed").await;
+    assert_eq!(
+        uploads().await,
+        Vec::<String>::new(),
+        "the failed put left its upload"
+    );
+    assert_eq!(list(store, "").await, keys(&[]));
+}
+
+pub async fn an_abandoned_multipart_put_is_aborted_and_leaves_no_object(
+    store: &impl Store,
+    uploads: impl AsyncFn() -> Vec<String>,
+) {
+    let stalled = Arc::new(Notify::new());
+    let body = Stalling::after(bytes(LARGE, 13), stalled.clone());
+    let target = key("artifacts/p/abandoned");
+    let mut upload = Box::pin(store.put(&target, body));
+    tokio::select! {
+        result = &mut upload => panic!("the put finished without its body: {result:?}"),
+        () = stalled.notified() => {}
+    }
+
+    assert_eq!(
+        uploads().await.len(),
+        1,
+        "the put has no upload in progress"
+    );
+    assert_missing(store, "artifacts/p/abandoned").await;
+    drop(upload);
+    let deadline = Instant::now() + ABORTED;
+    loop {
+        let left = uploads().await;
+        if left.is_empty() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the abandoned upload was not aborted within {ABORTED:?}: {left:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_missing(store, "artifacts/p/abandoned").await;
+    assert_eq!(list(store, "").await, keys(&[]));
 }

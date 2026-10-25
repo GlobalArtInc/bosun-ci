@@ -1,6 +1,8 @@
-use bosun_testkit::TestDatabase;
+use bosun_blob::S3Settings;
+use bosun_testkit::{TestBucket, TestDatabase};
 use sea_orm::ConnectionTrait;
 
+use crate::proxy::Proxy;
 use crate::{KEK, Launch, errors, eventually, major, message, strings};
 
 #[tokio::test]
@@ -178,4 +180,109 @@ async fn a_server_refuses_to_start_when_its_object_store_cannot_be_used() {
         "expected an error starting with `{expected}`: {lines:#?}"
     );
     assert!(!lines.iter().any(|line| message(line) == "listening"));
+}
+
+#[tokio::test]
+async fn a_server_refuses_to_start_while_its_s3_store_is_unreachable_and_starts_once_it_answers() {
+    let database = TestDatabase::migrated().await;
+    let bucket = TestBucket::create().await;
+    let proxy = Proxy::start(&bucket.settings().endpoint).await;
+    let settings = S3Settings {
+        endpoint: proxy.url(&bucket.settings().endpoint),
+        ..bucket.settings().clone()
+    };
+    proxy.cut();
+    let (status, lines) = Launch::serve(&database.url())
+        .s3(&settings)
+        .spawn()
+        .exit()
+        .await;
+    assert!(!status.success(), "{lines:#?}");
+    let expected = format!(
+        "the object store in the bucket `{}` at {} cannot be used: the object store request on \
+         `probes/start` failed",
+        settings.bucket, settings.endpoint
+    );
+    assert!(
+        errors(&lines)
+            .iter()
+            .any(|error| error.starts_with(&expected)),
+        "expected an error starting with `{expected}`: {lines:#?}"
+    );
+    assert!(!lines.iter().any(|line| message(line) == "listening"));
+
+    proxy.forward();
+    let mut server = Launch::serve(&database.url()).s3(&settings).spawn();
+    let address = server.listening().await;
+    assert_eq!(eventually(address, "/readyz", 200).await["status"], "ready");
+}
+
+#[tokio::test]
+async fn a_server_refuses_an_s3_store_it_cannot_use_and_says_why() {
+    let database = TestDatabase::migrated().await;
+    let bucket = TestBucket::create().await;
+    let missing = format!("{}-missing", bucket.settings().bucket);
+    for (settings, problem) in [
+        (
+            S3Settings {
+                bucket: missing.clone(),
+                ..bucket.settings().clone()
+            },
+            "the object store request on `probes/start` failed: the store answered 404 Not Found \
+             with NoSuchBucket"
+                .to_owned(),
+        ),
+        (
+            S3Settings {
+                secret_access_key: "not-the-secret".to_owned(),
+                ..bucket.settings().clone()
+            },
+            "the object store request on `probes/start` failed: the store answered 403 Forbidden \
+             with SignatureDoesNotMatch"
+                .to_owned(),
+        ),
+        (
+            S3Settings {
+                path_style: false,
+                ..bucket.settings().clone()
+            },
+            format!(
+                "the S3 settings cannot be used: the endpoint `{}` is an IP address",
+                bucket.settings().endpoint
+            ),
+        ),
+    ] {
+        let expected = format!(
+            "the object store in the bucket `{}` at {} cannot be used: {problem}",
+            settings.bucket, settings.endpoint
+        );
+        let (status, lines) = Launch::serve(&database.url())
+            .s3(&settings)
+            .spawn()
+            .exit()
+            .await;
+        assert!(!status.success(), "{lines:#?}");
+        assert!(
+            errors(&lines)
+                .iter()
+                .any(|error| error.starts_with(&expected)),
+            "expected an error starting with `{expected}`: {lines:#?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_server_takes_the_credentials_of_its_s3_store_from_the_environment() {
+    let database = TestDatabase::migrated().await;
+    let bucket = TestBucket::create().await;
+    let settings = bucket.settings();
+    let mut server = Launch::serve(&database.url())
+        .s3(settings)
+        .env_remove("BOSUN_STORE_ACCESS_KEY_ID")
+        .env_remove("BOSUN_STORE_SECRET_ACCESS_KEY")
+        .env("AWS_ACCESS_KEY_ID", &settings.access_key_id)
+        .env("AWS_SECRET_ACCESS_KEY", &settings.secret_access_key)
+        .spawn();
+    let address = server.listening().await;
+    assert_eq!(eventually(address, "/readyz", 200).await["status"], "ready");
 }

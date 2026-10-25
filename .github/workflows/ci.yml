@@ -38,6 +38,18 @@ jobs:
           --health-timeout 5s
           --health-retries 10
           --health-start-period 120s
+      s3:
+        image: rustfs/rustfs:1.0.1
+        env:
+          RUSTFS_ACCESS_KEY: bosun
+          RUSTFS_SECRET_KEY: bosun-secret
+        ports: ['9000']
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 60s
 
     steps:
       - name: Checkout
@@ -75,6 +87,22 @@ jobs:
             sleep 2
           done
           echo "postgres did not come up" >&2
+          exit 1
+
+      - name: Find the IPv4 port of the S3 server
+        run: |
+          port=$(docker port "${{ job.services.s3.id }}" 9000/tcp | awk '/^0\.0\.0\.0:/ { sub(/.*:/, ""); print; exit }')
+          test -n "$port"
+          echo "BOSUN_TEST_S3_URL=http://bosun:bosun-secret@127.0.0.1:$port" >> "$GITHUB_ENV"
+
+      - name: Wait for the S3 server
+        run: |
+          address="http://${BOSUN_TEST_S3_URL#*@}/health"
+          for i in $(seq 1 30); do
+            curl -fsS -o /dev/null "$address" && exit 0
+            sleep 2
+          done
+          echo "the S3 server did not come up" >&2
           exit 1
 
       - name: Format

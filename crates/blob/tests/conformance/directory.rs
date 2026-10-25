@@ -27,7 +27,11 @@ fn entries(path: &Path) -> Vec<String> {
     names
 }
 
-conformance!(open);
+async fn staged(root: &TempDir) -> Vec<String> {
+    entries(&root.path().join("store/staging"))
+}
+
+conformance!(open, staged);
 
 #[tokio::test]
 async fn two_stores_on_one_root_share_their_objects() {

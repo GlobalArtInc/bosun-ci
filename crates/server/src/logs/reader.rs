@@ -1,7 +1,7 @@
 use std::io;
 use std::sync::Arc;
 
-use bosun_blob::{Directory, Key, Store as _};
+use bosun_blob::{Key, Store as _};
 use bosun_db::logs::{Log, StoredChunk, StoredObject};
 use bosun_types::id::{ExecutionId, StepId};
 use chrono::{DateTime, Utc};
@@ -10,6 +10,7 @@ use tokio::io::AsyncReadExt;
 
 use super::notice;
 use super::object::{self, FRAME_LINES};
+use crate::store::Backend;
 
 const PAGE: u64 = 64;
 
@@ -40,7 +41,7 @@ pub(crate) enum Failure {
 
 pub(crate) struct Reader {
     db: DatabaseConnection,
-    store: Arc<Directory>,
+    store: Arc<Backend>,
     execution: ExecutionId,
     step: StepId,
     position: u64,
@@ -52,7 +53,7 @@ pub(crate) struct Reader {
 impl Reader {
     pub(crate) fn new(
         db: DatabaseConnection,
-        store: Arc<Directory>,
+        store: Arc<Backend>,
         execution: ExecutionId,
         step: StepId,
         offset: u64,

@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
-use bosun_testkit::TestDatabase;
+use bosun_testkit::{TestBucket, TestDatabase};
 
 use crate::proxy::Proxy;
 use crate::{Launch, eventually, get};
@@ -42,6 +42,27 @@ async fn readyz_fails_while_the_object_store_does_not_answer_and_recovers_when_i
     drop(looping);
     assert_eq!(unready["status"], "unready");
     assert_eq!(unready["reason"], "the object store does not answer");
+    assert_eq!(eventually(address, "/readyz", 200).await["status"], "ready");
+}
+
+#[tokio::test]
+async fn readyz_fails_while_the_s3_store_does_not_answer_and_recovers_when_it_does() {
+    let database = TestDatabase::migrated().await;
+    let bucket = TestBucket::create().await;
+    let proxy = Proxy::start(&bucket.settings().endpoint).await;
+    let mut settings = bucket.settings().clone();
+    settings.endpoint = proxy.url(&settings.endpoint);
+    let mut server = Launch::serve(&database.url()).s3(&settings).spawn();
+    let address = server.listening().await;
+    assert_eq!(eventually(address, "/readyz", 200).await["status"], "ready");
+
+    proxy.stall();
+    let unready = eventually(address, "/readyz", 503).await;
+    assert_eq!(unready["status"], "unready");
+    assert_eq!(unready["reason"], "the object store does not answer");
+    assert_eq!(get(address, "/healthz").await.status(), 200);
+
+    proxy.forward();
     assert_eq!(eventually(address, "/readyz", 200).await["status"], "ready");
 }
 

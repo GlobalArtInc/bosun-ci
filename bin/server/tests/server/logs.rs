@@ -1,12 +1,13 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use bosun_blob::Store as _;
 use bosun_proto::agent::v1::agent_message::Message as Report;
 use bosun_proto::agent::v1::{
     Accept, Conclusion, Hello, JobFinished, Log, RunningExecution, StepFinished, StepStarted,
 };
-use bosun_testkit::TestDatabase;
 use bosun_testkit::agent::{Connection, FakeAgent};
+use bosun_testkit::{TestBucket, TestDatabase};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::time::{Instant, sleep, timeout_at};
@@ -24,7 +25,12 @@ struct Bench {
     servers: Vec<Server>,
     addresses: Vec<SocketAddr>,
     proxy: Option<Proxy>,
-    _store: TempDir,
+    store: Shared,
+}
+
+enum Shared {
+    Directory(TempDir),
+    Bucket(TestBucket),
 }
 
 struct Job {
@@ -36,28 +42,48 @@ struct Job {
 
 impl Bench {
     async fn start(replicas: usize) -> Bench {
-        Bench::launch(TestDatabase::migrated().await, replicas, None).await
+        Bench::launch(
+            TestDatabase::migrated().await,
+            replicas,
+            None,
+            Shared::directory(),
+        )
+        .await
     }
 
     async fn behind_proxy() -> Bench {
         let database = TestDatabase::migrated().await;
         let proxy = Proxy::start(&database.url()).await;
-        Bench::launch(database, 1, Some(proxy)).await
+        Bench::launch(database, 1, Some(proxy), Shared::directory()).await
     }
 
-    async fn launch(database: TestDatabase, replicas: usize, proxy: Option<Proxy>) -> Bench {
+    async fn on_s3(replicas: usize) -> Bench {
+        let store = Shared::Bucket(TestBucket::create().await);
+        Bench::launch(TestDatabase::migrated().await, replicas, None, store).await
+    }
+
+    async fn launch(
+        database: TestDatabase,
+        replicas: usize,
+        proxy: Option<Proxy>,
+        store: Shared,
+    ) -> Bench {
         let owner = owner(&database.url(), "roman").await;
         let url = match &proxy {
             Some(proxy) => proxy.url(&database.url()),
             None => database.url(),
         };
-        let store = tempfile::tempdir().expect("a directory for the shared store");
         let mut servers = Vec::new();
         let mut addresses = Vec::new();
         for _ in 0..replicas {
-            let mut server = Launch::serve(&url)
-                .env("BOSUN_STORE_PATH", &store.path().to_string_lossy())
-                .spawn();
+            let launch = Launch::serve(&url);
+            let launch = match &store {
+                Shared::Directory(directory) => {
+                    launch.env("BOSUN_STORE_PATH", &directory.path().to_string_lossy())
+                }
+                Shared::Bucket(bucket) => launch.s3(bucket.settings()),
+            };
+            let mut server = launch.spawn();
             addresses.push(server.listening().await);
             servers.push(server);
         }
@@ -67,7 +93,7 @@ impl Bench {
             servers,
             addresses,
             proxy,
-            _store: store,
+            store,
         }
     }
 
@@ -210,6 +236,12 @@ impl Bench {
             response,
             buffer: String::new(),
         }
+    }
+}
+
+impl Shared {
+    fn directory() -> Shared {
+        Shared::Directory(tempfile::tempdir().expect("a directory for the shared store"))
     }
 }
 
@@ -404,6 +436,76 @@ async fn a_follower_attached_in_the_middle_of_a_step_receives_every_line_once_be
     assert_eq!(
         bench.follow(0, &second, None).await.rest().await,
         (vec![(1, line(61)), (2, line(62))], 2)
+    );
+}
+
+#[tokio::test]
+async fn a_server_configured_with_s3_compacts_logs_into_it_and_serves_them_by_range() {
+    let bench = Bench::on_s3(2).await;
+    let mut job = bench.job(0).await;
+    let path = bench.log_path(&job, 0);
+    for (seq, from) in (1..=5).zip((1..).step_by(500)) {
+        job.log(0, seq, from, from + 499).await;
+    }
+    job.finish_step(0);
+    job.start_step(1);
+    job.log(1, 6, 2501, 2502).await;
+    job.finish_step(1);
+    job.finish();
+    bench.until_compacted(&job.execution).await;
+
+    let Shared::Bucket(bucket) = &bench.store else {
+        panic!("the bench keeps its logs in a bucket");
+    };
+    let mut objects: Vec<String> = bucket
+        .store()
+        .list("logs/")
+        .await
+        .expect("a listing of the bucket")
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    objects.sort_by_key(|object| !object.ends_with(&format!("/{}.log.zst", job.steps[0])));
+    assert_eq!(objects.len(), 2, "{objects:?}");
+    for (object, step) in objects.iter().zip(&job.steps) {
+        assert!(
+            object.ends_with(&format!("/{}/6/{step}.log.zst", job.execution)),
+            "{objects:?}"
+        );
+    }
+    assert_eq!(
+        bench
+            .values(&format!(
+                "SELECT array_length(frames, 1)::text AS value FROM bosun.log_object \
+                 WHERE execution_id = '{}' ORDER BY lines DESC",
+                job.execution
+            ))
+            .await,
+        ["3", "1"]
+    );
+
+    for replica in 0..2 {
+        assert_eq!(bench.read(replica, &path).await, (200, lines(1, 2500)));
+        assert_eq!(
+            bench
+                .read(replica, &format!("{path}?offset=2100&limit=5"))
+                .await,
+            (200, lines(2101, 2105))
+        );
+        assert_eq!(
+            bench
+                .read(replica, &format!("{path}?offset=998&limit=4"))
+                .await,
+            (200, lines(999, 1002))
+        );
+    }
+    assert_eq!(
+        bench.follow(1, &path, Some(2497)).await.rest().await,
+        (numbered(2498, 2500), 2500)
+    );
+    assert_eq!(
+        bench.read(1, &bench.log_path(&job, 1)).await,
+        (200, lines(2501, 2502))
     );
 }
 

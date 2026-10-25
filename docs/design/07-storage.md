@@ -294,7 +294,9 @@ follows the same rules, which one conformance suite in `bosun-blob` pins for eac
 
 - a put streams its body and replaces the object whole: until it completes, readers see the
   earlier object or none, and a put that fails or is abandoned halfway leaves nothing that a get
-  or a listing sees, and the earlier object in place;
+  or a listing sees, and the earlier object in place; once it has failed, or soon after it was
+  abandoned, nothing of it is left behind either, neither a staged file nor a multipart upload in
+  progress;
 - a ranged get returns the bytes of the range, cut at the end of the object, together with the
   object's size; a range that starts past the end, or ends before it starts, is refused;
 - deleting an object that does not exist succeeds;
@@ -309,6 +311,37 @@ in `staging/`, which is never an object. A delete removes the directories it lea
 a file cannot also be a directory, the directory backend refuses a key below an object, such as
 `a/b/c` while `a/b` exists, and a key above objects, such as `a/b` while `a/b/c` exists; the
 layout above never produces either.
+
+The S3 backend speaks the S3 REST API over HTTP/1.1 and signs every request with Signature
+Version 4 in the `Authorization` header, the SHA-256 of the payload included. The client is Bosun's
+own, a few hundred lines over reqwest, rather than an SDK: the AWS SDK brings a large dependency
+tree for nine requests, and `object_store` lists by path segments rather than by string prefix,
+which breaks the listing rule above. The backend names the bucket in the host
+(`<bucket>.<endpoint host>`) by default, or in the path with `path_style`, which an endpoint given
+as an IP address needs. A put reads its body in parts of 8 MiB. A body that ends within the first
+part is one `PutObject`; a longer one becomes a multipart upload of 8 MiB parts, at most 10,000 of
+them (about 78 GiB), which `CompleteMultipartUpload` turns into the object once the body ends, so
+memory holds one part per put in flight. A put that fails aborts its upload before it returns the
+error; a put that is abandoned, its future dropped, aborts it from a task it spawns on the runtime,
+so neither leaves an upload in progress. A replica that dies during an upload leaves one behind,
+which is never an object, and the bucket's lifecycle rule `AbortIncompleteMultipartUpload` removes
+it ([12-operations.md](12-operations.md#configuration)), as a crash leaves a file in `staging/` of
+the directory backend.
+
+A ranged get sends `Range` and takes the size of the object from `Content-Range`. A range that
+`Range` cannot express, an empty one or one that ends before it starts, and a range the store
+refuses with `416`, such as one that starts at the end of the object, ask `HEAD` for the size
+instead, so the rules above hold for them too. A get tells `NoSuchKey`, which is "not found", from
+`NoSuchBucket` and every other answer, which are errors, so a deleted bucket makes `/readyz`
+unready rather than ready. A listing pages through `ListObjectsV2` with the prefix, 1000 keys a
+page, and sorts the keys, since S3-compatible servers do not all list in byte order; a key that
+breaks the rules above is left out. Unlike the directory backend, S3 keeps `a/b` and `a/b/c` side
+by side. The backend does not retry: a request that fails fails the operation, and its caller tries
+again as it would with the directory backend, as the next sweep compacts a log again. A request
+fails after 10 seconds without a connection or 60 seconds without a byte. The credentials are a
+static access key, from the configuration or from the environment
+([12-operations.md](12-operations.md#configuration)); session tokens, instance roles and web
+identities are not supported.
 
 Downloads of artifacts and caches are streamed by the server from the store, so the store needs
 no public address and the signed addresses jobs use are Bosun's own.
@@ -448,3 +481,18 @@ and `bosun_test_<owner>_template`, and holds a session with the `application_nam
 database, a process lists the databases and then the sessions, and drops every database of that
 pattern whose owner has no session: what a crashed or killed process left. Names outside the
 pattern are never touched.
+
+The S3 backend is tested against RustFS (`rustfs/rustfs:1.0.1`), an S3-compatible server under the
+Apache 2.0 licence, on the server that `BOSUN_TEST_S3_URL` names, with its access key and secret as
+the user and password of the address, such as `http://bosun:bosun-secret@127.0.0.1:9000`. RustFS
+keeps keys as S3 does, so `a/b` and `a/b/c` coexist and a key is never a directory; it verifies
+Signature Version 4, lists the multipart uploads in progress, and starts from environment variables
+alone, which lets CI run it as a service container next to Postgres. MinIO no longer publishes its
+images, Garage needs a layout and keys created by commands before it serves, and Versity's gateway
+keeps objects as files, with the directory backend's limits. `TestBucket::create()` in
+`bosun-testkit` gives a test a bucket of its own, `bosun-test-<owner>-<n>` with an owner drawn per
+process as for databases, and dropping the handle deletes its objects and the bucket. A bucket that
+a killed process left stays until the container is replaced: started with `--rm` and no volume,
+RustFS keeps its data in the container, and a new container starts empty. CI runs the server as a service of the job; on a developer's
+machine it runs in a container, started as `CLAUDE.md` shows, and one server serves every checkout
+and test process at once.
