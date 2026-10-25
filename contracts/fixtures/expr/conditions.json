@@ -1,0 +1,144 @@
+[
+  {
+    "if": "x",
+    "condition": {
+      "expression": {
+        "context": {"name": "x", "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}}
+      }
+    }
+  },
+  {
+    "if": "${{ x }}",
+    "condition": {
+      "expression": {
+        "context": {"name": "x", "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}}
+      }
+    }
+  },
+  {
+    "if": " ${{ x }} ",
+    "condition": {
+      "expression": {
+        "context": {"name": "x", "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}}
+      }
+    }
+  },
+  {
+    "if": "${{ x }}\n",
+    "condition": {
+      "expression": {
+        "context": {"name": "x", "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}}
+      }
+    }
+  },
+  {
+    "if": "a ${{ x }}",
+    "condition": {
+      "template": [
+        {"text": "a "},
+        {
+          "expression": {
+            "context": {
+              "name": "x",
+              "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 8}
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "if": "${{ a }} && ${{ b }}",
+    "condition": {
+      "template": [
+        {
+          "expression": {
+            "context": {
+              "name": "a",
+              "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}
+            }
+          }
+        },
+        {"text": " && "},
+        {
+          "expression": {
+            "context": {
+              "name": "b",
+              "span": {"line": 1, "column": 17, "end_line": 1, "end_column": 18}
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "if": "${{ a }}${{ b }}",
+    "condition": {
+      "template": [
+        {
+          "expression": {
+            "context": {
+              "name": "a",
+              "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}
+            }
+          }
+        },
+        {
+          "expression": {
+            "context": {
+              "name": "b",
+              "span": {"line": 1, "column": 13, "end_line": 1, "end_column": 14}
+            }
+          }
+        }
+      ]
+    }
+  },
+  {"if": "", "condition": null},
+  {"if": "  ", "condition": null},
+  {
+    "if": "github.ref == 'refs/heads/main'",
+    "condition": {
+      "expression": {
+        "compare": {
+          "operator": "==",
+          "left": {
+            "property": {
+              "target": {
+                "context": {
+                  "name": "github",
+                  "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+                }
+              },
+              "name": "ref",
+              "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 11}
+            }
+          },
+          "right": {
+            "string": {
+              "value": "refs/heads/main",
+              "span": {"line": 1, "column": 15, "end_line": 1, "end_column": 32}
+            }
+          },
+          "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 32}
+        }
+      }
+    }
+  },
+  {
+    "if": "${{ x",
+    "error": {
+      "code": "expression_syntax",
+      "message": "`${{` is not closed by `}}`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+    }
+  },
+  {
+    "if": "${{ }}",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression is empty",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+    }
+  }
+]

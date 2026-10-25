@@ -1,0 +1,322 @@
+[
+  {
+    "expression": "",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression is empty",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 1}
+    }
+  },
+  {
+    "expression": "   ",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression is empty",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "'abc",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the string is not closed",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 5}
+    }
+  },
+  {
+    "expression": "'it''s",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the string is not closed",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+    }
+  },
+  {
+    "expression": "a b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `b`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "1 2",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `2`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "a ==",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression ends after `==`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 5}
+    }
+  },
+  {
+    "expression": "a ||",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression ends after `||`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 5}
+    }
+  },
+  {
+    "expression": "!",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression ends after `!`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+    }
+  },
+  {
+    "expression": "a.",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression ends after `.`",
+      "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 3}
+    }
+  },
+  {
+    "expression": "a =",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `=`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "a = b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `=`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "a & b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `&`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "a | b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `|`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "()",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `)`",
+      "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 3}
+    }
+  },
+  {
+    "expression": "(a",
+    "error": {
+      "code": "expression_syntax",
+      "message": "`(` is not closed",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+    }
+  },
+  {
+    "expression": "a)",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `)`",
+      "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 3}
+    }
+  },
+  {
+    "expression": "a[0",
+    "error": {
+      "code": "expression_syntax",
+      "message": "`[` is not closed",
+      "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 3}
+    }
+  },
+  {
+    "expression": "a[]",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `]`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "[a]",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `[`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+    }
+  },
+  {
+    "expression": "f(a,)",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `)`",
+      "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}
+    }
+  },
+  {
+    "expression": "f(a",
+    "error": {
+      "code": "expression_syntax",
+      "message": "`(` is not closed",
+      "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 3}
+    }
+  },
+  {
+    "expression": "f(,a)",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `,`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "'a'.b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `.`",
+      "span": {"line": 1, "column": 4, "end_line": 1, "end_column": 5}
+    }
+  },
+  {
+    "expression": "'abc'[0]",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `[`",
+      "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+    }
+  },
+  {
+    "expression": "true.a",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `.`",
+      "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}
+    }
+  },
+  {
+    "expression": "1.b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `1.b`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "steps.1.outputs",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `1.outputs`",
+      "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 16}
+    }
+  },
+  {
+    "expression": "a.'b'",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `'b'`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 6}
+    }
+  },
+  {
+    "expression": "a$b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `a$b`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "a.b(c)",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `(`",
+      "span": {"line": 1, "column": 4, "end_line": 1, "end_column": 5}
+    }
+  },
+  {
+    "expression": "a.(b)",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `(`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "a.*b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `b`",
+      "span": {"line": 1, "column": 4, "end_line": 1, "end_column": 5}
+    }
+  },
+  {
+    "expression": "a * b",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `*`",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "*",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `*`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+    }
+  },
+  {
+    "expression": "1.2.3",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `1.2.3`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+    }
+  },
+  {
+    "expression": "0x1g",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `0x1g`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 5}
+    }
+  },
+  {
+    "expression": "0x100000000",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `0x100000000`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+    }
+  },
+  {
+    "expression": "1e",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `1e`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 3}
+    }
+  },
+  {
+    "expression": "- 1",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `-`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+    }
+  }
+]

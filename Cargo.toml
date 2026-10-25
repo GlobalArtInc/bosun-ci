@@ -12,6 +12,7 @@ repository = "https://github.com/GlobalArtInc/bosun-ci"
 [workspace.dependencies]
 bosun-blob = { path = "crates/blob" }
 bosun-db = { path = "crates/db" }
+bosun-expr = { path = "crates/expr" }
 bosun-proto = { path = "crates/proto" }
 bosun-runner = { path = "crates/runner" }
 bosun-server = { path = "crates/server" }

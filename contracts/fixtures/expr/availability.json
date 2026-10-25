@@ -1,0 +1,244 @@
+[
+  {
+    "key": "run-name",
+    "contexts": ["github", "vars", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "concurrency",
+    "contexts": ["github", "vars", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "env",
+    "contexts": ["github", "vars", "secrets", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.if",
+    "contexts": ["github", "vars", "needs", "inputs", "bosun"],
+    "special_functions": ["success", "failure", "cancelled", "always"],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.name",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.strategy",
+    "contexts": ["github", "vars", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.runs-on",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.concurrency",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.timeout-minutes",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.continue-on-error",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.env",
+    "contexts": ["github", "vars", "secrets", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.defaults.run",
+    "contexts": ["github", "env", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.outputs.<output_id>",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": [],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.if",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles", "success", "failure", "cancelled", "always"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.name",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.run",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.env",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.with",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.working-directory",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.continue-on-error",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.steps.timeout-minutes",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  }
+]

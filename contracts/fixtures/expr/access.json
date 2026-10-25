@@ -1,0 +1,305 @@
+[
+  {
+    "expression": "github.sha",
+    "tree": {
+      "property": {
+        "target": {
+          "context": {
+            "name": "github",
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "name": "sha",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 11}
+      }
+    }
+  },
+  {
+    "expression": "github.event.pull_request.head.sha",
+    "tree": {
+      "property": {
+        "target": {
+          "property": {
+            "target": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "context": {
+                        "name": "github",
+                        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+                      }
+                    },
+                    "name": "event",
+                    "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 13}
+                  }
+                },
+                "name": "pull_request",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 26}
+              }
+            },
+            "name": "head",
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 31}
+          }
+        },
+        "name": "sha",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 35}
+      }
+    }
+  },
+  {
+    "expression": "matrix['os']",
+    "tree": {
+      "index": {
+        "target": {
+          "context": {
+            "name": "matrix",
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "index": {
+          "string": {
+            "value": "os",
+            "span": {"line": 1, "column": 8, "end_line": 1, "end_column": 12}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 13}
+      }
+    }
+  },
+  {
+    "expression": "steps.my-step.outputs.value",
+    "tree": {
+      "property": {
+        "target": {
+          "property": {
+            "target": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "steps",
+                    "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+                  }
+                },
+                "name": "my-step",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 14}
+              }
+            },
+            "name": "outputs",
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 22}
+          }
+        },
+        "name": "value",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 28}
+      }
+    }
+  },
+  {
+    "expression": "github.event.commits.*.message",
+    "tree": {
+      "property": {
+        "target": {
+          "filter": {
+            "target": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "context": {
+                        "name": "github",
+                        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+                      }
+                    },
+                    "name": "event",
+                    "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 13}
+                  }
+                },
+                "name": "commits",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 21}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 23}
+          }
+        },
+        "name": "message",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 31}
+      }
+    }
+  },
+  {
+    "expression": "a[*].b",
+    "tree": {
+      "property": {
+        "target": {
+          "filter": {
+            "target": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 5}
+          }
+        },
+        "name": "b",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+      }
+    }
+  },
+  {
+    "expression": "fromJSON(inputs.list)[0]",
+    "tree": {
+      "index": {
+        "target": {
+          "call": {
+            "function": "fromJSON",
+            "arguments": [
+              {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "inputs",
+                      "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 16}
+                    }
+                  },
+                  "name": "list",
+                  "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 21}
+                }
+              }
+            ],
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 22}
+          }
+        },
+        "index": {
+          "number": {
+            "value": 0.0,
+            "span": {"line": 1, "column": 23, "end_line": 1, "end_column": 24}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 25}
+      }
+    }
+  },
+  {
+    "expression": "(github).event",
+    "tree": {
+      "property": {
+        "target": {
+          "context": {
+            "name": "github",
+            "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 8}
+          }
+        },
+        "name": "event",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 15}
+      }
+    }
+  },
+  {
+    "expression": "a.true.null",
+    "tree": {
+      "property": {
+        "target": {
+          "property": {
+            "target": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+              }
+            },
+            "name": "true",
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "name": "null",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      }
+    }
+  },
+  {
+    "expression": "a[b.c]['d']",
+    "tree": {
+      "index": {
+        "target": {
+          "index": {
+            "target": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+              }
+            },
+            "index": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "b",
+                    "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+                  }
+                },
+                "name": "c",
+                "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 6}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "index": {
+          "string": {
+            "value": "d",
+            "span": {"line": 1, "column": 8, "end_line": 1, "end_column": 11}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      }
+    }
+  },
+  {
+    "expression": "GITHUB.Event_Name",
+    "tree": {
+      "property": {
+        "target": {
+          "context": {
+            "name": "GITHUB",
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "name": "Event_Name",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 18}
+      }
+    }
+  },
+  {
+    "expression": "github . sha",
+    "tree": {
+      "property": {
+        "target": {
+          "context": {
+            "name": "github",
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "name": "sha",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 13}
+      }
+    }
+  },
+  {
+    "expression": "a.*.*",
+    "tree": {
+      "filter": {
+        "target": {
+          "filter": {
+            "target": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    }
+  }
+]

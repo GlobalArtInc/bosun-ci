@@ -1,0 +1,226 @@
+[
+  {
+    "expression": "contains(github.ref, 'refs/tags/')",
+    "tree": {
+      "call": {
+        "function": "contains",
+        "arguments": [
+          {
+            "property": {
+              "target": {
+                "context": {
+                  "name": "github",
+                  "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 16}
+                }
+              },
+              "name": "ref",
+              "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 20}
+            }
+          },
+          {
+            "string": {
+              "value": "refs/tags/",
+              "span": {"line": 1, "column": 22, "end_line": 1, "end_column": 34}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 35}
+      }
+    }
+  },
+  {
+    "expression": "success()",
+    "tree": {
+      "call": {
+        "function": "success",
+        "arguments": [],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 10}
+      }
+    }
+  },
+  {
+    "expression": "format ('{0}', 1)",
+    "tree": {
+      "call": {
+        "function": "format",
+        "arguments": [
+          {
+            "string": {
+              "value": "{0}",
+              "span": {"line": 1, "column": 9, "end_line": 1, "end_column": 14}
+            }
+          },
+          {
+            "number": {
+              "value": 1.0,
+              "span": {"line": 1, "column": 16, "end_line": 1, "end_column": 17}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 18}
+      }
+    }
+  },
+  {
+    "expression": "toJSON(fromJSON('[1, 2]'))",
+    "tree": {
+      "call": {
+        "function": "toJSON",
+        "arguments": [
+          {
+            "call": {
+              "function": "fromJSON",
+              "arguments": [
+                {
+                  "string": {
+                    "value": "[1, 2]",
+                    "span": {"line": 1, "column": 17, "end_line": 1, "end_column": 25}
+                  }
+                }
+              ],
+              "span": {"line": 1, "column": 8, "end_line": 1, "end_column": 26}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 27}
+      }
+    }
+  },
+  {
+    "expression": "TOJSON(x)",
+    "tree": {
+      "call": {
+        "function": "TOJSON",
+        "arguments": [
+          {
+            "context": {
+              "name": "x",
+              "span": {"line": 1, "column": 8, "end_line": 1, "end_column": 9}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 10}
+      }
+    }
+  },
+  {
+    "expression": "case(a == 1, 'one', a == 2, 'two', 'many')",
+    "tree": {
+      "call": {
+        "function": "case",
+        "arguments": [
+          {
+            "compare": {
+              "operator": "==",
+              "left": {
+                "context": {
+                  "name": "a",
+                  "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+                }
+              },
+              "right": {
+                "number": {
+                  "value": 1.0,
+                  "span": {"line": 1, "column": 11, "end_line": 1, "end_column": 12}
+                }
+              },
+              "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 12}
+            }
+          },
+          {
+            "string": {
+              "value": "one",
+              "span": {"line": 1, "column": 14, "end_line": 1, "end_column": 19}
+            }
+          },
+          {
+            "compare": {
+              "operator": "==",
+              "left": {
+                "context": {
+                  "name": "a",
+                  "span": {"line": 1, "column": 21, "end_line": 1, "end_column": 22}
+                }
+              },
+              "right": {
+                "number": {
+                  "value": 2.0,
+                  "span": {"line": 1, "column": 26, "end_line": 1, "end_column": 27}
+                }
+              },
+              "span": {"line": 1, "column": 21, "end_line": 1, "end_column": 27}
+            }
+          },
+          {
+            "string": {
+              "value": "two",
+              "span": {"line": 1, "column": 29, "end_line": 1, "end_column": 34}
+            }
+          },
+          {
+            "string": {
+              "value": "many",
+              "span": {"line": 1, "column": 36, "end_line": 1, "end_column": 42}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 43}
+      }
+    }
+  },
+  {
+    "expression": "startsWith(a, 'x') && !endsWith(b, 'y')",
+    "tree": {
+      "and": {
+        "operands": [
+          {
+            "call": {
+              "function": "startsWith",
+              "arguments": [
+                {
+                  "context": {
+                    "name": "a",
+                    "span": {"line": 1, "column": 12, "end_line": 1, "end_column": 13}
+                  }
+                },
+                {
+                  "string": {
+                    "value": "x",
+                    "span": {"line": 1, "column": 15, "end_line": 1, "end_column": 18}
+                  }
+                }
+              ],
+              "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 19}
+            }
+          },
+          {
+            "not": {
+              "operand": {
+                "call": {
+                  "function": "endsWith",
+                  "arguments": [
+                    {
+                      "context": {
+                        "name": "b",
+                        "span": {"line": 1, "column": 33, "end_line": 1, "end_column": 34}
+                      }
+                    },
+                    {
+                      "string": {
+                        "value": "y",
+                        "span": {"line": 1, "column": 36, "end_line": 1, "end_column": 39}
+                      }
+                    }
+                  ],
+                  "span": {"line": 1, "column": 24, "end_line": 1, "end_column": 40}
+                }
+              },
+              "span": {"line": 1, "column": 23, "end_line": 1, "end_column": 40}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 40}
+      }
+    }
+  }
+]

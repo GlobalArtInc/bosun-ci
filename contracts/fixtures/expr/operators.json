@@ -1,0 +1,386 @@
+[
+  {
+    "expression": "!a == b",
+    "tree": {
+      "compare": {
+        "operator": "==",
+        "left": {
+          "not": {
+            "operand": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 3}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 3}
+          }
+        },
+        "right": {
+          "context": {"name": "b", "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 8}}
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 8}
+      }
+    }
+  },
+  {
+    "expression": "a || b && c",
+    "tree": {
+      "or": {
+        "operands": [
+          {
+            "context": {
+              "name": "a",
+              "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+            }
+          },
+          {
+            "and": {
+              "operands": [
+                {
+                  "context": {
+                    "name": "b",
+                    "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+                  }
+                },
+                {
+                  "context": {
+                    "name": "c",
+                    "span": {"line": 1, "column": 11, "end_line": 1, "end_column": 12}
+                  }
+                }
+              ],
+              "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 12}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      }
+    }
+  },
+  {
+    "expression": "a && b || c && d",
+    "tree": {
+      "or": {
+        "operands": [
+          {
+            "and": {
+              "operands": [
+                {
+                  "context": {
+                    "name": "a",
+                    "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+                  }
+                },
+                {
+                  "context": {
+                    "name": "b",
+                    "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+                  }
+                }
+              ],
+              "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+            }
+          },
+          {
+            "and": {
+              "operands": [
+                {
+                  "context": {
+                    "name": "c",
+                    "span": {"line": 1, "column": 11, "end_line": 1, "end_column": 12}
+                  }
+                },
+                {
+                  "context": {
+                    "name": "d",
+                    "span": {"line": 1, "column": 16, "end_line": 1, "end_column": 17}
+                  }
+                }
+              ],
+              "span": {"line": 1, "column": 11, "end_line": 1, "end_column": 17}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 17}
+      }
+    }
+  },
+  {
+    "expression": "a && b && c",
+    "tree": {
+      "and": {
+        "operands": [
+          {
+            "context": {
+              "name": "a",
+              "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+            }
+          },
+          {
+            "context": {
+              "name": "b",
+              "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+            }
+          },
+          {
+            "context": {
+              "name": "c",
+              "span": {"line": 1, "column": 11, "end_line": 1, "end_column": 12}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      }
+    }
+  },
+  {
+    "expression": "a || b || c",
+    "tree": {
+      "or": {
+        "operands": [
+          {
+            "context": {
+              "name": "a",
+              "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+            }
+          },
+          {
+            "context": {
+              "name": "b",
+              "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+            }
+          },
+          {
+            "context": {
+              "name": "c",
+              "span": {"line": 1, "column": 11, "end_line": 1, "end_column": 12}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      }
+    }
+  },
+  {
+    "expression": "(a && b) && c",
+    "tree": {
+      "and": {
+        "operands": [
+          {
+            "and": {
+              "operands": [
+                {
+                  "context": {
+                    "name": "a",
+                    "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 3}
+                  }
+                },
+                {
+                  "context": {
+                    "name": "b",
+                    "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 8}
+                  }
+                }
+              ],
+              "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 8}
+            }
+          },
+          {
+            "context": {
+              "name": "c",
+              "span": {"line": 1, "column": 13, "end_line": 1, "end_column": 14}
+            }
+          }
+        ],
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 14}
+      }
+    }
+  },
+  {
+    "expression": "a < b == c >= d",
+    "tree": {
+      "compare": {
+        "operator": "==",
+        "left": {
+          "compare": {
+            "operator": "<",
+            "left": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+              }
+            },
+            "right": {
+              "context": {
+                "name": "b",
+                "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+          }
+        },
+        "right": {
+          "compare": {
+            "operator": ">=",
+            "left": {
+              "context": {
+                "name": "c",
+                "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 11}
+              }
+            },
+            "right": {
+              "context": {
+                "name": "d",
+                "span": {"line": 1, "column": 15, "end_line": 1, "end_column": 16}
+              }
+            },
+            "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 16}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 16}
+      }
+    }
+  },
+  {
+    "expression": "a <= b > c",
+    "tree": {
+      "compare": {
+        "operator": ">",
+        "left": {
+          "compare": {
+            "operator": "<=",
+            "left": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+              }
+            },
+            "right": {
+              "context": {
+                "name": "b",
+                "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "right": {
+          "context": {
+            "name": "c",
+            "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 11}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 11}
+      }
+    }
+  },
+  {
+    "expression": "a == b != c",
+    "tree": {
+      "compare": {
+        "operator": "!=",
+        "left": {
+          "compare": {
+            "operator": "==",
+            "left": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}
+              }
+            },
+            "right": {
+              "context": {
+                "name": "b",
+                "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+              }
+            },
+            "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+          }
+        },
+        "right": {
+          "context": {
+            "name": "c",
+            "span": {"line": 1, "column": 11, "end_line": 1, "end_column": 12}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      }
+    }
+  },
+  {
+    "expression": "!!a",
+    "tree": {
+      "not": {
+        "operand": {
+          "not": {
+            "operand": {
+              "context": {
+                "name": "a",
+                "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+              }
+            },
+            "span": {"line": 1, "column": 2, "end_line": 1, "end_column": 4}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+      }
+    }
+  },
+  {
+    "expression": "!(a || b)",
+    "tree": {
+      "not": {
+        "operand": {
+          "or": {
+            "operands": [
+              {
+                "context": {
+                  "name": "a",
+                  "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 4}
+                }
+              },
+              {
+                "context": {
+                  "name": "b",
+                  "span": {"line": 1, "column": 8, "end_line": 1, "end_column": 9}
+                }
+              }
+            ],
+            "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 9}
+          }
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 10}
+      }
+    }
+  },
+  {
+    "expression": "a==b",
+    "tree": {
+      "compare": {
+        "operator": "==",
+        "left": {
+          "context": {"name": "a", "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}}
+        },
+        "right": {
+          "context": {"name": "b", "span": {"line": 1, "column": 4, "end_line": 1, "end_column": 5}}
+        },
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 5}
+      }
+    }
+  },
+  {
+    "expression": "a ==\n  b",
+    "tree": {
+      "compare": {
+        "operator": "==",
+        "left": {
+          "context": {"name": "a", "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 2}}
+        },
+        "right": {
+          "context": {"name": "b", "span": {"line": 2, "column": 3, "end_line": 2, "end_column": 4}}
+        },
+        "span": {"line": 1, "column": 1, "end_line": 2, "end_column": 4}
+      }
+    }
+  }
+]

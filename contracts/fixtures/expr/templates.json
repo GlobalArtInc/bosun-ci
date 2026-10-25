@@ -1,0 +1,149 @@
+[
+  {"template": "plain text", "segments": [{"text": "plain text"}]},
+  {"template": "", "segments": [{"text": ""}]},
+  {
+    "template": "a ${{ x }} b",
+    "segments": [
+      {"text": "a "},
+      {
+        "expression": {
+          "context": {"name": "x", "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 8}}
+        }
+      },
+      {"text": " b"}
+    ]
+  },
+  {
+    "template": "${{ x }}",
+    "segments": [
+      {
+        "expression": {
+          "context": {"name": "x", "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}}
+        }
+      }
+    ]
+  },
+  {
+    "template": "${{ x }}${{ y }}",
+    "segments": [
+      {
+        "expression": {
+          "context": {"name": "x", "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 6}}
+        }
+      },
+      {
+        "expression": {
+          "context": {
+            "name": "y",
+            "span": {"line": 1, "column": 13, "end_line": 1, "end_column": 14}
+          }
+        }
+      }
+    ]
+  },
+  {
+    "template": "a ${{ '}}' }} b",
+    "segments": [
+      {"text": "a "},
+      {
+        "expression": {
+          "string": {
+            "value": "}}",
+            "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 11}
+          }
+        }
+      },
+      {"text": " b"}
+    ]
+  },
+  {
+    "template": "${{ 'it''s }}' }}",
+    "segments": [
+      {
+        "expression": {
+          "string": {
+            "value": "it's }}",
+            "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 15}
+          }
+        }
+      }
+    ]
+  },
+  {
+    "template": "x ${{ a }}}",
+    "segments": [
+      {"text": "x "},
+      {
+        "expression": {
+          "context": {"name": "a", "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 8}}
+        }
+      },
+      {"text": "}"}
+    ]
+  },
+  {
+    "template": "${{ '${{' }}",
+    "segments": [
+      {
+        "expression": {
+          "string": {
+            "value": "${{",
+            "span": {"line": 1, "column": 5, "end_line": 1, "end_column": 10}
+          }
+        }
+      }
+    ]
+  },
+  {
+    "template": "line one\n${{ github.sha }}",
+    "segments": [
+      {"text": "line one\n"},
+      {
+        "expression": {
+          "property": {
+            "target": {
+              "context": {
+                "name": "github",
+                "span": {"line": 2, "column": 5, "end_line": 2, "end_column": 11}
+              }
+            },
+            "name": "sha",
+            "span": {"line": 2, "column": 5, "end_line": 2, "end_column": 15}
+          }
+        }
+      }
+    ]
+  },
+  {
+    "template": "${{ x",
+    "error": {
+      "code": "expression_syntax",
+      "message": "`${{` is not closed by `}}`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+    }
+  },
+  {
+    "template": "${{ 'abc }}",
+    "error": {
+      "code": "expression_syntax",
+      "message": "`${{` is not closed by `}}`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+    }
+  },
+  {
+    "template": "a ${{ }}",
+    "error": {
+      "code": "expression_syntax",
+      "message": "the expression is empty",
+      "span": {"line": 1, "column": 3, "end_line": 1, "end_column": 9}
+    }
+  },
+  {
+    "template": "${{ a b }}",
+    "error": {
+      "code": "expression_syntax",
+      "message": "unexpected `b`",
+      "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 8}
+    }
+  }
+]

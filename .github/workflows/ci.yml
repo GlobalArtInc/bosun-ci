@@ -98,7 +98,7 @@ jobs:
             debian:13 runner-tests
 
       - name: WebAssembly build of the pure crates
-        run: cargo build -p bosun-types -p bosun-workflow --target wasm32-unknown-unknown
+        run: cargo build -p bosun-types -p bosun-expr -p bosun-workflow --target wasm32-unknown-unknown
 
       - name: Dependency rules
         run: hack/check-deps.sh

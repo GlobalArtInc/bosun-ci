@@ -21,6 +21,8 @@ use crate::{fixture, repository};
 
 type Check = fn(&Value) -> Result<Value, String>;
 
+const RUN_BY_OTHER_SUITES: &[&str] = &["expr"];
+
 fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, String> {
     let typed: T = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     serde_json::to_value(&typed).map_err(|error| error.to_string())
@@ -122,13 +124,18 @@ fn fixtures() -> Vec<(&'static str, Check)> {
 fn walk(directory: &Path, root: &Path, found: &mut BTreeSet<String>) {
     for entry in fs::read_dir(directory).expect("the fixtures directory is readable") {
         let path = entry.expect("a directory entry").path();
+        let relative = path.strip_prefix(root).expect("a path under the root");
         if path.is_dir() {
-            walk(&path, root, found);
+            if !RUN_BY_OTHER_SUITES
+                .iter()
+                .any(|directory| relative == Path::new(directory))
+            {
+                walk(&path, root, found);
+            }
         } else if path
             .extension()
             .is_some_and(|extension| extension == "json")
         {
-            let relative = path.strip_prefix(root).expect("a path under the root");
             found.insert(relative.to_string_lossy().replace('\\', "/"));
         }
     }

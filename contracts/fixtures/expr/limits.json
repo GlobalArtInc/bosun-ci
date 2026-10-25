@@ -1,0 +1,24 @@
+[
+  {
+    "expression": "(((((((((((((((((((((((((((((((((((((((((((((((((a)))))))))))))))))))))))))))))))))))))))))))))))))",
+    "tree": {
+      "context": {"name": "a", "span": {"line": 1, "column": 50, "end_line": 1, "end_column": 51}}
+    }
+  },
+  {
+    "expression": "((((((((((((((((((((((((((((((((((((((((((((((((((a))))))))))))))))))))))))))))))))))))))))))))))))))",
+    "error": {
+      "code": "limit_exceeded",
+      "message": "the expression nests deeper than 50 levels",
+      "span": {"line": 1, "column": 51, "end_line": 1, "end_column": 52}
+    }
+  },
+  {
+    "expression": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!a",
+    "error": {
+      "code": "limit_exceeded",
+      "message": "the expression nests deeper than 50 levels",
+      "span": {"line": 1, "column": 51, "end_line": 1, "end_column": 52}
+    }
+  }
+]

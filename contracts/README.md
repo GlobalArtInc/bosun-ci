@@ -10,6 +10,8 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   the outcome of every step that starts and the output lines the execution engine must produce.
   They pin the shell rules of the target: the default and the named shells, custom templates,
   `working-directory`, `env` and the order of the output.
+- `fixtures/expr/`: expression cases and the availability table of contexts and functions per key,
+  from step 2 of M1, in the format of `docs/design/03-expressions.md`.
 - `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from M1.
 - `openapi.json`: the description of the REST API generated from the handlers, from M1.
 

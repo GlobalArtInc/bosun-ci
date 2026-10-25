@@ -8,7 +8,7 @@ use bosun_types::diagnostic::Severity;
 use bosun_types::error::ErrorCode;
 use bosun_types::event::RunEvent;
 use bosun_types::id::{JobId, RunId};
-use bosun_types::ir::{self, Segment, Shell, Template, Trigger};
+use bosun_types::ir::{self, Expr, Number, Segment, Shell, Span, Template, Trigger};
 use bosun_types::key::{JobKey, StepKey};
 use bosun_types::slug;
 use bosun_types::status::{
@@ -88,9 +88,31 @@ fn the_ir_refuses_unknown_fields() {
     trigger["triggers"][0]["workflow_dispatch"]["inputs"] = json!({});
     refuses::<ir::Workflow>(trigger);
 
-    let mut segment = workflow;
+    let mut segment = workflow.clone();
     segment["env"]["CARGO_TERM_COLOR"] = json!([{ "expr": { "literal": true } }]);
     refuses::<ir::Workflow>(segment);
+
+    let span = json!({ "line": 3, "column": 8, "end_line": 3, "end_column": 14 });
+    let context = json!({ "context": { "name": "github", "span": span } });
+    let mut expression = workflow.clone();
+    expression["env"]["CARGO_TERM_COLOR"] = json!([{ "expression": context }]);
+    serde_json::from_value::<ir::Workflow>(expression).expect("an expression segment");
+
+    let mut node = workflow.clone();
+    node["env"]["CARGO_TERM_COLOR"] =
+        json!([{ "expression": { "variable": { "name": "github", "span": span } } }]);
+    refuses::<ir::Workflow>(node);
+
+    let mut field = workflow.clone();
+    field["env"]["CARGO_TERM_COLOR"] = json!([{ "expression": {
+        "context": { "name": "github", "span": span, "case": "upper" }
+    } }]);
+    refuses::<ir::Workflow>(field);
+
+    let mut number = workflow;
+    number["env"]["CARGO_TERM_COLOR"] =
+        json!([{ "expression": { "number": { "value": "nan", "span": span } } }]);
+    refuses::<ir::Workflow>(number);
 }
 
 #[test]
@@ -175,6 +197,27 @@ fn a_template_of_text_is_a_literal() {
     ]);
     assert_eq!(template.as_literal().as_deref(), Some("cargo test"));
     assert_eq!(Template::default().as_literal().as_deref(), Some(""));
+    let span = Span {
+        line: 1,
+        column: 8,
+        end_line: 1,
+        end_column: 11,
+    };
+    let computed = Template::new(vec![
+        Segment::Text("echo ".into()),
+        Segment::Expression(Expr::Number {
+            value: Number(f64::NAN),
+            span,
+        }),
+    ]);
+    assert_eq!(computed.as_literal(), None);
+    assert_eq!(
+        serde_json::to_value(&computed).expect("serialisable"),
+        json!([
+            { "text": "echo " },
+            { "expression": { "number": { "value": "NaN", "span": span } } }
+        ])
+    );
     assert_eq!(
         serde_json::to_value(Template::text("echo")).expect("serialisable"),
         json!([{ "text": "echo" }])

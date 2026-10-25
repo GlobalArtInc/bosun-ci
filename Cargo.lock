@@ -310,6 +310,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bosun-expr"
+version = "0.1.0"
+dependencies = [
+ "bosun-types",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bosun-proto"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,253 @@
+[
+  {
+    "expression": "foo()",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "unknown_function",
+        "message": "unknown function `foo`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "contains(a)",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "wrong_argument_count",
+        "message": "`contains` takes 2 arguments, not 1",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      },
+      {
+        "code": "unknown_context",
+        "message": "unknown context `a`",
+        "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 11}
+      }
+    ]
+  },
+  {
+    "expression": "contains(github.ref)",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "wrong_argument_count",
+        "message": "`contains` takes 2 arguments, not 1",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 21}
+      }
+    ]
+  },
+  {
+    "expression": "case(a, b)",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "wrong_argument_count",
+        "message": "`case` takes an odd number of arguments, at least 3, not 2; they are pairs of a predicate and a value, then a default",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 11}
+      },
+      {
+        "code": "unknown_context",
+        "message": "unknown context `a`",
+        "span": {"line": 1, "column": 6, "end_line": 1, "end_column": 7}
+      },
+      {
+        "code": "unknown_context",
+        "message": "unknown context `b`",
+        "span": {"line": 1, "column": 9, "end_line": 1, "end_column": 10}
+      }
+    ]
+  },
+  {
+    "expression": "case(github.ref, 'x')",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "wrong_argument_count",
+        "message": "`case` takes an odd number of arguments, at least 3, not 2; they are pairs of a predicate and a value, then a default",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 22}
+      }
+    ]
+  },
+  {"expression": "case(github.ref == 'a', 1, 2)", "key": "jobs.<job_id>.runs-on", "errors": []},
+  {
+    "expression": "steps.x",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `steps` is not available in `jobs.<job_id>.runs-on`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "steps.a.outputs.x",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `steps` is not available in `jobs.<job_id>.runs-on`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "Steps.x",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `steps` is not available in `jobs.<job_id>.runs-on`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {"expression": "needs.setup.outputs.label", "key": "jobs.<job_id>.runs-on", "errors": []},
+  {
+    "expression": "matrix.os",
+    "key": "env",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `matrix` is not available in `env`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+      }
+    ]
+  },
+  {
+    "expression": "foo.bar",
+    "key": "env",
+    "errors": [
+      {
+        "code": "unknown_context",
+        "message": "unknown context `foo`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+      }
+    ]
+  },
+  {"expression": "GITHUB.sha", "key": "run-name", "errors": []},
+  {"expression": "toJson(github)", "key": "env", "errors": []},
+  {
+    "expression": "TOJSON(github, 1)",
+    "key": "env",
+    "errors": [
+      {
+        "code": "wrong_argument_count",
+        "message": "`toJSON` takes 1 argument, not 2",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 18}
+      }
+    ]
+  },
+  {
+    "expression": "success()",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "unavailable_function",
+        "message": "function `success` is not available in `jobs.<job_id>.runs-on`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 10}
+      }
+    ]
+  },
+  {"expression": "success() && github.ref == 'x'", "key": "jobs.<job_id>.if", "errors": []},
+  {
+    "expression": "jobs.build.result",
+    "key": "jobs.<job_id>.if",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `jobs` is not available in `jobs.<job_id>.if`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 5}
+      }
+    ]
+  },
+  {"expression": "join(needs.*.result)", "key": "jobs.<job_id>.if", "errors": []},
+  {"expression": "hashFiles('**/Cargo.lock')", "key": "jobs.<job_id>.steps.run", "errors": []},
+  {
+    "expression": "hashFiles('x')",
+    "key": "jobs.<job_id>.if",
+    "errors": [
+      {
+        "code": "unavailable_function",
+        "message": "function `hashFiles` is not available in `jobs.<job_id>.if`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 15}
+      }
+    ]
+  },
+  {
+    "expression": "hashFiles()",
+    "key": "jobs.<job_id>.steps.run",
+    "errors": [
+      {
+        "code": "wrong_argument_count",
+        "message": "`hashFiles` takes 1 to 255 arguments, not 0",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+      }
+    ]
+  },
+  {
+    "expression": "always(1)",
+    "key": "jobs.<job_id>.steps.if",
+    "errors": [
+      {
+        "code": "wrong_argument_count",
+        "message": "`always` takes no arguments, not 1",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 10}
+      }
+    ]
+  },
+  {
+    "expression": "secrets.TOKEN",
+    "key": "jobs.<job_id>.steps.if",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `secrets` is not available in `jobs.<job_id>.steps.if`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 8}
+      }
+    ]
+  },
+  {"expression": "secrets.TOKEN", "key": "jobs.<job_id>.steps.run", "errors": []},
+  {
+    "expression": "env.A",
+    "key": "jobs.<job_id>.env",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `env` is not available in `jobs.<job_id>.env`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+      }
+    ]
+  },
+  {"expression": "env.A", "key": "jobs.<job_id>.defaults.run", "errors": []},
+  {"expression": "runner.os", "key": "jobs.<job_id>.outputs.<output_id>", "errors": []},
+  {"expression": "bosun.run_url", "key": "jobs.<job_id>.steps.run", "errors": []},
+  {
+    "expression": "plugin('x', 1)",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "not_implemented",
+        "message": "`plugin()` is not supported yet; it arrives in M5",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 15}
+      }
+    ]
+  },
+  {
+    "expression": "format('{0}', steps.a.outputs.b, foo())",
+    "key": "jobs.<job_id>.runs-on",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `steps` is not available in `jobs.<job_id>.runs-on`",
+        "span": {"line": 1, "column": 15, "end_line": 1, "end_column": 20}
+      },
+      {
+        "code": "unknown_function",
+        "message": "unknown function `foo`",
+        "span": {"line": 1, "column": 34, "end_line": 1, "end_column": 39}
+      }
+    ]
+  }
+]

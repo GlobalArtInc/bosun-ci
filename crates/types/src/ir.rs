@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Deserializer, Visitor};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::key::{JobKey, StepKey};
 
@@ -19,6 +20,7 @@ pub struct Span {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Segment {
     Text(String),
+    Expression(Expr),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,24 +45,175 @@ impl Template {
             .iter()
             .map(|segment| match segment {
                 Segment::Text(text) => Some(text.as_str()),
+                Segment::Expression(_) => None,
             })
             .collect()
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Literal {
-    Null,
-    Bool(bool),
-    Number(f64),
-    String(String),
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Condition {
+    Expression(Expr),
+    Template(Template),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
+pub struct Number(pub f64);
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Number) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for Number {}
+
+impl Serialize for Number {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let value = self.0;
+        if value.is_nan() {
+            serializer.serialize_str("NaN")
+        } else if value.is_infinite() {
+            serializer.serialize_str(if value > 0.0 { "Infinity" } else { "-Infinity" })
+        } else {
+            serializer.serialize_f64(value)
+        }
+    }
+}
+
+struct NumberVisitor;
+
+impl Visitor<'_> for NumberVisitor {
+    type Value = Number;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a finite number, `NaN`, `Infinity` or `-Infinity`")
+    }
+
+    fn visit_f64<E: de::Error>(self, value: f64) -> Result<Number, E> {
+        Ok(Number(value))
+    }
+
+    fn visit_i64<E: de::Error>(self, value: i64) -> Result<Number, E> {
+        Ok(Number(value as f64))
+    }
+
+    fn visit_u64<E: de::Error>(self, value: u64) -> Result<Number, E> {
+        Ok(Number(value as f64))
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<Number, E> {
+        match value {
+            "NaN" => Ok(Number(f64::NAN)),
+            "Infinity" => Ok(Number(f64::INFINITY)),
+            "-Infinity" => Ok(Number(f64::NEG_INFINITY)),
+            _ => Err(E::invalid_value(de::Unexpected::Str(value), &self)),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Number {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Number, D::Error> {
+        deserializer.deserialize_any(NumberVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Comparison {
+    #[serde(rename = "==")]
+    Equal,
+    #[serde(rename = "!=")]
+    NotEqual,
+    #[serde(rename = "<")]
+    Less,
+    #[serde(rename = "<=")]
+    LessOrEqual,
+    #[serde(rename = ">")]
+    Greater,
+    #[serde(rename = ">=")]
+    GreaterOrEqual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Expr {
-    Literal(Literal),
+    Null {
+        span: Span,
+    },
+    Boolean {
+        value: bool,
+        span: Span,
+    },
+    Number {
+        value: Number,
+        span: Span,
+    },
+    String {
+        value: String,
+        span: Span,
+    },
+    Context {
+        name: String,
+        span: Span,
+    },
+    Property {
+        target: Box<Expr>,
+        name: String,
+        span: Span,
+    },
+    Index {
+        target: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
+    Filter {
+        target: Box<Expr>,
+        span: Span,
+    },
+    Not {
+        operand: Box<Expr>,
+        span: Span,
+    },
+    Compare {
+        operator: Comparison,
+        left: Box<Expr>,
+        right: Box<Expr>,
+        span: Span,
+    },
+    And {
+        operands: Vec<Expr>,
+        span: Span,
+    },
+    Or {
+        operands: Vec<Expr>,
+        span: Span,
+    },
+    Call {
+        function: String,
+        arguments: Vec<Expr>,
+        span: Span,
+    },
+}
+
+impl Expr {
+    pub fn span(&self) -> Span {
+        match self {
+            Expr::Null { span }
+            | Expr::Boolean { span, .. }
+            | Expr::Number { span, .. }
+            | Expr::String { span, .. }
+            | Expr::Context { span, .. }
+            | Expr::Property { span, .. }
+            | Expr::Index { span, .. }
+            | Expr::Filter { span, .. }
+            | Expr::Not { span, .. }
+            | Expr::Compare { span, .. }
+            | Expr::And { span, .. }
+            | Expr::Or { span, .. }
+            | Expr::Call { span, .. } => *span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
