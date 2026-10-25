@@ -1,0 +1,137 @@
+[
+  {
+    "expression": "'x' || 'y'",
+    "contexts": {},
+    "result": "x"
+  },
+  {
+    "expression": "'x' || 0",
+    "contexts": {},
+    "result": "x"
+  },
+  {
+    "expression": "'' || 'y'",
+    "contexts": {},
+    "result": "y"
+  },
+  {
+    "expression": "'' || 0",
+    "contexts": {},
+    "result": 0
+  },
+  {
+    "expression": "'x' && 'y'",
+    "contexts": {},
+    "result": "y"
+  },
+  {
+    "expression": "'x' && 0",
+    "contexts": {},
+    "result": 0
+  },
+  {
+    "expression": "'' && 'y'",
+    "contexts": {},
+    "result": ""
+  },
+  {
+    "expression": "'' && 0",
+    "contexts": {},
+    "result": ""
+  },
+  {
+    "expression": "github.object || 'none'",
+    "contexts": {
+      "github": {
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": {
+      "a": 1
+    }
+  },
+  {
+    "expression": "null || github.list",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ]
+      }
+    },
+    "result": [
+      1,
+      2
+    ]
+  },
+  {
+    "expression": "0 || '' || null",
+    "contexts": {},
+    "result": null
+  },
+  {
+    "expression": "1 && 'a' && github.object",
+    "contexts": {
+      "github": {
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": {
+      "a": 1
+    }
+  },
+  {
+    "expression": "1 && 0 && github.missing",
+    "contexts": {
+      "github": {}
+    },
+    "result": 0
+  },
+  {
+    "expression": "!(0 || '')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "true || fromJSON('x')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "false && fromJSON('x')",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "(github.list || 1) == github.list",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ]
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "(github.object && github.list) == github.list",
+    "contexts": {
+      "github": {
+        "object": {
+          "a": 1
+        },
+        "list": [
+          1,
+          2
+        ]
+      }
+    },
+    "result": true
+  }
+]

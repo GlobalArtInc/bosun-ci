@@ -1,0 +1,805 @@
+[
+  {
+    "expression": "github.event.name",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo",
+          "number": 7
+        }
+      }
+    },
+    "result": "Octo"
+  },
+  {
+    "expression": "GITHUB.Event.NAME",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo",
+          "number": 7
+        }
+      }
+    },
+    "result": "Octo"
+  },
+  {
+    "expression": "github['event']['name']",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo",
+          "number": 7
+        }
+      }
+    },
+    "result": "Octo"
+  },
+  {
+    "expression": "github.event.missing",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo",
+          "number": 7
+        }
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.missing.deeper",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo",
+          "number": 7
+        }
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.ref.length",
+    "contexts": {
+      "github": {
+        "ref": "refs/heads/main"
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.list[0]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": "a"
+  },
+  {
+    "expression": "github.list[1.9]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": "b"
+  },
+  {
+    "expression": "github.list['2']",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": "c"
+  },
+  {
+    "expression": "github.list[' 1 ']",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": "b"
+  },
+  {
+    "expression": "github.list['0x1']",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": "b"
+  },
+  {
+    "expression": "github.list[-1]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.list[3]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.list[true]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": "b"
+  },
+  {
+    "expression": "github.list[null]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": "a"
+  },
+  {
+    "expression": "github.list['a']",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.list[NaN]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.list[Infinity]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.list.name",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.list[github.list]",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.object.key",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": "value"
+  },
+  {
+    "expression": "github.object['KEY']",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": "value"
+  },
+  {
+    "expression": "github.object[1]",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": "one"
+  },
+  {
+    "expression": "github.object[1.0]",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": "one"
+  },
+  {
+    "expression": "github.object[true]",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": "yes"
+  },
+  {
+    "expression": "github.object[null]",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": "empty"
+  },
+  {
+    "expression": "github.object[0]",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.object[github.object]",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.missing[fromJSON('x')]",
+    "contexts": {
+      "github": {
+        "ref": "refs/heads/main"
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.ref[fromJSON('x')]",
+    "contexts": {
+      "github": {
+        "ref": "refs/heads/main"
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.items.*.name",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": [
+      "a",
+      "c"
+    ]
+  },
+  {
+    "expression": "github.items[*].name",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": [
+      "a",
+      "c"
+    ]
+  },
+  {
+    "expression": "github.items.*.id",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": [
+      1,
+      2
+    ]
+  },
+  {
+    "expression": "github.items.*",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": [
+      {
+        "name": "a",
+        "id": 1
+      },
+      {
+        "id": 2
+      },
+      {
+        "name": "c"
+      },
+      "text",
+      5,
+      null
+    ]
+  },
+  {
+    "expression": "github.object.*",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value",
+          "1": "one",
+          "true": "yes",
+          "": "empty"
+        }
+      }
+    },
+    "result": [
+      "value",
+      "one",
+      "yes",
+      "empty"
+    ]
+  },
+  {
+    "expression": "github.list.*",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    "result": [
+      "a",
+      "b",
+      "c"
+    ]
+  },
+  {
+    "expression": "github.ref.*",
+    "contexts": {
+      "github": {
+        "ref": "refs/heads/main"
+      }
+    },
+    "result": []
+  },
+  {
+    "expression": "github.missing.*",
+    "contexts": {
+      "github": {
+        "ref": "refs/heads/main"
+      }
+    },
+    "result": []
+  },
+  {
+    "expression": "github.event.*.*",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo",
+          "number": 7
+        }
+      }
+    },
+    "result": []
+  },
+  {
+    "expression": "github.nested.*.*",
+    "contexts": {
+      "github": {
+        "nested": [
+          [
+            1,
+            2
+          ],
+          [
+            3
+          ],
+          {
+            "x": 4
+          }
+        ]
+      }
+    },
+    "result": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  {
+    "expression": "github.nested.*[0]",
+    "contexts": {
+      "github": {
+        "nested": [
+          [
+            1,
+            2
+          ],
+          [
+            3
+          ],
+          {
+            "x": 4
+          }
+        ]
+      }
+    },
+    "result": [
+      1,
+      3
+    ]
+  },
+  {
+    "expression": "github.items.*.name[0]",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": []
+  },
+  {
+    "expression": "github.items.*.name.*",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": []
+  },
+  {
+    "expression": "github.items.*.missing",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": []
+  },
+  {
+    "expression": "(github.items.*).name",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": [
+      "a",
+      "c"
+    ]
+  },
+  {
+    "expression": "(false || github.items.*).name",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": [
+      "a",
+      "c"
+    ]
+  },
+  {
+    "expression": "case(true, github.items.*, null).name",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": [
+      "a",
+      "c"
+    ]
+  },
+  {
+    "expression": "fromJSON(toJSON(github.items.*)).name",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": null
+  },
+  {
+    "expression": "github.items.* == github.items.*",
+    "contexts": {
+      "github": {
+        "items": [
+          {
+            "name": "a",
+            "id": 1
+          },
+          {
+            "id": 2
+          },
+          {
+            "name": "c"
+          },
+          "text",
+          5,
+          null
+        ]
+      }
+    },
+    "result": false
+  }
+]

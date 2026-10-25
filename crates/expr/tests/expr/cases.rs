@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
-use crate::{error, fixtures, key, load};
+use crate::{error, evaluation, fixtures, key, load, read};
 
 pub const AVAILABILITY: &str = "availability.json";
 
@@ -50,6 +50,15 @@ pub fn files() -> Vec<(String, Vec<Case>)> {
             (name, cases)
         })
         .collect()
+}
+
+fn ordered(name: &str) -> Vec<bosun_expr::Value> {
+    let path = fixtures().join(name);
+    match serde_json::from_str(&read(&path)) {
+        Ok(bosun_expr::Value::Array(cases)) => cases.to_vec(),
+        Ok(other) => panic!("expr/{name}: a list of cases is expected, not {other:?}"),
+        Err(failure) => panic!("expr/{name}: {failure}"),
+    }
 }
 
 fn pretty<T: Serialize>(value: &T) -> String {
@@ -100,7 +109,7 @@ fn text<'c>(label: &str, case: &'c Case, field: &str) -> &'c str {
         .unwrap_or_else(|| panic!("{label}: `{field}` is a string"))
 }
 
-fn run(label: &str, case: &Case) {
+fn run(label: &str, case: &Case, ordered: &bosun_expr::Value) {
     let fields: BTreeSet<&str> = case.keys().map(String::as_str).collect();
     let shape = |names: &[&str]| fields == names.iter().copied().collect();
     if shape(&["expression", "tree"]) || shape(&["expression", "error"]) {
@@ -127,11 +136,20 @@ fn run(label: &str, case: &Case) {
             "{label}: the errors differ from the committed ones; they are now\n{}",
             pretty(&produced)
         );
+    } else if shape(&["expression", "contexts", "result"])
+        || shape(&["expression", "contexts", "error"])
+    {
+        evaluation::expression(label, case, ordered);
+    } else if shape(&["template", "contexts", "result"])
+        || shape(&["template", "contexts", "error"])
+    {
+        evaluation::template(label, case, ordered);
     } else {
         panic!(
             "{label}: a case has `expression` with `tree` or `error`, `template` with `segments` or \
-             `error`, `if` with `condition` or `error`, or `expression` with `key` and `errors`; \
-             this one has {fields:?}"
+             `error`, `if` with `condition` or `error`, `expression` with `key` and `errors`, or \
+             `expression` or `template` with `contexts` and `result` or `error`; this one has \
+             {fields:?}"
         );
     }
 }
@@ -142,8 +160,10 @@ fn every_case_yields_its_committed_outcome() {
     assert!(!files.is_empty(), "no expression cases");
     for (name, cases) in files {
         assert!(!cases.is_empty(), "expr/{name} holds no cases");
+        let ordered = ordered(&name);
+        assert_eq!(ordered.len(), cases.len(), "expr/{name}");
         for (index, case) in cases.iter().enumerate() {
-            run(&format!("expr/{name}[{index}]"), case);
+            run(&format!("expr/{name}[{index}]"), case, &ordered[index]);
         }
     }
 }

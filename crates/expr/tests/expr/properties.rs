@@ -1,3 +1,4 @@
+use bosun_expr::{Context, Scope, Value};
 use bosun_types::ir::{Condition, Expr, Segment, Span, Template};
 use proptest::prelude::*;
 
@@ -44,6 +45,21 @@ const FRAGMENTS: &[&str] = &[
     ",",
     "f(",
     "contains(",
+    "github",
+    "inputs.x",
+    ".*",
+    "[*]",
+    "0",
+    "1.5",
+    "'{0}'",
+    "'{'",
+    "format(",
+    "join(",
+    "toJSON(",
+    "fromJSON(",
+    "startsWith(",
+    "case(",
+    "true,",
 ];
 
 fn text() -> impl Strategy<Value = String> {
@@ -155,5 +171,83 @@ proptest! {
             bosun_expr::template(&text).expect("text without delimiters"),
             Template::text(text.clone())
         );
+    }
+}
+
+struct Given(Value);
+
+impl Scope for Given {
+    fn context(&self, _context: Context) -> Value {
+        self.0.clone()
+    }
+}
+
+fn number() -> impl Strategy<Value = f64> {
+    (
+        -999_999_999_999_999_i64..=999_999_999_999_999,
+        -300_i32..=290,
+    )
+        .prop_map(|(mantissa, exponent)| {
+            format!("{mantissa}e{exponent}")
+                .parse()
+                .expect("a decimal number")
+        })
+}
+
+fn value() -> impl Strategy<Value = Value> {
+    let leaf = prop_oneof![
+        Just(Value::Null),
+        any::<bool>().prop_map(Value::Boolean),
+        number().prop_map(Value::Number),
+        any::<String>().prop_map(Value::String),
+    ];
+    leaf.prop_recursive(4, 48, 6, |inner| {
+        prop_oneof![
+            proptest::collection::vec(inner.clone(), 0..6)
+                .prop_map(|items| Value::Array(items.into())),
+            proptest::collection::btree_map(
+                "[a-z0-9_\\-\"\\\\ \u{e9}\n\t\u{1}\u{2028}]{0,6}",
+                inner,
+                0..6
+            )
+            .prop_map(|pairs| Value::Object(pairs.into_iter().collect::<Vec<_>>().into())),
+        ]
+    })
+}
+
+fn sample() -> Value {
+    let item = Value::Object(vec![("x".to_string(), Value::Number(1.0))].into());
+    Value::Object(
+        vec![
+            (
+                "x".to_string(),
+                Value::Array(vec![item, Value::String("{".into())].into()),
+            ),
+            (
+                "y".to_string(),
+                Value::String("[1, {\"a\": 2}]".to_string()),
+            ),
+        ]
+        .into(),
+    )
+}
+
+proptest! {
+    #[test]
+    fn from_json_of_to_json_gives_the_value_back(value in value()) {
+        let expr = bosun_expr::expression("fromJSON(toJSON(inputs))").expect("the expression parses");
+        let again = bosun_expr::evaluate(&expr, &Given(value.clone()));
+        prop_assert_eq!(again, Ok(value));
+    }
+
+    #[test]
+    fn evaluation_never_panics(text in text()) {
+        let scope = Given(sample());
+        if let Ok(expr) = bosun_expr::expression(&text) {
+            let _ = bosun_expr::evaluate(&expr, &scope);
+        }
+        if let Ok(template) = bosun_expr::template(&text) {
+            let _ = bosun_expr::render(&template, &scope);
+        }
     }
 }

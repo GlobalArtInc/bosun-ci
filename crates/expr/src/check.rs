@@ -3,7 +3,7 @@ use bosun_types::ir::{Expr, Span};
 use crate::availability::{Context, Function, Key};
 use crate::error::{Code, Error};
 
-pub(crate) fn check(expr: &Expr, key: Key, errors: &mut Vec<Error>) {
+pub(crate) fn check(expr: &Expr, key: Option<Key>, errors: &mut Vec<Error>) {
     match expr {
         Expr::Null { .. } | Expr::Boolean { .. } | Expr::Number { .. } | Expr::String { .. } => {}
         Expr::Context { name, span } => context(name, *span, key, errors),
@@ -35,27 +35,41 @@ pub(crate) fn check(expr: &Expr, key: Key, errors: &mut Vec<Error>) {
     }
 }
 
-fn context(name: &str, span: Span, key: Key, errors: &mut Vec<Error>) {
-    match Context::find(name) {
-        None => errors.push(Error::new(
-            Code::UnknownContext,
-            span,
-            format!("unknown context `{name}`"),
-        )),
-        Some(context) if !key.contexts().contains(&context) => errors.push(Error::new(
-            Code::UnavailableContext,
-            span,
-            format!(
-                "context `{}` is not available in `{}`",
-                context.name(),
-                key.path()
-            ),
-        )),
-        Some(_) => {}
+pub(crate) fn unknown_context(name: &str, span: Span) -> Error {
+    Error::new(
+        Code::UnknownContext,
+        span,
+        format!("unknown context `{name}`"),
+    )
+}
+
+pub(crate) fn unknown_function(name: &str, span: Span) -> Error {
+    Error::new(
+        Code::UnknownFunction,
+        span,
+        format!("unknown function `{name}`"),
+    )
+}
+
+fn context(name: &str, span: Span, key: Option<Key>, errors: &mut Vec<Error>) {
+    match (Context::find(name), key) {
+        (None, _) => errors.push(unknown_context(name, span)),
+        (Some(context), Some(key)) if !key.contexts().contains(&context) => {
+            errors.push(Error::new(
+                Code::UnavailableContext,
+                span,
+                format!(
+                    "context `{}` is not available in `{}`",
+                    context.name(),
+                    key.path()
+                ),
+            ))
+        }
+        (Some(_), _) => {}
     }
 }
 
-fn call(name: &str, count: usize, span: Span, key: Key, errors: &mut Vec<Error>) {
+fn call(name: &str, count: usize, span: Span, key: Option<Key>, errors: &mut Vec<Error>) {
     if name.eq_ignore_ascii_case("plugin") {
         errors.push(Error::new(
             Code::NotImplemented,
@@ -65,14 +79,13 @@ fn call(name: &str, count: usize, span: Span, key: Key, errors: &mut Vec<Error>)
         return;
     }
     let Some(function) = Function::find(name) else {
-        errors.push(Error::new(
-            Code::UnknownFunction,
-            span,
-            format!("unknown function `{name}`"),
-        ));
+        errors.push(unknown_function(name, span));
         return;
     };
-    if function.special() && !key.special_functions().contains(&function) {
+    if let Some(key) = key
+        && function.special()
+        && !key.special_functions().contains(&function)
+    {
         errors.push(Error::new(
             Code::UnavailableFunction,
             span,

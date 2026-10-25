@@ -41,3 +41,61 @@ fn decimal(text: &str) -> Option<f64> {
     }
     text.parse().ok()
 }
+
+pub(crate) fn convert(text: &str) -> f64 {
+    let text = text.trim();
+    if text.is_empty() {
+        return 0.0;
+    }
+    if let Some(value) = parse(text) {
+        return value;
+    }
+    if text.eq_ignore_ascii_case("infinity") {
+        f64::INFINITY
+    } else {
+        f64::NAN
+    }
+}
+
+pub(crate) fn text(value: f64) -> String {
+    if value.is_nan() {
+        return "NaN".to_string();
+    }
+    if value.is_infinite() {
+        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
+    let scientific = format!("{value:.14e}");
+    let (mantissa, exponent) = scientific.split_once('e').unwrap_or((&scientific, "0"));
+    let exponent: i32 = exponent.parse().unwrap_or(0);
+    let sign = if mantissa.starts_with('-') { "-" } else { "" };
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let digits = match digits.trim_end_matches('0') {
+        "" => "0",
+        digits => digits,
+    };
+    if (-4..15).contains(&exponent) {
+        if exponent < 0 {
+            let zeros = "0".repeat(exponent.unsigned_abs() as usize - 1);
+            format!("{sign}0.{zeros}{digits}")
+        } else {
+            let whole = exponent.unsigned_abs() as usize + 1;
+            if digits.len() <= whole {
+                format!("{sign}{digits}{}", "0".repeat(whole - digits.len()))
+            } else {
+                format!("{sign}{}.{}", &digits[..whole], &digits[whole..])
+            }
+        }
+    } else {
+        let (first, rest) = digits.split_at(1);
+        let fraction = if rest.is_empty() {
+            String::new()
+        } else {
+            format!(".{rest}")
+        };
+        let direction = if exponent < 0 { '-' } else { '+' };
+        format!(
+            "{sign}{first}{fraction}E{direction}{:02}",
+            exponent.unsigned_abs()
+        )
+    }
+}

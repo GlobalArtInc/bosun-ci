@@ -1,0 +1,406 @@
+[
+  {
+    "expression": "contains('Hello World', 'WORLD')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains('abc', '')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains('abc', 'abcd')",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "contains(123, 2)",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains(1.50, '.5')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains(null, '')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains('abc', null)",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains(true, 'RU')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains(github.list, 'b')",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "contains(github.list, 'c')",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "contains(fromJSON('[1, 2]'), '2')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains(fromJSON('[null]'), '')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "contains(fromJSON('[]'), fromJSON('x'))",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "contains(github.object, 'key')",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value"
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "contains('abc', github.list)",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "contains(github.list, github.list)",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "contains(github.labels.*.name, 'BUG')",
+    "contexts": {
+      "github": {
+        "labels": [
+          {
+            "name": "bug"
+          },
+          {
+            "name": "docs"
+          }
+        ]
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "startsWith('Hello', 'he')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "startsWith('Hello', 'lo')",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "endsWith('Hello', 'LO')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "startsWith(10, 1)",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "endsWith(3.10, 1)",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "startsWith('abc', '')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "startsWith(null, '')",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "startsWith(github.list, 'a')",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "endsWith('abc', github.list)",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "startsWith(github.object, fromJSON('x'))",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value"
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "join(fromJSON('[1, \"a\", null, true, 3.10]'))",
+    "contexts": {},
+    "result": "1,a,,true,3.1"
+  },
+  {
+    "expression": "join(github.list, ' + ')",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": "a + B"
+  },
+  {
+    "expression": "join(github.list, '')",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": "aB"
+  },
+  {
+    "expression": "join(github.list, null)",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "result": "aB"
+  },
+  {
+    "expression": "join(github.list, github.object)",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ],
+        "object": {
+          "key": "value"
+        }
+      }
+    },
+    "result": "a,B"
+  },
+  {
+    "expression": "join('abc', '-')",
+    "contexts": {},
+    "result": "abc"
+  },
+  {
+    "expression": "join(fromJSON('[]'), '-')",
+    "contexts": {},
+    "result": ""
+  },
+  {
+    "expression": "join(github.object)",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value"
+        }
+      }
+    },
+    "result": ""
+  },
+  {
+    "expression": "join(null)",
+    "contexts": {},
+    "result": ""
+  },
+  {
+    "expression": "join(1e21)",
+    "contexts": {},
+    "result": "1E+21"
+  },
+  {
+    "expression": "join(fromJSON('[[1], {}]'))",
+    "contexts": {},
+    "result": "Array,Object"
+  },
+  {
+    "expression": "join(fromJSON('[\"x\"]'), fromJSON('y'))",
+    "contexts": {},
+    "result": "x"
+  },
+  {
+    "expression": "join(github.labels.*.name, ', ')",
+    "contexts": {
+      "github": {
+        "labels": [
+          {
+            "name": "bug"
+          },
+          {
+            "name": "docs"
+          }
+        ]
+      }
+    },
+    "result": "bug, docs"
+  },
+  {
+    "expression": "case(true, 'a', 'b')",
+    "contexts": {},
+    "result": "a"
+  },
+  {
+    "expression": "case(false, 'a', 'b')",
+    "contexts": {},
+    "result": "b"
+  },
+  {
+    "expression": "case(false, 'a', true, 'c', 'd')",
+    "contexts": {},
+    "result": "c"
+  },
+  {
+    "expression": "case(false, 'a', false, 'c', 'd')",
+    "contexts": {},
+    "result": "d"
+  },
+  {
+    "expression": "CASE(TRUE, 'a', 'b')",
+    "contexts": {},
+    "result": "a"
+  },
+  {
+    "expression": "case(1 == 1, github.object, null)",
+    "contexts": {
+      "github": {
+        "object": {
+          "key": "value"
+        }
+      }
+    },
+    "result": {
+      "key": "value"
+    }
+  },
+  {
+    "expression": "case(true, 'a', fromJSON('x'))",
+    "contexts": {},
+    "result": "a"
+  },
+  {
+    "expression": "case(false, fromJSON('x'), 'b')",
+    "contexts": {},
+    "result": "b"
+  },
+  {
+    "expression": "case(1, 'a', 'b')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "a predicate of `case` must be a boolean, not a number",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 18}
+    }
+  },
+  {
+    "expression": "case('true', 'a', 'b')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "a predicate of `case` must be a boolean, not a string",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 23}
+    }
+  },
+  {
+    "expression": "case(false, 'a', null, 'b', 'c')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "a predicate of `case` must be a boolean, not null",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 33}
+    }
+  },
+  {
+    "expression": "case(github.list, 'a', 'b')",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "B"
+        ]
+      }
+    },
+    "error": {
+      "code": "function_failed",
+      "message": "a predicate of `case` must be a boolean, not an array",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 28}
+    }
+  }
+]

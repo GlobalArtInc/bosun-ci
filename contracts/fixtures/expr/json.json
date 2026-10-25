@@ -1,0 +1,257 @@
+[
+  {
+    "expression": "toJSON(github.event)",
+    "contexts": {
+      "github": {
+        "event": {
+          "zeta": 1,
+          "alpha": "x",
+          "nested": {
+            "list": [
+              1,
+              {
+                "b": null
+              }
+            ],
+            "empty": {},
+            "none": []
+          }
+        }
+      }
+    },
+    "result": "{\n  \"zeta\": 1,\n  \"alpha\": \"x\",\n  \"nested\": {\n    \"list\": [\n      1,\n      {\n        \"b\": null\n      }\n    ],\n    \"empty\": {},\n    \"none\": []\n  }\n}"
+  },
+  {
+    "expression": "toJSON(fromJSON('{\"a\":[1,{\"b\":null}],\"c\":{},\"d\":[]}'))",
+    "contexts": {},
+    "result": "{\n  \"a\": [\n    1,\n    {\n      \"b\": null\n    }\n  ],\n  \"c\": {},\n  \"d\": []\n}"
+  },
+  {
+    "expression": "toJSON(3.10)",
+    "contexts": {},
+    "result": "3.1"
+  },
+  {
+    "expression": "toJSON(1e21)",
+    "contexts": {},
+    "result": "1E+21"
+  },
+  {
+    "expression": "toJSON(0.1)",
+    "contexts": {},
+    "result": "0.1"
+  },
+  {
+    "expression": "toJSON(fromJSON('[3.10, 1e21, 0.1, -0.5]'))",
+    "contexts": {},
+    "result": "[\n  3.1,\n  1E+21,\n  0.1,\n  -0.5\n]"
+  },
+  {
+    "expression": "toJSON(NaN)",
+    "contexts": {},
+    "result": "NaN"
+  },
+  {
+    "expression": "toJSON(-Infinity)",
+    "contexts": {},
+    "result": "-Infinity"
+  },
+  {
+    "expression": "toJSON(null)",
+    "contexts": {},
+    "result": "null"
+  },
+  {
+    "expression": "toJSON(true)",
+    "contexts": {},
+    "result": "true"
+  },
+  {
+    "expression": "toJSON('a\"b\\c')",
+    "contexts": {},
+    "result": "\"a\\\"b\\\\c\""
+  },
+  {
+    "expression": "toJSON('é')",
+    "contexts": {},
+    "result": "\"é\""
+  },
+  {
+    "expression": "toJSON('')",
+    "contexts": {},
+    "result": "\"\""
+  },
+  {
+    "expression": "toJSON(fromJSON('[]'))",
+    "contexts": {},
+    "result": "[]"
+  },
+  {
+    "expression": "toJSON(fromJSON('{}'))",
+    "contexts": {},
+    "result": "{}"
+  },
+  {
+    "expression": "toJSON(fromJSON('\"\\u0001\\b\\f\\n\\r\\t\\u001f\\u007f\\u0085\\u2028\\u2029/\"'))",
+    "contexts": {},
+    "result": "\"\\u0001\\b\\f\\n\\r\\t\\u001f\u007f\\u0085\\u2028\\u2029/\""
+  },
+  {
+    "expression": "toJSON(github.event.zeta)",
+    "contexts": {
+      "github": {
+        "event": {
+          "zeta": 1
+        }
+      }
+    },
+    "result": "1"
+  },
+  {
+    "expression": "fromJSON('{\"a\": 1}')",
+    "contexts": {},
+    "result": {
+      "a": 1
+    }
+  },
+  {
+    "expression": "fromJSON('[1, \"x\", null, true]')",
+    "contexts": {},
+    "result": [
+      1,
+      "x",
+      null,
+      true
+    ]
+  },
+  {
+    "expression": "fromJSON(' 1 ')",
+    "contexts": {},
+    "result": 1
+  },
+  {
+    "expression": "fromJSON('\"x\"')",
+    "contexts": {},
+    "result": "x"
+  },
+  {
+    "expression": "fromJSON(1)",
+    "contexts": {},
+    "result": 1
+  },
+  {
+    "expression": "fromJSON(true)",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "fromJSON('{\"a\":1,\"A\":2}')",
+    "contexts": {},
+    "result": {
+      "a": 2
+    }
+  },
+  {
+    "expression": "fromJSON('{\"a\":1,\"b\":2,\"a\":3}')",
+    "contexts": {},
+    "result": {
+      "a": 3,
+      "b": 2
+    }
+  },
+  {
+    "expression": "fromJSON('{\"Name\":1}').name",
+    "contexts": {},
+    "result": 1
+  },
+  {
+    "expression": "fromJSON('[0.1, 1e21, -0.5]')",
+    "contexts": {},
+    "result": [
+      0.1,
+      1e+21,
+      -0.5
+    ]
+  },
+  {
+    "expression": "fromJSON('123456789012345678901234567890')",
+    "contexts": {},
+    "result": 123456789012345678901234567890
+  },
+  {
+    "expression": "fromJSON('{')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: EOF while parsing an object at line 1 column 1",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 14}
+    }
+  },
+  {
+    "expression": "fromJSON('')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: EOF while parsing a value at line 1 column 0",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 13}
+    }
+  },
+  {
+    "expression": "fromJSON('abc')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: expected value at line 1 column 1",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 16}
+    }
+  },
+  {
+    "expression": "fromJSON('1 2')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: trailing characters at line 1 column 3",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 16}
+    }
+  },
+  {
+    "expression": "fromJSON('''x''')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: expected value at line 1 column 1",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 18}
+    }
+  },
+  {
+    "expression": "fromJSON('{\"a\":}')",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: expected value at line 1 column 6",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 19}
+    }
+  },
+  {
+    "expression": "fromJSON(null)",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: EOF while parsing a value at line 1 column 0",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 15}
+    }
+  },
+  {
+    "expression": "fromJSON(github.list)",
+    "contexts": {
+      "github": {
+        "list": []
+      }
+    },
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: expected value at line 1 column 1",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 22}
+    }
+  }
+]

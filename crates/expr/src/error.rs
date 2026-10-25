@@ -10,10 +10,11 @@ pub enum Code {
     UnavailableFunction,
     WrongArgumentCount,
     NotImplemented,
+    FunctionFailed,
 }
 
 impl Code {
-    pub const ALL: [Code; 8] = [
+    pub const ALL: [Code; 9] = [
         Code::ExpressionSyntax,
         Code::LimitExceeded,
         Code::UnknownContext,
@@ -22,6 +23,7 @@ impl Code {
         Code::UnavailableFunction,
         Code::WrongArgumentCount,
         Code::NotImplemented,
+        Code::FunctionFailed,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -34,6 +36,7 @@ impl Code {
             Code::UnavailableFunction => "unavailable_function",
             Code::WrongArgumentCount => "wrong_argument_count",
             Code::NotImplemented => "not_implemented",
+            Code::FunctionFailed => "function_failed",
         }
     }
 }

@@ -11,7 +11,8 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   They pin the shell rules of the target: the default and the named shells, custom templates,
   `working-directory`, `env` and the order of the output.
 - `fixtures/expr/`: expression cases and the availability table of contexts and functions per key,
-  from step 2 of M1, in the format of `docs/design/03-expressions.md`.
+  from step 2 of M1, and the evaluation and rendering cases with their contexts and results, from
+  step 3 of M1, in the format of `docs/design/03-expressions.md`.
 - `fixtures/github/`: the `github` context and the variables of a step, from step 7 of M1. Each case
   holds the event's name, the `payload`, the facts of the run, the runner, the step and Bosun
   (`facts`, `runner`, `step`, `bosun`), the expected `context` without `event`, which is the payload

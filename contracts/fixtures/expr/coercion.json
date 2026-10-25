@@ -1,0 +1,582 @@
+[
+  {
+    "expression": "!false",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "!0",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "!-0",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "!''",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "!null",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "!NaN",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "!true",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "!1",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "!-1",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "!'0'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "!'false'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "!' '",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "!Infinity",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "!github.list",
+    "contexts": {
+      "github": {
+        "list": [],
+        "object": {}
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "!github.object",
+    "contexts": {
+      "github": {
+        "list": [],
+        "object": {}
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "'0x10' == 16",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null == 0",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'ABC' == 'abc'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null == null",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null == ''",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null == false",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "true == 1",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "true == '1'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "true == 'true'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "false == ''",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'' == 0",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "' 16 ' == 16",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'0o20' == 16",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'1e1' == 10",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'.5' == 0.5",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'+5' == 5",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'0xFFFFFFFF' == -1",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'0x100000000' == 4294967296",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "'0X10' == 16",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "'Infinity' == Infinity",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'infinity' == Infinity",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'-Infinity' == -Infinity",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'abc' == 0",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "'NaN' == NaN",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "-0 == 0",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "1 == 1.0",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'é' == 'É'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'straße' == 'STRASSE'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "'1' == '1.0'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "github.list == github.list",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "github.list != github.list",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "fromJSON('[]') == fromJSON('[]')",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "github.object == github.object",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "github.list == 'Array'",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "github.object == 0",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "github.list != null",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "github.list == github.object",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "NaN == NaN",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "NaN != NaN",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "Infinity == Infinity",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "NaN < 1",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "NaN > 1",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "NaN <= NaN",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "NaN >= NaN",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "1 < NaN",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "1 >= NaN",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "'abc' < 1",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "'abc' >= 1",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "Infinity > 1",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "-Infinity < 1",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "1 < 2",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'1' < 2",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'10' > 9",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'10' > '9'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "'a' < 'B'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'B' > 'a'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'a' < '_'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'abc' < 'abd'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'ab' < 'abc'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'ABC' <= 'abc'",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "'ABC' < 'abc'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "false < true",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "true > false",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "true >= true",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "true > true",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "true > 0",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null < 1",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null > -1",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null >= null",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null > null",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "null <= null",
+    "contexts": {},
+    "result": true
+  },
+  {
+    "expression": "null < null",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "null < 'a'",
+    "contexts": {},
+    "result": false
+  },
+  {
+    "expression": "github.list >= github.list",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": true
+  },
+  {
+    "expression": "github.list > github.list",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "github.list < 1",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": false
+  },
+  {
+    "expression": "github.list >= 0",
+    "contexts": {
+      "github": {
+        "list": [
+          1,
+          2
+        ],
+        "object": {
+          "a": 1
+        }
+      }
+    },
+    "result": false
+  }
+]

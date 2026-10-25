@@ -64,37 +64,81 @@ the file.
 
 ## Values and coercion
 
-Values are `null`, booleans, numbers (IEEE 754 doubles), strings, arrays and objects.
+Values are `null`, booleans, numbers (IEEE 754 doubles), strings, arrays and objects. An object
+keeps its properties in the order they were written, which `toJSON` prints.
 
-- **Truthiness.** `false`, `0`, `-0`, `""`, `null` and `NaN` are false; everything else is true.
-- **Equality.** When both operands have the same type, they are compared directly; strings are
-  compared ignoring case; arrays and objects are equal only when they are the same instance. When
-  the types differ, both operands are converted to numbers and compared.
+- **Truthiness.** `false`, `0`, `-0`, `""`, `null` and `NaN` are false; everything else is true,
+  an empty array or object included.
+- **Equality.** When both operands have the same type, they are compared directly: `null` equals
+  `null`, and arrays and objects are equal only when they are the same instance, so
+  `github.event == github.event` is true and `fromJSON('[]') == fromJSON('[]')` is false. Strings
+  are compared ignoring case: every character is replaced by its simple uppercase mapping, and a
+  character whose uppercase is several characters, such as `ß`, stays as it is, so
+  `'straße' == 'STRASSE'` is false. When the types differ, both operands are converted to numbers
+  and compared, so an array or an object never equals a value of another type.
 - **Conversion to a number.** `null` is `0`; `true` is `1` and `false` is `0`; a string is
   trimmed of whitespace and parsed with the same number forms as literals (so `'0x10' == 16` is
-  true), the empty string is `0`, and anything else is `NaN`; arrays and objects are `NaN`.
-- **Comparison.** As equality, with the same conversion when types differ; any comparison with
-  `NaN` is false.
+  true and `'0xFFFFFFFF' == -1` is true), `Infinity` and `NaN` in any case among them; the empty
+  string is `0`, and anything else is `NaN`; arrays and objects are `NaN`.
+- **Comparison.** As equality, with the same conversion when types differ. Strings are ordered by
+  the UTF-16 code units of their uppercase forms, so `'a' < 'B'` and `'a' < '_'` are true; `false`
+  is less than `true`; `null`, arrays and objects are neither less nor greater than anything, and
+  `<=` and `>=` also hold when the operands are equal, so `null >= null` is true. Any comparison
+  with `NaN` is false, and `NaN != NaN` is true.
 - **`&&` and `||`** short-circuit and return one of their operands, not a boolean: `a || b` is `a`
-  when `a` is true and `b` otherwise.
+  when `a` is true and `b` otherwise, `a && b` is `a` when `a` is false and `b` otherwise, and a
+  chain returns the operand that decided it, or its last.
 - **Conversion to a string** in templates: `null` is empty; booleans are `true` and `false`;
-  numbers are formatted with at most 15 significant digits, as the target's general format `G15`
-  does; arrays are `Array` and objects are `Object`. `toJSON` is the way to print a structure.
+  numbers are formatted as the target's general format `G15` does: the value is rounded to 15
+  significant digits and trailing zeros are dropped; when the decimal exponent is below -4 or
+  above 14 the number is written as one digit, the other digits after a point, `E`, the sign of
+  the exponent and at least two of its digits. So `3.10` is `3.1`, `0.1` is `0.1`, `1e14` is
+  `100000000000000`, `1e15` is `1E+15`, `1e21` is `1E+21`, `0.00001` is `1E-05` and
+  `123456789012345678` is `1.23456789012346E+17`; `NaN`, `Infinity` and `-Infinity` are their
+  names, and `-0` is `-0`. Arrays are `Array` and objects are `Object`. `toJSON` is the way to
+  print a structure.
+
+### Lookup and the object filter
+
+`a.b` and `a['b']` look up the same property, and both are `null` when nothing is found:
+
+- On an object, the index is converted to a string, so `a[1]` looks up the property `1`; an array
+  or an object as the index finds nothing. A property whose name equals the index exactly is
+  found first; otherwise the first one whose name equals it ignoring case, compared as strings
+  compare.
+- On an array, the index is converted to a number and rounded down; a negative index, `NaN`, one
+  beyond the array and one above 2^31 - 1 find nothing. A property name is not a number, so
+  `a.b` of an array is `null`.
+- On any other value the lookup is `null`, and its index is not evaluated.
+
+The object filter, `a.*` or `a[*]`, yields an array of the values of an object, in order, or of
+the elements of an array, and an empty array of any other value. A lookup or a filter applied to
+that array applies to each of its elements: elements that are neither arrays nor objects, and
+lookups that find nothing, are left out, and a filter flattens one more level. So with `a` an
+array of objects, `a.*.b` is the array of the `b` of every element that has one, and
+`contains(github.event.pull_request.labels.*.name, 'bug')` asks whether a label is called `bug`.
+The array keeps this behaviour while it flows unchanged through `( )`, `&&`, `||` and `case`; an
+array of a context, or one that `fromJSON` returns, is an ordinary array.
 
 ## Functions
 
 | Function | Meaning |
 |----------|---------|
-| `contains(search, item)` | for a string `search`, whether it contains `item` as a substring, ignoring case; for an array, whether an element equals `item` |
-| `startsWith(s, prefix)`, `endsWith(s, suffix)` | ignoring case, both arguments converted to strings |
-| `format(template, ...args)` | `{0}`, `{1}` replaced by the arguments; `{{` and `}}` are literal braces |
-| `join(array, separator)` | elements converted to strings and joined; separator defaults to `,`; a string argument is returned as is |
-| `toJSON(value)` | JSON with two-space indentation |
-| `fromJSON(string)` | parsed JSON value; invalid JSON is an evaluation error |
-| `case(pred1, value1, ..., default)` | the value after the first true predicate, or the last argument when none is true |
-| `hashFiles(...patterns)` | SHA-256 over the SHA-256 of each matched file in the order the glob walk finds them, relative to the workspace; directories and files outside the workspace are skipped; `!` excludes; empty string when nothing matches; 1 to 255 patterns; evaluated on the agent only |
+| `contains(search, item)` | for an array `search`, whether an element equals `item`; for an object, false; otherwise whether the string form of `search` contains the string form of `item`, ignoring case, which is true for an empty `item` and false when `item` is an array or an object |
+| `startsWith(s, prefix)`, `endsWith(s, suffix)` | ignoring case, both arguments converted to strings; false when either is an array or an object |
+| `format(template, ...args)` | the template, converted to a string, with `{0}`, `{1}` replaced by the string forms of the arguments; `{{` and `}}` are literal braces |
+| `join(array, separator)` | the elements converted to strings and joined, so an empty array gives the empty string; the separator defaults to `,`, and one that is an array or an object is `,`; any other value is returned as its string form, except an object, which gives the empty string |
+| `toJSON(value)` | JSON with two-space indentation, `": "` between a name and its value, and `[]` and `{}` for empty structures; numbers in their string form, so `NaN` and `1E+21` appear as such; strings escaped with `\"`, `\\`, `\b`, `\f`, `\n`, `\r` and `\t`, and `\u` with four lowercase hexadecimal digits for the other control characters and for U+0085, U+2028 and U+2029 |
+| `fromJSON(string)` | the argument converted to a string and parsed as JSON (RFC 8259, with nothing after the value); numbers become doubles, and a property whose name equals an earlier one ignoring case replaces the earlier value, which keeps its name and position; invalid JSON is an evaluation error |
+| `case(pred1, value1, ..., default)` | the value after the first predicate that is `true`, or the last argument when none is; a predicate that is not a boolean is an evaluation error |
+| `hashFiles(...patterns)` | SHA-256 over the SHA-256 of each matched file in the order the glob walk finds them, relative to the workspace; directories and files outside the workspace are skipped; `!` excludes; empty string when nothing matches; 1 to 255 patterns, each the string form of its argument; evaluated on the agent only |
 | `success()`, `failure()`, `cancelled()`, `always()` | status functions, see below |
 | `plugin(name, ...args)` | a function contributed by a plugin, evaluated on the server only ([10-plugins.md](10-plugins.md)) |
+
+In the template of `format`, a `{` that is not doubled starts a placeholder: the number of an
+argument, from `0` to `255` in decimal digits, then `}`. A placeholder with format specifiers,
+such as `{0:x}`, a number beyond the arguments given, and a single brace that does not form a
+placeholder are evaluation errors; `{0:}` is `{0}`. Arguments after the template need not be used.
 
 Calling an unknown function or a function with the wrong number of arguments is a validation
 error, found before a run starts.
@@ -205,22 +249,51 @@ error at the span of the context or the call at fault, or of the syntax that doe
 | `wrong_argument_count` | a call with a number of arguments the function does not take; `case` takes an odd number, at least three |
 | `not_implemented` | a call of `plugin()`, which arrives in M5 |
 
-## Evaluation errors
+## Evaluation
+
+The evaluator walks the tree from the left and evaluates only what decides the value. `&&` and
+`||` stop at the operand that decides them; a lookup on a value that is neither an array nor an
+object does not evaluate its index; `contains`, `startsWith` and `endsWith` evaluate their second
+argument only when the first can match; `join` evaluates its separator only when there are two
+elements; `format` evaluates an argument when the template first names it, and once; `case`
+evaluates the predicates up to the first true one and then only its value. So
+`false && fromJSON('x')` is `false`, and `format('{0}', github.sha, fromJSON('x'))` succeeds.
+
+A context is resolved when the evaluation first reaches it, and at most once per expression or
+template; the caller is never asked for a context the expression does not name. The status
+functions and `hashFiles` are asked of the caller in the same way: the server answers the status
+functions in a job's `if`, and the agent those in a step's `if` and `hashFiles`; `always()` is true
+without asking.
+
+Before it evaluates anything, the evaluator applies the static checks that do not depend on the
+key: unknown contexts and functions, the number of arguments and `plugin()`. An expression that
+fails them never evaluates, even partly, and fails with the code of the check.
+
+### Evaluation errors
 
 An expression that fails at run time (invalid JSON for `fromJSON`, a `timeout-minutes` that is not
 a number, a `runs-on` that is neither a string nor a list) fails the job when the server evaluates
-it, and the step when the agent does. The error carries the span of the expression, so the run
-page points at the line.
+it, and the step when the agent does. The error carries the span of the expression, so the run page
+points at the line; an error of the evaluator itself is at the span of the call at fault.
+
+| Code | Failure |
+|------|---------|
+| `function_failed` | a function fails: `fromJSON` of text that is not JSON, a `format` template that is not valid or names an argument that is not given, a `case` predicate that is not a boolean, or `hashFiles` failing on the agent |
+
+A status function or `hashFiles` that the caller does not supply fails with
+`unavailable_function`.
 
 ## Implementation
 
 `bosun-expr` holds a hand-written lexer, a precedence-climbing parser producing the syntax tree with
 spans, the availability table with the static checks, and an evaluator over a `Value` enum. The
 tree, which is `Expr`, the segments of a `Template` and the `Condition` of an `if`, is plain data in
-`bosun-types`, so the IR holds it. Contexts are supplied through a trait, so the server can resolve
-`needs` from the database and the agent can resolve `steps` from its own state, each lazily. The
-crate does no I/O: `hashFiles` is a hook the agent implements. The crate builds for WebAssembly, so
-the editor offers the same completion and the same diagnostics as the server.
+`bosun-types`, so the IR holds it. Arrays and objects of a `Value` are shared, so a lookup returns
+the instance it found and equality can compare instances. Contexts and the status functions and
+`hashFiles` are supplied through one trait, `Scope`, so the server can resolve `needs` from the
+database and the agent can resolve `steps` from its own state, each lazily. The crate does no
+I/O: `hashFiles` is a hook the agent implements. The crate builds for WebAssembly, so the editor
+offers the same completion and the same diagnostics as the server.
 
 The cases live in `contracts/fixtures/expr/` as JSON files, each a list of cases:
 
@@ -230,7 +303,14 @@ The cases live in `contracts/fixtures/expr/` as JSON files, each a list of cases
 - an `if` case has `if` and its `condition`, which is `null` when it sets none, or its `error`;
 - a check case has `expression`, a `key` of the availability table and the `errors` of the static
   checks;
-- an evaluation case has `expression`, `contexts`, and `result` or `error`.
+- an evaluation case has `expression`, `contexts`, and `result` or `error`;
+- a rendering case has `template`, `contexts`, and the rendered text as `result`, or its `error`.
+
+`contexts` maps the name of each context the case supplies to its value, and every context it
+supplies is one the expression names. Evaluation and rendering cases run without the status
+functions and `hashFiles`, which belong to the server and the agent. JSON has no `NaN` and no
+infinities, so a case whose result would be one shows it through its string form, as in
+`format('{0}', NaN)`.
 
 `availability.json` beside them is the availability table. The same cases are run through GitHub
 Actions in a public repository, whose hosted minutes cost nothing, and a difference between the

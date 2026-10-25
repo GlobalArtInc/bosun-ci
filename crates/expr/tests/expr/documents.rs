@@ -48,8 +48,10 @@ fn quoted(cell: &str) -> Vec<String> {
 
 #[test]
 fn error_codes_match_the_design_and_the_cases() {
-    let documented: BTreeSet<String> = table(&document("03-expressions.md"), "| Code | Meaning |")
+    let design = document("03-expressions.md");
+    let documented: BTreeSet<String> = ["| Code | Meaning |", "| Code | Failure |"]
         .iter()
+        .flat_map(|marker| table(&design, marker))
         .flat_map(|row| quoted(&row[0]))
         .collect();
     let implemented: BTreeSet<String> = Code::ALL

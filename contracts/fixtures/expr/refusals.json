@@ -1,0 +1,74 @@
+[
+  {
+    "expression": "foo.bar",
+    "contexts": {},
+    "error": {
+      "code": "unknown_context",
+      "message": "unknown context `foo`",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 4}
+    }
+  },
+  {
+    "expression": "false && foo.bar",
+    "contexts": {},
+    "error": {
+      "code": "unknown_context",
+      "message": "unknown context `foo`",
+      "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 13}
+    }
+  },
+  {
+    "expression": "true || nope()",
+    "contexts": {},
+    "error": {
+      "code": "unknown_function",
+      "message": "unknown function `nope`",
+      "span": {"line": 1, "column": 9, "end_line": 1, "end_column": 15}
+    }
+  },
+  {
+    "expression": "false && contains('a')",
+    "contexts": {},
+    "error": {
+      "code": "wrong_argument_count",
+      "message": "`contains` takes 2 arguments, not 1",
+      "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 23}
+    }
+  },
+  {
+    "expression": "false && case(true, 1)",
+    "contexts": {},
+    "error": {
+      "code": "wrong_argument_count",
+      "message": "`case` takes an odd number of arguments, at least 3, not 2; they are pairs of a predicate and a value, then a default",
+      "span": {"line": 1, "column": 10, "end_line": 1, "end_column": 23}
+    }
+  },
+  {
+    "expression": "plugin('x')",
+    "contexts": {},
+    "error": {
+      "code": "not_implemented",
+      "message": "`plugin()` is not supported yet; it arrives in M5",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 12}
+    }
+  },
+  {
+    "expression": "success()",
+    "contexts": {},
+    "error": {
+      "code": "unavailable_function",
+      "message": "function `success` is not available where this expression is evaluated",
+      "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 10}
+    }
+  },
+  {
+    "expression": "1 == 2 || always() && failure()",
+    "contexts": {},
+    "error": {
+      "code": "unavailable_function",
+      "message": "function `failure` is not available where this expression is evaluated",
+      "span": {"line": 1, "column": 23, "end_line": 1, "end_column": 32}
+    }
+  }
+]

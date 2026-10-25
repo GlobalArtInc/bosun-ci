@@ -1,0 +1,240 @@
+[
+  {
+    "template": "${{ 3.10 }}",
+    "contexts": {},
+    "result": "3.1"
+  },
+  {
+    "template": "${{ 1e21 }}",
+    "contexts": {},
+    "result": "1E+21"
+  },
+  {
+    "template": "${{ 0.1 }}",
+    "contexts": {},
+    "result": "0.1"
+  },
+  {
+    "template": "${{ 1e14 }}",
+    "contexts": {},
+    "result": "100000000000000"
+  },
+  {
+    "template": "${{ 1e15 }}",
+    "contexts": {},
+    "result": "1E+15"
+  },
+  {
+    "template": "${{ 123456789012345678 }}",
+    "contexts": {},
+    "result": "1.23456789012346E+17"
+  },
+  {
+    "template": "${{ 1234567890123456 }}",
+    "contexts": {},
+    "result": "1.23456789012346E+15"
+  },
+  {
+    "template": "${{ 12345678901234.5 }}",
+    "contexts": {},
+    "result": "12345678901234.5"
+  },
+  {
+    "template": "${{ 999999999999999.9 }}",
+    "contexts": {},
+    "result": "1E+15"
+  },
+  {
+    "template": "${{ 0.30000000000000004 }}",
+    "contexts": {},
+    "result": "0.3"
+  },
+  {
+    "template": "${{ 0.0001 }}",
+    "contexts": {},
+    "result": "0.0001"
+  },
+  {
+    "template": "${{ 0.00001 }}",
+    "contexts": {},
+    "result": "1E-05"
+  },
+  {
+    "template": "${{ 1.5e-7 }}",
+    "contexts": {},
+    "result": "1.5E-07"
+  },
+  {
+    "template": "${{ 1e100 }}",
+    "contexts": {},
+    "result": "1E+100"
+  },
+  {
+    "template": "${{ -1.25 }}",
+    "contexts": {},
+    "result": "-1.25"
+  },
+  {
+    "template": "${{ -0 }}",
+    "contexts": {},
+    "result": "-0"
+  },
+  {
+    "template": "${{ 0 }}",
+    "contexts": {},
+    "result": "0"
+  },
+  {
+    "template": "${{ 100 }}",
+    "contexts": {},
+    "result": "100"
+  },
+  {
+    "template": "${{ 0x10 }}",
+    "contexts": {},
+    "result": "16"
+  },
+  {
+    "template": "${{ 0xFFFFFFFF }}",
+    "contexts": {},
+    "result": "-1"
+  },
+  {
+    "template": "${{ 0o17 }}",
+    "contexts": {},
+    "result": "15"
+  },
+  {
+    "template": "${{ .5 }}",
+    "contexts": {},
+    "result": "0.5"
+  },
+  {
+    "template": "${{ 1. }}",
+    "contexts": {},
+    "result": "1"
+  },
+  {
+    "template": "${{ NaN }}",
+    "contexts": {},
+    "result": "NaN"
+  },
+  {
+    "template": "${{ Infinity }}",
+    "contexts": {},
+    "result": "Infinity"
+  },
+  {
+    "template": "${{ -Infinity }}",
+    "contexts": {},
+    "result": "-Infinity"
+  },
+  {
+    "template": "${{ null }}",
+    "contexts": {},
+    "result": ""
+  },
+  {
+    "template": "${{ true }}",
+    "contexts": {},
+    "result": "true"
+  },
+  {
+    "template": "${{ false }}",
+    "contexts": {},
+    "result": "false"
+  },
+  {
+    "template": "${{ github.list }}",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    "result": "Array"
+  },
+  {
+    "template": "${{ github.object }}",
+    "contexts": {
+      "github": {
+        "object": {}
+      }
+    },
+    "result": "Object"
+  },
+  {
+    "template": "${{ 'a' }}b${{ 'c' }}",
+    "contexts": {},
+    "result": "abc"
+  },
+  {
+    "template": "plain",
+    "contexts": {},
+    "result": "plain"
+  },
+  {
+    "template": "",
+    "contexts": {},
+    "result": ""
+  },
+  {
+    "template": "x ${{ github.missing }} y",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo"
+        }
+      }
+    },
+    "result": "x  y"
+  },
+  {
+    "template": "Hello ${{ github.event.name }}",
+    "contexts": {
+      "github": {
+        "event": {
+          "name": "Octo"
+        }
+      }
+    },
+    "result": "Hello Octo"
+  },
+  {
+    "template": "${{ '${{' }} and ${{ '}}' }}",
+    "contexts": {},
+    "result": "${{ and }}"
+  },
+  {
+    "template": "${{ github.list[0] }}-${{ github.list[1] }}",
+    "contexts": {
+      "github": {
+        "list": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    "result": "a-b"
+  },
+  {
+    "template": "a ${{ fromJSON('x') }}",
+    "contexts": {},
+    "error": {
+      "code": "function_failed",
+      "message": "the argument of `fromJSON` is not JSON: expected value at line 1 column 1",
+      "span": {"line": 1, "column": 7, "end_line": 1, "end_column": 20}
+    }
+  },
+  {
+    "template": "${{ 1 }}${{ foo }}",
+    "contexts": {},
+    "error": {
+      "code": "unknown_context",
+      "message": "unknown context `foo`",
+      "span": {"line": 1, "column": 13, "end_line": 1, "end_column": 16}
+    }
+  }
+]
