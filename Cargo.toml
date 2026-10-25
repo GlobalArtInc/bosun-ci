@@ -40,6 +40,7 @@ reqwest = { version = "0.12", default-features = false }
 ring = "0.17"
 rustix = "1.1"
 rustls-pki-types = "1"
+ruzstd = "0.9"
 saphyr-parser = "0.2"
 sea-orm = { version = "1.1", default-features = false, features = [
     "macros",

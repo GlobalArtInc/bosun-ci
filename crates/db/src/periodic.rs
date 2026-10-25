@@ -8,6 +8,7 @@ pub(crate) enum Task {
     AgentSweep,
     LeaseExpiry,
     QueueTimeout,
+    LogCompaction,
 }
 
 impl Task {
@@ -16,6 +17,7 @@ impl Task {
             Task::AgentSweep => *b"bosunagt",
             Task::LeaseExpiry => *b"bosunlse",
             Task::QueueTimeout => *b"bosunqto",
+            Task::LogCompaction => *b"bosunlog",
         })
     }
 }

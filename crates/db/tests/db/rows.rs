@@ -252,6 +252,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         reason: ActiveValue::Set(None),
         started_at: ActiveValue::Set(Some(at("2026-10-24T18:34:51Z"))),
         completed_at: ActiveValue::Set(None),
+        log_bytes: ActiveValue::Set(40),
+        log_compacted_at: ActiveValue::Set(None),
     }
     .insert(db)
     .await
@@ -293,6 +295,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         seq: ActiveValue::Set(1),
         step_id: ActiveValue::Set(id(STEP)),
         data: ActiveValue::Set(format!("2026-10-24T18:34:51.000000000Z {label}\n").into_bytes()),
+        dropped: ActiveValue::Set(0),
     }
     .insert(db)
     .await
@@ -310,6 +313,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         )),
         size: ActiveValue::Set(42),
         lines: ActiveValue::Set(1),
+        frames: ActiveValue::Set(vec![0]),
         ..Default::default()
     }
     .insert(db)

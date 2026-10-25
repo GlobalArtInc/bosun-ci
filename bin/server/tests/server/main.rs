@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod health;
 mod http;
+mod logs;
 mod owner;
 mod projects;
 mod proxy;
@@ -65,6 +66,7 @@ impl Launch {
             }
         }
         let config = launch.config_path();
+        let store = launch.directory.path().join("store");
         launch
             .command
             .arg("--config")
@@ -72,6 +74,7 @@ impl Launch {
             .args(arguments)
             .env("BOSUN_DATABASE_URL", database)
             .env("BOSUN_KEYS_KEK", KEK)
+            .env("BOSUN_STORE_PATH", store)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

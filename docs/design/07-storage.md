@@ -86,9 +86,11 @@ job          id, attempt_id, key, name, group_id, matrix jsonb, needs text[], ki
              priority, labels text[], pool_ids uuid[], pinned_agent_id, carried_from,
              queued_at, started_at, completed_at
 execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
-             completed_at
+             completed_at, log_bytes, log_compacted_at
 step         id, execution_id, parent_step_id, index, name, status, outcome, conclusion,
              conclusion_source, outputs jsonb, started_at, completed_at
+log_chunk    execution_id, seq, step_id, data bytea, dropped
+log_object   step_id, execution_id, key, size, lines, frames bigint[], created_at
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
              actor jsonb, data jsonb, at
 ```
@@ -106,7 +108,9 @@ A milestone creates the columns it uses. The columns above that M0 does not use 
 `pinned_agent_id` and `carried_from` of jobs, `parent_step_id` and `outputs` of steps) arrive with
 their milestones as additive migrations. The indexes of the queue arrived with the claim (step 11
 of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
-'assigned'` that the lease expiry reads.
+'assigned'` that the lease expiry reads. The partial index on `execution (completed_at) where status =
+'completed' and log_compacted_at is null` that the compaction of logs reads arrived with the logs
+(step 13).
 
 An agent records its current replica in `agent.replica_id`, which no row references: replicas are
 processes, not rows. `control_message` holds the control messages sent to agents
@@ -226,7 +230,7 @@ of its own under its run's lock, after checking again, with the reason `no_agent
 | `bosun_queue` | job id | replicas with idle agents |
 | `bosun_replica_<id>` | agent id and control message id, separated by a space | the replica holding that agent's stream |
 | `bosun_events` | run id and event sequence number | replicas with subscribers on the event stream |
-| `bosun_log` | execution id and highest chunk sequence number | replicas with followers of that log |
+| `bosun_log` | execution id and the sequence number of the chunk stored, separated by a space | replicas with followers of that log |
 
 Payloads carry identifiers only; the data is read from the tables. A listener that reconnects
 reads everything newer than the last sequence number it saw, so a dropped connection loses nothing;
@@ -238,19 +242,21 @@ outside its pool.
 ## Periodic tasks
 
 Periodic tasks run in every replica: the cron scheduler (minute resolution), lease expiry, offline
-detection of agents together with the end of their grace period, the queue timeout, retention,
-cache eviction, the removal of idempotency keys older than 24 hours, and the expiry of tokens and
-sessions. Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
+detection of agents together with the end of their grace period, the queue timeout, log compaction,
+retention, cache eviction, the removal of idempotency keys older than 24 hours, and the expiry of
+tokens and sessions. Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
 work of each task, and each change it finds checks its condition again under the lock of what it
 changes. Outbox delivery is not a singleton: workers in every replica claim rows with
 `SKIP LOCKED`.
 
 Each task has a lock of its own, a transaction-level `pg_try_advisory_xact_lock` whose key spells
 the task in eight bytes (`bosunagt` for the sweep of agents, `bosunlse` for the lease expiry,
-`bosunqto` for the queue timeout). A replica that finds the lock taken skips the round. The
-transaction that holds it only finds the rows to change; each change then runs in a transaction of
-its own under the lock of its run and checks its condition again, so a change never waits for a
-lock while holding the task's, and a round that overlaps another changes nothing twice.
+`bosunqto` for the queue timeout, `bosunlog` for log compaction). A replica that finds the lock
+taken skips the round. The transaction that holds it only finds the rows to change; each change then
+runs in a transaction of its own under the lock of its run, or, for log compaction, which changes no
+run, under an advisory lock of its execution and then its execution's row, and checks its condition
+again, so a change never waits for a lock while holding the task's, and a round that overlaps another
+changes nothing twice.
 
 ## The outbox
 
@@ -272,7 +278,7 @@ replicas on several hosts would split the data between them.
 
 | Prefix | Content |
 |--------|---------|
-| `logs/<run>/<attempt>/<execution>/<step>.log.zst` | compacted step logs |
+| `logs/<run>/<attempt>/<execution>/<chunks>/<step>.log.zst` | compacted step logs |
 | `summaries/<execution>/<step>.md` | step summaries |
 | `artifacts/<project>/<artifact>` | finalised artifacts |
 | `blocks/<upload>/<block>` | staged blocks of an upload in progress |
@@ -280,6 +286,7 @@ replicas on several hosts would split the data between them.
 | `actions/<owner>/<repo>/<commit>.tar.gz` | downloaded actions |
 | `tools/<tool>/<version>/<platform>.tar.xz` | Node runtimes and other tools |
 | `terminals/<session>.cast` | recorded debug terminal sessions |
+| `probes/start`, `probes/readiness` | an empty object a server writes and deletes as it starts, and a key that never exists, which `/readyz` reads ([12-operations.md](12-operations.md)) |
 
 A key is a path of segments separated by `/`: at most 1024 bytes of UTF-8 without control
 characters, every segment non-empty, neither `.` nor `..`, and at most 255 bytes. Every backend
@@ -309,20 +316,81 @@ no public address and the signed addresses jobs use are Bosun's own.
 ## Logs
 
 While an execution runs, its log lives in `log_chunk`, keyed by execution and sequence number and
-inserted with `ON CONFLICT DO NOTHING`, so a chunk the agent sends twice is stored once. A chunk
-holds whole lines, each prefixed with an RFC 3339 timestamp with nanoseconds; the text is the raw
-output with its ANSI sequences, already masked by the agent. Lines longer than 64 KiB are split.
+inserted with `ON CONFLICT DO NOTHING`, so a chunk the agent sends twice is stored once. A chunk holds
+whole lines, each prefixed with an RFC 3339 timestamp with nanoseconds; the text is the raw output
+with its ANSI sequences, already masked by the agent. Lines longer than 64 KiB are split. A chunk
+whose last line lacks its newline is given one, so the lines of a step are the same however its
+chunks were cut.
 
-A follower of a live log reads the stored chunks from its offset, then subscribes to `bosun_log`
-and reads new chunks as they are announced. When the execution completes, a compactor writes each
-step's log to the object store as one zstd stream with a line index every 1000 lines for ranged
-reads, records it in `log_object`, and deletes the chunks. The server serves a compacted log by
-range, and searches it by streaming decompression for the API and MCP.
+**Ingestion.** The replica that holds the agent's stream stores each `Log` in a transaction of its
+own that takes the row of the chunk's execution `FOR NO KEY UPDATE` and no other lock, which orders
+the chunks of one execution against each other and against the compaction that ends them. The
+chunk's step is the step of that index of the execution. A chunk of an execution another agent
+holds, of an execution or a step that does not exist, or of an execution whose log is already
+compacted, is not stored, and is logged at warning level. Every chunk the server handled, stored or
+not, is acknowledged after its transaction ended with a `LogAck` carrying its own sequence
+number; a stream carries the chunks of an execution in order, so every chunk below it was handled
+too. When the database fails, the server does not acknowledge the chunk and ends the stream with
+`UNAVAILABLE`, so the agent sends it again after reconnecting. A stored chunk is announced with
+`NOTIFY bosun_log` in the transaction that stores it. A sequence number of 0, or one above the
+largest `bigint`, is a breach of the protocol and ends the stream.
 
-An execution's log is limited to 128 MiB, and the server enforces the limit as it ingests chunks:
-it acknowledges a chunk that would take the log past the limit without storing it, so the agent's
-spool still drains, and the log of the completed execution ends with a notice of how many bytes
-were dropped. The agent itself sends every line.
+**The limit.** An execution's log is limited to 128 MiB, and the server enforces the limit as it
+ingests chunks, because the agent sends every line. `execution.log_bytes` counts the bytes of every
+chunk recorded, stored or dropped. A chunk that would take it past the limit is acknowledged without
+being stored: it is recorded as a row of `log_chunk` without data and with its size in `dropped`,
+and counted, so `log_bytes` is past the limit from then on, every chunk after it is dropped too and
+the stored log stays a prefix of the output. The first dropped chunk of an execution is therefore
+the one that finds `log_bytes` within the limit, also when the stored chunks fill the limit exactly,
+and the server logs at warning level that the log reached its limit then. A dropped chunk that the
+agent sends again conflicts like any other and is counted once. Every step whose
+chunks were dropped ends with the line `<completed_at> <n> bytes of output were dropped because the
+log of the execution reached its limit of 128 MiB`, dated when the step completed, so the log of
+the completed execution ends with such a notice. Readers add the line once the step is completed,
+and the compactor writes it into the object, so it reads the same before and after compaction.
+
+**Reading.** The lines of a step's log are numbered from 1, in the order of its chunks. A reader
+takes, in one statement, whether the execution's log is compacted, whether the step is completed and
+the next 64 chunks of the step after the last one it read, so it sees the log either as chunks or as
+objects and never as half of each. Both hold the same lines under the same numbers, so a reader that
+was reading chunks when the log was compacted goes on in the object at the line it reached.
+
+**Following.** A follower subscribes to `bosun_log` before its first read and reads from its offset.
+When it has read every stored chunk, it waits for an announcement of a chunk of its execution, for
+the notification connection to be re-established, or for a second to pass, which is how it learns
+that its step completed, and reads again. It ends once its step is completed and it has delivered
+every line stored by then, the notice included. Each replica hears every announcement on its one
+listening connection and wakes only the followers of that execution.
+
+**Compaction.** A sweep every 5 seconds takes the advisory lock `bosunlog`, finds up to 100
+executions that completed at least 10 seconds ago and whose `log_compacted_at` is not set, through a
+partial index on `execution (completed_at)`, and compacts each one. The delay leaves room for chunks
+an agent sends right after it reconnects, such as the spooled chunks of an execution the server
+completed as lost because the agent came back without it.
+
+The compaction of an execution is one transaction. It begins with `pg_try_advisory_xact_lock` on a
+key made of the last eight bytes of the execution's id, which the variant bits of a UUID make
+negative, so it never meets the key of a periodic task. A compactor that finds the lock taken skips
+the execution, since another replica's sweep found it too, so one compactor at a time works on an
+execution and only the holder of the lock can record its objects. Under the lock it checks again
+that the execution completed and that its log is not compacted, then reads the chunks in pages of 256
+through a cursor, which sees them as they were when it was declared, so the pages never mix two
+states of the log. It writes the log of each step that has lines to
+`logs/<run>/<attempt>/<execution>/<chunks>/<step>.log.zst`, the segments being the ids of the four
+and the number of chunks read, as one zstd stream made of one frame per 1000 lines. The chunks of an
+execution only grow in number until its compaction deletes them, so that number names the chunks an
+object was made from: a compactor that lost its connection, and with it the lock, and still writes,
+never replaces an object recorded from other chunks. Last, in the same transaction, it takes the
+execution's row, counts its chunks again, records each object in `log_object` with its size, its
+number of lines and the byte offset of every frame in `frames`, deletes the chunks and sets
+`log_compacted_at`. When the count changed, a chunk arrived while it worked; it records nothing,
+deletes the objects it wrote, and the next sweep compacts the execution again. The transaction takes
+no row lock before that last step, so chunks go on being ingested while the compactor reads and
+writes. A chunk that arrives after its execution's log was compacted is acknowledged and not
+stored.
+
+The server serves a compacted log by range, decompressing only the frames that hold the lines asked
+for, and searches it by streaming decompression for the API and MCP.
 
 ## Retention
 

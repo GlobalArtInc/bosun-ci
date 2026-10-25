@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use bosun_db::agents::Connection;
+use bosun_db::logs::{Chunk, Ingested};
 use bosun_proto::agent::v1::agent_message::Message as Inbound;
 use bosun_proto::agent::v1::agent_server::Agent;
 use bosun_proto::agent::v1::server_message::Message as Outgoing;
 use bosun_proto::agent::v1::{
-    AgentMessage, Capability as Offered, Conclusion as Reported, Hello, ServerMessage, Settings,
-    Welcome,
+    AgentMessage, Capability as Offered, Conclusion as Reported, Hello, Log, LogAck, ServerMessage,
+    Settings, Welcome,
 };
 use bosun_types::api::{self, Capability};
 use bosun_types::id::{AgentId, ExecutionId};
@@ -27,10 +28,22 @@ use super::replica::{self, Outbound, Replica};
 use super::{LABEL_RULE, valid_label};
 use crate::auth;
 use crate::config::Agents;
+use crate::logs;
 use crate::queue::Dispatcher;
 use crate::token::{AGENT, Token};
 
 const AUTOMATIC: &str = "self-hosted";
+
+enum Ending {
+    Breach(String),
+    Unavailable(String),
+}
+
+impl From<String> for Ending {
+    fn from(reason: String) -> Ending {
+        Ending::Breach(reason)
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct Connector {
@@ -243,16 +256,18 @@ impl Session {
                 Ok(Ok(None)) => return "the agent closed the stream".to_owned(),
                 Ok(Ok(Some(message))) => message,
             };
-            if let Err(reason) = self.handle(message).await {
-                let _ = self
-                    .outbound
-                    .send(Err(Status::invalid_argument(reason.clone())));
+            if let Err(ending) = self.handle(message).await {
+                let (status, reason) = match ending {
+                    Ending::Breach(reason) => (Status::invalid_argument(reason.clone()), reason),
+                    Ending::Unavailable(reason) => (Status::unavailable(reason.clone()), reason),
+                };
+                let _ = self.outbound.send(Err(status));
                 return reason;
             }
         }
     }
 
-    async fn handle(&self, message: AgentMessage) -> Result<(), String> {
+    async fn handle(&self, message: AgentMessage) -> Result<(), Ending> {
         match message.message {
             Some(Inbound::Heartbeat(_)) => {
                 if let Err(failure) = bosun_db::agents::heartbeat(&self.db, self.reporter.id).await
@@ -338,14 +353,12 @@ impl Session {
                     progress::job_finished(&self.db, &self.reporter, execution, ended).await;
                 self.report("JobFinished", execution, recorded);
             }
+            Some(Inbound::Log(log)) => self.log(log).await?,
             Some(Inbound::Hello(_)) => {
-                return Err("a stream carries one Hello, as its first message".to_owned());
+                return Err(Ending::Breach(
+                    "a stream carries one Hello, as its first message".to_owned(),
+                ));
             }
-            Some(other) => warn!(
-                agent_id = %self.reporter.id,
-                kind = kind(&other),
-                "ignored a message this server does not handle yet"
-            ),
             None => {}
         }
         Ok(())
@@ -353,6 +366,75 @@ impl Session {
 }
 
 impl Session {
+    async fn log(&self, log: Log) -> Result<(), Ending> {
+        let execution = execution_id(&log.execution_id)?;
+        if log.seq == 0 || i64::try_from(log.seq).is_err() {
+            return Err(Ending::Breach(format!(
+                "{} is not the sequence number of a log chunk, which counts from 1",
+                log.seq
+            )));
+        }
+        let mut lines = log.lines;
+        if lines.last().is_some_and(|last| *last != b'\n') {
+            lines.push(b'\n');
+        }
+        let chunk = Chunk {
+            agent: self.reporter.id,
+            execution,
+            step: log.step_index,
+            seq: log.seq,
+            lines: &lines,
+        };
+        let ingested = bosun_db::logs::ingest(&self.db, &chunk, logs::LIMIT)
+            .await
+            .map_err(|failure| {
+                warn!(
+                    agent_id = %self.reporter.id,
+                    execution_id = %execution,
+                    seq = log.seq,
+                    error = %failure,
+                    "a log chunk could not be stored"
+                );
+                Ending::Unavailable(
+                    "the server could not store a log chunk; send it again after reconnecting"
+                        .to_owned(),
+                )
+            })?;
+        let ignored = match ingested {
+            Ingested::Stored | Ingested::Duplicate | Ingested::Dropped { first: false } => None,
+            Ingested::Dropped { first: true } => {
+                warn!(
+                    agent_id = %self.reporter.id,
+                    execution_id = %execution,
+                    limit_bytes = logs::LIMIT,
+                    "the log of an execution reached its limit, and its further output is dropped"
+                );
+                None
+            }
+            Ingested::Closed => Some("the log of its execution is already compacted"),
+            Ingested::NoExecution => Some("there is no such execution"),
+            Ingested::OtherAgent => Some("its execution belongs to another agent"),
+            Ingested::NoStep => Some("its execution has no step of that index"),
+        };
+        if let Some(reason) = ignored {
+            warn!(
+                agent_id = %self.reporter.id,
+                execution_id = %execution,
+                step_index = log.step_index,
+                seq = log.seq,
+                reason,
+                "dropped a log chunk"
+            );
+        }
+        let _ = self.outbound.send(Ok(ServerMessage {
+            message: Some(Outgoing::LogAck(LogAck {
+                execution_id: log.execution_id,
+                seq: log.seq,
+            })),
+        }));
+        Ok(())
+    }
+
     fn report(
         &self,
         message: &'static str,
@@ -397,21 +479,6 @@ fn conclusion(reported: Reported, what: &str) -> Result<Conclusion, String> {
 
 fn time(at: prost_types::Timestamp) -> Option<DateTime<Utc>> {
     DateTime::from_timestamp(at.seconds, u32::try_from(at.nanos).ok()?)
-}
-
-fn kind(message: &Inbound) -> &'static str {
-    match message {
-        Inbound::Hello(_) => "Hello",
-        Inbound::Idle(_) => "Idle",
-        Inbound::Accept(_) => "Accept",
-        Inbound::Reject(_) => "Reject",
-        Inbound::StepStarted(_) => "StepStarted",
-        Inbound::StepFinished(_) => "StepFinished",
-        Inbound::Log(_) => "Log",
-        Inbound::JobFinished(_) => "JobFinished",
-        Inbound::ControlAck(_) => "ControlAck",
-        Inbound::Heartbeat(_) => "Heartbeat",
-    }
 }
 
 fn running(hello: &Hello) -> Result<Vec<ExecutionId>, Status> {

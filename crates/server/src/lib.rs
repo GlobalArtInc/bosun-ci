@@ -9,6 +9,7 @@ mod grpc;
 mod health;
 mod idempotency;
 mod keys;
+mod logs;
 mod me;
 mod organisations;
 mod owner;
@@ -18,6 +19,7 @@ mod queue;
 mod request;
 mod shutdown;
 mod slug;
+mod store;
 #[cfg(test)]
 mod tests;
 mod token;
@@ -31,6 +33,7 @@ use axum::Router;
 use axum::extract::Request;
 use axum::middleware;
 use axum::routing::get;
+use bosun_blob::Directory;
 use bosun_proto::agent::v1::agent_server::AgentServer;
 use sea_orm::DatabaseConnection;
 use tokio::net::TcpListener;
@@ -44,6 +47,9 @@ pub use error::Error;
 #[derive(Clone)]
 struct AppState {
     db: DatabaseConnection,
+    store: Arc<Directory>,
+    followers: Arc<logs::Followers>,
+    shutdown: shutdown::Shutdown,
 }
 
 pub async fn serve(
@@ -52,6 +58,7 @@ pub async fn serve(
 ) -> Result<(), Error> {
     info!(version = env!("CARGO_PKG_VERSION"), "starting");
     keys::verify(&config.keys)?;
+    let store = Arc::new(store::open(&config.store).await?);
     let db = connect(&config).await?;
     bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
     if let Some(login) = &config.bootstrap_admin {
@@ -62,14 +69,17 @@ pub async fn serve(
         .await
         .map_err(Error::Notifications)?;
     let dispatcher = queue::Dispatcher::new(db.clone(), Arc::clone(&replica), config.queue);
+    let followers = Arc::new(logs::Followers::default());
     let mut tasks = agents::start(
         db.clone(),
         Arc::clone(&replica),
         notifications,
         config.agents,
         Arc::clone(&dispatcher),
+        Arc::clone(&followers),
     );
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
+    tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
     let connector =
         agents::Connector::new(db.clone(), Arc::clone(&replica), config.agents, dispatcher);
     let listen = config.listen;
@@ -85,7 +95,13 @@ pub async fn serve(
     })?;
     info!(%address, replica_id = %replica.id(), "listening");
     let (closer, shutdown) = shutdown::channel();
-    axum::serve(listener, app(AppState { db }, connector, shutdown))
+    let state = AppState {
+        db,
+        store,
+        followers,
+        shutdown: shutdown.clone(),
+    };
+    axum::serve(listener, app(state, connector, shutdown))
         .with_graceful_shutdown(async move {
             let reason = stop.await;
             info!(%reason, "shutting down");
@@ -123,6 +139,7 @@ fn app(state: AppState, connector: agents::Connector, shutdown: shutdown::Shutdo
         .merge(projects::routes())
         .merge(workflows::routes())
         .merge(commands::routes())
+        .merge(logs::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::owner));
     let http = Router::new()
         .route("/healthz", get(health::alive))

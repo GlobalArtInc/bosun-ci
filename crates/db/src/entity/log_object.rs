@@ -10,6 +10,7 @@ pub struct Model {
     pub size: i64,
     pub lines: i64,
     pub created_at: DateTimeUtc,
+    pub frames: Vec<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

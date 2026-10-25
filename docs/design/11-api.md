@@ -160,6 +160,28 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
   that does not exist, are `404 not_found`. A repeated `Idempotency-Key` returns the first
   `command.accepted`; a refusal is not kept for its key, so repeating it records another one.
 
+### Logs
+
+- `GET /executions/{execution}/steps/{step}/log` serves the log of one step
+  ([07-storage.md](07-storage.md#logs)). `{step}` is the id of a step of that execution; any other
+  segment, a step of another execution and an execution that does not exist are `404 not_found`
+  with the message ``there is no step `<step>` in execution `<execution>` ``.
+- Without `follow`, the answer is `text/plain; charset=utf-8` with the lines as the agent sent them,
+  each its RFC 3339 time, a space, the text and a newline. `offset` skips that many lines (default
+  0) and `limit` caps the number of lines (at least 1; without it the answer runs to the end). The
+  log of a running step holds the lines stored so far; a completed step whose output passed the
+  limit ends with its notice. A failure after the first line ends the body early.
+- With `?follow=true` the answer is a server-sent event stream with one event per line, whose id
+  is the line's number, counted from 1, and whose data is `{"number": 12, "line": "<time> <text>"}`,
+  with bytes that are not UTF-8 replaced by U+FFFD. `Last-Event-ID` resumes after that line in place
+  of `offset`, so a client that reconnects receives every line exactly once. Once the step is
+  completed and every line was sent, an event `end` with `{"lines": <count>}` closes the stream. The
+  server sends a comment every 15 seconds while the step is quiet, and ends the stream without
+  `end` when it shuts down, so that the client reconnects to another replica. `limit` does not
+  apply to a followed log.
+- Any other query parameter, a value that is not a number of lines or a boolean, and a
+  `Last-Event-ID` that is not a line number are `422 invalid_input`.
+
 ## The event stream
 
 `GET /api/v1/events` is a server-sent event stream filtered by `?project=`, `?run=`, `?kind=`.

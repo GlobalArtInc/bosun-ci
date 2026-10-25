@@ -14,6 +14,7 @@ use tonic::Status;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::logs::Followers;
 use crate::queue::Dispatcher;
 
 const RETRY: Duration = Duration::from_secs(1);
@@ -230,10 +231,12 @@ pub(crate) async fn forward(
     replica: Arc<Replica>,
     mut listener: Listener,
     dispatcher: Arc<Dispatcher>,
+    followers: Arc<Followers>,
 ) {
     loop {
         match listener.next().await {
             Ok(Some(Notification::Queued(_))) => dispatcher.wake_all(),
+            Ok(Some(Notification::Log(notice))) => followers.announce(notice.execution_id),
             Ok(Some(Notification::Control(notice))) => {
                 if !replica.holds(notice.agent_id) {
                     continue;
@@ -252,12 +255,14 @@ pub(crate) async fn forward(
                 info!("the notification connection was re-established");
                 resend(&db, &replica).await;
                 dispatcher.wake_all();
+                followers.wake_all();
             }
             Err(error) => {
                 warn!(%error, "the notification connection failed");
                 tokio::time::sleep(RETRY).await;
                 resend(&db, &replica).await;
                 dispatcher.wake_all();
+                followers.wake_all();
             }
         }
     }

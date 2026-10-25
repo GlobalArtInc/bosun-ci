@@ -5,6 +5,7 @@ mod error;
 pub mod idempotency;
 mod jobs;
 pub mod journal;
+pub mod logs;
 pub mod notify;
 pub mod organisations;
 mod periodic;

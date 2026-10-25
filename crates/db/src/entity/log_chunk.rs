@@ -9,6 +9,7 @@ pub struct Model {
     pub seq: i64,
     pub step_id: Uuid,
     pub data: Vec<u8>,
+    pub dropped: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

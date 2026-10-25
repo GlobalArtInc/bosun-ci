@@ -4,9 +4,9 @@ use std::path::Path;
 
 use bosun_types::api::{
     Agent, Attempt, CreateOrganisationRequest, CreateProjectRequest, CreateWorkflowRequest,
-    DispatchRequest, Execution, Job, Me, Organisation, Page, Pool, Project, RegisterAgentRequest,
-    RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest, Revision, Run, Step,
-    UpdateSourceRequest, Workflow,
+    DispatchRequest, Execution, Job, LogEnd, LogLine, Me, Organisation, Page, Pool, Project,
+    RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
+    RegistrationTokenRequest, Revision, Run, Step, UpdateSourceRequest, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -111,6 +111,8 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/error-invalid-state.json", round_trip::<ErrorEnvelope>),
         ("api/execution.json", round_trip::<Execution>),
         ("api/job.json", round_trip::<Job>),
+        ("api/log-end.json", round_trip::<LogEnd>),
+        ("api/log-line.json", round_trip::<LogLine>),
         ("api/me.json", round_trip::<Me>),
         ("api/organisation.json", round_trip::<Organisation>),
         ("api/page-runs.json", round_trip::<Page<Run>>),

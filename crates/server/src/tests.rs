@@ -1,5 +1,6 @@
 mod cancel;
 mod journal;
+mod logs;
 mod planning;
 mod queue;
 

@@ -96,7 +96,7 @@ anew, so a server that moved to another address is found without restarting the 
 | `Assignment` | a job assignment, below |
 | `Control` | an id, the execution, and one of `cancel`, `force_cancel`, `pause`, `resume`, `skip_step`, `breakpoint`, `abort_step`, `retry_step`, `continue`, `release`, `extend` |
 | `TerminalOpen`, `TerminalInput`, `TerminalResize`, `TerminalClose` | a debug terminal session |
-| `LogAck` | the highest log sequence number stored |
+| `LogAck` | the sequence number of a log chunk the server handled, which releases every chunk up to it |
 | `Drain` | finish the current job and take no more |
 
 The protobuf definitions live in `proto/bosun/agent/v1/agent.proto` and are compiled by
@@ -135,8 +135,9 @@ sends nothing for `agents.offline_after` (default 60 seconds) is ended by the se
 whole lines of one step, each prefixed with its RFC 3339 time in nanoseconds and a space
 ([07-storage.md](07-storage.md#logs)); the agent closes a chunk 200 milliseconds after its first
 line, at 64 KiB, and at every step boundary, so a live log lags by at most that much. The server
-stores chunks idempotently and acknowledges them with the highest sequence number stored; the
-agent keeps unacknowledged chunks on disk, up to 256 MiB by default (`spool_max_bytes`), as one file
+stores chunks idempotently and acknowledges each one it handled with its own sequence number, which
+releases it and every chunk below it ([07-storage.md](07-storage.md#logs)); the agent keeps
+unacknowledged chunks on disk, up to 256 MiB by default (`spool_max_bytes`), as one file
 per chunk under `spool/<execution>/` in its directory, written in full and synced before it is
 renamed into place, and sends them again after a reconnect and after a restart of the agent, in
 order and before anything else that follows the `Welcome`. A reconnect or a restart therefore

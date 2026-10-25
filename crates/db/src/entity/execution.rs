@@ -14,6 +14,8 @@ pub struct Model {
     pub reason: Option<String>,
     pub started_at: Option<DateTimeUtc>,
     pub completed_at: Option<DateTimeUtc>,
+    pub log_bytes: i64,
+    pub log_compacted_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

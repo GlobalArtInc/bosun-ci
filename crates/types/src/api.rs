@@ -180,6 +180,17 @@ pub struct Step {
     pub completed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogLine {
+    pub number: u64,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogEnd {
+    pub lines: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrustLevel {

@@ -16,6 +16,7 @@ use sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
 
 use crate::config::Agents;
+use crate::logs::Followers;
 use crate::queue::Dispatcher;
 use crate::{AppState, auth};
 
@@ -79,9 +80,16 @@ pub(crate) fn start(
     listener: Listener,
     settings: Agents,
     dispatcher: Arc<Dispatcher>,
+    followers: Arc<Followers>,
 ) -> Tasks {
     Tasks(vec![
-        tokio::spawn(replica::forward(db.clone(), replica, listener, dispatcher)),
+        tokio::spawn(replica::forward(
+            db.clone(),
+            replica,
+            listener,
+            dispatcher,
+            followers,
+        )),
         tokio::spawn(sweep::run(db, settings)),
     ])
 }

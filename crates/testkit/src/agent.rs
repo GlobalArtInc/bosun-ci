@@ -5,8 +5,8 @@ use bosun_proto::agent::v1::agent_client::AgentClient;
 use bosun_proto::agent::v1::agent_message::Message as Outgoing;
 use bosun_proto::agent::v1::server_message::Message as Incoming;
 use bosun_proto::agent::v1::{
-    AgentMessage, Assignment, Capability, Control, ControlAck, Heartbeat, Hello, Idle, PROTOCOL,
-    ServerMessage, Welcome,
+    AgentMessage, Assignment, Capability, Control, ControlAck, Heartbeat, Hello, Idle, LogAck,
+    PROTOCOL, ServerMessage, Welcome,
 };
 use bosun_types::api::{RegisterAgentRequest, RegisterAgentResponse};
 use bosun_types::id::AgentId;
@@ -178,7 +178,7 @@ impl Connection {
         }
     }
 
-    async fn message(&mut self) -> Result<Option<Incoming>, Status> {
+    pub async fn message(&mut self) -> Result<Option<Incoming>, Status> {
         next(&mut self.inbound).await
     }
 
@@ -197,6 +197,13 @@ impl Connection {
         match self.message().await {
             Ok(Some(Incoming::Control(control))) => control,
             other => panic!("the server sent no control message but {other:?}"),
+        }
+    }
+
+    pub async fn log_ack(&mut self) -> LogAck {
+        match self.message().await {
+            Ok(Some(Incoming::LogAck(ack))) => ack,
+            other => panic!("the server sent no log acknowledgement but {other:?}"),
         }
     }
 

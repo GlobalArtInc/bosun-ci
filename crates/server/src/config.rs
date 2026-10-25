@@ -25,6 +25,10 @@ const DEFAULT_ASSIGNMENT_LEASE: Duration = Duration::from_secs(30);
 
 const DEFAULT_MAX_QUEUE_TIME: Duration = Duration::from_secs(24 * 3600);
 
+const DEFAULT_STORE_PATH: &str = "/var/lib/bosun/store";
+
+const DIRECTORY: &str = "directory";
+
 const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m or h, such as 30s";
 
 pub struct Config {
@@ -34,6 +38,11 @@ pub struct Config {
     pub(crate) bootstrap_admin: Option<String>,
     pub(crate) agents: Agents,
     pub(crate) queue: Queue,
+    pub(crate) store: Store,
+}
+
+pub(crate) struct Store {
+    pub(crate) path: PathBuf,
 }
 
 #[derive(Clone, Copy)]
@@ -68,6 +77,7 @@ struct File {
     bootstrap: BootstrapFile,
     agents: AgentsFile,
     limits: LimitsFile,
+    store: StoreFile,
 }
 
 #[derive(Default, Deserialize)]
@@ -102,6 +112,13 @@ struct AgentsFile {
     heartbeat_interval: Option<String>,
     offline_after: Option<String>,
     assignment_lease: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct StoreFile {
+    kind: Option<String>,
+    path: Option<PathBuf>,
 }
 
 #[derive(Default, Deserialize)]
@@ -210,6 +227,22 @@ impl Config {
             file.limits.max_queue_time,
             DEFAULT_MAX_QUEUE_TIME,
         )?;
+        if let Some(kind) = variable("store", "kind")?
+            .or(file.store.kind)
+            .filter(|kind| kind != DIRECTORY)
+        {
+            return Err(invalid(
+                "store",
+                "kind",
+                format!("is `{kind}`, and the only kind of object store is `{DIRECTORY}`"),
+            ));
+        }
+        let store = Store {
+            path: variable("store", "path")?
+                .map(PathBuf::from)
+                .or(file.store.path)
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_STORE_PATH)),
+        };
         Ok(Config {
             listen,
             database: Database {
@@ -227,6 +260,7 @@ impl Config {
                 lease,
                 max_queue_time,
             },
+            store,
         })
     }
 }

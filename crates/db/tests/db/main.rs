@@ -3,6 +3,7 @@ mod control;
 mod entities;
 mod idempotency;
 mod journal;
+mod logs;
 mod migrations;
 mod parallel;
 mod pools;

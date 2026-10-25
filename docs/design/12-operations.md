@@ -88,8 +88,9 @@ endpoints and gRPC on one listener, which speaks HTTP/1.1 and HTTP/2 without TLS
 terminates TLS); requests whose content type is `application/grpc` go to the gRPC services, which
 answer `UNIMPLEMENTED` for a service they do not have. It refuses to start when the schema belongs
 to a newer major version, when a configured KEK is unreadable or malformed, or when the object
-store is unreachable, and says
-which in an error line of its log before it exits with status 1.
+store cannot be used: before it connects to the database, it opens the store, writes the empty
+object `probes/start` and deletes it again. It says which in an error line of its log before it
+exits with status 1.
 
 On `SIGTERM` or `SIGINT` the server logs the signal, stops accepting connections, ends every gRPC
 stream with the status `UNAVAILABLE` and the message `the server is shutting down: received
@@ -189,6 +190,9 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   neither, the server uses `keys/kek` in the data directory and generates it on the first start.
   Surrounding whitespace, such as the newline at the end of a file, does not count.
 - `server.data_dir` defaults to `/var/lib/bosun`; the image sets `/bosun-data`.
+- `store.kind` is `directory`, the default, or, from M1, `s3`. `store.path` is the root of the
+  directory backend, `store/` in the data directory by default, so `/var/lib/bosun/store` on a
+  host.
 - `bootstrap.admin` has no default. When it is set it is the login of the owner that `serve`
   creates on a start against a database without users ([08-access.md](08-access.md)), and a value
   that is not a login is refused like any other setting the server cannot use.
@@ -251,9 +255,11 @@ database's limit.
 - `/healthz` says the process is alive; `/readyz` says the database and the object store answer.
   `/healthz` answers `200 {"status": "alive"}` without touching the database. `/readyz` answers
   `200 {"status": "ready"}`, or `503 {"status": "unready", "reason": "the database does not
-  answer"}` when the database does not answer a ping within one second, and logs the cause as a
-  warning; it recovers by itself when the database returns. Probes give it a timeout above that
-  second.
+  answer"}` when the database does not answer a ping within one second, or `503 {"status":
+  "unready", "reason": "the object store does not answer"}` when a read of `probes/readiness`, a
+  key that never holds an object, fails otherwise than with "not found" or takes more than a
+  second. It logs the cause as a warning and recovers by itself when the database or the store
+  returns. Probes give it a timeout above two seconds.
 
 ## Backups
 

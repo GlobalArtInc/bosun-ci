@@ -8,27 +8,45 @@ use serde_json::json;
 use tokio::time::timeout;
 use tracing::warn;
 
-use crate::AppState;
+use crate::{AppState, store};
 
-const DATABASE_ANSWER: Duration = Duration::from_secs(1);
+const ANSWER: Duration = Duration::from_secs(1);
+
+const DATABASE: &str = "the database does not answer";
+
+const STORE: &str = "the object store does not answer";
 
 pub(crate) async fn alive() -> Response {
     Json(json!({ "status": "alive" })).into_response()
 }
 
 pub(crate) async fn ready(State(state): State<AppState>) -> Response {
-    match timeout(DATABASE_ANSWER, state.db.ping()).await {
-        Ok(Ok(())) => Json(json!({ "status": "ready" })).into_response(),
+    match timeout(ANSWER, state.db.ping()).await {
+        Ok(Ok(())) => {}
         Ok(Err(error)) => {
             warn!(%error, "the database does not answer");
-            unready("the database does not answer")
+            return unready(DATABASE);
         }
         Err(_) => {
             warn!(
-                timeout_ms = DATABASE_ANSWER.as_millis(),
+                timeout_ms = ANSWER.as_millis(),
                 "the database does not answer in time"
             );
-            unready("the database does not answer")
+            return unready(DATABASE);
+        }
+    }
+    match timeout(ANSWER, store::answers(&state.store)).await {
+        Ok(Ok(())) => Json(json!({ "status": "ready" })).into_response(),
+        Ok(Err(error)) => {
+            warn!(%error, "the object store does not answer");
+            unready(STORE)
+        }
+        Err(_) => {
+            warn!(
+                timeout_ms = ANSWER.as_millis(),
+                "the object store does not answer in time"
+            );
+            unready(STORE)
         }
     }
 }

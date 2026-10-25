@@ -1,6 +1,6 @@
 use bosun_testkit::TestDatabase;
 
-use crate::{Launch, errors, eventually};
+use crate::{CONFIG, Launch, errors, eventually};
 
 #[tokio::test]
 async fn variables_override_the_configuration_file() {
@@ -86,6 +86,12 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             "the setting limits.max_queue_time (BOSUN_LIMITS_MAX_QUEUE_TIME) is `forever`, \
              which is not a duration",
         ),
+        (
+            "[store]\nkind = \"s3\"\n",
+            None,
+            "the setting store.kind (BOSUN_STORE_KIND) is `s3`, and the only kind of object \
+             store is `directory`",
+        ),
     ] {
         let mut launch = Launch::serve("postgres://bosun@127.0.0.1:1/bosun").config(config);
         launch = match variable {
@@ -125,5 +131,25 @@ async fn an_explicit_configuration_file_that_does_not_exist_is_refused() {
             path.display()
         ))),
         "{lines:#?}"
+    );
+}
+
+#[tokio::test]
+async fn the_object_store_is_the_directory_the_configuration_names() {
+    let database = TestDatabase::migrated().await;
+    let directory = tempfile::tempdir().expect("a directory for the store");
+    let store = directory.path().join("objects-here");
+    let mut server = Launch::serve(&database.url())
+        .config(&format!(
+            "{CONFIG}\n[store]\nkind = \"directory\"\npath = \"{}\"\n",
+            store.display()
+        ))
+        .env_remove("BOSUN_STORE_PATH")
+        .spawn();
+    let address = server.listening().await;
+    eventually(address, "/readyz", 200).await;
+    assert!(
+        store.join("objects").is_dir(),
+        "the store was not opened there"
     );
 }

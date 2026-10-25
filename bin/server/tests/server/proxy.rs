@@ -10,6 +10,7 @@ use url::Url;
 enum Mode {
     Forward,
     Stall,
+    Cut,
 }
 
 pub struct Proxy {
@@ -54,6 +55,10 @@ impl Proxy {
         self.mode.send_replace(Mode::Stall);
     }
 
+    pub fn cut(&self) {
+        self.mode.send_replace(Mode::Cut);
+    }
+
     pub fn forward(&self) {
         self.mode.send_replace(Mode::Forward);
     }
@@ -66,18 +71,18 @@ impl Drop for Proxy {
 }
 
 async fn connection(mut client: TcpStream, upstream: String, mut mode: watch::Receiver<Mode>) {
-    if *mode.borrow() == Mode::Stall {
-        let _ = mode.wait_for(|mode| *mode == Mode::Forward).await;
+    if *mode.borrow() != Mode::Forward {
+        let _ = mode.wait_for(|mode| *mode != Mode::Stall).await;
         return;
     }
     let Ok(mut server) = TcpStream::connect(&upstream).await else {
         return;
     };
-    let stalled = tokio::select! {
+    let interrupted = tokio::select! {
         _ = copy_bidirectional(&mut client, &mut server) => false,
-        stalled = mode.wait_for(|mode| *mode == Mode::Stall) => stalled.is_ok(),
+        interrupted = mode.wait_for(|mode| *mode != Mode::Forward) => interrupted.is_ok(),
     };
-    if stalled {
-        let _ = mode.wait_for(|mode| *mode == Mode::Forward).await;
+    if interrupted {
+        let _ = mode.wait_for(|mode| *mode != Mode::Stall).await;
     }
 }

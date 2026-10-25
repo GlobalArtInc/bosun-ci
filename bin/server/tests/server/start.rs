@@ -162,3 +162,20 @@ async fn migrate_brings_an_empty_database_up_to_date_and_exits_without_a_kek() {
         "{lines:#?}"
     );
 }
+
+#[tokio::test]
+async fn a_server_refuses_to_start_when_its_object_store_cannot_be_used() {
+    let database = TestDatabase::migrated().await;
+    let launch = Launch::serve(&database.url());
+    let blocked = launch.file("store", "a file where the store should be");
+    let (status, lines) = launch.spawn().exit().await;
+    assert!(!status.success(), "{lines:#?}");
+    let expected = format!("the object store in {} cannot be used", blocked.display());
+    assert!(
+        errors(&lines)
+            .iter()
+            .any(|error| error.starts_with(&expected)),
+        "expected an error starting with `{expected}`: {lines:#?}"
+    );
+    assert!(!lines.iter().any(|line| message(line) == "listening"));
+}
