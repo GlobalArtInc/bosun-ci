@@ -23,6 +23,14 @@ interface Person {
   password: string;
 }
 
+interface Token {
+  token: string;
+}
+
+interface Registered {
+  agent_id: string;
+}
+
 interface Gate {
   url: string;
   open: () => void;
@@ -41,6 +49,10 @@ function ownerToken(): string {
     throw new Error('BOSUN_E2E_TOKEN holds no token of an owner; hack/e2e.sh sets it');
   }
   return token;
+}
+
+export function ownerHeaders(): Record<string, string> {
+  return { Authorization: `Bearer ${ownerToken()}` };
 }
 
 export function unique(theme: string): string {
@@ -66,6 +78,29 @@ export async function created<T>(answer: Promise<APIResponse>): Promise<T> {
 export async function project(owner: APIRequestContext, slug: string): Promise<string> {
   await created<Created>(owner.post('/api/v1/projects', { data: { organisation: 'e2e', slug, name: slug } }));
   return `e2e/${slug}`;
+}
+
+export async function pool(owner: APIRequestContext, name: string, path: string): Promise<string> {
+  await created<Created>(
+    owner.post('/api/v1/pools', {
+      data: { name, trust: 'trusted', access: { all_projects: false, organisations: [], projects: [path] } },
+    }),
+  );
+  return name;
+}
+
+export async function registered(owner: APIRequestContext, token: string, name: string): Promise<string> {
+  const agent = await created<Registered>(
+    owner.post('/api/v1/agents/register', { data: { token, name, labels: [] } }),
+  );
+  return agent.agent_id;
+}
+
+export async function agentIn(owner: APIRequestContext, chosen: string, name: string): Promise<string> {
+  const { token } = await created<Token>(
+    owner.post('/api/v1/registration-tokens', { data: { pool: chosen, reusable: false, expires_at: null } }),
+  );
+  return registered(owner, token, name);
 }
 
 export async function workflow(owner: APIRequestContext, path: string, source: string): Promise<Workflow> {

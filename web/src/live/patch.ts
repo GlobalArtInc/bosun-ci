@@ -1,5 +1,6 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import type {
+  Agent,
   Execution,
   Job,
   Notice,
@@ -10,7 +11,7 @@ import type {
   StreamEvent,
   Workflow,
 } from '../api/client';
-import { executionKey, JOBS, QUEUE, RUNS, type RunPages, runKey, WORKFLOWS } from '../api/queries';
+import { AGENTS, executionKey, JOBS, QUEUE, RUNS, type RunPages, runKey, WORKFLOWS } from '../api/queries';
 
 export type LiveEvent = RunEvent | StreamEvent;
 
@@ -258,6 +259,13 @@ function executionCreated(queryClient: QueryClient, event: Of<'execution.created
     [JOBS, event.run_id],
     within<Job>(job, (known) => (known.execution_id === id ? known : { ...known, execution_id: id })),
   );
+  revise<Agent[]>(
+    queryClient,
+    AGENTS,
+    within<Agent>(event.data.agent_id, (agent) =>
+      agent.execution_id === id ? agent : { ...agent, execution_id: id },
+    ),
+  );
 }
 
 function executionStatus(queryClient: QueryClient, event: Of<'execution.status'>) {
@@ -277,6 +285,14 @@ function executionStatus(queryClient: QueryClient, event: Of<'execution.status'>
       completed_at: to === 'completed' ? event.at : execution.completed_at,
     })),
   );
+  if (to === 'completed') {
+    const ended = event.execution_id;
+    revise<Agent[]>(queryClient, AGENTS, (agents) =>
+      agents.some((agent) => agent.execution_id === ended)
+        ? agents.map((agent) => (agent.execution_id === ended ? { ...agent, execution_id: null } : agent))
+        : agents,
+    );
+  }
 }
 
 function stepCreated(queryClient: QueryClient, event: Of<'step.created'>) {
@@ -341,6 +357,18 @@ function queueJob(queryClient: QueryClient, event: Of<'queue.job'>) {
   });
 }
 
+function agentStatus(queryClient: QueryClient, event: Of<'agent.status'>) {
+  const agent: Agent = event.data;
+  revise<Agent[]>(queryClient, AGENTS, (agents) => {
+    const index = agents.findIndex((known) => known.id === agent.id);
+    const known = agents[index];
+    if (known === undefined || !agent.online) {
+      return STALE;
+    }
+    return agents.with(index, agent);
+  });
+}
+
 export function apply(queryClient: QueryClient, event: LiveEvent) {
   switch (event.kind) {
     case 'run.created':
@@ -377,6 +405,9 @@ export function apply(queryClient: QueryClient, event: LiveEvent) {
       return;
     case 'queue.job':
       queueJob(queryClient, event);
+      return;
+    case 'agent.status':
+      agentStatus(queryClient, event);
       return;
     default:
       return;

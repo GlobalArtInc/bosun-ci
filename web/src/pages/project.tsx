@@ -1,5 +1,5 @@
 import { Badge, Button, Code, Flex, Heading, Link, Select, Table, Text, TextField } from '@radix-ui/themes';
-import { FolderGit2 } from 'lucide-react';
+import { FolderGit2, Settings } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router';
 import { ApiError, type EventFilter, type Project, type RunFilters, type Workflow } from '../api/client';
@@ -212,6 +212,14 @@ function ProjectView({ project }: ProjectProps) {
               <Text size="2">{`${project.repository.owner}/${project.repository.name}`}</Text>
             </Flex>
           )}
+          <Link asChild size="2">
+            <RouterLink to={`/projects/${project.path}/settings`}>
+              <Flex as="span" align="center" gap="1">
+                <Settings size={14} aria-hidden />
+                {t('projectPage.settings')}
+              </Flex>
+            </RouterLink>
+          </Link>
         </Flex>
       </Flex>
       <Section title={t('projectPage.workflows.title')}>

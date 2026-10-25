@@ -28,12 +28,30 @@ export type StepStatus = components['schemas']['StepStatus'];
 export type ConclusionSource = components['schemas']['ConclusionSource'];
 export type WaitingReason = components['schemas']['WaitingReason'];
 export type Severity = components['schemas']['Severity'];
+export type Agent = components['schemas']['Agent'];
+export type Pool = components['schemas']['Pool'];
+export type PoolAccess = components['schemas']['PoolAccess'];
+export type CreatePoolRequest = components['schemas']['CreatePoolRequest'];
+export type TrustLevel = components['schemas']['TrustLevel'];
+export type Capability = components['schemas']['Capability'];
+export type LabelAlias = components['schemas']['LabelAlias'];
+export type SetLabelAliasRequest = components['schemas']['SetLabelAliasRequest'];
+export type RegistrationTokenRequest = components['schemas']['RegistrationTokenRequest'];
+export type RegistrationTokenCreated = components['schemas']['RegistrationTokenCreated'];
+export type Organisation = components['schemas']['Organisation'];
+export type Secret = components['schemas']['Secret'];
+export type Variable = components['schemas']['Variable'];
+export type NamedValue = components['schemas']['SetSecretRequest'];
 
 type RunQuery = NonNullable<paths['/api/v1/runs']['get']['parameters']['query']>;
 
 export type RunFilters = Omit<RunQuery, 'limit' | 'cursor'>;
 
 export type EventFilter = NonNullable<paths['/api/v1/events']['get']['parameters']['query']>;
+
+type SecretQuery = NonNullable<paths['/api/v1/secrets']['get']['parameters']['query']>;
+
+export type Scope = Pick<SecretQuery, 'organisation' | 'project'>;
 
 export interface Page<T> {
   items: T[];
@@ -240,11 +258,107 @@ export class Api {
     );
   }
 
+  async job(id: string): Promise<Job> {
+    return settle(await this.client.GET('/api/v1/jobs/{job}', { params: { path: { job: id } } }));
+  }
+
   async queue(): Promise<QueuedJob[]> {
     return whole(async (cursor) =>
       paged<QueuedJob>(
         await this.client.GET('/api/v1/queue', { params: { query: { limit: WHOLE, cursor } } }),
       ),
+    );
+  }
+
+  async agents(): Promise<Agent[]> {
+    return whole(async (cursor) =>
+      paged<Agent>(await this.client.GET('/api/v1/agents', { params: { query: { limit: WHOLE, cursor } } })),
+    );
+  }
+
+  async drain(agent: string, drain: boolean): Promise<Agent> {
+    return settle(
+      await this.client.PATCH('/api/v1/agents/{agent}', {
+        params: { path: { agent } },
+        body: { drain },
+      }),
+    );
+  }
+
+  async deleteAgent(agent: string): Promise<void> {
+    settle(await this.client.DELETE('/api/v1/agents/{agent}', { params: { path: { agent } } }));
+  }
+
+  async pools(): Promise<Pool[]> {
+    return whole(async (cursor) =>
+      paged<Pool>(await this.client.GET('/api/v1/pools', { params: { query: { limit: WHOLE, cursor } } })),
+    );
+  }
+
+  async createPool(request: CreatePoolRequest, key: string): Promise<Pool> {
+    return settle(
+      await this.client.POST('/api/v1/pools', {
+        params: { header: { 'Idempotency-Key': key } },
+        body: request,
+      }),
+    );
+  }
+
+  async aliases(): Promise<LabelAlias[]> {
+    return whole(async (cursor) =>
+      paged<LabelAlias>(
+        await this.client.GET('/api/v1/label-aliases', { params: { query: { limit: WHOLE, cursor } } }),
+      ),
+    );
+  }
+
+  async setAlias(request: SetLabelAliasRequest): Promise<LabelAlias> {
+    return settle(await this.client.POST('/api/v1/label-aliases', { body: request }));
+  }
+
+  async registrationToken(request: RegistrationTokenRequest): Promise<RegistrationTokenCreated> {
+    return settle(await this.client.POST('/api/v1/registration-tokens', { body: request }));
+  }
+
+  async organisation(reference: string): Promise<Organisation> {
+    return settle(
+      await this.client.GET('/api/v1/organisations/{organisation}', {
+        params: { path: { organisation: reference } },
+      }),
+    );
+  }
+
+  async secrets(scope: Scope): Promise<Secret[]> {
+    return whole(async (cursor) =>
+      paged<Secret>(
+        await this.client.GET('/api/v1/secrets', { params: { query: { ...scope, limit: WHOLE, cursor } } }),
+      ),
+    );
+  }
+
+  async setSecret(scope: Scope, request: NamedValue): Promise<Secret> {
+    return settle(await this.client.POST('/api/v1/secrets', { params: { query: scope }, body: request }));
+  }
+
+  async deleteSecret(scope: Scope, name: string): Promise<void> {
+    settle(await this.client.DELETE('/api/v1/secrets/{name}', { params: { path: { name }, query: scope } }));
+  }
+
+  async variables(scope: Scope): Promise<Variable[]> {
+    return whole(async (cursor) =>
+      paged<Variable>(
+        await this.client.GET('/api/v1/variables', { params: { query: { ...scope, limit: WHOLE, cursor } } }),
+      ),
+    );
+  }
+
+  async setVariable(scope: Scope, request: NamedValue): Promise<Variable> {
+    return settle(await this.client.POST('/api/v1/variables', { params: { query: scope }, body: request }));
+  }
+
+  async deleteVariable(scope: Scope, name: string): Promise<void> {
+    settle(
+      await this.client.DELETE('/api/v1/variables/{name}', { params: { path: { name }, query: scope } }),
     );
   }
 

@@ -1,6 +1,6 @@
 import { type InfiniteData, useInfiniteQuery, useQueries, useQuery } from '@tanstack/react-query';
 import { useLiveReady } from '../live/context';
-import type { Page, Project, Run, RunFilters } from './client';
+import type { Page, Project, Run, RunFilters, Scope } from './client';
 import { useApi } from './context';
 
 export type RunPages = InfiniteData<Page<Run>, string | null>;
@@ -25,6 +25,20 @@ const PROJECT_AT = 'projectAt';
 
 const QUEUE_REFRESH_MS = 30_000;
 
+export const AGENTS = ['agents'] as const;
+
+export const POOLS = ['pools'] as const;
+
+export const ALIASES = ['aliases'] as const;
+
+const JOB = 'job';
+
+const ORGANISATION = 'organisation';
+
+const SECRETS = 'secrets';
+
+const VARIABLES = 'variables';
+
 export function runsKey(filters: RunFilters, limit: number) {
   return [RUNS, filters, limit] as const;
 }
@@ -43,6 +57,14 @@ export function executionKey(id: string) {
 
 export function workflowsKey(project: string) {
   return [WORKFLOWS, project] as const;
+}
+
+export function secretsKey(scope: Scope) {
+  return [SECRETS, scope] as const;
+}
+
+export function variablesKey(scope: Scope) {
+  return [VARIABLES, scope] as const;
 }
 
 export function useProjects() {
@@ -124,4 +146,57 @@ export function useQueue() {
     refetchInterval: QUEUE_REFRESH_MS,
     enabled: ready,
   });
+}
+
+export function useJob(id: string | null) {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQuery({
+    queryKey: [JOB, id ?? ''],
+    queryFn: () => api.job(id ?? ''),
+    enabled: ready && id !== null,
+  });
+}
+
+export function useAgents() {
+  const api = useApi();
+  const ready = useLiveReady();
+  return useQuery({
+    queryKey: AGENTS,
+    queryFn: () => api.agents(),
+    refetchInterval: QUEUE_REFRESH_MS,
+    enabled: ready,
+  });
+}
+
+export function usePools() {
+  const api = useApi();
+  return useQuery({ queryKey: POOLS, queryFn: () => api.pools() });
+}
+
+export function useAliases() {
+  const api = useApi();
+  return useQuery({ queryKey: ALIASES, queryFn: () => api.aliases() });
+}
+
+export function useOrganisation(reference: string) {
+  const api = useApi();
+  return useQuery({ queryKey: [ORGANISATION, reference], queryFn: () => api.organisation(reference) });
+}
+
+export function useOrganisations(ids: string[]) {
+  const api = useApi();
+  return useQueries({
+    queries: ids.map((id) => ({ queryKey: [ORGANISATION, id], queryFn: () => api.organisation(id) })),
+  });
+}
+
+export function useSecrets(scope: Scope) {
+  const api = useApi();
+  return useQuery({ queryKey: secretsKey(scope), queryFn: () => api.secrets(scope) });
+}
+
+export function useVariables(scope: Scope) {
+  const api = useApi();
+  return useQuery({ queryKey: variablesKey(scope), queryFn: () => api.variables(scope) });
 }

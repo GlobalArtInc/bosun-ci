@@ -7,8 +7,11 @@ import { I18nProvider } from './i18n/i18n';
 import { HomePage } from './pages/home';
 import { NotFoundPage } from './pages/not-found';
 import { PasswordPage } from './pages/password';
+import { PoolPage } from './pages/pool';
 import { ProjectPage } from './pages/project';
+import { QueuePage } from './pages/queue';
 import { RunPage } from './pages/run';
+import { OrganisationSettingsPage, ProjectSettingsPage, SettingsPage } from './pages/settings';
 import { SignInPage } from './pages/sign-in';
 import { Shell } from './shell/shell';
 import { ThemeProvider } from './theme/theme';
@@ -27,7 +30,12 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <HomePage /> },
       { path: 'projects/:organisation/:project', element: <ProjectPage /> },
+      { path: 'projects/:organisation/:project/settings', element: <ProjectSettingsPage /> },
       { path: 'runs/:run', element: <RunPage /> },
+      { path: 'queue', element: <QueuePage /> },
+      { path: 'pools/:pool', element: <PoolPage /> },
+      { path: 'settings', element: <SettingsPage /> },
+      { path: 'settings/:organisation', element: <OrganisationSettingsPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

@@ -202,6 +202,71 @@ their rule editor, teams, roles with a matrix of permission keys for custom role
 plugins with their catalogue and instance configuration forms generated from the plugin's JSON
 Schema, the audit trail.
 
+Step 44 of M1 ([../plan.md](../plan.md)) settled the queue and agents page, the pools, and the
+secrets and variables of the settings:
+
+- **Routes.** `/queue` is the queue and agents page and `/pools/<name>` the page of a pool;
+  `/settings` lists the organisations and the projects whose settings the user can see,
+  `/settings/<organisation>` holds an organisation's settings and
+  `/projects/<organisation>/<project>/settings` a project's, which the project's page links to. The
+  agents, pools, aliases and registration tokens are checked on the installation
+  ([11-api.md](11-api.md#agents)), so their sections and the pool pages appear only to a user whose
+  `/me` holds `agent.manage` on the installation; the navigation names the page "Queue and agents"
+  for them and "Queue" for everyone else, who sees the queue alone.
+- **The queue** lists every entry of `GET /queue` with its job, linked to the run page with that job
+  open, its project, its status, its reason, its waiting time counted from `since`, and its labels,
+  the missing ones marked. A waiting job's reason is its waiting reason; a queued job's is the labels
+  that no online agent offers, or, when none is missing, that it waits for a free agent.
+- **Agents** are listed under the pools of `GET /pools`, each pool with its trust and a link to its
+  page. An agent's state is derived from `GET /agents`: offline when it is not online, busy when it
+  holds an execution, idle otherwise, and marked as draining when it is drained, whatever its state;
+  an offline agent also says when it was last seen. Its current job is read from its execution and
+  the job that names, and links to the run page with that job open. Drain and lift send
+  `PATCH /agents/{agent}`, delete asks for a confirmation first, and the answers update the cached
+  list.
+- **Live agents.** The page follows `queue.job`, and for those who manage agents also
+  `agent.status`, `execution.created` and `execution.status`. `agent.status` replaces the cached
+  agent; an agent the list does not hold, and one the event shows offline, which is also what a
+  deletion writes, make the list read again, so a registered agent appears and a deleted one leaves.
+  `execution.created` sets the `execution_id` of the agent it names, and an `execution.status` to
+  `completed` clears it from the agent that held it, as [11-api.md](11-api.md#the-event-stream)
+  says the field follows them. Like the queue, the list is also read again every 30 seconds, since a
+  heartbeat changes `last_seen_at` without an event.
+- **Pools.** The list shows each pool's trust, the projects it is open to and how many of its agents
+  are online, and a form creates a pool with a name, a trust level and its access list (every
+  project, or organisations and projects named by slug and path) and then opens its page. A pool's
+  page shows its trust, access list and creation, its agents and the registration tokens; the page
+  of an untrusted pool says that Bosun cannot check the isolation of its network and that its agents
+  get no `shell` ([08-access.md](08-access.md#code-from-outside-the-team)).
+- **Registration tokens.** The pool page creates one with an expiry of 1 hour, 1 day (the default),
+  7 days or 30 days and either single or repeated use, and shows the one-line install command of
+  [12-operations.md](12-operations.md#agents) with the new token,
+  `curl -fsSL <origin>/install-agent.sh | sudo sh -s -- --token brt_…`, built from the origin of the
+  page as `bosun pool token create` builds it from the server of its profile, with what the token
+  registers and until when. The token lives only in the state of that request on the page, which
+  is dropped as soon as nothing shows it: it never enters the query cache or the browser's storage,
+  so "Done", a reload and leaving the page remove it, and nothing shows it again.
+- **Label aliases** are listed with their label, scope (the installation, or the slug of the
+  organisation, read with `GET /organisations/{organisation}`), pool, capability, image and the
+  time they last changed, and a form sets one, which replaces the alias the scope had for the label.
+- **Secrets and variables** are those of the scope itself, the organisation or the project, as
+  [11-api.md](11-api.md#secrets-and-variables) serves them; a project's page says that its jobs
+  also receive its organisation's, which its own of the same name shadow. Secrets show their name
+  and the times they were created and last set, never a value: a value is only ever sent, as it was
+  typed, the form is emptied once it is stored, and the request that carried it is dropped as soon
+  as its form is gone. Variables also show their values. The form that
+  sets one, the dialog that replaces a secret or edits a variable and the confirmed deletion appear
+  only when the permissions on the scope, computed from `/me` (the installation and the
+  organisation, and for a project also the project), hold `secret.manage` or `variable.manage`.
+- **Organisations.** No endpoint lists organisations in M1, so `/settings` lists those on which the
+  user holds `project.view` through the installation or a binding on the organisation: the
+  organisations of `/me`'s permissions, and for an owner also those of the projects they see, each
+  read with `GET /organisations/{organisation}`. An organisation without projects is reached by its
+  address alone until a list arrives.
+- **Keys.** The namespaces of these pages are `queuePage.`, `agentsPage.`, `poolPage.`,
+  `settingsPage.` and `form.`, since `queue.`, `agent.`, `secret.` and `variable.` begin values of
+  the API, event kinds and permission keys.
+
 ## The workflow editor
 
 The editor arrives in M4. It edits a draft of a repository workflow or a server-side workflow, and
@@ -280,6 +345,14 @@ which emulate the colour scheme the interface follows. It gives the scenarios th
   on a database of its own, as `{"light": {"url", "password"}, "dark": {…}}`, where `password` is
   the content of its `admin.password`. Scenarios that need an installation nobody has signed in to,
   such as the sign-in scenario, which changes that password, use these.
+
+On the installation only an owner holds a permission, and no endpoint makes a user an owner, so the
+scenarios that need `agent.manage` there, those of the agents and pools, open the interface with
+`BOSUN_E2E_TOKEN` as the bearer token of every request of their browser context; the server takes
+it as it takes a session, and the interface sends no `X-Bosun-CSRF`, since `/me` gives a token no
+`csrf_token`. Step 44 of M1 settled this. The agents of these scenarios are registered through
+`POST /agents/register` in a pool of their own, open to a project of their own, and never connect,
+so they take no job of the other scenarios.
 
 The accessibility scenario runs axe with the rules of WCAG 2.1 A and AA on the sign-in page in each
 theme, and walks its tab order, requiring a visible focus indicator at every stop.

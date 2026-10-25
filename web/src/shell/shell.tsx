@@ -3,6 +3,7 @@ import { Anchor } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router';
 import { useI18n } from '../i18n/i18n';
 import { LiveProvider } from '../live/live';
+import { managesAgents } from '../session/permissions';
 import { here, passwordPath, signInPath, useMe } from '../session/session';
 import { Failure, Loading } from './status';
 import { Switches } from './switches';
@@ -55,6 +56,16 @@ export function Shell() {
                     <li>
                       <NavLink to="/" end className="navigation-link">
                         {t('shell.nav.home')}
+                      </NavLink>
+                    </li>
+                    <li>
+                      <NavLink to="/queue" className="navigation-link">
+                        {managesAgents(me.data) ? t('shell.nav.agents') : t('shell.nav.queue')}
+                      </NavLink>
+                    </li>
+                    <li>
+                      <NavLink to="/settings" className="navigation-link">
+                        {t('shell.nav.settings')}
                       </NavLink>
                     </li>
                   </ul>
