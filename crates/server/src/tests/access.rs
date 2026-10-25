@@ -70,7 +70,7 @@ pub(super) fn document(path: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
-fn table(text: &str, marker: &str) -> Vec<Vec<String>> {
+pub(super) fn table(text: &str, marker: &str) -> Vec<Vec<String>> {
     let lines: Vec<&str> = text.lines().collect();
     let start = lines
         .iter()
@@ -90,7 +90,7 @@ fn table(text: &str, marker: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
-fn quoted(cell: &str) -> Vec<String> {
+pub(super) fn quoted(cell: &str) -> Vec<String> {
     cell.split('`')
         .skip(1)
         .step_by(2)

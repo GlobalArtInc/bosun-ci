@@ -27,6 +27,7 @@ mod keys;
 mod lint;
 mod logs;
 mod me;
+mod metrics;
 mod names;
 mod oidc;
 mod openapi;
@@ -66,7 +67,7 @@ mod users;
 mod variables;
 mod workflows;
 
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -75,7 +76,7 @@ use axum::Router;
 use axum::extract::Request;
 use axum::http::{Method, Uri};
 use axum::middleware;
-use axum::routing::get;
+use axum::routing::{any, get};
 use bosun_proto::agent::v1::agent_server::AgentServer;
 use sea_orm::DatabaseConnection;
 use tokio::net::TcpListener;
@@ -104,6 +105,7 @@ struct AppState {
     keys: Arc<keys::Keyring>,
     tools: Arc<tools::Tools>,
     oidc: Arc<oidc::Providers>,
+    meters: Arc<metrics::Meters>,
 }
 
 pub struct Rewrapped {
@@ -181,6 +183,7 @@ pub async fn serve(
     let reports = Arc::new(Notify::new());
     let events = Arc::new(events::Hub::default());
     let parses = Arc::new(forge_events::Parses::default());
+    let meters = Arc::new(metrics::Meters::default());
     let mut tasks = agents::start(
         db.clone(),
         Arc::clone(&replica),
@@ -202,6 +205,7 @@ pub async fn serve(
             Arc::clone(&parses),
             config.site.clone(),
             clock.clone(),
+            Arc::clone(&meters),
         ));
         tasks.spawn(outbox::work(
             outbox::Outbox {
@@ -211,6 +215,7 @@ pub async fn serve(
                 keys: Arc::clone(&keys),
                 site: config.site.clone(),
                 clock: clock.clone(),
+                meters: Arc::clone(&meters),
             },
             reports,
         ));
@@ -229,6 +234,7 @@ pub async fn serve(
         Arc::clone(&replica),
         config.agents,
         dispatcher,
+        Arc::clone(&meters),
     );
     let listen = config.listen;
     let listener = TcpListener::bind(listen)
@@ -241,7 +247,26 @@ pub async fn serve(
         address: listen,
         source,
     })?;
-    info!(%address, replica_id = %replica.id(), "listening");
+    let metrics_listen = config.metrics_listen;
+    let metrics_listener =
+        TcpListener::bind(metrics_listen)
+            .await
+            .map_err(|source| Error::ListenMetrics {
+                address: metrics_listen,
+                source,
+            })?;
+    let metrics_address = metrics_listener
+        .local_addr()
+        .map_err(|source| Error::ListenMetrics {
+            address: metrics_listen,
+            source,
+        })?;
+    info!(
+        %address,
+        metrics = %metrics_address,
+        replica_id = %replica.id(),
+        "listening"
+    );
     let (closer, shutdown) = shutdown::channel();
     let state = AppState {
         db,
@@ -258,7 +283,16 @@ pub async fn serve(
         keys,
         tools,
         oidc,
+        meters,
     };
+    let scrapes = shutdown.clone();
+    let scraped = tokio::spawn(
+        axum::serve(metrics_listener, scraping(state.clone()))
+            .with_graceful_shutdown(async move {
+                scrapes.reason().await;
+            })
+            .into_future(),
+    );
     axum::serve(
         listener,
         app(state, interface, connector, shutdown)
@@ -271,6 +305,10 @@ pub async fn serve(
     })
     .await
     .map_err(Error::Serve)?;
+    scraped
+        .await
+        .map_err(|error| Error::Serve(std::io::Error::other(error)))?
+        .map_err(Error::Serve)?;
     tasks.stop().await;
     info!("stopped");
     Ok(())
@@ -336,6 +374,12 @@ fn api() -> openapi::Api {
         .merge(variables::routes())
 }
 
+fn scraping(state: AppState) -> Router {
+    metrics::routes()
+        .with_state(state)
+        .layer(middleware::from_fn(trace::request))
+}
+
 fn app(
     state: AppState,
     interface: interface::Interface,
@@ -345,6 +389,7 @@ fn app(
     let http = Router::new()
         .route("/healthz", get(health::alive))
         .route("/readyz", get(health::ready))
+        .route(metrics::PATH, any(metrics::elsewhere))
         .merge(api().into_router(&state))
         .merge(install::routes())
         .merge(runtime::routes())

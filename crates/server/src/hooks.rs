@@ -48,6 +48,7 @@ async fn receive(
         ));
     };
     let Some(signature) = headers.get(SIGNATURE) else {
+        state.meters.refused_delivery();
         warn!("refused a webhook delivery without an X-Hub-Signature-256");
         return Err(ApiError::new(
             ErrorCode::Unauthenticated,
@@ -55,6 +56,7 @@ async fn receive(
         ));
     };
     if !forge.signed(signature.as_bytes(), &body) {
+        state.meters.refused_delivery();
         warn!("refused a webhook delivery whose X-Hub-Signature-256 does not match its body");
         return Err(ApiError::new(
             ErrorCode::Unauthenticated,

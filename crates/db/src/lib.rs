@@ -13,6 +13,7 @@ pub mod installations;
 mod jobs;
 pub mod journal;
 pub mod logs;
+pub mod metrics;
 pub mod notify;
 pub mod objects;
 pub mod organisations;

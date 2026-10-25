@@ -30,6 +30,7 @@ use super::{LABEL_RULE, valid_label};
 use crate::auth;
 use crate::config::Agents;
 use crate::logs;
+use crate::metrics::Meters;
 use crate::queue::Dispatcher;
 use crate::store::Backend;
 use crate::token::{AGENT, Token};
@@ -57,6 +58,7 @@ pub(crate) struct Connector {
     replica: Arc<Replica>,
     settings: Agents,
     dispatcher: Arc<Dispatcher>,
+    meters: Arc<Meters>,
 }
 
 impl Connector {
@@ -66,6 +68,7 @@ impl Connector {
         replica: Arc<Replica>,
         settings: Agents,
         dispatcher: Arc<Dispatcher>,
+        meters: Arc<Meters>,
     ) -> Connector {
         Connector {
             db,
@@ -73,6 +76,7 @@ impl Connector {
             replica,
             settings,
             dispatcher,
+            meters,
         }
     }
 
@@ -269,6 +273,7 @@ impl Agent for Connector {
             replica: Arc::clone(&self.replica),
             dispatcher: Arc::clone(&self.dispatcher),
             settings: self.settings,
+            meters: Arc::clone(&self.meters),
             reporter: Reporter {
                 id: agent.id,
                 name: agent.name.clone(),
@@ -288,6 +293,7 @@ struct Session {
     replica: Arc<Replica>,
     dispatcher: Arc<Dispatcher>,
     settings: Agents,
+    meters: Arc<Meters>,
     reporter: Reporter,
     number: u64,
     outbound: Outbound,
@@ -555,6 +561,9 @@ impl Session {
                         .to_owned(),
                 )
             })?;
+        if ingested == Ingested::Stored {
+            self.meters.ingested(&lines);
+        }
         let ignored = match ingested {
             Ingested::Stored | Ingested::Duplicate | Ingested::Dropped { first: false } => None,
             Ingested::Dropped { first: true } => {

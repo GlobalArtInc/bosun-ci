@@ -50,6 +50,7 @@ uuid = { workspace = true, features = ["v7"] }
 [dev-dependencies]
 bosun-testkit.workspace = true
 jsonschema.workspace = true
+prometheus-parse.workspace = true
 proptest.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "json", "std"] }

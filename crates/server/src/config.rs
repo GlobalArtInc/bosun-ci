@@ -19,6 +19,8 @@ use crate::tools::Runtimes;
 
 const DEFAULT_LISTEN: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
 
+const DEFAULT_METRICS_LISTEN: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9464);
+
 const DEFAULT_MAX_CONNECTIONS: u32 = 32;
 
 const MIGRATION_CONNECTIONS: u32 = 2;
@@ -83,6 +85,7 @@ const DEFAULT_GROUPS_CLAIM: &str = "groups";
 
 pub struct Config {
     pub(crate) listen: SocketAddr,
+    pub(crate) metrics_listen: SocketAddr,
     pub(crate) data_dir: PathBuf,
     pub(crate) trusted_proxies: Vec<IpNet>,
     pub(crate) site: Site,
@@ -184,6 +187,7 @@ struct File {
 #[serde(default, deny_unknown_fields)]
 struct ServerFile {
     listen: Option<String>,
+    metrics_listen: Option<String>,
     data_dir: Option<PathBuf>,
     trusted_proxies: Option<Vec<String>>,
     public_url: Option<String>,
@@ -302,16 +306,12 @@ impl Config {
             Some(path) => read(path)?,
             None => File::default(),
         };
-        let listen = match variable("server", "listen")?.or(file.server.listen) {
-            Some(text) => text.parse().map_err(|_| {
-                invalid(
-                    "server",
-                    "listen",
-                    format!("is `{text}`, which is not an address and a port such as 0.0.0.0:8080"),
-                )
-            })?,
-            None => DEFAULT_LISTEN,
-        };
+        let listen = socket("listen", file.server.listen, DEFAULT_LISTEN)?;
+        let metrics_listen = socket(
+            "metrics_listen",
+            file.server.metrics_listen,
+            DEFAULT_METRICS_LISTEN,
+        )?;
         let data_dir = path("server", "data_dir", file.server.data_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_DIR));
         let trusted_proxies = trusted_proxies(file.server.trusted_proxies)?;
@@ -444,6 +444,7 @@ impl Config {
         }
         Ok(Config {
             listen,
+            metrics_listen,
             data_dir,
             trusted_proxies,
             site,
@@ -469,6 +470,19 @@ impl Config {
             tools,
             oidc,
         })
+    }
+}
+
+fn socket(key: &str, file: Option<String>, default: SocketAddr) -> Result<SocketAddr, Error> {
+    match variable("server", key)?.or(file) {
+        Some(text) => text.parse().map_err(|_| {
+            invalid(
+                "server",
+                key,
+                format!("is `{text}`, which is not an address and a port such as {default}"),
+            )
+        }),
+        None => Ok(default),
     }
 }
 

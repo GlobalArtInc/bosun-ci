@@ -23,6 +23,7 @@ bosun-db.workspace = true
 bosun-proto.workspace = true
 bosun-testkit.workspace = true
 bosun-types.workspace = true
+prometheus-parse.workspace = true
 reqwest = { workspace = true, features = ["http2", "json"] }
 sea-orm.workspace = true
 serde_json.workspace = true

@@ -20,6 +20,7 @@ use super::{World, finished, job_cancel, operator, site, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
 use crate::clock::Clock;
 use crate::config::GitHub;
+use crate::metrics::Meters;
 use crate::outbox::{self, Outbox};
 use crate::planner;
 
@@ -32,17 +33,17 @@ const PERMISSIONS: &[(&str, &str)] = &[
     ("statuses", "write"),
 ];
 
-struct Scene {
-    world: World,
-    fake: FakeForge,
-    outbox: Outbox,
-    clock: Clock,
+pub(super) struct Scene {
+    pub(super) world: World,
+    pub(super) fake: FakeForge,
+    pub(super) outbox: Outbox,
+    pub(super) clock: Clock,
     sha: String,
     _files: TempDir,
 }
 
 impl Scene {
-    async fn new() -> Scene {
+    pub(super) async fn new() -> Scene {
         let world = World::new().await;
         let fake = FakeForge::start().await;
         let installation = fake.install("GlobalArt", PERMISSIONS);
@@ -101,6 +102,7 @@ impl Scene {
                 keys: Arc::new(super::keys()),
                 site: site(),
                 clock: clock.clone(),
+                meters: Arc::new(Meters::default()),
             },
             world,
             fake,
@@ -110,7 +112,7 @@ impl Scene {
         }
     }
 
-    async fn dispatch(&self, workflow: &ir::Workflow) -> (RunId, JobId) {
+    pub(super) async fn dispatch(&self, workflow: &ir::Workflow) -> (RunId, JobId) {
         let transaction = self.world.db().begin().await.expect("a transaction");
         let payload = json!({});
         let run = planner::dispatch(
@@ -137,11 +139,11 @@ impl Scene {
         (run.id, job)
     }
 
-    fn tick(&self, by: TimeDelta) {
+    pub(super) fn tick(&self, by: TimeDelta) {
         self.clock.advance(by);
     }
 
-    async fn drain(&self) -> usize {
+    pub(super) async fn drain(&self) -> usize {
         let mut handled = 0;
         while outbox::next(&self.outbox)
             .await
@@ -188,7 +190,7 @@ fn details(run: RunId, job: JobId) -> Option<String> {
     Some(format!("https://ci.example.org/runs/{run}/jobs/{job}"))
 }
 
-fn one_job() -> ir::Workflow {
+pub(super) fn one_job() -> ir::Workflow {
     workflow(vec![template("build", &[], 1)])
 }
 

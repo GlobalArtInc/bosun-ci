@@ -42,6 +42,7 @@ jsonschema = { version = "0.56", default-features = false }
 lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz"] }
 prost = "0.14"
 prost-types = "0.14"
+prometheus-parse = "0.2"
 proptest = { version = "1", default-features = false, features = ["std"] }
 protox = "0.9"
 quick-xml = "0.42"

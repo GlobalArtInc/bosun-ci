@@ -14,6 +14,7 @@ mod hooks;
 mod http;
 mod install;
 mod logs;
+mod metrics;
 mod oidc;
 mod openapi;
 mod owner;
@@ -114,6 +115,7 @@ impl Launch {
             .env("BOSUN_KEYS_KEK", KEK)
             .env("BOSUN_SERVER_DATA_DIR", data)
             .env("BOSUN_STORE_PATH", store)
+            .env("BOSUN_SERVER_METRICS_LISTEN", "127.0.0.1:0")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -270,13 +272,21 @@ impl Server {
     }
 
     pub async fn listening(&mut self) -> SocketAddr {
+        self.listening_at("address").await
+    }
+
+    pub async fn metrics(&mut self) -> SocketAddr {
+        self.listening_at("metrics").await
+    }
+
+    async fn listening_at(&mut self, field: &str) -> SocketAddr {
         let line = self
             .expect("that it listens", |line| message(line) == "listening")
             .await;
-        line["address"]
+        line[field]
             .as_str()
             .and_then(|address| address.parse().ok())
-            .unwrap_or_else(|| panic!("a listening line without an address: {line}"))
+            .unwrap_or_else(|| panic!("a listening line without its {field}: {line}"))
     }
 
     pub fn terminate(&self) {

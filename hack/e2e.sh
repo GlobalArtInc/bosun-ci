@@ -1323,7 +1323,7 @@ bin="$target/debug"
 create_database "$database"
 database_url="$created_url"
 kek="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-printf '[server]\nlisten = "127.0.0.1:0"\n' >"$work/server.toml"
+printf '[server]\nlisten = "127.0.0.1:0"\nmetrics_listen = "127.0.0.1:0"\n' >"$work/server.toml"
 settings=(
   "BOSUN_DATABASE_URL=$database_url"
   "BOSUN_DATABASE_MAX_CONNECTIONS=8"

@@ -154,13 +154,15 @@ fails when the generated document differs from the committed one ([below](#the-o
 Outside `/api/v1`: `/hooks/github` ([06-runtime-services.md](06-runtime-services.md#deliveries))
 and `/hooks/plugins/{instance}` for incoming webhooks,
 `/twirp/` and `/_runtime/` for the services jobs call ([06-runtime-services.md](06-runtime-services.md)), `/mcp`,
-`/healthz`, `/readyz`, `/metrics`, `/install-agent.sh` and the agent binaries at
+`/healthz`, `/readyz`, `/install-agent.sh` and the agent binaries at
 `/_runtime/agent/linux-<arch>` without a token ([12-operations.md](12-operations.md#agents)), the
 tarballs of actions at `/_runtime/actions/<owner>/<repo>/<commit>.tar.gz` and Node runtimes at
 `/_runtime/tools/node/<version>/<platform>.tar.xz` with an agent's credential
 ([05-execution.md](05-execution.md#actions-and-tools)), and
 the gRPC services `bosun.agent.v1.Agent` and `bosun.plugin.v1.*` on the same listener. Every other
-path belongs to the web interface ([09-frontend.md](09-frontend.md#serving)).
+path belongs to the web interface ([09-frontend.md](09-frontend.md#serving)), except `/metrics`,
+which this listener answers `404 not_found`: the metrics are served without a token on a listener
+of their own that is kept off the public address ([12-operations.md](12-operations.md#metrics)).
 
 ### Sign-in and sessions
 

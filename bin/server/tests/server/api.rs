@@ -11,6 +11,7 @@ use crate::{Launch, Server, client, owner};
 
 pub struct Api {
     pub address: SocketAddr,
+    pub metrics: SocketAddr,
     token: String,
     server: Server,
 }
@@ -37,8 +38,10 @@ impl Api {
     pub async fn serve(launch: Launch, token: String) -> Api {
         let mut server = launch.spawn();
         let address = server.listening().await;
+        let metrics = server.metrics().await;
         Api {
             address,
+            metrics,
             token,
             server,
         }

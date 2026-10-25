@@ -117,7 +117,9 @@ owner of `bootstrap.admin`, or without it the owner `admin` with its token in `a
 the database holds no user ([08-access.md](08-access.md)), and then serves the REST API, the health
 endpoints and gRPC on one listener, which speaks HTTP/1.1 and HTTP/2 without TLS (the gateway
 terminates TLS); requests whose content type is `application/grpc` go to the gRPC services, which
-answer `UNIMPLEMENTED` for a service they do not have. It refuses to start when the schema belongs
+answer `UNIMPLEMENTED` for a service they do not have. `/metrics` is served on a second listener
+of its own, at `server.metrics_listen`, and nowhere else ([Metrics](#metrics)); a server that cannot
+listen there does not start. It refuses to start when the schema belongs
 to a newer major version, when a configured KEK is unreadable or malformed, or when the object
 store cannot be used: before it connects to the database, it opens the store, writes the empty
 object `probes/start` and deletes it again, so an S3 endpoint that does not answer, a bucket that
@@ -188,6 +190,7 @@ them jobs again ([05-execution.md](05-execution.md#draining-and-deleting-agents)
 ```toml
 [server]
 listen = "0.0.0.0:8080"
+metrics_listen = "127.0.0.1:9464"
 data_dir = "/var/lib/bosun"
 public_url = "https://ci.example.org"
 trusted_proxies = ["10.0.0.0/8"]
@@ -262,6 +265,9 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
 
 - `server.listen` defaults to `0.0.0.0:8080`; port 0 takes a free port, which the `listening` line
   of the log names.
+- `server.metrics_listen` is the address of the listener that serves `/metrics` and nothing else
+  ([Metrics](#metrics)), `127.0.0.1:9464` by default; port 0 takes a free port, which the field
+  `metrics` of the `listening` line names.
 - `server.public_url` is the address people and agents reach the server at, an http or https
   address with a host and maybe a path, without a user, a query or a fragment. It has no default;
   without it the `bosun.url` and `bosun.run_url` of expressions are empty
@@ -404,9 +410,10 @@ database's limit.
 
 ## Observability
 
-- `/metrics` in Prometheus format: queue length and waiting time by pool and label set, jobs by
-  status, run and job durations, agents by state, outbox backlog and failures, log ingestion rate,
-  webhook processing time, plugin call durations and failures.
+- `/metrics` in Prometheus format, on a listener of its own ([Metrics](#metrics)): queue length and
+  waiting time by pool and label set, jobs by status, run and job durations, agents by state,
+  outbox backlog, failures and dead rows, log ingestion rate, webhook processing time and
+  verification failures, and from M5 plugin call durations and failures.
 - Logs: JSON lines on standard output (on standard error for the `admin` commands, whose standard
   output is their result) with the request id, the run, the job and the agent where they apply,
   collected by the cluster's log pipeline. Each line carries `timestamp`, `level`, `message`,
@@ -434,6 +441,72 @@ database's limit.
   key that never holds an object, fails otherwise than with "not found" or takes more than a
   second. It logs the cause as a warning and recovers by itself when the database or the store
   returns. Probes give it a timeout above two seconds.
+
+### Metrics
+
+Step 39 of M1 ([../plan.md](../plan.md)) settled `/metrics` for what exists in M1; the durations
+and failures of plugin calls join it with plugins in M5.
+
+**Kept off the public address.** The server answers `GET /metrics` only on a listener of its own,
+at `server.metrics_listen` ([Configuration](#configuration)), which serves nothing else and
+answers every other path `404 not_found`. It defaults to `127.0.0.1:9464`, the loopback address,
+which no other host reaches. The main listener, the one the gateway exposes, answers `/metrics`
+with any method `404 not_found` and a message that names `server.metrics_listen`, so a gateway
+that routes every path of the host to Bosun exposes no metrics. In Kubernetes the chart sets
+`BOSUN_SERVER_METRICS_LISTEN=0.0.0.0:9464` and gives the Service a port `metrics` that no route
+names, which the cluster's Prometheus scrapes; for the image on a host, the variable is set the
+same way and the port is published on the host's loopback only (`-p 127.0.0.1:9464:9464`), since
+the loopback address of a container is its own. The metrics carry no secret, but the names of
+pools and label sets and the load of the installation are not for everyone, and a listener of its
+own needs neither a token to hand out nor a list of addresses that every proxy in front of the
+server would have to keep right. The answer is the text format 0.0.4 with the content type
+`text/plain; version=0.0.4; charset=utf-8`. When the database does not answer, the scrape is
+`503` with the error as text, and the server logs a warning.
+
+**Two sources.** The series whose source is the database are read from Postgres when the endpoint is
+scraped, in one read-only transaction at repeatable read, so they agree with each other and are the
+same on every replica; across replicas they aggregate with `max`, not `sum`. The series whose source
+is the replica count the work of the replica that answers, start at zero when it starts, and add up
+across replicas with `sum`. The durations of runs and jobs live in Postgres too, as their start and
+completion. A cumulative histogram read from there would fall whenever `run_retention` deletes runs
+([07-storage.md](07-storage.md#retention)), which Prometheus reads as the reset of a counter, and
+`promtool check metrics` reports a gauge in the shape of a histogram as a mistake, so they are
+gauges over the runs and jobs that completed in the last hour: how many did, and the 50th, 90th and
+99th percentiles of their durations and the longest (`percentile` `50`, `90`, `99` and `100`),
+interpolated as Postgres's `percentile_cont` does. A run or job that never started counts in
+neither, and without one in the last hour the percentiles have no series. The bounds of the webhook
+processing time are 10, 25, 50, 100, 250 and 500 milliseconds, 1, 2.5, 5 and 10 seconds, and `+Inf`.
+
+**Labels.** `pool` is the name of a pool. A queued job counts under every pool that may take it
+([05-execution.md](05-execution.md#pools-and-label-aliases)), so a sum over pools counts such a
+job more than once, and a job that no pool may take counts with an empty `pool`. `labels` is the
+set of a job's labels as the queue holds them: lowercased, without those that label aliases
+replaced, sorted and joined with commas. `state` is `offline` when the agent is not online, `busy`
+when it holds an execution that is not completed, and `idle` otherwise, as the agents page derives
+it ([09-frontend.md](09-frontend.md)), and `drain` is `true` or `false`. Every pool has the six
+series of its agents, at zero when no agent is in them, so that an alert can compare a pool's
+online agents with its queue. `status` is each status of a job, a matrix counting as its members
+rather than as the job they expand from, and `kind` each kind of outbox row (`check_run`,
+`commit_status`, `fork_status`); both always have every value, at zero when nothing has it. A test
+reads this table and checks the exposition against it.
+
+| Series | Type | Labels | Source | Meaning |
+|--------|------|--------|--------|---------|
+| `bosun_queue_jobs` | gauge | `pool`, `labels` | database | queued jobs, under each pool that may take them and their set of labels |
+| `bosun_queue_longest_wait_seconds` | gauge | `pool`, `labels` | database | the time the longest-queued of those jobs has waited since it was queued |
+| `bosun_jobs` | gauge | `status` | database | jobs by status |
+| `bosun_runs_completed_last_hour` | gauge | — | database | runs that started and completed in the last hour |
+| `bosun_run_duration_last_hour_seconds` | gauge | `percentile` | database | percentiles of the durations of those runs |
+| `bosun_jobs_completed_last_hour` | gauge | — | database | jobs that ran on an agent and completed in the last hour |
+| `bosun_job_duration_last_hour_seconds` | gauge | `percentile` | database | percentiles of the durations of those jobs |
+| `bosun_agents` | gauge | `pool`, `state`, `drain` | database | agents that are not deleted |
+| `bosun_outbox_backlog` | gauge | `kind` | database | outbox rows that wait for their delivery to the forge |
+| `bosun_outbox_dead` | gauge | `kind` | database | outbox rows that are dead and no longer tried ([07-storage.md](07-storage.md#the-outbox)) |
+| `bosun_outbox_failures_total` | counter | `kind` | replica | failed deliveries of outbox rows, the last attempt of a row that dies included |
+| `bosun_log_lines_total` | counter | — | replica | log lines stored from the agents connected to the replica, duplicates and dropped output left out |
+| `bosun_log_bytes_total` | counter | — | replica | the bytes of those lines |
+| `bosun_webhook_processing_seconds` | histogram | — | replica | the time the webhook worker took to process a delivery, whatever its outcome |
+| `bosun_webhook_verification_failures_total` | counter | — | replica | deliveries refused because their `X-Hub-Signature-256` is missing or wrong ([06-runtime-services.md](06-runtime-services.md#deliveries)) |
 
 ## Backups
 

@@ -13,6 +13,7 @@ mod journal;
 mod lint;
 mod logs;
 mod matrix;
+mod metrics;
 mod oidc;
 mod openapi;
 mod planning;
@@ -123,6 +124,7 @@ async fn state(
         keys: Arc::new(keys()),
         tools: Arc::new(tools),
         oidc: Arc::new(crate::oidc::Providers::default()),
+        meters: Arc::new(crate::metrics::Meters::default()),
     }
 }
 

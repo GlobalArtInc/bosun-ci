@@ -582,7 +582,8 @@ A dead row keeps its `dead_at` and `last_error`, is never claimed again, and no 
 key: a newer row of the key is delivered and deletes it. Until the administration page of M3
 (step 32 of M3) lists, retries and discards dead rows, each one is logged at error level as
 `an outbox row is dead and is no longer tried`, with its `row`, `kind`, `key`, `attempts` and
-`error`, and `/metrics` counts the rows whose `dead_at` is set (step 39 of M1). Rows of a kind the
+`error`, and `bosun_outbox_dead` of `/metrics` counts the rows whose `dead_at` is set, by kind
+(step 39 of M1, [12-operations.md](12-operations.md#metrics)). Rows of a kind the
 replica does not know, written by a newer version during a rolling update, are left to the replicas
 that know it.
 

@@ -10,6 +10,7 @@ use super::installations;
 use crate::clock::Clock;
 use crate::forge::Forge;
 use crate::forge_events::{self, Failed, Parses};
+use crate::metrics::Meters;
 use crate::retry::{Failure, backoff};
 use crate::site::Site;
 
@@ -37,6 +38,7 @@ struct Planning {
     parses: Arc<Parses>,
     site: Site,
     clock: Clock,
+    meters: Arc<Meters>,
 }
 
 pub(crate) async fn work(
@@ -46,11 +48,13 @@ pub(crate) async fn work(
     parses: Arc<Parses>,
     site: Site,
     clock: Clock,
+    meters: Arc<Meters>,
 ) {
     let planning = Planning {
         parses,
         site,
         clock,
+        meters,
     };
     loop {
         let notified = wake.notified();
@@ -83,7 +87,9 @@ async fn next(
     };
     let started = Instant::now();
     let nested = transaction.begin().await?;
-    match process(&nested, forge, planning, &delivery).await {
+    let processed = process(&nested, forge, planning, &delivery).await;
+    planning.meters.processed_delivery(started.elapsed());
+    match processed {
         Ok(()) => {
             nested.commit().await?;
             deliveries::finish(&transaction, delivery.id, None).await?;

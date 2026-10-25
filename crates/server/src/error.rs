@@ -103,6 +103,14 @@ pub enum Error {
         #[source]
         source: io::Error,
     },
+    #[error(
+        "could not listen for metrics on {address}, which server.metrics_listen names: {source}"
+    )]
+    ListenMetrics {
+        address: SocketAddr,
+        #[source]
+        source: io::Error,
+    },
     #[error("the server stopped on an error: {0}")]
     Serve(#[source] io::Error),
     #[error("`{login}` is not a login: {LOGIN_RULE}")]

@@ -66,9 +66,9 @@ Step 26 of M1 ([../plan.md](../plan.md)) settled how a delivery is taken and pro
    before it looks at anything else of the request: the header must be `sha256=` and 64
    hexadecimal digits, and the digits must be the HMAC-SHA256 of the body under the webhook
    secret, compared in constant time. A delivery without the header, or whose header is not that
-   HMAC, is `401 unauthenticated` with a message saying which, and the server logs a warning,
-   which is what the alert on webhook verification failures counts
-   ([12-operations.md](12-operations.md#observability)).
+   HMAC, is `401 unauthenticated` with a message saying which, and the server logs a warning and
+   counts it in `bosun_webhook_verification_failures_total`, which is what the alert on webhook
+   verification failures reads ([12-operations.md](12-operations.md#metrics)).
 3. `X-GitHub-Delivery` must be 1 to 64 letters, digits and `-`, `X-GitHub-Event` 1 to 64
    lowercase letters and `_`, and the body a JSON object; otherwise the answer is
    `422 invalid_input`.
@@ -98,7 +98,8 @@ processes it inside a savepoint of that transaction:
   `last_error`, and a warning names it.
 
 A worker holds one database connection while it processes. Each processed delivery is logged as
-`processed a webhook delivery` with its `delivery`, `event` and `duration_ms`.
+`processed a webhook delivery` with its `delivery`, `event` and `duration_ms`, and the time of each
+processing, whatever its outcome, goes into `bosun_webhook_processing_seconds`.
 
 The worker handles `installation`, `installation_repositories` and `repository` itself, and plans
 the runs of every other event as [02-workflows.md](02-workflows.md#repository-workflows) says, the

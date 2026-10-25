@@ -23,6 +23,7 @@ use crate::clock::Clock;
 use crate::forge::Forge;
 use crate::forge_token;
 use crate::keys::Keyring;
+use crate::metrics::Meters;
 use crate::retry::{Failure, backoff};
 use crate::site::Site;
 use crate::store::Backend;
@@ -53,6 +54,7 @@ pub(crate) struct Outbox {
     pub(crate) keys: Arc<Keyring>,
     pub(crate) site: Site,
     pub(crate) clock: Clock,
+    pub(crate) meters: Arc<Meters>,
 }
 
 pub(crate) async fn work(outbox: Outbox, wake: Arc<Notify>) {
@@ -92,6 +94,9 @@ pub(crate) async fn next(outbox: &Outbox) -> Result<bool, bosun_db::Error> {
             at_least: Duration::ZERO,
         }),
     };
+    if result.is_err() {
+        outbox.meters.failed_report(claimed.kind);
+    }
     let now = outbox.clock.now();
     let transaction = outbox.db.begin().await?;
     let row = claimed.id;
@@ -174,7 +179,7 @@ fn dead(claimed: &Claimed, error: &str) {
     );
 }
 
-fn name(kind: Kind) -> &'static str {
+pub(crate) fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::CheckRun => "check_run",
         Kind::CommitStatus => "commit_status",

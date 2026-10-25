@@ -27,6 +27,7 @@ use crate::agents::progress::{self, Progress, Reporter};
 use crate::clock::Clock;
 use crate::forge::Forge;
 use crate::forge_token::Tokens;
+use crate::metrics::Meters;
 use crate::outbox::{self, Outbox};
 use crate::queue;
 
@@ -114,6 +115,7 @@ impl Scene {
                 keys,
                 site: site(),
                 clock: Clock::system(),
+                meters: Arc::new(Meters::default()),
             },
             world,
             fake,
