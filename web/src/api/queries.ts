@@ -37,6 +37,8 @@ const ORGANISATION = 'organisation';
 
 const SECRETS = 'secrets';
 
+const SUMMARY = 'summary';
+
 const VARIABLES = 'variables';
 
 export function runsKey(filters: RunFilters, limit: number) {
@@ -134,6 +136,15 @@ export function useExecution(id: string | null) {
     queryKey: executionKey(id ?? ''),
     queryFn: () => api.execution(id ?? ''),
     enabled: ready && id !== null,
+  });
+}
+
+export function useSummary(execution: string, step: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [SUMMARY, execution, step],
+    queryFn: () => api.summary(execution, step),
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }
 

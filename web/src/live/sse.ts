@@ -1,17 +1,37 @@
 export interface Message {
   id: string | null;
+  event: string | null;
   data: string | null;
   retry: number | null;
 }
 
 interface Fields {
   id: string | null;
+  event: string | null;
   data: string[];
   retry: number | null;
 }
 
+export const RECONNECT_MS = 1000;
+
+export const FINAL = new Set([403, 404, 422]);
+
 function fresh(): Fields {
-  return { id: null, data: [], retry: null };
+  return { id: null, event: null, data: [], retry: null };
+}
+
+export function pause(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, milliseconds);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }
 
 function field(fields: Fields, line: string) {
@@ -21,6 +41,8 @@ function field(fields: Fields, line: string) {
   const value = raw.startsWith(' ') ? raw.slice(1) : raw;
   if (name === 'data') {
     fields.data.push(value);
+  } else if (name === 'event') {
+    fields.event = value;
   } else if (name === 'id' && !value.includes('\0')) {
     fields.id = value;
   } else if (name === 'retry' && /^\d+$/.test(value)) {
@@ -34,6 +56,7 @@ function complete(fields: Fields): Message | null {
   }
   return {
     id: fields.id,
+    event: fields.event,
     data: fields.data.length === 0 ? null : fields.data.join('\n'),
     retry: fields.retry,
   };

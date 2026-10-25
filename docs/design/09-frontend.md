@@ -15,6 +15,7 @@ has no endpoint of its own.
 | Graphs | React Flow with ELK for layered layout |
 | YAML | Monaco with schema-driven completion; the `yaml` library's document model for edits that keep comments |
 | Terminal | xterm.js |
+| Step summaries | `react-markdown` with `remark-gfm`, `rehype-raw` and `rehype-sanitize` |
 | Parser in the browser | `bosun-workflow` and `bosun-expr` compiled to WebAssembly as `@globalart/bosun-wasm` |
 
 The built interface is embedded in the `bosun-server` binary. Hashed assets are served as
@@ -188,6 +189,85 @@ Step 41 of M1 ([../plan.md](../plan.md)) settled the pages of M1 where runs are 
 - The history: the journal of the run as a timeline, filtered to interventions or showing
   everything.
 - A held job opens the terminal in a drawer, writable for one person and read-only for others.
+
+Step 43 of M1 ([../plan.md](../plan.md)) settled the logs, the annotations and the step summaries
+of the job panel:
+
+- **Addresses.** A step of the job panel opens its log in place, one step at a time, as
+  `?job=<job>&step=<step>`. `&line=<n>` marks line `n` of that log and scrolls to it, and
+  `&annotation=<i>` does the same for the line of the step's annotation `i`, counted from 0 in the
+  order the API lists them. Each line's number links to the address of that line; moving between
+  search matches replaces the address in the history instead of adding to it.
+- **Reading.** A step that is completed when its log opens is read once, as text. Any other is
+  followed with `?follow=true` from its first line, its lines added to the view at most every
+  100 ms. A followed log that ends without `end` is opened again after the `retry` the server sent,
+  with `Last-Event-ID` set to the number of the last line it showed, so no line is missed or shown
+  twice; `end` stops the following. A `401`, `403`, `404` or `422` ends it as it ends the event
+  stream, and a `401` makes the shell read `/me` again.
+- **Virtualisation.** A line is one row of a fixed height of 20 px that does not wrap; a long line
+  scrolls sideways. Only the rows inside the view, at most 480 px high, and 20 rows above and below
+  it are in the document, so a log costs as many elements as a screen shows whatever its length.
+  A followed log keeps its end in view while the reader stays at the end, and stays where the
+  reader scrolled otherwise.
+- **Colours.** The sequences that select graphic rendition colour and style the text: the sixteen
+  colours as classes on the colours of the theme, so they read in both themes, the 256 colours and
+  the colours given by red, green and blue as inline colours built from their numbers, and bold,
+  dim, italic, underline, strike-through and inverse. Every other escape sequence, those that move
+  the cursor, set a title or wrap a link among them, is dropped, and so is a sequence the line
+  leaves unfinished. Every line starts plain, so a line renders without the lines before it, as a
+  view that holds only some of them needs. Lines are text nodes: nothing in a line or a sequence
+  becomes markup.
+- **Markers.** `##[group]` begins a group titled with the rest of its line, which ends at
+  `##[endgroup]` or at the next `##[group]`: the viewer does not nest groups. A group that
+  has ended is folded until the reader opens it; a group that has not, the one a running step is
+  writing, is open until it ends. `##[endgroup]` is never shown, and an address that names a line
+  of a folded group opens the group. `##[error]`, `##[warning]`, `##[notice]` and `##[debug]` show
+  their kind, translated, before the rest of the line.
+- **Annotations at their lines.** An annotation does not carry the number of its line, so the
+  viewer finds it. The agent writes the line of every annotation after `##[<kind>]` in the order it
+  reports them, and keeps the first annotations of each kind
+  ([05-execution.md](05-execution.md#file-commands-and-workflow-commands)), so an annotation is
+  placed at the first line after the line of the previous annotation of its kind that is marked
+  with its kind and holds the first line of its message, both without colour codes: the message
+  itself for a workflow command, the matched line that holds it for a problem matcher. A line of
+  output that only looks like a marker, and the lines of annotations the agent dropped, are passed
+  over. The line shows the annotation's title and `file:line:column` after its text.
+- **The list.** The job panel lists the annotations of the steps of the job's latest execution
+  above its steps, errors first, then warnings, then notices, each group in the order of its steps
+  and of their reports, with the title, `file:line:column`, the message, the step and a link to the
+  annotation's line.
+- **Results come with a read.** `step.status` carries neither the annotations nor the
+  `summary_size` of a step, so the job panel reads its execution again whenever the cache holds a
+  completed step that the last read of the execution did not show completed. A read is told apart
+  from a patch of the stream by the cache of TanStack Query, which marks data that `setQueryData`
+  sets as manual; the patches themselves invalidate nothing, as the fixture of the stream pins.
+- **Search.** The search form sends `?search=` for the step, says how many lines match, and makes
+  the first match and then each next or previous one the address's line; every match is marked in
+  the view. A search reads the lines stored when it is sent, so a running step is searched again
+  to find its later lines.
+- **Times.** Times are hidden until the reader shows them, for every step of the panel; a line
+  then shows its time of day in the reader's time zone and the format of the language, to the
+  millisecond, with the time the server stored as its title.
+- **Raw download.** A link to the log endpoint without parameters, whose `download` name is
+  `<job key>-<step number>.log`, saves the text the server serves, with its times and without any
+  rendering.
+- **Summaries.** Every step with a `summary_size` has its summary read once and rendered under its
+  name, below the steps. The Markdown is that of the target, GitHub Flavored Markdown through
+  `react-markdown` and `remark-gfm`. Raw HTML is parsed by `rehype-raw` and then sanitised by
+  `rehype-sanitize` with its default schema, which follows the target's sanitiser: only the tags
+  and attributes the target allows, `script` removed with its content, no event handler and no
+  `style`, links only to `http`, `https`, `mailto`, `irc`, `ircs`, `xmpp` or relative addresses,
+  and every `id` and `name` prefixed with `user-content-`, so a summary cannot take the place of a
+  global of the page. The tree becomes React elements, never HTML text. Beyond the target's rules,
+  an image loads only from an absolute `https` address: an `img` whose `src` is anything else,
+  relative and scheme-less addresses included, and a `source` with any other address in its
+  `srcset` are removed. Images are fetched without a referrer, and links carry
+  `rel="nofollow noreferrer"`. The renderer is a chunk of its own, loaded with the first summary a
+  page shows. The hostile summaries that pin these rules are in
+  `web/src/test/fixtures/summaries.ts`.
+- **Keys.** The strings of the log viewer, the list and the summaries are in `runPage.log.`,
+  `runPage.annotations.` and `runPage.summaries.`; the kinds of annotations reuse those of the
+  run's notices.
 
 **Approvals.** The inbox of gates and environments waiting for the user, each with its message, the
 form for the gate's inputs generated from their schema, and approve or reject with a comment.

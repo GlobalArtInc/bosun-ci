@@ -1,22 +1,29 @@
 import { Badge, Box, Code, DataList, Flex, Grid, Heading, Link, Text } from '@radix-ui/themes';
-import { ChevronRight, GitCommitHorizontal } from 'lucide-react';
+import { hashKey, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ChevronRight, GitCommitHorizontal } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router';
 import {
   ApiError,
   type ConclusionSource,
+  type Execution,
   type Job,
   type Notice,
   type Permission,
   type Run,
-  type Severity,
   type Step,
 } from '../api/client';
-import { useExecution, useJobs, useProject, useRun } from '../api/queries';
-import { type Key, useI18n } from '../i18n/i18n';
+import { executionKey, useExecution, useJobs, useProject, useRun } from '../api/queries';
+import { useI18n } from '../i18n/i18n';
 import { useLive } from '../live/live';
+import { addressOf, type LogAddress, withStep } from '../logs/address';
+import { Annotations } from '../logs/annotations';
+import { Summaries } from '../logs/summary';
+import { LogViewer } from '../logs/viewer';
 import { Cancel } from '../runs/cancel';
 import { actorName, shortSha } from '../runs/labels';
 import { RunTrigger } from '../runs/run-list';
+import { bySeverity, SEVERITIES } from '../runs/severity';
 import { StateBadge, WAITING } from '../runs/state';
 import { nest } from '../runs/steps';
 import { duration, span, stamp, useNow } from '../runs/time';
@@ -58,32 +65,17 @@ interface JobPanelProps {
 }
 
 interface StepItemProps {
+  job: Job;
   step: Step;
   now: number;
+  address: LogAddress;
+  times: boolean;
+  onTimes: (shown: boolean) => void;
 }
 
-interface SeverityLook {
-  key: Key;
-  color: 'red' | 'amber' | 'blue';
-}
-
-const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warning: 1, notice: 2 };
-
-const SEVERITIES: Record<Severity, SeverityLook> = {
-  error: { key: 'runPage.notices.error', color: 'red' },
-  warning: { key: 'runPage.notices.warning', color: 'amber' },
-  notice: { key: 'runPage.notices.notice', color: 'blue' },
-};
-
-function bySeverity(notices: Notice[]): Notice[] {
-  return notices
-    .map((notice, order) => ({ notice, order }))
-    .sort(
-      (left, right) =>
-        SEVERITY_ORDER[left.notice.severity] - SEVERITY_ORDER[right.notice.severity] ||
-        left.order - right.order,
-    )
-    .map(({ notice }) => notice);
+interface Read {
+  count: number;
+  completed: ReadonlySet<string>;
 }
 
 function noticeKey(notice: Notice): string {
@@ -163,7 +155,7 @@ function Notices({ notices, jobs }: NoticesProps) {
   return (
     <Flex asChild direction="column" gap="3" m="0" p="0">
       <ol className="plain-list" aria-label={t('runPage.notices.title')}>
-        {bySeverity(notices).map((notice) => {
+        {bySeverity(notices, (notice) => notice.severity).map((notice) => {
           const severity = SEVERITIES[notice.severity];
           const job = jobs.find((known) => known.id === notice.job_id);
           return (
@@ -259,24 +251,96 @@ function Jobs({ jobs, selected }: JobsProps) {
   );
 }
 
-function StepItem({ step, now }: StepItemProps) {
+function StepItem({ job, step, now, address, times, onTimes }: StepItemProps) {
   const { t } = useI18n();
+  const [, setParams] = useSearchParams();
   const took = span(step.started_at, step.completed_at, now);
+  const open = address.step === step.id;
+  const log = `log-${step.id}`;
+  const toggle = () => setParams((previous) => withStep(previous, open ? null : step.id), { replace: true });
   return (
-    <Flex align="center" justify="between" gap="3" wrap="wrap" py="1">
-      <Text size="2">{step.name}</Text>
-      <Flex align="center" gap="3">
-        {took === null ? null : <Text size="1">{duration(t, took)}</Text>}
-        <StateBadge status={step.status} conclusion={step.conclusion} source={step.conclusion_source} />
+    <Flex direction="column" gap="2">
+      <Flex align="center" justify="between" gap="3" wrap="wrap" py="1">
+        <button
+          type="button"
+          className="step-toggle"
+          aria-expanded={open}
+          aria-controls={open ? log : undefined}
+          onClick={toggle}
+        >
+          {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+          <Text size="2">{step.name}</Text>
+        </button>
+        <Flex align="center" gap="3">
+          {took === null ? null : <Text size="1">{duration(t, took)}</Text>}
+          <StateBadge status={step.status} conclusion={step.conclusion} source={step.conclusion_source} />
+        </Flex>
       </Flex>
+      {open ? (
+        <Box id={log}>
+          <LogViewer
+            job={job}
+            step={step}
+            times={times}
+            onTimes={onTimes}
+            line={address.line}
+            annotation={address.annotation}
+          />
+        </Box>
+      ) : null}
     </Flex>
   );
 }
 
+function completedIn(data: unknown): ReadonlySet<string> {
+  const steps = (data as Execution | undefined)?.steps ?? [];
+  return new Set(steps.filter((step) => step.status === 'completed').map((step) => step.id));
+}
+
+function useStepResults(execution: string | null, steps: Step[] | undefined) {
+  const queryClient = useQueryClient();
+  const [read, setRead] = useState<Read | null>(null);
+  useEffect(() => {
+    if (execution === null) {
+      return;
+    }
+    const hash = hashKey(executionKey(execution));
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === 'updated' &&
+        event.query.queryHash === hash &&
+        event.action.type === 'success' &&
+        event.action.manual !== true
+      ) {
+        const completed = completedIn(event.action.data);
+        setRead((previous) => ({ count: (previous?.count ?? 0) + 1, completed }));
+      }
+    });
+  }, [execution, queryClient]);
+  const unread =
+    read === null
+      ? ''
+      : (steps ?? [])
+          .filter((step) => step.status === 'completed' && !read.completed.has(step.id))
+          .map((step) => step.id)
+          .join(',');
+  const after = read?.count ?? 0;
+  useEffect(() => {
+    if (unread !== '' && after > 0 && execution !== null) {
+      void queryClient.invalidateQueries({ queryKey: executionKey(execution), exact: true });
+    }
+  }, [unread, after, execution, queryClient]);
+}
+
 function JobPanel({ run, job, allowed }: JobPanelProps) {
   const { t } = useI18n();
+  const [params] = useSearchParams();
   const execution = useExecution(job.execution_id);
   const now = useNow(job.status !== 'completed');
+  const [times, setTimes] = useState(false);
+  const address = addressOf(params);
+  const steps = execution.data?.steps;
+  useStepResults(job.execution_id, steps);
   return (
     <Flex direction="column" gap="4">
       <Flex align="center" justify="between" gap="3" wrap="wrap">
@@ -296,28 +360,38 @@ function JobPanel({ run, job, allowed }: JobPanelProps) {
         </Text>
       ) : null}
       {execution.isError ? <Failure error={execution.error} onRetry={() => execution.refetch()} /> : null}
-      {execution.data !== undefined && execution.data.steps.length === 0 ? (
+      {steps !== undefined && steps.length === 0 ? (
         <Text as="p" size="2" color="gray">
           {t('runPage.panel.noSteps')}
         </Text>
       ) : null}
-      {execution.data !== undefined && execution.data.steps.length > 0 ? (
+      {steps === undefined ? null : <Annotations steps={steps} />}
+      {steps !== undefined && steps.length > 0 ? (
         <Flex asChild direction="column" gap="1" m="0" p="0">
           <ol className="plain-list" aria-label={t('runPage.panel.steps')}>
-            {nest(execution.data.steps).map((node) => (
+            {nest(steps).map((node) => (
               <li key={node.step.id}>
-                <StepItem step={node.step} now={now} />
+                <StepItem
+                  job={job}
+                  step={node.step}
+                  now={now}
+                  address={address}
+                  times={times}
+                  onTimes={setTimes}
+                />
                 {node.pre.length + node.post.length === 0 ? null : (
-                  <Box asChild pl="4" m="0">
+                  <Box asChild pl="5" m="0">
                     <ol className="plain-list">
                       {[...node.pre, ...node.post].map((step) => (
                         <li key={step.id}>
-                          <Flex align="center" gap="1">
-                            <ChevronRight size={14} aria-hidden />
-                            <Box flexGrow="1">
-                              <StepItem step={step} now={now} />
-                            </Box>
-                          </Flex>
+                          <StepItem
+                            job={job}
+                            step={step}
+                            now={now}
+                            address={address}
+                            times={times}
+                            onTimes={setTimes}
+                          />
                         </li>
                       ))}
                     </ol>
@@ -328,6 +402,7 @@ function JobPanel({ run, job, allowed }: JobPanelProps) {
           </ol>
         </Flex>
       ) : null}
+      {steps === undefined ? null : <Summaries steps={steps} />}
     </Flex>
   );
 }
@@ -371,7 +446,7 @@ function RunView({ run }: RunViewProps) {
                 {t('runPage.panel.choose')}
               </Text>
             ) : (
-              <JobPanel run={run} job={job} allowed={allowed} />
+              <JobPanel key={job.id} run={run} job={job} allowed={allowed} />
             )}
           </Section>
         </Box>

@@ -15,6 +15,10 @@ export type Run = components['schemas']['Run'];
 export type Job = components['schemas']['Job'];
 export type Execution = components['schemas']['Execution'];
 export type Step = components['schemas']['Step'];
+export type Annotation = components['schemas']['Annotation'];
+export type AnnotationKind = components['schemas']['AnnotationKind'];
+export type LogLineData = components['schemas']['LogLine'];
+type LogSearch = components['schemas']['LogSearch'];
 export type Notice = components['schemas']['Notice'];
 export type Actor = components['schemas']['Actor'];
 export type QueuedJob = components['schemas']['QueuedJob'];
@@ -255,6 +259,57 @@ export class Api {
   async execution(id: string): Promise<Execution> {
     return settle(
       await this.client.GET('/api/v1/executions/{execution}', { params: { path: { execution: id } } }),
+    );
+  }
+
+  async log(execution: string, step: string, signal: AbortSignal): Promise<string> {
+    return settle(
+      await this.client.GET('/api/v1/executions/{execution}/steps/{step}/log', {
+        params: { path: { execution, step } },
+        parseAs: 'text',
+        signal,
+      }),
+    );
+  }
+
+  async followLog(
+    execution: string,
+    step: string,
+    last: number | null,
+    signal: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>> {
+    const body = settle(
+      await this.client.GET('/api/v1/executions/{execution}/steps/{step}/log', {
+        params: {
+          path: { execution, step },
+          query: { follow: true },
+          header: last === null ? {} : { 'Last-Event-ID': last },
+        },
+        parseAs: 'stream',
+        signal,
+      }),
+    );
+    if (body === null) {
+      throw new Error('the followed log has no body');
+    }
+    return body;
+  }
+
+  async searchLog(execution: string, step: string, search: string): Promise<LogLineData[]> {
+    const found = settle(
+      await this.client.GET('/api/v1/executions/{execution}/steps/{step}/log', {
+        params: { path: { execution, step }, query: { search } },
+      }),
+    ) as LogSearch;
+    return found.matches;
+  }
+
+  async summary(execution: string, step: string): Promise<string> {
+    return settle(
+      await this.client.GET('/api/v1/executions/{execution}/steps/{step}/summary', {
+        params: { path: { execution, step } },
+        parseAs: 'text',
+      }),
     );
   }
 

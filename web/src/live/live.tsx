@@ -5,7 +5,7 @@ import { useApi } from '../api/context';
 import { ME } from '../session/session';
 import { type Live, LiveContext } from './context';
 import { apply, type LiveEvent } from './patch';
-import { messages } from './sse';
+import { FINAL, messages, pause, RECONNECT_MS } from './sse';
 
 interface Position {
   last: string | null;
@@ -13,24 +13,6 @@ interface Position {
 
 interface LiveProviderProps {
   children: ReactNode;
-}
-
-const RECONNECT_MS = 1000;
-
-const FINAL = new Set([403, 404, 422]);
-
-function pause(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
-  });
 }
 
 export async function stream(
