@@ -1,6 +1,7 @@
 mod commands;
 mod engine;
 mod hash;
+mod mask;
 mod output;
 mod scope;
 mod shell;

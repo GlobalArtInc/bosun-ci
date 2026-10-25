@@ -19,6 +19,7 @@ use tokio::time::{Instant, sleep_until, timeout};
 use uuid::Uuid;
 
 use crate::commands::Commands;
+use crate::mask::{Masker, Sink};
 use crate::output::Output;
 use crate::scope::{self, Fixed, Record, Standing, StepScope};
 use crate::shell::Invocation;
@@ -100,6 +101,10 @@ pub async fn run(
         evaluated,
         minute,
     } = job;
+    let events = Sink::new(
+        events,
+        Masker::new(contexts.secrets.values().filter_map(Value::as_str)),
+    );
     let JobKind::Steps(steps) = template.kind;
     let prepared =
         prepare(&workspace, &temp, &tool_cache, &contexts.github).and_then(|directories| {
@@ -111,21 +116,16 @@ pub async fn run(
         Ok(prepared) => prepared,
         Err(error) => {
             if !steps.is_empty() {
-                let _ = events.send(Event::StepStarted {
-                    index: 0,
-                    at: SystemTime::now(),
-                });
-                line(
-                    &events,
+                events.started(0);
+                events.line(
                     0,
-                    format!("the job could not be prepared on this agent: {error}"),
+                    &format!("the job could not be prepared on this agent: {error}"),
                 );
-                finished(
-                    &events,
+                events.finished(
                     0,
                     Conclusion::Failure,
                     Conclusion::Failure,
-                    BTreeMap::new(),
+                    &BTreeMap::new(),
                 );
             }
             return Completed {
@@ -282,7 +282,7 @@ struct Execution {
     last: Option<u32>,
     processes: Processes,
     outputs: Vec<Output>,
-    events: UnboundedSender<Event>,
+    events: Sink,
     cancel: watch::Receiver<bool>,
 }
 
@@ -359,19 +359,18 @@ impl Execution {
                     Conclusion::Skipped,
                     &BTreeMap::new(),
                 );
-                finished(
-                    &self.events,
+                self.events.finished(
                     index,
                     Conclusion::Skipped,
                     Conclusion::Skipped,
-                    BTreeMap::new(),
+                    &BTreeMap::new(),
                 );
                 return;
             }
             Ok(true) => self.start(index),
             Err(fault) => {
                 self.start(index);
-                line(&self.events, index, fault);
+                self.events.line(index, &fault);
                 self.standing.failed = true;
                 self.record(
                     step,
@@ -379,12 +378,11 @@ impl Execution {
                     Conclusion::Failure,
                     &BTreeMap::new(),
                 );
-                finished(
-                    &self.events,
+                self.events.finished(
                     index,
                     Conclusion::Failure,
                     Conclusion::Failure,
-                    BTreeMap::new(),
+                    &BTreeMap::new(),
                 );
                 return;
             }
@@ -398,10 +396,7 @@ impl Execution {
 
     fn start(&mut self, index: u32) {
         self.last = Some(index);
-        let _ = self.events.send(Event::StepStarted {
-            index,
-            at: SystemTime::now(),
-        });
+        self.events.started(index);
     }
 
     fn conclude(&mut self, index: u32, step: &Step, ran: Ran, scope: &StepScope) {
@@ -421,7 +416,7 @@ impl Execution {
             ) {
                 Ok(true) => conclusion = Conclusion::Success,
                 Ok(false) => {}
-                Err(fault) => line(&self.events, index, fault),
+                Err(fault) => self.events.line(index, &fault),
             }
         }
         match conclusion {
@@ -433,7 +428,7 @@ impl Execution {
             self.timed_out = true;
         }
         self.record(step, outcome, conclusion, &outputs);
-        finished(&self.events, index, outcome, conclusion, outputs);
+        self.events.finished(index, outcome, conclusion, &outputs);
     }
 
     fn record(
@@ -463,7 +458,7 @@ impl Execution {
         cancellable: bool,
     ) -> Ran {
         let failed = |fault: String| {
-            line(&self.events, index, fault);
+            self.events.line(index, &fault);
             Ran::failed()
         };
         let commands = match Commands::create(github) {
@@ -535,7 +530,7 @@ impl Execution {
             .await;
         let written = commands.read();
         for fault in &written.faults {
-            line(&self.events, index, fault.clone());
+            self.events.line(index, fault);
         }
         self.files.extend(written.env);
         for path in written.paths {
@@ -599,10 +594,9 @@ impl Execution {
             cancellable,
         } = process;
         if !directory.is_dir() {
-            line(
-                &self.events,
+            self.events.line(
                 index,
-                format!(
+                &format!(
                     "the working directory {} does not exist",
                     directory.display()
                 ),
@@ -615,7 +609,7 @@ impl Execution {
         ) {
             Ok(invocation) => invocation,
             Err(reason) => {
-                line(&self.events, index, reason);
+                self.events.line(index, &reason);
                 return (Conclusion::Failure, None);
             }
         };
@@ -623,10 +617,9 @@ impl Execution {
             .temp
             .join(format!("step-{index}{}", invocation.extension()));
         if let Err(error) = fs::write(&file, script) {
-            line(
-                &self.events,
+            self.events.line(
                 index,
-                format!(
+                &format!(
                     "the script could not be written to {}: {error}",
                     file.display()
                 ),
@@ -643,10 +636,9 @@ impl Execution {
         let (child, mut output) = match self.spawn(index, &invocation, &file, directory, env) {
             Ok(started) => started,
             Err(error) => {
-                line(
-                    &self.events,
+                self.events.line(
                     index,
-                    format!(
+                    &format!(
                         "the step could not start `{}`: {error}",
                         invocation.program(&file)
                     ),
@@ -659,12 +651,11 @@ impl Execution {
         self.outputs.push(output);
         match ended {
             Ended::TimedOut(limit) => {
-                line(
-                    &self.events,
+                self.events.line(
                     index,
                     match limit {
-                        Limit::Step => "the step ran beyond its `timeout-minutes`".to_owned(),
-                        Limit::Job => "the job ran beyond its `timeout-minutes`".to_owned(),
+                        Limit::Step => "the step ran beyond its `timeout-minutes`",
+                        Limit::Job => "the job ran beyond its `timeout-minutes`",
                     },
                 );
                 (Conclusion::TimedOut, Some(limit))
@@ -745,11 +736,18 @@ impl Execution {
         for (name, template) in templates {
             match scope::text(&format!("`outputs.{name}` of the job"), template, &scope) {
                 Ok(value) if value.is_empty() => {}
+                Ok(value) if self.events.masker().masks(&value) => self.events.line(
+                    self.last.unwrap_or(0),
+                    &format!(
+                        "the output `{name}` of the job is not reported, since it contains a \
+                         masked value"
+                    ),
+                ),
                 Ok(value) => {
                     outputs.insert(name.clone(), value);
                 }
                 Err(fault) => {
-                    line(&self.events, self.last.unwrap_or(0), fault);
+                    self.events.line(self.last.unwrap_or(0), &fault);
                     self.standing.failed = true;
                     return BTreeMap::new();
                 }
@@ -799,28 +797,4 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
     if cancel.wait_for(|cancelled| *cancelled).await.is_err() {
         std::future::pending::<()>().await;
     }
-}
-
-fn line(events: &UnboundedSender<Event>, index: u32, text: String) {
-    let _ = events.send(Event::Line {
-        index,
-        at: SystemTime::now(),
-        text: text.into_bytes(),
-    });
-}
-
-fn finished(
-    events: &UnboundedSender<Event>,
-    index: u32,
-    outcome: Conclusion,
-    conclusion: Conclusion,
-    outputs: BTreeMap<String, String>,
-) {
-    let _ = events.send(Event::StepFinished {
-        index,
-        at: SystemTime::now(),
-        outcome,
-        conclusion,
-        outputs,
-    });
 }

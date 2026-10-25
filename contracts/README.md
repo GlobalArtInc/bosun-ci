@@ -29,6 +29,12 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/file-commands/`: cases in the format of `fixtures/steps/`, from step 21 of M1. They pin
   `GITHUB_ENV`, `GITHUB_OUTPUT`, `GITHUB_PATH` and `GITHUB_STATE`, with the multi-line form, and the
   outputs of steps and jobs.
+- `fixtures/masking/`: cases in the format of `fixtures/steps/`, from step 22 of M1, whose job may
+  have `secrets`, the `secrets` context of its assignment. They pin what the agent masks: a value
+  raw, in each encoded form the target masks, in the parts around its first `&` that Bosun adds and
+  line by line, the merging of occurrences, a step output reported masked and a job output dropped
+  with a line in the log. The URL-encoded and XML-escaped forms and the sections PowerShell prints
+  are written out in the cases; the others are produced by the steps.
 - `fixtures/hash-files/`: `cases.json`, from step 21 of M1, a list of cases each with a
   `description`, the `patterns` given to `hashFiles`, and either the `files` of `tree/` it hashes, in
   their order, or `fails`. The test copies `tree/` into a workspace and compares the result of each

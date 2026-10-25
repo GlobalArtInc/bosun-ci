@@ -55,3 +55,7 @@ pub fn calls_status(condition: &Condition) -> bool {
 pub fn holds(condition: &Condition, scope: &dyn Scope) -> Result<bool, Error> {
     evaluate::holds(condition, scope)
 }
+
+pub fn to_json(value: &Value) -> String {
+    json::write(value)
+}

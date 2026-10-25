@@ -343,6 +343,7 @@ dependencies = [
  "chrono",
  "clap",
  "getrandom 0.4.3",
+ "prost",
  "prost-types",
  "reqwest",
  "rustix",
@@ -459,6 +460,8 @@ dependencies = [
 name = "bosun-runner"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
+ "base64 0.22.1",
  "bosun-expr",
  "bosun-proto",
  "bosun-types",

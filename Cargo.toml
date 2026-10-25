@@ -24,6 +24,7 @@ bosun-testkit = { path = "crates/testkit" }
 bosun-types = { path = "crates/types" }
 bosun-workflow = { path = "crates/workflow" }
 
+aho-corasick = "1"
 argon2 = "0.6"
 axum = { version = "0.8", default-features = false }
 base64 = "0.22"

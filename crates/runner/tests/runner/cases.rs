@@ -6,6 +6,7 @@ use std::time::Duration;
 use bosun_types::ir::{Action, Evaluable, Shell, Step};
 use bosun_types::status::Conclusion;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::{job, repository, run_cancelled_on, step, template};
 
@@ -17,6 +18,8 @@ struct Case {
     conclusion: Conclusion,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    #[serde(default)]
+    secrets: BTreeMap<String, String>,
     #[serde(default)]
     defaults: CaseDefaults,
     timeout_minutes: Option<u32>,
@@ -131,6 +134,11 @@ async fn every_case_of(directory: &str) {
         let mut job = job(directory.path(), steps);
         job.minute = MINUTE;
         job.evaluated.env = case.env.clone();
+        job.contexts.secrets = case
+            .secrets
+            .iter()
+            .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+            .collect();
         job.evaluated.shell = case.defaults.shell.as_deref().map(shell);
         job.evaluated.working_directory = case.defaults.working_directory.clone();
         if let Some(minutes) = case.timeout_minutes {
@@ -204,4 +212,9 @@ async fn every_step_case_produces_its_outcomes_and_its_output() {
 #[tokio::test(flavor = "multi_thread")]
 async fn every_file_command_case_produces_its_outcomes_its_output_and_its_outputs() {
     every_case_of("file-commands").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_masking_case_masks_its_secrets_in_the_output_and_the_outputs() {
+    every_case_of("masking").await;
 }

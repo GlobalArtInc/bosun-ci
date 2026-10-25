@@ -7,6 +7,8 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+aho-corasick.workspace = true
+base64.workspace = true
 bosun-expr.workspace = true
 bosun-proto.workspace = true
 bosun-types.workspace = true

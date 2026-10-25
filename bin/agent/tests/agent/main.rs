@@ -1,5 +1,6 @@
 mod cancel;
 mod jobs;
+mod masking;
 mod reconnect;
 mod register;
 mod server;

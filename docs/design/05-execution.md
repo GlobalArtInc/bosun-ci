@@ -487,13 +487,73 @@ reported with `StepFinished` within the target's limits: 10 of each kind per ste
 
 ### Masking
 
-The agent masks before a log line or terminal output leaves the process. The values it masks are
-every secret in the assignment, the forge token, the job token and every value given to
-`::add-mask::`, whatever their length. For each value it also masks the encoded forms the target
-masks: JSON-escaped, URL-encoded, XML-escaped, escaped for an expression string, escaped for a
-command line and for PowerShell, with surrounding quotes trimmed, and base64 at all three byte
-alignments. A multi-line value is masked as a whole and line by line. A job output that contains a
-masked value is dropped with a warning, as in the target behaviour.
+Every text passes through the job's masker before it leaves the agent: the lines of a step's log,
+the agent's own lines in it, error messages among them, the outputs `StepFinished` reports, the
+annotations and the step summary of a step, and the output of a debug terminal. The execution
+engine masks as it produces each text, so the log spool on disk holds masked lines too. Annotations
+and summaries are masked like log lines in every text they carry, the message, the title, the file
+and the summary itself, before `StepFinished` carries them (step 23 of
+[../plan.md](../plan.md)). Of the messages about a job, only a `Reject` leaves without the masker,
+since the agent rejects an assignment before it builds one. Its reason may quote the execution id
+and the slugs of the assignment, the `repository` of its `github` context, a field or a setting of
+the job, and the error of a document that does not parse, which can quote a value of that document,
+`evaluated.env` included. The server writes the documents from the types the agent reads and never
+writes one whose values fail to parse, so the parse error a reason carries is that of a field the
+agent does not know, which names the field and no value (see *Fields an agent does not know*).
+
+**Values.** The masker holds every secret in the assignment's `secrets` context, the forge token,
+the job token and every value given to `::add-mask::`, whatever their length. A value is taken
+without the white space around it, as in the target, and so is each of its lines, split at `\r` and
+`\n`; one that is only white space masks nothing. A multi-line value is so masked as a whole, as a
+message of the agent can quote it, and line by line, as a step prints it.
+
+**Encoded forms.** For each value it also masks the encoded forms the target masks:
+
+- JSON-escaped, as `toJSON` escapes a string, without the quotes around it;
+- URL-encoded: every byte of the UTF-8 text but `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_` and `~`
+  as `%XX` with upper-case digits;
+- XML-escaped: `<`, `>`, `"`, `'` and `&` as `&lt;`, `&gt;`, `&quot;`, `&apos;` and `&amp;`;
+- escaped for an expression string, with `'` doubled, and for a command line, with `"` as `\"`;
+- for PowerShell, the two sections of a value with `&` that PowerShell prints apart, or wraps in
+  colour codes, when the value given to it as a command fails. A value that holds `&+` is cut at
+  its first `&+`: the first section runs through the `&+`, and the second starts after it and after
+  the one character PowerShell colours there. Any other value is cut at its last `&`: the first
+  section runs through that `&`, and the second is the rest. The target masks a section only from
+  six characters on; Bosun applies the rule on short forms below, so it masks one from four bytes
+  on. Beyond the target, Bosun also masks the parts before and after the value's first `&`, so a
+  value printed with white space around its first `&` is masked too;
+- without its surrounding quotes, when the value starts and ends with `"`;
+- base64 at the three byte alignments. For each alignment, with 0, 1 or 2 bytes before the value in
+  its group of three, the masker takes the encoding without its first characters that also depend
+  on the bytes before the value, in two forms: up to the last character that depends on the value
+  alone, which matches whatever follows the value, such as the newline `echo` adds; and to its end
+  with its padding, which matches a value that ends the encoded data. The target masks only padded
+  encodings, of the value and of the value without its first byte or two, which a value followed by
+  other data escapes; Bosun masks those characters and more. A value after one leading byte shows
+  as two characters and `***`, as `Lm***` for `printf '.%s' "$TOKEN" | base64`, and after two
+  leading bytes as three characters and `***`.
+
+An encoded form shorter than four bytes is not masked, since it would match ordinary text: the
+expression escape of a lone `'`, or the encoding of one byte at an alignment that leaves one
+character of it. The value itself is masked at any length.
+
+**Matching.** All forms of all values are the patterns of one Aho–Corasick automaton, built when
+the job starts and again when a value is added, so the cost of masking a line grows with the line
+and not with the number of values. Every occurrence is found, overlapping ones included;
+occurrences that overlap or touch merge, and each merged range becomes `***`, so `ababab` with the
+value `abab` is `***`. An automaton that cannot be built, because its states would outnumber its
+state identifiers, masks every text as a whole, so a failure to mask lets nothing through. A line
+is masked before it is split at 64 KiB, so the split never cuts a value in two. A line still being
+written is split only once the longest form, less one byte, has arrived after the point of the
+split; where an occurrence crosses that point, the line is split where the occurrence starts, or,
+when its range starts the piece, the piece is masked whole and the rest of the range is carried
+into the next piece as masked.
+
+**Outputs.** `StepFinished` reports the outputs of a step with their names and values masked, while
+`steps.<id>.outputs` keeps the values for the later steps of the job. A job output whose value
+contains a masked value is dropped, as in the target: `JobFinished` does not report it, a line in
+the log of the last step that started names it, and a dependent job's
+`needs.<job>.outputs.<name>` is empty. The cases in `contracts/fixtures/masking/` pin these rules.
 
 ### Workspace
 

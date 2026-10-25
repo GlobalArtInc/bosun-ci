@@ -1,0 +1,16 @@
+conclusion = "success"
+
+[secrets]
+SHORT = "x9"
+OVERLAPPING = "abab"
+
+[[steps]]
+run = '''
+echo "ax9bx9x9c"
+echo "1 ababab 2 abab-abab 3"
+'''
+outcome = "success"
+output = [
+  "a***b***c",
+  "1 *** 2 ***-*** 3",
+]

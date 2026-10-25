@@ -27,6 +27,7 @@ tracing-subscriber = { workspace = true, features = ["fmt", "json", "std"] }
 [dev-dependencies]
 axum = { workspace = true, features = ["http1", "http2", "json", "tokio"] }
 bosun-expr.workspace = true
+prost.workspace = true
 prost-types.workspace = true
 rustix = { workspace = true, features = ["process"] }
 tempfile.workspace = true

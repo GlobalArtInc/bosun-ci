@@ -146,7 +146,7 @@ async fn the_expressions_of_a_step_see_the_contexts_of_the_server_and_of_the_run
     assert_eq!(
         lines[..3],
         [
-            "push __run success gpu linux 1 3 eu hidden r1".to_owned(),
+            "push __run success gpu linux 1 3 eu *** r1".to_owned(),
             format!("{workspace} {}", root.join("work/_temp").display()),
             "high success success".to_owned(),
         ]
