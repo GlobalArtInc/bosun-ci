@@ -436,8 +436,9 @@ jobs:
           for i in \$(seq 21 40); do echo "line \$i"; sleep 0.05; done
 EOF
   watch b restart
-  job="$(job_id count)"
   await_line "$watched" '^count \| line 20$' 60 "line 20 reaching the terminal"
+  job="$(job_id count)"
+  [ -n "$job" ] || fail "the watch named no job: $(cat "$watched")"
   stop_process server-b "$(pid_of server-b)" 30
   touch "$gate"
   sleep 2
