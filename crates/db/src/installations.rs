@@ -29,6 +29,13 @@ pub enum Visibility {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Seen {
+    pub installation: u64,
+    pub owner: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bound {
     Bound,
     Unknown(u64),
@@ -169,6 +176,24 @@ pub async fn visibility<C: ConnectionTrait>(
             account: installation.try_get("", "account_login")?,
         }),
     }
+}
+
+pub async fn seen<C: ConnectionTrait>(db: &C, repository: u64) -> Result<Option<Seen>, Error> {
+    let Some(found) = db
+        .query_one(statement(
+            "SELECT installation_id, owner, name FROM forge_repository \
+             WHERE id = $1 AND installation_id IS NOT NULL",
+            [row::signed(REPOSITORIES, repository)?.into()],
+        ))
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(Seen {
+        installation: row::unsigned(INSTALLATIONS, found.try_get("", "installation_id")?)?,
+        owner: found.try_get("", "owner")?,
+        name: found.try_get("", "name")?,
+    }))
 }
 
 pub async fn bind(

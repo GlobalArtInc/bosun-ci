@@ -69,7 +69,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 | logs | `log_chunk`, `log_object` |
 | artifacts and caches | `artifact`, `artifact_block`, `cache_entry` |
 | actions and tools | `action_ref`, `tool_object` |
-| delivery | `webhook_delivery`, `outbox`, `webhook_subscription`, `idempotency_key` |
+| delivery | `webhook_delivery`, `outbox`, `forge_check_run`, `webhook_subscription`, `idempotency_key` |
 | plugins | `plugin`, `plugin_instance`, `plugin_kv` (from M5) |
 | audit | `audit_event` |
 | schema | `schema_version`, next to sqlmig's ledger `migrations` and `migrations_checksum` |
@@ -166,6 +166,12 @@ so a repository is bound to one project at most
 ([06-runtime-services.md](06-runtime-services.md#installations-and-repositories)).
 `webhook_delivery` holds `id, delivery, event, payload jsonb, received_at, attempts,
 next_attempt_at, last_error, processed_at`, unique by `delivery`, the forge's id of the delivery.
+`outbox` holds `id bigserial, kind, collapse_key, payload jsonb, created_at, attempts,
+next_attempt_at, last_error, failing_since, dead_at` ([The outbox](#the-outbox)), with a partial
+index on `(next_attempt_at, id) where dead_at is null` for the claim and one on
+`(collapse_key, id)` for collapsing; `forge_check_run` maps a job to the id of its check run on the
+forge, `job_id, id, created_at`, owned by the job. Both arrived with step 28 of
+[../plan.md](../plan.md).
 
 A workflow's `source_kind` is `server` or `repository`. A repository workflow is named by the path
 of its file and is unique by project and path, which the partial unique index on
@@ -340,6 +346,7 @@ of its own under its run's lock, after checking again, with the reason `no_agent
 | `bosun_events` | `run` and the run's id, or `agent` and the agent's id, separated by a space | replicas with subscribers on the event stream |
 | `bosun_log` | execution id and the sequence number of the chunk stored, separated by a space | replicas with followers of that log |
 | `bosun_webhook` | the id of a stored webhook delivery | the webhook worker of every replica with a GitHub App |
+| `bosun_outbox` | the id of an outbox row | the outbox worker of every replica with a GitHub App |
 
 Payloads carry identifiers only; the data is read from the tables. A listener that reconnects reads
 everything newer than the last sequence number it saw, so a dropped connection loses nothing; for
@@ -386,6 +393,54 @@ exponential backoff from 1 second to 1 hour; after 24 hours the row is marked de
 administration pages. When a newer row with the same collapse key exists, an older one is dropped
 without delivery, so a job that changes state five times while the forge is down is reported once,
 with its latest state.
+
+Step 28 of M1 ([../plan.md](../plan.md)) settled how. In M1 every row is a report to the forge
+([06-runtime-services.md](06-runtime-services.md#reporting-to-the-forge)), of kind `check_run` or
+`commit_status`, and `journal::append` writes it right after the event that causes it, so no code
+path that changes a run can forget it. The collapse key is the kind and the subject of the report,
+`check_run/job/<job>` or `commit_status/run/<run>`; since the rows of one job are written under its
+run's lock, the order of their ids, drawn from a sequence, is the order of their commits, as for the
+journal ([The journal](#the-journal)). Each row inserts with a notification on `bosun_outbox`.
+
+Every replica with a GitHub App runs one outbox worker, woken by `bosun_outbox` and otherwise every
+second, which is the resolution of the backoff. One delivery is two short transactions, the claim
+and the result, with the requests to the forge between them and outside any transaction, so a slow
+forge neither holds a database connection nor delays the event stream's horizon:
+
+1. **The claim** takes, with `FOR UPDATE SKIP LOCKED`, the row due first (`next_attempt_at` at or
+   before now on the server's clock, which tests inject, then the lowest id) among those that are
+   the oldest row of their collapse key not marked dead. Only that row of a key can ever be
+   claimed, so the rows of one key are delivered one after another, by one worker at a time,
+   whichever replicas run. In the same transaction the worker takes the newest row of the key,
+   deletes the older ones, the claimed one included, without delivering them, and leases the
+   newest: it moves its `next_attempt_at` 5 minutes ahead, counts
+   the attempt, and carries over the attempts, `failing_since` and `last_error` of the oldest, so
+   the backoff and the deadline of a report do not restart when the job moves on. A newer row that
+   arrives meanwhile waits behind the leased one.
+2. **The delivery** runs with a timeout of 2 minutes, well inside the lease, so a row is claimed
+   again only when its worker died, hung or could not write the result, and a delivery repeats
+   only then.
+3. **The result** is written only while the row still holds the lease the claim gave it, which is
+   how a worker that overran its lease leaves the row to the claim that took it over:
+   - delivered: the row is deleted, with the dead rows of its key that it supersedes, and the id of
+     a check run it created is recorded in `forge_check_run`; the worker logs
+     `delivered an outbox row` with `row`, `kind`, `key`, the number of rows it `dropped` and
+     `duration_ms`;
+   - a failure that may pass (the database, the forge unreachable, a `5xx`, a rate limit, the
+     timeout): `failing_since` keeps the time of the first failure and the row waits
+     1 second after its first attempt, twice as long after each further one, up to an hour, and at
+     least until a rate limit resets, with a warning that names it. A failure 24 hours or more
+     after `failing_since` marks the row dead instead;
+   - a failure that cannot pass (a `4xx` that is no rate limit, a payload this version cannot read,
+     a repository that no installation of the App sees any more) marks the row dead at once.
+
+A dead row keeps its `dead_at` and `last_error`, is never claimed again, and no longer blocks its
+key: a newer row of the key is delivered and deletes it. Until the administration page of M3
+(step 32 of M3) lists, retries and discards dead rows, each one is logged at error level as
+`an outbox row is dead and is no longer tried`, with its `row`, `kind`, `key`, `attempts` and
+`error`, and `/metrics` counts the rows whose `dead_at` is set (step 39 of M1). Rows of a kind the
+replica does not know, written by a newer version during a rolling update, are left to the replicas
+that know it.
 
 ## The object store
 

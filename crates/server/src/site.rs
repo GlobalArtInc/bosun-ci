@@ -1,4 +1,4 @@
-use bosun_types::id::RunId;
+use bosun_types::id::{JobId, RunId};
 use url::Url;
 
 const GRAPHQL: &str = "graphql";
@@ -64,6 +64,14 @@ impl Site {
             String::new()
         } else {
             format!("{}/runs/{run}", self.url)
+        }
+    }
+
+    pub(crate) fn job_url(&self, run: RunId, job: JobId) -> String {
+        if self.url.is_empty() {
+            String::new()
+        } else {
+            format!("{}/runs/{run}/jobs/{job}", self.url)
         }
     }
 }

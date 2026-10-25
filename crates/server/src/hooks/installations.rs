@@ -7,8 +7,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tracing::{info, warn};
 
-use super::worker::Failure;
 use crate::forge::Forge;
+use crate::retry::Failure;
 use crate::slug;
 
 #[derive(Deserialize)]

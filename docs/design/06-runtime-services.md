@@ -222,7 +222,10 @@ with a path. It holds, in memory:
   `created` and `deleted` set when either is the commit of zeros, or an event of any name with the
   fields the test gives it. A sender is a login and an id; `BOT` is the App's bot;
 - a delay a test sets, by which every answer of the API is held back, so that tests make the
-  forge slow.
+  forge slow;
+- a failure a test switches on and off, under which every request is answered `502`, and a log of
+  every request it answered, with its method, path, JSON body and status, by which tests show how
+  often a report went out.
 
 The App's keys for tests are fixtures in `crates/testkit/keys/`: `app.pem`, in PKCS#1, is the
 fake App's key, and `foreign.pem`, in PKCS#8, is a key the fake does not know.
@@ -492,6 +495,43 @@ Runs started from a draft are not reported unless the person who started them as
 experiment does not decorate a pull request. All reports go through the outbox
 ([07-storage.md](07-storage.md)), are retried with backoff when the forge fails, and collapse into
 the latest state when several updates of one job are pending.
+
+Step 28 of M1 ([../plan.md](../plan.md)) settled the reports of M1; summaries and annotations join
+them with step 35, and the summary line of an operator's conclusion and the approvals with M3.
+
+- A run is reported when it has a commit and its project is bound to a repository that an
+  installation of the App sees; a run of a server-side workflow planned without a commit is not.
+- A job is reported from the moment it leaves `pending`: `waiting`, `queued` and `assigned` as
+  `queued`, `in_progress`, `paused` and `held` as `in_progress`, and `completed` with its
+  conclusion. A change of state writes a report only when what the forge shows changes, so
+  `queued` to `assigned` writes none. The job of a job group, which its members stand for, is not
+  reported; a job whose strategy cannot be evaluated, or that is cancelled before it expands, is
+  reported under its own name.
+- The name is the job's name when the report is written: its `name`, rendered once the job is
+  ready when it holds expressions, or its key when it has none. A member of a job group whose
+  `name` holds no expression takes that name, or the key, with its matrix values in parentheses
+  ([04-runs.md](04-runs.md#matrices)), so `Build` with the values `linux` and `18` is
+  `Build (linux, 18)`.
+- The first report of a job creates its check run and records the forge's id of it in
+  `forge_check_run` ([07-storage.md](07-storage.md#the-outbox)); later reports update that check
+  run with the same fields.
+- The details address of a job is `<public_url>/runs/<run>/jobs/<job>`, which the interface opens
+  as the run page with the job's panel ([09-frontend.md](09-frontend.md#pages)); a server without
+  `server.public_url` sends none.
+- With `report: statuses`, `<workflow>` in the context `bosun/<workflow>/<job>` is the workflow's
+  `name`, or the name of its file without the directory and `.yml` or `.yaml` when it has none, and
+  `<job>` is the job's name as above, so a job `build` without a name of the workflow `ci` is
+  `bosun/ci/build`. A `queued` or `in_progress` job is `pending`, a conclusion `success` or
+  `skipped` is `success`, `failure` and `timed_out` are `failure`, and `cancelled` is `error`, since
+  a commit status has no state for it. The description says the same in a word or two (`Queued`,
+  `In progress`, `Succeeded`, `Failed`, `Cancelled`, `Skipped`, `Timed out`), and the target address
+  is the details address.
+- A run that ends as `startup_failure` has no jobs, so it is reported once, as settled: a check run
+  named after its workflow as `<workflow>` above, completed with the conclusion `failure`, whose
+  details address is the run page, `<public_url>/runs/<run>`, where its notices say why it could
+  not start; with `report: statuses`, the context `bosun/<workflow>` with the state `failure` and
+  the description `The workflow could not start`. The forge has no conclusion of a check run for a
+  startup failure, and `failure` keeps a required check of that name from passing.
 
 A `check_run` webhook with action `rerequested`, and `check_suite` with `rerequested`, are mapped to
 re-runs ([04-runs.md](04-runs.md)).

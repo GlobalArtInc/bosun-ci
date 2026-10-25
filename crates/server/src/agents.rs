@@ -36,6 +36,7 @@ pub(crate) struct Tasks(Vec<JoinHandle<()>>);
 pub(crate) struct Listeners {
     pub(crate) followers: Arc<Followers>,
     pub(crate) deliveries: Arc<Notify>,
+    pub(crate) outbox: Arc<Notify>,
     pub(crate) events: Arc<Hub>,
 }
 

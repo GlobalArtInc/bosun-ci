@@ -67,6 +67,7 @@ async fn forward(world: &World, events: Arc<Hub>, followers: Arc<Followers>) -> 
         agents::Listeners {
             followers,
             deliveries: Arc::new(Notify::new()),
+            outbox: Arc::new(Notify::new()),
             events,
         },
     )

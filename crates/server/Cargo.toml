@@ -48,3 +48,4 @@ bosun-testkit.workspace = true
 jsonschema.workspace = true
 proptest.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
+tracing-subscriber = { workspace = true, features = ["fmt", "json", "std"] }

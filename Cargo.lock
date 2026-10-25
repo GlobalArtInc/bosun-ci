@@ -517,6 +517,7 @@ dependencies = [
  "tonic",
  "tower",
  "tracing",
+ "tracing-subscriber",
  "url",
  "uuid",
 ]

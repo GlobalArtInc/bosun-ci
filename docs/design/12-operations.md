@@ -366,6 +366,9 @@ database's limit.
   `stored`, `processed a webhook delivery` with its `duration_ms`, a warning for a delivery whose
   signature is missing or wrong, and a warning for each failed processing with its `error`
   ([06-runtime-services.md](06-runtime-services.md#deliveries)).
+- The outbox logs `delivered an outbox row` with its `row`, `kind`, `key`, the rows it `dropped`
+  and `duration_ms`, a warning for each failed delivery with its `error` and `wait_ms`, and an
+  error for each row that dies ([07-storage.md](07-storage.md#the-outbox)).
 - Alerts worth having from day one: jobs queued longer than 10 minutes, no online agent in a pool
   that has queued jobs, an outbox row dead, webhook verification failures, agents on a version the
   next server release will refuse.

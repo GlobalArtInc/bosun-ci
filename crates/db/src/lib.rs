@@ -11,6 +11,7 @@ pub mod journal;
 pub mod logs;
 pub mod notify;
 pub mod organisations;
+pub mod outbox;
 mod periodic;
 pub mod pools;
 pub mod projects;

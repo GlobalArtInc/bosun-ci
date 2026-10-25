@@ -7,6 +7,7 @@ mod installations;
 mod journal;
 mod logs;
 mod migrations;
+mod outbox;
 mod parallel;
 mod pools;
 mod queue;

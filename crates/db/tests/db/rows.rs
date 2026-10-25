@@ -1,9 +1,9 @@
 use bosun_db::entity::{
-    agent, api_token, api_token_scope, attempt, control_message, execution, forge_installation,
-    forge_repository, idempotency_key, job, label_alias, log_chunk, log_object, organisation,
-    pool_access, project, registration_token, role, role_binding, run, run_event, secret, session,
-    sign_in_failure, step, stream_event, team, team_member, user, variable, webhook_delivery,
-    workflow, workflow_revision,
+    agent, api_token, api_token_scope, attempt, control_message, execution, forge_check_run,
+    forge_installation, forge_repository, idempotency_key, job, label_alias, log_chunk, log_object,
+    organisation, outbox, pool_access, project, registration_token, role, role_binding, run,
+    run_event, secret, session, sign_in_failure, step, stream_event, team, team_member, user,
+    variable, webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -40,6 +40,9 @@ pub const DELIVERY: u8 = 0x18;
 pub const SCOPE: u8 = 0x19;
 pub const SECRET: u8 = 0x1a;
 pub const VARIABLE: u8 = 0x1b;
+
+pub const OUTBOX: i64 = 41;
+pub const CHECK_RUN: i64 = 7_301_115_026;
 
 pub const INSTALLATION: i64 = 52_814_339;
 pub const REPOSITORY: i64 = 871_264_503;
@@ -93,6 +96,8 @@ pub struct Rows {
     pub webhook_delivery: webhook_delivery::Model,
     pub secret: secret::Model,
     pub variable: variable::Model,
+    pub outbox: outbox::Model,
+    pub forge_check_run: forge_check_run::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -566,6 +571,31 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a variable");
 
+    let outbox = outbox::ActiveModel {
+        id: ActiveValue::Set(OUTBOX),
+        kind: ActiveValue::Set("check_run".to_owned()),
+        collapse_key: ActiveValue::Set(format!("check_run/job/{}", id(BUILD))),
+        payload: ActiveValue::Set(json!({ "name": "build", "label": label })),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:50.078Z")),
+        attempts: ActiveValue::Set(3),
+        next_attempt_at: ActiveValue::Set(at("2026-10-24T18:34:57.078Z")),
+        last_error: ActiveValue::Set(Some("the forge failed: 502".to_owned())),
+        failing_since: ActiveValue::Set(Some(at("2026-10-24T18:34:50.5Z"))),
+        dead_at: ActiveValue::Set(None),
+    }
+    .insert(db)
+    .await
+    .expect("an outbox row");
+
+    let forge_check_run = forge_check_run::ActiveModel {
+        job_id: ActiveValue::Set(id(BUILD)),
+        id: ActiveValue::Set(CHECK_RUN),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:51.25Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a check run");
+
     Rows {
         organisation,
         project,
@@ -600,6 +630,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         webhook_delivery,
         secret,
         variable,
+        outbox,
+        forge_check_run,
     }
 }
 
@@ -676,5 +708,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         webhook_delivery: one::<_, webhook_delivery::Entity>(db, id(DELIVERY)).await,
         secret: one::<_, secret::Entity>(db, id(SECRET)).await,
         variable: one::<_, variable::Entity>(db, id(VARIABLE)).await,
+        outbox: one::<_, outbox::Entity>(db, OUTBOX).await,
+        forge_check_run: one::<_, forge_check_run::Entity>(db, id(BUILD)).await,
     }
 }

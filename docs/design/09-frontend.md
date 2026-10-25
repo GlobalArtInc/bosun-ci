@@ -105,7 +105,9 @@ secrets and variables for those who may see them.
 - The job panel: steps with durations and conclusions, nested composite steps, the log viewer
   (virtualised, ANSI colours, collapsible groups from `::group::`, optional timestamps, links to
   lines, search inside a step, raw download), annotations at their lines, the rendered step
-  summaries, artifacts.
+  summaries, artifacts. `/runs/<run>/jobs/<job>` opens the run page with the panel of that job; it
+  is the details address of the job's check run on the forge
+  ([06-runtime-services.md](06-runtime-services.md#reporting-to-the-forge)).
 - The controls: every command of [04-runs.md](04-runs.md) valid in the current state, as buttons
   on the run, the job or the step they act on. Commands that override a result ask for a reason,
   which goes into the journal. Breakpoints are set by clicking the gutter next to a step.

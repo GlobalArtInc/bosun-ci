@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 
 use bosun_db::entity::{
-    agent, api_token, api_token_scope, attempt, control_message, execution, forge_installation,
-    forge_repository, idempotency_key, job, label_alias, log_chunk, log_object, organisation, pool,
-    pool_access, project, registration_token, role, role_binding, run, run_event, schema_version,
-    secret, session, sign_in_failure, step, stream_event, team, team_member, user, variable,
-    webhook_delivery, workflow, workflow_revision,
+    agent, api_token, api_token_scope, attempt, control_message, execution, forge_check_run,
+    forge_installation, forge_repository, idempotency_key, job, label_alias, log_chunk, log_object,
+    organisation, outbox, pool, pool_access, project, registration_token, role, role_binding, run,
+    run_event, schema_version, secret, session, sign_in_failure, step, stream_event, team,
+    team_member, user, variable, webhook_delivery, workflow, workflow_revision,
 };
 use bosun_testkit::TestDatabase;
 use sea_orm::EntityName;
@@ -29,6 +29,7 @@ async fn every_table_has_an_entity() {
         attempt::Entity.table_name(),
         control_message::Entity.table_name(),
         execution::Entity.table_name(),
+        forge_check_run::Entity.table_name(),
         forge_installation::Entity.table_name(),
         forge_repository::Entity.table_name(),
         idempotency_key::Entity.table_name(),
@@ -37,6 +38,7 @@ async fn every_table_has_an_entity() {
         log_chunk::Entity.table_name(),
         log_object::Entity.table_name(),
         organisation::Entity.table_name(),
+        outbox::Entity.table_name(),
         pool::Entity.table_name(),
         pool_access::Entity.table_name(),
         project::Entity.table_name(),

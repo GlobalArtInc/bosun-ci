@@ -73,6 +73,14 @@ pub struct RecordedCheckRun {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedRequest {
+    pub method: String,
+    pub path: String,
+    pub body: Option<serde_json::Value>,
+    pub status: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedStatus {
     pub repository: String,
     pub sha: String,
@@ -93,6 +101,8 @@ struct Shared {
 struct State {
     next_id: u64,
     delay: Duration,
+    failing: bool,
+    requests: Vec<RecordedRequest>,
     token_lifetime: TimeDelta,
     installations: BTreeMap<u64, Installation>,
     repositories: BTreeMap<String, Repository>,
@@ -153,6 +163,8 @@ impl FakeForge {
             state: Mutex::new(State {
                 next_id: 1,
                 delay: Duration::ZERO,
+                failing: false,
+                requests: Vec::new(),
                 token_lifetime: TOKEN_LIFETIME,
                 installations: BTreeMap::new(),
                 repositories: BTreeMap::new(),
@@ -328,6 +340,14 @@ impl FakeForge {
 
     pub fn delay(&self, delay: Duration) {
         self.shared.lock().delay = delay;
+    }
+
+    pub fn fail(&self, failing: bool) {
+        self.shared.lock().failing = failing;
+    }
+
+    pub fn requests(&self) -> Vec<RecordedRequest> {
+        self.shared.lock().requests.clone()
     }
 
     pub fn set_token_lifetime(&self, lifetime: Duration) {

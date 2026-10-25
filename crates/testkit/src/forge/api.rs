@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use axum::Router;
-use axum::body::Bytes;
+use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::http::header::{self, HeaderMap, HeaderName, HeaderValue};
@@ -20,7 +20,7 @@ use uuid::Uuid;
 use super::git::{self, Node};
 use super::{
     APP_ID, APP_SLUG, BOT, BOT_ID, Bucket, COMPARE_FILES, MintedToken, RecordedCheckRun,
-    RecordedStatus, Repository, Shared, State as Model, events, jwt,
+    RecordedRequest, RecordedStatus, Repository, Shared, State as Model, events, jwt,
 };
 
 type Fake = State<Arc<Shared>>;
@@ -168,7 +168,7 @@ pub(super) fn router(shared: Arc<Shared>) -> Router {
             get(codeload),
         )
         .fallback(missing)
-        .layer(middleware::from_fn_with_state(Arc::clone(&shared), slow))
+        .layer(middleware::from_fn_with_state(Arc::clone(&shared), observe))
         .with_state(shared)
 }
 
@@ -602,12 +602,32 @@ async fn installation_repositories(
     conditional(&mut model, &headers, installation, answer)
 }
 
-pub(super) async fn slow(State(shared): Fake, request: Request, next: Next) -> Response {
+pub(super) async fn observe(State(shared): Fake, request: Request, next: Next) -> Response {
     let delay = shared.lock().delay;
     if !delay.is_zero() {
         tokio::time::sleep(delay).await;
     }
-    next.run(request).await
+    let method = request.method().to_string();
+    let path = request.uri().path().to_owned();
+    let (parts, body) = request.into_parts();
+    let Ok(body) = axum::body::to_bytes(body, usize::MAX).await else {
+        return Answer::message(StatusCode::BAD_REQUEST, "Problems reading the body")
+            .into_response();
+    };
+    let recorded = serde_json::from_slice(&body).ok();
+    let failing = shared.lock().failing;
+    let response = if failing {
+        Answer::message(StatusCode::BAD_GATEWAY, "Server Error").into_response()
+    } else {
+        next.run(Request::from_parts(parts, Body::from(body))).await
+    };
+    shared.lock().requests.push(RecordedRequest {
+        method,
+        path,
+        body: recorded,
+        status: response.status().as_u16(),
+    });
+    response
 }
 
 #[derive(Deserialize)]

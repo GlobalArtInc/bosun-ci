@@ -26,6 +26,7 @@ mod me;
 mod names;
 mod openapi;
 mod organisations;
+mod outbox;
 mod owner;
 mod password;
 mod planner;
@@ -34,6 +35,7 @@ mod projects;
 mod queue;
 mod reply;
 mod request;
+mod retry;
 mod roles;
 mod runs;
 mod scope;
@@ -147,6 +149,7 @@ pub async fn serve(
     );
     let followers = Arc::new(logs::Followers::default());
     let deliveries = Arc::new(Notify::new());
+    let reports = Arc::new(Notify::new());
     let events = Arc::new(events::Hub::default());
     let parses = Arc::new(forge_events::Parses::default());
     let mut tasks = agents::start(
@@ -158,6 +161,7 @@ pub async fn serve(
         agents::Listeners {
             followers: Arc::clone(&followers),
             deliveries: Arc::clone(&deliveries),
+            outbox: Arc::clone(&reports),
             events: Arc::clone(&events),
         },
     );
@@ -168,6 +172,15 @@ pub async fn serve(
             deliveries,
             Arc::clone(&parses),
             config.site.clone(),
+        ));
+        tasks.spawn(outbox::work(
+            outbox::Outbox {
+                db: db.clone(),
+                forge: Arc::clone(forge),
+                site: config.site.clone(),
+                clock: clock.clone(),
+            },
+            reports,
         ));
     }
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));

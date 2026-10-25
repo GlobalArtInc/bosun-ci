@@ -18,6 +18,7 @@ mod pools;
 mod projects;
 mod proxy;
 mod queue;
+mod reports;
 mod runs;
 mod secrets;
 mod shutdown;

@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 use crate::entity::run_event;
 use crate::row::statement;
 use crate::stream::{self, XACT};
-use crate::{Error, row};
+use crate::{Error, outbox, row};
 
 const TABLE: &str = "run_event";
 
@@ -64,6 +64,7 @@ pub async fn append<C: ConnectionTrait>(db: &C, event: NewEvent) -> Result<RunEv
     {
         stream::queue_changed(db, job).await?;
     }
+    outbox::record(db, event.run_id, event.job_id, &event.event).await?;
     decode(stored)
 }
 

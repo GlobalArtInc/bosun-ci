@@ -310,6 +310,7 @@ pub(crate) async fn forward(
         match listener.next().await {
             Ok(Some(Notification::Queued(_))) => dispatcher.wake_all(),
             Ok(Some(Notification::Delivery)) => listeners.deliveries.notify_waiters(),
+            Ok(Some(Notification::Outbox)) => listeners.outbox.notify_waiters(),
             Ok(Some(Notification::Log(notice))) => {
                 listeners.followers.announce(notice.execution_id);
             }
@@ -339,6 +340,7 @@ pub(crate) async fn forward(
                 dispatcher.wake_all();
                 listeners.followers.wake_all();
                 listeners.deliveries.notify_waiters();
+                listeners.outbox.notify_waiters();
                 listeners.events.wake_all();
             }
             Err(error) => {
@@ -348,6 +350,7 @@ pub(crate) async fn forward(
                 dispatcher.wake_all();
                 listeners.followers.wake_all();
                 listeners.deliveries.notify_waiters();
+                listeners.outbox.notify_waiters();
                 listeners.events.wake_all();
             }
         }

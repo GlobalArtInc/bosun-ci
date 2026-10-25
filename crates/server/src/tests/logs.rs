@@ -419,6 +419,7 @@ async fn a_stored_chunk_wakes_the_followers_of_its_execution_through_bosun_log()
         agents::Listeners {
             followers: Arc::clone(&followers),
             deliveries: Arc::new(Notify::new()),
+            outbox: Arc::new(Notify::new()),
             events: Arc::new(Hub::default()),
         },
     );
