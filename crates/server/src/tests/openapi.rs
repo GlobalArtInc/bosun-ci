@@ -296,6 +296,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "/api/v1/workflows/{workflow}/source",
         Part::Request,
     ),
+    (
+        "update-workflow-request.json",
+        "patch",
+        "/api/v1/workflows/{workflow}",
+        Part::Request,
+    ),
     ("user.json", "post", "/api/v1/users", Part::Response("201")),
     (
         "workflow.json",

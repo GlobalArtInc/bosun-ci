@@ -259,6 +259,10 @@ impl Faults {
 pub(crate) trait Filters {
     const NAMES: &'static [&'static str];
     const REQUIRED: &'static [&'static str] = &[];
+
+    fn description(name: &str) -> String {
+        format!("only the items whose `{name}` is this value")
+    }
 }
 
 pub(crate) struct Unfiltered;
@@ -302,7 +306,7 @@ impl<F: Filters> Input for Listing<F> {
                 spec.parameter(json!({
                     "name": name,
                     "in": "query",
-                    "description": format!("only the items whose `{name}` is this value"),
+                    "description": F::description(name),
                     "schema": { "type": "string" }
                 }));
             }

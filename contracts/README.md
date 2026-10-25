@@ -65,6 +65,12 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   which meets every path filter and counts every file as changed, or `"untouched"`, for a push that
   path filters do not apply to and that changes no workflow file. The server's tests run them, and
   its end-to-end tests push a tag and create a branch against the fake forge as the cases say.
+- `fixtures/runs/`: `filters.json`, from step 38 of M1, the filters of `GET /api/v1/runs`. Its `runs`
+  are planted in this order, each with its `name`, the `project` it belongs to as
+  `<organisation>/<project>`, the name of its `workflow`, its `event`, `ref`, `status`, `conclusion`
+  and `actor`; each of its `cases` has a `description`, a `query` of filters, where a `workflow`
+  names a workflow of the runs by its name and the test sends its id, and the names of the `runs`
+  the list answers with, newest first. The server's tests plant the runs and send every query.
 - `fixtures/matrix/`: the expansion of matrices, from step 16 of M1. Each case has a
   `description`, the `strategy` of a job `test` written as JSON in the order of the workflow, and
   maybe the job's `name` and the `outputs` of a job `setup` that `test` then needs. It expects

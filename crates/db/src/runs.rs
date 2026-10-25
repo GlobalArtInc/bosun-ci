@@ -649,6 +649,8 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
         global_number,
         display_name,
         event: created.event,
+        r#ref: created.git_ref,
+        sha: created.sha,
         status: RunStatus::Queued,
         conclusion: None,
         attempt: u32::from(FIRST_ATTEMPT),

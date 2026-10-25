@@ -108,6 +108,15 @@ impl Scene {
         runs
     }
 
+    async fn workflow(&self, name: &str) -> Value {
+        let (status, page) = self
+            .api
+            .get(&format!("{PROJECT}/workflows?name={name}"))
+            .await;
+        assert_eq!(status, 200, "{page}");
+        page["items"][0].clone()
+    }
+
     async fn names(&self) -> Vec<String> {
         self.runs()
             .await
@@ -271,6 +280,7 @@ async fn a_broken_file_whose_on_matches_ends_its_run_as_a_startup_failure_with_i
     for field in [
         "display_name",
         "event",
+        "ref",
         "status",
         "conclusion",
         "actor",
@@ -412,15 +422,69 @@ async fn other_events_match_their_types_against_the_action_and_a_disabled_workfl
 
     scene.push("main", &[("src/a.rs", "fn main() {}\n")]).await;
     assert_eq!(scene.new_names(&mut seen).await, ["push"]);
-    let disabled = crate::strings(
-        scene.database.connection(),
-        "UPDATE bosun.workflow SET enabled = false \
-         WHERE name = '.bosun/workflows/push.yml' RETURNING name AS value",
-    )
-    .await;
-    assert_eq!(disabled, [".bosun/workflows/push.yml"]);
+    let push = scene.workflow(".bosun/workflows/push.yml").await;
+    let (status, disabled) = scene
+        .api
+        .patch(
+            &format!("/api/v1/workflows/{}", text(&push["id"])),
+            &json!({ "enabled": false }),
+        )
+        .await;
+    assert_eq!(status, 200, "{disabled}");
+    assert_eq!(disabled["enabled"], false);
     scene.push("main", &[("src/b.rs", "fn b() {}\n")]).await;
     assert_eq!(scene.new_names(&mut seen).await, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn a_workflow_carries_its_newest_run_of_the_default_branch_and_not_a_newer_run_of_another() {
+    let ci = workflow("ci", "  push:\n");
+    let mut scene = Scene::new(&[(".bosun/workflows/ci.yml", &ci)]).await;
+    let mut seen = 0;
+    let first = scene.push("main", &[("src/a.rs", "fn a() {}\n")]).await;
+    let second = scene.push("main", &[("src/b.rs", "fn b() {}\n")]).await;
+    scene
+        .push("feature/guide", &[("docs/guide.md", "# guide\n")])
+        .await;
+    assert_eq!(scene.new_names(&mut seen).await, ["ci", "ci", "ci"]);
+    let runs = scene.runs().await;
+    let shown: Vec<(&Value, &Value)> = runs.iter().map(|run| (&run["ref"], &run["sha"])).collect();
+    assert_eq!(
+        shown,
+        [
+            (&json!("refs/heads/main"), &json!(first)),
+            (&json!("refs/heads/main"), &json!(second)),
+            (&json!("refs/heads/feature/guide"), &runs[2]["sha"]),
+        ]
+    );
+
+    let listed = scene.workflow(".bosun/workflows/ci.yml").await;
+    assert_eq!(listed["latest_run"], runs[1], "{listed}");
+    let (status, shown) = scene
+        .api
+        .get(&format!("/api/v1/workflows/{}", text(&listed["id"])))
+        .await;
+    assert_eq!(status, 200, "{shown}");
+    assert_eq!(shown, listed);
+
+    let (status, newest) = scene
+        .api
+        .get(&format!(
+            "/api/v1/runs?workflow={}&limit=1",
+            text(&listed["id"])
+        ))
+        .await;
+    assert_eq!(status, 200, "{newest}");
+    assert_eq!(newest["items"], json!([runs[2]]));
+    let (status, on_main) = scene
+        .api
+        .get(&format!(
+            "/api/v1/runs?project=globalartinc/ops&branch=main&event=push&actor={}",
+            ROMAN.login
+        ))
+        .await;
+    assert_eq!(status, 200, "{on_main}");
+    assert_eq!(on_main["items"], json!([runs[1], runs[0]]));
 }
 
 #[tokio::test]

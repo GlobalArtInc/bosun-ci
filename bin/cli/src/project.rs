@@ -1,5 +1,6 @@
 use std::process::ExitCode;
 
+use bosun_types::api::{Project, Repository};
 use clap::Subcommand;
 use serde_json::{Map, Value};
 
@@ -8,6 +9,13 @@ use crate::{Context, output};
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    #[command(about = "List the projects you may view")]
+    List,
+    #[command(about = "Print a project and the repository it is bound to")]
+    Show {
+        #[arg(help = "The project, as <organisation>/<project> or its id")]
+        project: String,
+    },
     #[command(about = "Print the settings of a project, or change them and print the result")]
     Settings {
         #[arg(help = "The project, as <organisation>/<project> or its id")]
@@ -25,8 +33,61 @@ pub(crate) enum Command {
 
 pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode, Failure> {
     match command {
+        Command::List => {
+            let projects: Vec<Project> = context.client()?.all("/api/v1/projects").await?;
+            if context.json() {
+                output::json(&projects)?;
+                return Ok(ExitCode::SUCCESS);
+            }
+            let rows: Vec<Vec<String>> = projects
+                .iter()
+                .map(|project| {
+                    vec![
+                        project.path.clone(),
+                        project.name.clone(),
+                        repository(project.repository.as_ref()),
+                        project.id.to_string(),
+                    ]
+                })
+                .collect();
+            output::table(&["PROJECT", "NAME", "REPOSITORY", "ID"], &rows);
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Show { project } => {
+            let project: Project = context
+                .client()?
+                .get(&format!("/api/v1/projects/{project}"), &[])
+                .await?;
+            if context.json() {
+                output::json(&project)?;
+                return Ok(ExitCode::SUCCESS);
+            }
+            output::fields(&[
+                ("project", project.path.clone()),
+                ("name", project.name.clone()),
+                ("repository", repository(project.repository.as_ref())),
+                (
+                    "default branch",
+                    project
+                        .repository
+                        .as_ref()
+                        .map_or_else(|| "-".to_owned(), |bound| bound.default_branch.clone()),
+                ),
+                ("organisation", project.organisation_id.to_string()),
+                ("id", project.id.to_string()),
+                ("created", project.created_at.to_rfc3339()),
+            ]);
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Settings { project, set } => settings(context, &project, set).await,
     }
+}
+
+fn repository(bound: Option<&Repository>) -> String {
+    bound.map_or_else(
+        || "-".to_owned(),
+        |bound| format!("{}/{}", bound.owner, bound.name),
+    )
 }
 
 async fn settings(

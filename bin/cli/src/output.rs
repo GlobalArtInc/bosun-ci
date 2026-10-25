@@ -42,6 +42,18 @@ pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) {
     }
 }
 
+pub(crate) fn fields(rows: &[(&str, String)]) {
+    let width = rows
+        .iter()
+        .map(|(name, _)| name.chars().count())
+        .max()
+        .unwrap_or(0);
+    for (name, value) in rows {
+        let line = format!("{name:<width$}  {value}");
+        println!("{}", line.trim_end());
+    }
+}
+
 pub(crate) fn text(line: &str) -> &str {
     line.split_once(' ').map_or(line, |(_, text)| text)
 }

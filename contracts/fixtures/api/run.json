@@ -7,6 +7,8 @@
   "global_number": 4031,
   "display_name": "ci",
   "event": "workflow_dispatch",
+  "ref": null,
+  "sha": null,
   "status": "completed",
   "conclusion": "failure",
   "attempt": 1,

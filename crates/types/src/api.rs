@@ -303,6 +303,7 @@ pub struct Project {
     pub id: ProjectId,
     pub organisation_id: OrganisationId,
     pub slug: String,
+    pub path: String,
     pub name: String,
     pub repository: Option<Repository>,
     pub created_at: DateTime<Utc>,
@@ -419,7 +420,20 @@ pub struct Workflow {
     pub source: WorkflowSource,
     pub enabled: bool,
     pub revision_id: Option<RevisionId>,
+    pub latest_run: Option<Run>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateWorkflowRequest {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "given"
+    )]
+    #[schemars(with = "bool")]
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -471,6 +485,8 @@ pub struct Run {
     pub global_number: u64,
     pub display_name: String,
     pub event: String,
+    pub r#ref: Option<String>,
+    pub sha: Option<String>,
     pub status: RunStatus,
     pub conclusion: Option<RunConclusion>,
     pub attempt: u32,

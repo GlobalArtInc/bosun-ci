@@ -152,6 +152,17 @@ pub enum RunConclusion {
     StartupFailure,
 }
 
+impl RunConclusion {
+    pub const ALL: [RunConclusion; 6] = [
+        RunConclusion::Success,
+        RunConclusion::Failure,
+        RunConclusion::Cancelled,
+        RunConclusion::Skipped,
+        RunConclusion::TimedOut,
+        RunConclusion::StartupFailure,
+    ];
+}
+
 impl From<Conclusion> for RunConclusion {
     fn from(conclusion: Conclusion) -> RunConclusion {
         match conclusion {

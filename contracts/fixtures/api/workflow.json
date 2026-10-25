@@ -1,11 +1,35 @@
 {
   "id": "0192f3a4-5b6c-7d8e-9f01-000000000005",
   "project_id": "0192f3a4-5b6c-7d8e-9f01-000000000002",
-  "name": "ci",
+  "name": ".bosun/workflows/ci.yml",
   "source": {
-    "kind": "server"
+    "kind": "repository"
   },
   "enabled": true,
   "revision_id": "0192f3a4-5b6c-7d8e-9f01-000000000006",
+  "latest_run": {
+    "id": "0192f3a4-5b6c-7d8e-9f01-000000000008",
+    "project_id": "0192f3a4-5b6c-7d8e-9f01-000000000002",
+    "workflow_id": "0192f3a4-5b6c-7d8e-9f01-000000000005",
+    "revision_id": "0192f3a4-5b6c-7d8e-9f01-000000000006",
+    "number": 12,
+    "global_number": 4031,
+    "display_name": "ci",
+    "event": "push",
+    "ref": "refs/heads/main",
+    "sha": "5d1f0c4e2a9b8d7c6e3f1a0b9c8d7e6f5a4b3c2d",
+    "status": "completed",
+    "conclusion": "success",
+    "attempt": 1,
+    "actor": {
+      "kind": "forge",
+      "id": 7001,
+      "login": "roman"
+    },
+    "notices": [],
+    "created_at": "2026-10-24T18:34:50.078Z",
+    "started_at": "2026-10-24T18:34:51Z",
+    "completed_at": "2026-10-24T18:35:07.512Z"
+  },
   "created_at": "2026-10-24T18:34:50.078Z"
 }

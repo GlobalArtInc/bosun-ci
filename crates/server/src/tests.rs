@@ -10,6 +10,7 @@ mod matrix;
 mod openapi;
 mod planning;
 mod queue;
+mod runs;
 mod settings;
 mod sign_in;
 

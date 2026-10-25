@@ -3,6 +3,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use bosun_types::api::{Execution, Job};
+use bosun_types::command::{Command as Operation, CommandRequest, Target};
+use bosun_types::event::RunEvent;
 use bosun_types::id::JobId;
 use bosun_types::status::{ExecutionStatus, JobStatus};
 use clap::Subcommand;
@@ -10,7 +12,7 @@ use serde::de::DeserializeOwned;
 use tokio::time::sleep;
 
 use crate::client::{Client, Failure, patiently};
-use crate::output::name;
+use crate::output::{self, name};
 use crate::{Context, follow};
 
 const POLL: Duration = Duration::from_secs(1);
@@ -33,19 +35,54 @@ pub(crate) enum Command {
         )]
         follow: bool,
     },
+    #[command(
+        about = "Cancel one job, or every member of a job group; the jobs that need it see it \
+                 cancelled and follow their if"
+    )]
+    Cancel {
+        #[arg(help = "The id of the job")]
+        job: String,
+    },
 }
 
 pub(crate) async fn run(context: &Context, command: Command) -> Result<ExitCode, Failure> {
     let client = context.client()?;
     match command {
         Command::Logs { job, step, follow } => {
-            let id: JobId = job
-                .parse()
-                .map_err(|_| Failure::new(format!("`{job}` is not the id of a job")))?;
-            logs(&client, id, step, follow).await?;
+            logs(&client, id(&job)?, step, follow).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Cancel { job } => {
+            let job: Job = client
+                .get(&format!("/api/v1/jobs/{}", id(&job)?), &[])
+                .await?;
+            let accepted: RunEvent = client
+                .post(
+                    &format!("/api/v1/runs/{}/commands", job.run_id),
+                    &CommandRequest {
+                        command: Operation::JobCancel,
+                        target: Target {
+                            attempt: None,
+                            job: Some(job.id),
+                            step: None,
+                        },
+                        reason: None,
+                    },
+                )
+                .await?;
+            if context.json() {
+                output::json(&accepted)?;
+            } else {
+                println!("the cancellation of job {} {} is accepted", job.key, job.id);
+            }
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+fn id(text: &str) -> Result<JobId, Failure> {
+    text.parse()
+        .map_err(|_| Failure::new(format!("`{text}` is not the id of a job")))
 }
 
 async fn logs(client: &Client, id: JobId, only: Option<usize>, live: bool) -> Result<(), Failure> {

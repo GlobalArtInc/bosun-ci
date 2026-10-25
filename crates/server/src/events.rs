@@ -10,7 +10,6 @@ use axum::response::sse::{Event as Message, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use bosun_db::projects::{Holder, Reach};
 use bosun_db::stream::{Cursor, Delivered, Filter};
-use bosun_types::api::Project;
 use bosun_types::event::{Change, Event, RunEvent, StreamEvent};
 use bosun_types::id::{ProjectId, RunId};
 use serde_json::json;
@@ -178,12 +177,6 @@ async fn follow(
     }
 }
 
-fn visible(reach: &Reach, project: &Project) -> bool {
-    reach.everywhere
-        || reach.projects.contains(&project.id)
-        || reach.organisations.contains(&project.organisation_id)
-}
-
 async fn project(state: &AppState, reach: &Reach, reference: &str) -> Result<ProjectId, ApiError> {
     let absent = || invalid(format!("there is no project `{reference}`"));
     let found = match reference.split_once('/') {
@@ -200,7 +193,7 @@ async fn project(state: &AppState, reach: &Reach, reference: &str) -> Result<Pro
         },
     };
     found
-        .filter(|project| visible(reach, project))
+        .filter(|project| reach.reaches(project))
         .map(|project| project.id)
         .ok_or_else(absent)
 }
@@ -211,7 +204,7 @@ async fn run(state: &AppState, reach: &Reach, reference: &str) -> Result<RunId, 
     bosun_db::projects::holding(&state.db, Holder::Run(id))
         .await
         .map_err(database)?
-        .filter(|project| visible(reach, project))
+        .filter(|project| reach.reaches(project))
         .map(|_| id)
         .ok_or_else(absent)
 }

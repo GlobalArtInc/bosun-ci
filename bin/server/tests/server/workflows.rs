@@ -543,13 +543,13 @@ async fn a_dispatch_that_cannot_start_a_run_is_refused_and_starts_none() {
     assert_eq!(refused["error"]["code"], "invalid_state");
     assert_eq!(refused["error"]["diagnostics"][0]["code"], "yaml_syntax");
 
-    database
-        .connection()
-        .execute_unprepared(&format!(
-            "UPDATE bosun.workflow SET enabled = false WHERE id = '{id}'"
-        ))
-        .await
-        .expect("a disabled workflow");
+    let (status, disabled) = api
+        .patch(
+            &format!("/api/v1/workflows/{id}"),
+            &json!({ "enabled": false }),
+        )
+        .await;
+    assert_eq!(status, 200, "{disabled}");
     let (status, refused) = api
         .post(&dispatch, &json!({ "ref": null, "inputs": {} }))
         .await;

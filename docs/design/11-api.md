@@ -259,6 +259,7 @@ with the answers each built-in role gets:
 | `PATCH /projects/{project}/settings` | `project.manage` | `project` |
 | `POST /projects/{project}/events` | `run.dispatch` | `project` |
 | `GET /workflows/{workflow}` | `project.view` | `project` |
+| `PATCH /workflows/{workflow}` | `workflow.manage` | `project` |
 | `PUT /workflows/{workflow}/source` | `workflow.edit` | `project` |
 | `GET /workflows/{workflow}/revisions` | `project.view` | `project` |
 | `POST /workflows/{workflow}/dispatch` | `run.dispatch` | `project` |
@@ -318,6 +319,10 @@ A step that adds an endpoint adds its row here.
   one it had, or to none; it needs `organisation.manage` on the installation, so only owners map
   installations. An installation Bosun does not know is `invalid_input` naming `installation`, and
   one that another organisation holds is `409 conflict`.
+- A project carries `path`, `<organisation>/<project>` with the slugs of its organisation and of
+  itself, which every request that names a project by its slugs takes, so a client lists projects
+  in the form it names them by. Step 38 of M1 ([../plan.md](../plan.md)) added it for
+  `bosun project list`.
 - A project carries `repository`, the repository it is bound to as
   `{"id", "owner", "name", "default_branch"}` with the forge's id and the names the forge last
   gave, or `null`. `repository` in `POST /projects`, and in `PATCH /projects/{project}`, which
@@ -333,6 +338,22 @@ A step that adds an endpoint adds its row here.
   becomes current again. A source with errors is `422 invalid_input` with the field `source`, the
   message `the workflow is not valid` and the diagnostics, and stores nothing
   ([02-workflows.md](02-workflows.md)). `GET /workflows/{workflow}/revisions` lists newest first.
+- Step 38 of M1 ([../plan.md](../plan.md)) settled enabling and disabling a workflow and the latest
+  run a workflow carries:
+  - `PATCH /workflows/{workflow}` takes `enabled`, `true` or `false`, needs `workflow.manage`, and
+    answers `200` with the workflow; it takes server-side and repository workflows alike. A value
+    the workflow has already, and an empty body, change nothing; `null` is `invalid_input`, since a
+    workflow is enabled or not. A disabled workflow keeps its revisions and its runs: its dispatch
+    is `409 invalid_state` with ``workflow `<name>` is disabled, so it cannot be dispatched``, and
+    no event creates a run of it ([02-workflows.md](02-workflows.md#repository-workflows)), a
+    schedule included.
+  - Every workflow in an answer carries `latest_run`, its newest run in the shape of
+    `GET /runs/{run}`, or `null` when it has none. For a project bound to a repository it is the
+    newest run whose ref is the default branch's, `refs/heads/<default_branch>` with the default
+    branch the forge last gave, so that the workflow shows the state of the default branch: a newer
+    run of another branch, of a tag or without a ref is not its latest run. For a project without
+    a repository it is the newest run. Newest is the highest `number`. A workflow just created
+    carries `null`.
 - The workflows of a project's repository are listed with its server-side ones, each named by its
   path, such as `.bosun/workflows/ci.yml`, with the source `{"kind": "repository"}`
   ([02-workflows.md](02-workflows.md#repository-workflows)). Their source changes with the
@@ -419,13 +440,30 @@ projects returns, or the requests that create one.
 ### Runs, jobs and executions
 
 - `GET /runs` lists the runs of the projects the caller may view, newest first, as a cursor page of
-  runs in the shape of `GET /runs/{run}`; its filters arrive with step 38 of
-  [../plan.md](../plan.md).
+  runs in the shape of `GET /runs/{run}`. Step 38 of M1 ([../plan.md](../plan.md)) settled its
+  filters. Each takes one value, and the last counts when one is given twice; the filters given
+  must all hold, and the cases of `contracts/fixtures/runs/filters.json` pin them, alone and
+  together:
+
+  | Filter | Holds for a run |
+  |--------|-----------------|
+  | `project` | of the project, named by its id or `<organisation>/<project>` |
+  | `workflow` | of the workflow, named by its id |
+  | `branch` | whose ref is `refs/heads/<branch>`: a branch matches neither a tag of its name nor a part of another branch's name, and no run without a ref |
+  | `event` | of the event of that name, such as `push` |
+  | `status` | whose status is the value, or whose conclusion is the value, since the two have no name in common |
+  | `actor` | whose actor, the actor of its trigger, has that login: a user, the user of a token or an account of the forge; an agent and the system have no login |
+
+  A project or a workflow that does not exist or that the caller may not view, and a `status` that
+  is neither a status nor a conclusion of a run, are `422 invalid_input` with
+  `the query is not valid` and an entry of `fields` naming the filter, the first two with the
+  message of one that does not exist, so a filter tells nothing about what the caller cannot see.
 - `GET /runs/{run}` answers with the run, in the shape `POST /workflows/{workflow}/dispatch`
   returns; its `attempt` is the number of its latest attempt, and the list of its attempts is not
-  served yet. `display_name` is the run's display name and `notices` its run notices in the order
-  of the journal, each a diagnostic with the `job_id` it concerns or `null`
-  ([04-runs.md](04-runs.md#run-notices)).
+  served yet. `ref` and `sha` are the ref and the commit the run records, each `null` when it has
+  none, as a run of a project without a repository does. `display_name` is the run's display name
+  and `notices` its run notices in the order of the journal, each a diagnostic with the `job_id` it
+  concerns or `null` ([04-runs.md](04-runs.md#run-notices)).
 - `GET /runs/{run}/attempts/{n}/jobs` lists the jobs of attempt `n` in the order they were
   created, as a cursor page without filters. A job carries `execution_id`, the id of its latest
   execution, or `null` while no agent has claimed it, and `outputs`, the outputs its agent reported
@@ -798,13 +836,15 @@ status 1; a usage error exits with status 2.
 ```
 bosun login [--server <url>]
 bosun project list | show <org/project> | settings <org/project> [--set key=value]...
-bosun workflow list <project> | show <workflow> | enable | disable
+bosun workflow list <project> | show <workflow> | enable <workflow> | disable <workflow>
 bosun workflow push <project> <file> [--name <name>]
 bosun workflow lint [<file>...]
 bosun workflow inventory <dir> [--output <dir>]
 bosun workflow dispatch <workflow> [--ref <ref>] [--input k=v]... [--watch]
 bosun exec [<workflow>] [--job <key>] [--event <name>] [--input k=v]... [--secrets <file>]
-bosun run list [--project <p>] [--status <s>] | show <run> | watch <run> | journal <run>
+bosun run list [--project <p>] [--workflow <w>] [--branch <b>] [--event <e>] [--status <s>]
+               [--actor <login>] [--limit <n>]
+bosun run show <run> | watch <run> | journal <run>
 bosun run cancel [--force] | pause | resume | admit | rerun [--failed] [--debug] <run>
 bosun job logs <job> [--step <n>] [--follow] [--grep <pattern>]
 bosun job cancel | pause | resume | skip | rerun [--no-dependents] <job>
@@ -832,12 +872,13 @@ What M0 settles of these commands:
 - `bosun workflow push <project> <file>` creates the server-side workflow, or saves the file as its
   new source when the project has a workflow of that name. The name defaults to the file name
   without its extension, and `<project>` is `<organisation>/<project>` or an id.
-- `bosun workflow dispatch <workflow>` takes the workflow's id or `<organisation>/<project>/<name>`.
+- `bosun workflow dispatch <workflow>` takes the workflow's id or `<organisation>/<project>/<name>`,
+  where the name of a repository workflow is its path, such as
+  `globalart/keel/.bosun/workflows/ci.yml`; every command that takes a workflow takes it so.
   With `--watch` it prints the run, a line `<job>: <status>` whenever a job's status or conclusion
   changes (the first one with the job's id), every log line of every job as `<job> | <text>`, and
   `run <id>: completed <conclusion>` at the end; a job's completion is printed after its last log
-  line. It exits with 0 when the run succeeds and with 1 otherwise, until step 38 of M1 settles a
-  status per conclusion for `bosun run watch`.
+  line. It exits as `bosun run watch` does, with the status of the run's conclusion (below).
 - `bosun job logs <job>` prints each step's log under a heading `==> step <n>: <name>`, its lines as
   the API serves them, with their time. `--step <n>` prints only step `n`, counted from 1, without a
   heading; `--follow` waits for the job to reach an agent and prints the lines as they arrive until
@@ -848,9 +889,9 @@ What M0 settles of these commands:
   server of the profile. `--expires` takes a whole number of minutes, hours or days (`30m`,
   `12h`, `7d`); without it the server's default of 24 hours applies. `--reusable` lets the token
   register any number of agents rather than one.
-- `--watch` and `--follow` outlive a restart of the replica they talk to: a request that gets no
-  answer, or `502`, `503` or `504`, is tried again for up to 60 seconds, and a followed log resumes
-  after its last line with `Last-Event-ID`. Other commands fail at once.
+- `--watch`, `--follow` and `bosun run watch` outlive a restart of the replica they talk to: a
+  request that gets no answer, or `502`, `503` or `504`, is tried again for up to 60 seconds, and a
+  followed log resumes after its last line with `Last-Event-ID`. Other commands fail at once.
 
 What M1 settles of these commands:
 
@@ -885,6 +926,47 @@ What M1 settles of these commands:
   which no other agent may have: the commands read the list of agents first, and a name that
   several agents have fails, listing their ids. With `--json`, `drain` prints the agent as the
   server answers it and `delete` the agent it deleted, as it was.
+- `bosun project list` prints one line per project the profile may view, with its path, its name,
+  the repository it is bound to (`<owner>/<name>`, or `-`) and its id; `bosun project show
+  <org/project>` prints the project one field per line. With `--json`, `list` prints every project
+  and `show` the project, as the API answers them.
+- `bosun workflow list <project>` prints one line per workflow of the project, with its name, its
+  source (`server` or `repository`), its state (`enabled` or `disabled`), its latest run as
+  `#<number> <status> [<conclusion>]` or `-`, and its id; `bosun workflow show <workflow>` prints the
+  workflow one field per line, with the path of its project. `bosun workflow enable <workflow>` and
+  `bosun workflow disable <workflow>` send `PATCH /workflows/{workflow}` and print what the change
+  means. With `--json`, each prints the workflows or the workflow as the API answers.
+- `bosun run list` prints one line per run with its status and conclusion, its display name and
+  number, its event, its branch (the ref without `refs/heads/`, another ref whole, or `-`), the login
+  of its actor (`agent <name>` for an agent, `system` for the system), when it was created and its
+  id. Its options are the filters of `GET /runs`, and `--workflow` also takes
+  `<organisation>/<project>/<name>`, which the command resolves to an id first. It prints one page,
+  of `--limit` runs (default 50, at most 500), newest first; with `--json` it prints the `items` of
+  that page, exactly as the API returns them.
+- `bosun run show <run>` prints the run one field per line, its notices as diagnostics, and a line per
+  job of its latest attempt with the job's key, name, status and id; `--json` prints the run as the
+  API answers it.
+- `bosun run watch <run>` follows a run as `bosun workflow dispatch --watch` does and exits with the
+  status of the run's conclusion, which step 38 of M1 ([../plan.md](../plan.md)) settled. Each
+  conclusion has a status of its own, none of them 1 or 2, so a script tells the outcome of the run
+  from a failure of the command (1) and from a usage error (2):
+
+  | Conclusion | Exit status |
+  |------------|-------------|
+  | `success` | 0 |
+  | `failure` | 3 |
+  | `cancelled` | 4 |
+  | `timed_out` | 5 |
+  | `startup_failure` | 6 |
+  | `skipped` | 7 |
+
+  A skipped run did nothing, so it is not a success to a script that waits for its work. A failure
+  of the command while it follows the run, such as a server that stays away for more than 60
+  seconds, exits with 1, as every failure does. `--json` is a usage error with `watch`.
+- `bosun job cancel <job>` sends `job.cancel` for the job to the commands of its run and prints that
+  the cancellation is accepted, or with `--json` the `command.accepted` event. The job ends
+  `cancelled`, a job group with every member, and the jobs that need it see `cancelled` in
+  `needs.<job>.result` and follow their `if` ([04-runs.md](04-runs.md#operator-commands)).
 - `bosun workflow inventory <dir>` reads no profile and talks to no server. It reads every `*.yml`
   and `*.yaml` file under `<dir>`, at any depth, with `bosun_workflow::inventory`, and writes
   `uses.json` and `keys.json` into the directory `--output`, by default `compat/inventory`, in the

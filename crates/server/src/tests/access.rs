@@ -992,6 +992,7 @@ async fn calls(
             Some(json!({ "name": format!("workflow-{name}"), "source": SOURCE }))
         }
         ("PUT", "/api/v1/workflows/{workflow}/source") => Some(json!({ "source": SOURCE })),
+        ("PATCH", "/api/v1/workflows/{workflow}") => Some(json!({ "enabled": true })),
         ("PATCH", "/api/v1/projects/{project}/settings") => {
             let stored = bosun_db::projects::settings(site.db(), fixture.project.id)
                 .await

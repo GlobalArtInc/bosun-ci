@@ -49,13 +49,16 @@ enum Command {
         )]
         server: Option<String>,
     },
-    #[command(subcommand, about = "Read and change projects")]
+    #[command(subcommand, about = "List, read and change projects")]
     Project(project::Command),
-    #[command(subcommand, about = "Push, dispatch and inventory workflows")]
+    #[command(
+        subcommand,
+        about = "List, enable, disable, push, dispatch and inventory workflows"
+    )]
     Workflow(workflow::Command),
-    #[command(subcommand, about = "Act on runs")]
+    #[command(subcommand, about = "List, show, watch and cancel runs")]
     Run(run::Command),
-    #[command(subcommand, about = "Read the logs of jobs")]
+    #[command(subcommand, about = "Read the logs of jobs and cancel them")]
     Job(job::Command),
     #[command(subcommand, about = "List, drain and delete agents")]
     Agent(agent::Command),

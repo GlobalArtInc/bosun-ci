@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use bosun_types::actor::Actor;
 use bosun_types::api::{Execution, Job, Notice, QueuedJob, Run, Step};
-use bosun_types::id::{ExecutionId, JobId, RunId};
-use bosun_types::status::JobStatus;
+use bosun_types::id::{ExecutionId, JobId, ProjectId, RunId, WorkflowId};
+use bosun_types::status::{JobStatus, RunConclusion, RunStatus};
 use sea_orm::prelude::Uuid;
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QueryResult, QuerySelect,
 };
@@ -15,6 +16,8 @@ use crate::projects::Reach;
 use crate::row::statement;
 use crate::{Error, row};
 
+const BRANCHES: &str = "refs/heads/";
+
 pub async fn run<C: ConnectionTrait>(db: &C, id: RunId) -> Result<Option<Run>, Error> {
     let Some(found) = run::Entity::find_by_id(Uuid::from(id)).one(db).await? else {
         return Ok(None);
@@ -22,9 +25,26 @@ pub async fn run<C: ConnectionTrait>(db: &C, id: RunId) -> Result<Option<Run>, E
     Ok(decode_runs(db, vec![found]).await?.pop())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusOrConclusion {
+    Status(RunStatus),
+    Conclusion(RunConclusion),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RunFilter<'a> {
+    pub project: Option<ProjectId>,
+    pub workflow: Option<WorkflowId>,
+    pub branch: Option<&'a str>,
+    pub event: Option<&'a str>,
+    pub status: Option<StatusOrConclusion>,
+    pub actor: Option<&'a str>,
+}
+
 pub async fn runs<C: ConnectionTrait>(
     db: &C,
     reach: &Reach,
+    filter: &RunFilter<'_>,
     before: Option<Uuid>,
     limit: u64,
 ) -> Result<Vec<Run>, Error> {
@@ -34,11 +54,65 @@ pub async fn runs<C: ConnectionTrait>(
     if let Some(condition) = reach.condition(run::Column::ProjectId) {
         query = query.filter(condition);
     }
+    if let Some(project) = filter.project {
+        query = query.filter(run::Column::ProjectId.eq(Uuid::from(project)));
+    }
+    if let Some(workflow) = filter.workflow {
+        query = query.filter(run::Column::WorkflowId.eq(Uuid::from(workflow)));
+    }
+    if let Some(branch) = filter.branch {
+        query = query.filter(run::Column::GitRef.eq(format!("{BRANCHES}{branch}")));
+    }
+    if let Some(event) = filter.event {
+        query = query.filter(run::Column::Event.eq(event));
+    }
+    match filter.status {
+        Some(StatusOrConclusion::Status(status)) => {
+            query = query.filter(run::Column::Status.eq(row::text("run", status)?));
+        }
+        Some(StatusOrConclusion::Conclusion(conclusion)) => {
+            query = query.filter(run::Column::Conclusion.eq(row::text("run", conclusion)?));
+        }
+        None => {}
+    }
+    if let Some(actor) = filter.actor {
+        query = query.filter(Expr::cust_with_values(
+            "\"run\".\"trigger\" -> 'actor' ->> 'login' = $1",
+            [actor],
+        ));
+    }
     if let Some(before) = before {
         query = query.filter(run::Column::Id.lt(before));
     }
     let found = query.all(db).await?;
     decode_runs(db, found).await
+}
+
+pub(crate) async fn latest_runs<C: ConnectionTrait>(
+    db: &C,
+    workflows: Vec<Uuid>,
+) -> Result<HashMap<WorkflowId, Run>, Error> {
+    if workflows.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let found = run::Entity::find()
+        .from_raw_sql(statement(
+            &format!(
+                "SELECT l.* FROM workflow w JOIN project p ON p.id = w.project_id \
+                 LEFT JOIN forge_repository f ON f.id = p.repository_id \
+                 CROSS JOIN LATERAL (SELECT r.* FROM run r WHERE r.workflow_id = w.id \
+                 AND (f.id IS NULL OR r.ref = '{BRANCHES}' || f.default_branch) \
+                 ORDER BY r.number DESC LIMIT 1) l WHERE w.id = ANY($1)"
+            ),
+            [workflows.into()],
+        ))
+        .all(db)
+        .await?;
+    Ok(decode_runs(db, found)
+        .await?
+        .into_iter()
+        .map(|run| (run.workflow_id, run))
+        .collect())
 }
 
 async fn decode_runs<C: ConnectionTrait>(
@@ -97,6 +171,8 @@ async fn decode_runs<C: ConnectionTrait>(
                 global_number: row::unsigned("run", found.global_number)?,
                 display_name: found.display_name.unwrap_or_default(),
                 event: found.event,
+                r#ref: found.git_ref,
+                sha: found.sha,
                 status: row::name("run", found.status)?,
                 conclusion: found
                     .conclusion

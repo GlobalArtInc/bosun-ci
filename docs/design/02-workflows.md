@@ -35,8 +35,9 @@ A **draft** is an unsaved edit kept on the server for one workflow and one autho
 run ([04-runs.md](04-runs.md)) and turned into a commit or a pull request
 ([09-frontend.md](09-frontend.md)). Drafts are never picked up by triggers.
 
-A workflow can be disabled per project. A disabled workflow is still parsed and shown, but no
-trigger creates a run of it; a manual dispatch says why it was refused.
+A workflow can be disabled per project, with `PATCH /workflows/{workflow}` and `workflow.manage`
+([11-api.md](11-api.md#projects-and-server-side-workflows)). A disabled workflow is still parsed and
+shown, but no trigger creates a run of it; a manual dispatch says why it was refused.
 
 ### Repository workflows
 

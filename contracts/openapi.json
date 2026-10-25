@@ -1723,6 +1723,9 @@
             "format": "uuid",
             "type": "string"
           },
+          "path": {
+            "type": "string"
+          },
           "repository": {
             "anyOf": [
               {
@@ -1741,6 +1744,7 @@
           "id",
           "organisation_id",
           "slug",
+          "path",
           "name",
           "repository",
           "created_at"
@@ -2198,9 +2202,21 @@
             "format": "uuid",
             "type": "string"
           },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "revision_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "sha": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "started_at": {
             "format": "date-time",
@@ -2226,6 +2242,8 @@
           "global_number",
           "display_name",
           "event",
+          "ref",
+          "sha",
           "status",
           "conclusion",
           "attempt",
@@ -3048,6 +3066,15 @@
         ],
         "type": "object"
       },
+      "UpdateWorkflowRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "User": {
         "properties": {
           "created_at": {
@@ -3109,6 +3136,16 @@
             "format": "uuid",
             "type": "string"
           },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Run"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -3134,6 +3171,7 @@
           "source",
           "enabled",
           "revision_id",
+          "latest_run",
           "created_at"
         ],
         "type": "object"
@@ -5033,6 +5071,54 @@
           },
           {
             "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "description": "only the runs of this project, its id or `<organisation>/<project>`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "only the runs of this workflow, its id",
+            "in": "query",
+            "name": "workflow",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "only the runs whose ref is this branch, `refs/heads/<branch>`",
+            "in": "query",
+            "name": "branch",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "only the runs of this event, such as `push` or `workflow_dispatch`",
+            "in": "query",
+            "name": "event",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "only the runs with this status, or with this conclusion",
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "only the runs whose actor has this login: a user, the user of a token or an account of the forge",
+            "in": "query",
+            "name": "actor",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5801,6 +5887,58 @@
         },
         "x-bosun-permission": {
           "key": "project.view",
+          "on": "project"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "description": "the workflow's id",
+            "in": "path",
+            "name": "workflow",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "workflow.manage",
           "on": "project"
         }
       }

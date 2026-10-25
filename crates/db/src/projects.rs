@@ -22,6 +22,12 @@ pub struct Reach {
 }
 
 impl Reach {
+    pub fn reaches(&self, project: &Project) -> bool {
+        self.everywhere
+            || self.projects.contains(&project.id)
+            || self.organisations.contains(&project.organisation_id)
+    }
+
     pub(crate) fn condition(&self, project: impl ColumnTrait) -> Option<Condition> {
         (!self.everywhere).then(|| {
             Condition::any()
@@ -76,7 +82,9 @@ pub async fn create<C: ConnectionTrait>(
     .insert(db)
     .await
     .map_err(|error| row::taken(error, || Error::ProjectTaken(slug.to_owned())))?;
-    decode(created, None)
+    one(db, Some(created))
+        .await?
+        .ok_or_else(|| Error::Vanished(format!("project {slug}")))
 }
 
 pub async fn bind<C: ConnectionTrait>(
@@ -279,6 +287,9 @@ async fn present<C: ConnectionTrait>(
     db: &C,
     found: Vec<project::Model>,
 ) -> Result<Vec<Project>, Error> {
+    if found.is_empty() {
+        return Ok(Vec::new());
+    }
     let ids: Vec<i64> = found
         .iter()
         .filter_map(|project| project.repository_id)
@@ -293,25 +304,38 @@ async fn present<C: ConnectionTrait>(
             repositories.insert(repository.id, repository);
         }
     }
+    let owners: HashMap<Uuid, String> = organisation::Entity::find()
+        .filter(organisation::Column::Id.is_in(found.iter().map(|project| project.organisation_id)))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|owner| (owner.id, owner.slug))
+        .collect();
     found
         .into_iter()
         .map(|project| {
             let repository = project
                 .repository_id
                 .and_then(|id| repositories.remove(&id));
-            decode(project, repository)
+            let owner = owners.get(&project.organisation_id).ok_or_else(|| {
+                Error::Vanished(format!("the organisation of project {}", project.id))
+            })?;
+            let path = format!("{owner}/{}", project.slug);
+            decode(project, path, repository)
         })
         .collect()
 }
 
 fn decode(
     project: project::Model,
+    path: String,
     repository: Option<forge_repository::Model>,
 ) -> Result<Project, Error> {
     Ok(Project {
         id: row::id(TABLE, project.id)?,
         organisation_id: row::id(TABLE, project.organisation_id)?,
         slug: project.slug,
+        path,
         name: project.name,
         repository: repository
             .map(|repository| {

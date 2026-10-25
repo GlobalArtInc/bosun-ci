@@ -3,20 +3,22 @@ use axum::extract::State;
 use bosun_db::projects::Holder;
 use bosun_db::workflows::NewWorkflow;
 use bosun_types::api::{
-    CreateWorkflowRequest, Page, Revision, UpdateSourceRequest, Workflow, WorkflowSource,
+    CreateWorkflowRequest, Page, Revision, UpdateSourceRequest, UpdateWorkflowRequest, Workflow,
+    WorkflowSource,
 };
 use bosun_types::diagnostic::Severity;
 use bosun_types::error::{ErrorBody, ErrorCode, FieldError};
 use bosun_types::id::WorkflowId;
 use sea_orm::{ConnectionTrait, TransactionTrait};
 use sha2::{Digest, Sha256};
+use tracing::info;
 
-use crate::access::{Caller, Key, OnProject, ProjectView, WorkflowEdit};
+use crate::access::{Caller, Key, OnProject, ProjectView, WorkflowEdit, WorkflowManage};
 use crate::envelope::ApiError;
 use crate::openapi::Api;
 use crate::projects::ProjectPath;
 use crate::reply::{Created, Saved};
-use crate::request::{Body, Faults, Filters, Idempotent, Listing, Segment, database};
+use crate::request::{Body, Faults, Filters, Idempotent, Listing, Segment, database, failed};
 use crate::{AppState, dispatch, idempotency, slug};
 
 const NAME: &str = "name";
@@ -30,6 +32,7 @@ impl Filters for ByName {
 pub(crate) fn routes() -> Api {
     Api::new()
         .get("/api/v1/workflows/{workflow}", show)
+        .patch("/api/v1/workflows/{workflow}", update)
         .put("/api/v1/workflows/{workflow}/source", save)
         .get("/api/v1/workflows/{workflow}/revisions", revisions)
         .post("/api/v1/workflows/{workflow}/dispatch", dispatch::dispatch)
@@ -135,6 +138,35 @@ async fn show(
     Segment(reference): Segment,
 ) -> Result<Json<Workflow>, ApiError> {
     find(&state.db, &caller, &reference).await.map(Json)
+}
+
+async fn update(
+    State(state): State<AppState>,
+    caller: Caller<OnProject<WorkflowManage>>,
+    Segment(reference): Segment,
+    body: Result<Body<UpdateWorkflowRequest>, ApiError>,
+) -> Result<Json<Workflow>, ApiError> {
+    let workflow = find(&state.db, &caller, &reference).await?;
+    let Body(UpdateWorkflowRequest { enabled }) = body?;
+    let Some(enabled) = enabled.filter(|enabled| *enabled != workflow.enabled) else {
+        return Ok(Json(workflow));
+    };
+    let changed = bosun_db::workflows::set_enabled(&state.db, workflow.id, enabled)
+        .await
+        .map_err(database)?
+        .ok_or_else(|| {
+            failed(format!(
+                "workflow {} vanished while it was changed",
+                workflow.id
+            ))
+        })?;
+    let login = &caller.principal.user.login;
+    if enabled {
+        info!(workflow_id = %workflow.id, name = workflow.name, login, "enabled a workflow");
+    } else {
+        info!(workflow_id = %workflow.id, name = workflow.name, login, "disabled a workflow");
+    }
+    Ok(Json(changed))
 }
 
 async fn save(

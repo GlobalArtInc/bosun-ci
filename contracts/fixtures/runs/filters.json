@@ -1,0 +1,196 @@
+{
+  "runs": [
+    {
+      "name": "ci-push-main-failure",
+      "project": "globalart/keel",
+      "workflow": "ci",
+      "event": "push",
+      "ref": "refs/heads/main",
+      "status": "completed",
+      "conclusion": "failure",
+      "actor": { "kind": "forge", "id": 7001, "login": "roman" }
+    },
+    {
+      "name": "ci-push-feature-success",
+      "project": "globalart/keel",
+      "workflow": "ci",
+      "event": "push",
+      "ref": "refs/heads/feature/guide",
+      "status": "completed",
+      "conclusion": "success",
+      "actor": { "kind": "forge", "id": 7001, "login": "roman" }
+    },
+    {
+      "name": "release-tag-in-progress",
+      "project": "globalart/keel",
+      "workflow": "release",
+      "event": "push",
+      "ref": "refs/tags/main",
+      "status": "in_progress",
+      "conclusion": null,
+      "actor": { "kind": "forge", "id": 7002, "login": "dana" }
+    },
+    {
+      "name": "release-dispatch-queued",
+      "project": "globalart/keel",
+      "workflow": "release",
+      "event": "workflow_dispatch",
+      "ref": "refs/heads/main",
+      "status": "queued",
+      "conclusion": null,
+      "actor": {
+        "kind": "token",
+        "id": "0192f3a4-5b6c-7d8e-9f01-000000000004",
+        "user_id": "0192f3a4-5b6c-7d8e-9f01-000000000003",
+        "login": "dana"
+      }
+    },
+    {
+      "name": "ci-issues-failure",
+      "project": "globalart/keel",
+      "workflow": "ci",
+      "event": "issues",
+      "ref": "refs/heads/main",
+      "status": "completed",
+      "conclusion": "failure",
+      "actor": { "kind": "system" }
+    },
+    {
+      "name": "nightly-dispatch-cancelled",
+      "project": "globalart/docs",
+      "workflow": "nightly",
+      "event": "workflow_dispatch",
+      "ref": null,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "actor": { "kind": "user", "id": "0192f3a4-5b6c-7d8e-9f01-000000000003", "login": "roman" }
+    },
+    {
+      "name": "nightly-push-main-failure",
+      "project": "globalart/docs",
+      "workflow": "nightly",
+      "event": "push",
+      "ref": "refs/heads/main",
+      "status": "completed",
+      "conclusion": "failure",
+      "actor": { "kind": "agent", "id": "0192f3a4-5b6c-7d8e-9f01-000000000009", "name": "roman" }
+    }
+  ],
+  "cases": [
+    {
+      "description": "without a filter the list holds every run, newest first",
+      "query": {},
+      "runs": [
+        "nightly-push-main-failure",
+        "nightly-dispatch-cancelled",
+        "ci-issues-failure",
+        "release-dispatch-queued",
+        "release-tag-in-progress",
+        "ci-push-feature-success",
+        "ci-push-main-failure"
+      ]
+    },
+    {
+      "description": "project holds the runs of one project, named by its slugs",
+      "query": { "project": "globalart/docs" },
+      "runs": ["nightly-push-main-failure", "nightly-dispatch-cancelled"]
+    },
+    {
+      "description": "workflow holds the runs of one workflow",
+      "query": { "workflow": "ci" },
+      "runs": ["ci-issues-failure", "ci-push-feature-success", "ci-push-main-failure"]
+    },
+    {
+      "description": "branch matches the branch of the ref, not a tag of the same name",
+      "query": { "branch": "main" },
+      "runs": [
+        "nightly-push-main-failure",
+        "ci-issues-failure",
+        "release-dispatch-queued",
+        "ci-push-main-failure"
+      ]
+    },
+    {
+      "description": "branch takes a name with slashes whole",
+      "query": { "branch": "feature/guide" },
+      "runs": ["ci-push-feature-success"]
+    },
+    {
+      "description": "branch matches no run without a ref and no part of a name",
+      "query": { "branch": "feature" },
+      "runs": []
+    },
+    {
+      "description": "event matches the name of the event",
+      "query": { "event": "workflow_dispatch" },
+      "runs": ["nightly-dispatch-cancelled", "release-dispatch-queued"]
+    },
+    {
+      "description": "status takes a conclusion",
+      "query": { "status": "failure" },
+      "runs": ["nightly-push-main-failure", "ci-issues-failure", "ci-push-main-failure"]
+    },
+    {
+      "description": "status takes a status",
+      "query": { "status": "completed" },
+      "runs": [
+        "nightly-push-main-failure",
+        "nightly-dispatch-cancelled",
+        "ci-issues-failure",
+        "ci-push-feature-success",
+        "ci-push-main-failure"
+      ]
+    },
+    {
+      "description": "status takes the statuses of runs that have not ended",
+      "query": { "status": "in_progress" },
+      "runs": ["release-tag-in-progress"]
+    },
+    {
+      "description": "actor matches the login of a user, of the user of a token and of an account of the forge, and not the name of an agent",
+      "query": { "actor": "roman" },
+      "runs": ["nightly-dispatch-cancelled", "ci-push-feature-success", "ci-push-main-failure"]
+    },
+    {
+      "description": "actor matches the login of the user of a token",
+      "query": { "actor": "dana" },
+      "runs": ["release-dispatch-queued", "release-tag-in-progress"]
+    },
+    {
+      "description": "workflow and branch together",
+      "query": { "workflow": "ci", "branch": "main" },
+      "runs": ["ci-issues-failure", "ci-push-main-failure"]
+    },
+    {
+      "description": "status and event together",
+      "query": { "status": "failure", "event": "push" },
+      "runs": ["nightly-push-main-failure", "ci-push-main-failure"]
+    },
+    {
+      "description": "branch, event and actor together",
+      "query": { "branch": "main", "event": "workflow_dispatch", "actor": "dana" },
+      "runs": ["release-dispatch-queued"]
+    },
+    {
+      "description": "all five fields together",
+      "query": {
+        "workflow": "ci",
+        "branch": "main",
+        "event": "push",
+        "status": "failure",
+        "actor": "roman"
+      },
+      "runs": ["ci-push-main-failure"]
+    },
+    {
+      "description": "the project and a workflow of another project match nothing",
+      "query": { "project": "globalart/docs", "workflow": "ci" },
+      "runs": []
+    },
+    {
+      "description": "filters that hold for no run together match nothing",
+      "query": { "status": "success", "branch": "main" },
+      "runs": []
+    }
+  ]
+}

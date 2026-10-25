@@ -11,7 +11,7 @@ use bosun_types::api::{
     RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest,
     RepositoryDispatchRequest, Revision, Role, RoleBinding, Run, SetLabelAliasRequest,
     SignInMethods, SignInRequest, Step, Team, UpdateAgentRequest, UpdateOrganisationRequest,
-    UpdateProjectRequest, UpdateSourceRequest, User, Workflow,
+    UpdateProjectRequest, UpdateSourceRequest, UpdateWorkflowRequest, User, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -39,6 +39,7 @@ const RUN_BY_OTHER_SUITES: &[&str] = &[
     "hash-files",
     "matrix",
     "pushes",
+    "runs",
     "triggers",
 ];
 
@@ -217,6 +218,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         (
             "api/update-source-request.json",
             round_trip::<UpdateSourceRequest>,
+        ),
+        (
+            "api/update-workflow-request.json",
+            round_trip::<UpdateWorkflowRequest>,
         ),
         ("api/user.json", round_trip::<User>),
         ("api/workflow.json", round_trip::<Workflow>),

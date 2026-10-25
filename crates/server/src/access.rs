@@ -39,6 +39,7 @@ keys!(
     ProjectView,
     RunDispatch,
     WorkflowEdit,
+    WorkflowManage,
     ProjectManage,
     OrganisationManage,
     AgentManage,

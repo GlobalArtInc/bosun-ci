@@ -7,6 +7,8 @@
   "global_number": 4032,
   "display_name": ".bosun/workflows/ci.yml",
   "event": "push",
+  "ref": "refs/heads/main",
+  "sha": "5d1f0c4e2a9b8d7c6e3f1a0b9c8d7e6f5a4b3c2d",
   "status": "completed",
   "conclusion": "startup_failure",
   "attempt": 1,

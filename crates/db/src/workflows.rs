@@ -10,7 +10,7 @@ use serde_json::json;
 
 use crate::entity::{project, workflow, workflow_revision};
 use crate::row::statement;
-use crate::{Error, row};
+use crate::{Error, row, views};
 
 const WORKFLOWS: &str = "workflow";
 
@@ -80,11 +80,23 @@ pub async fn save<C: ConnectionTrait>(
 }
 
 pub async fn find<C: ConnectionTrait>(db: &C, id: WorkflowId) -> Result<Option<Workflow>, Error> {
-    workflow::Entity::find_by_id(Uuid::from(id))
-        .one(db)
+    let found = workflow::Entity::find_by_id(Uuid::from(id)).one(db).await?;
+    Ok(with_latest_runs(db, found.into_iter().collect())
         .await?
-        .map(decode)
-        .transpose()
+        .pop())
+}
+
+pub async fn set_enabled<C: ConnectionTrait>(
+    db: &C,
+    id: WorkflowId,
+    enabled: bool,
+) -> Result<Option<Workflow>, Error> {
+    db.execute(statement(
+        "UPDATE workflow SET enabled = $2 WHERE id = $1",
+        [Uuid::from(id).into(), enabled.into()],
+    ))
+    .await?;
+    find(db, id).await
 }
 
 pub async fn list<C: ConnectionTrait>(
@@ -102,13 +114,26 @@ pub async fn list<C: ConnectionTrait>(
     if let Some(after) = after {
         query = query.filter(workflow::Column::Id.gt(after));
     }
-    query
+    let found = query
         .order_by_asc(workflow::Column::Id)
         .limit(limit)
         .all(db)
-        .await?
+        .await?;
+    with_latest_runs(db, found).await
+}
+
+async fn with_latest_runs<C: ConnectionTrait>(
+    db: &C,
+    found: Vec<workflow::Model>,
+) -> Result<Vec<Workflow>, Error> {
+    let mut latest = views::latest_runs(db, found.iter().map(|found| found.id).collect()).await?;
+    found
         .into_iter()
-        .map(decode)
+        .map(|found| {
+            let mut workflow = decode(found)?;
+            workflow.latest_run = latest.remove(&workflow.id);
+            Ok(workflow)
+        })
         .collect()
 }
 
@@ -311,6 +336,7 @@ fn decode(workflow: workflow::Model) -> Result<Workflow, Error> {
         source: row::json::<WorkflowSource>(WORKFLOWS, json!({ "kind": workflow.source_kind }))?,
         enabled: workflow.enabled,
         revision_id: row::optional_id(WORKFLOWS, workflow.revision_id)?,
+        latest_run: None,
         created_at: workflow.created_at,
     })
 }

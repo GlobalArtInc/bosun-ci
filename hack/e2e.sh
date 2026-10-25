@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents"
+scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
 scenarios="$scenarios interface"
 
 usage() {
@@ -338,8 +338,8 @@ jobs:
 EOF
   watch a failing
   watch_ended 60 failing
-  [ "$reaped" -eq 1 ] ||
-    fail "bosun workflow dispatch --watch exited with $reaped for a failed run, not 1: $(cat "$watched")"
+  [ "$reaped" -eq 3 ] ||
+    fail "bosun workflow dispatch --watch exited with $reaped for a failed run, not 3: $(cat "$watched")"
   expect_line "$watched" "build | about to fail" "the failing step's output is missing"
   expect_line "$watched" "build: completed failure" "the job with the failing step did not fail"
   expect_line "$watched" "test: completed skipped" "the dependent job was not skipped"
@@ -875,6 +875,123 @@ EOF
   [ "$(cli --profile b --json agent list | jq '[.[] | select(.name == "e2e-delta")] | length')" -eq 0 ] ||
     fail "bosun agent list still lists the deleted agent"
   stop_process agent-delta "$(pid_of agent-delta)" 30
+  passed
+}
+
+scenario_runs() {
+  begin runs \
+    "bosun lists projects, workflows and runs, disables and enables a workflow, cancels one job, and run watch exits with the status of the conclusion"
+  local failing run job shown="$work/out/runs-shown.txt" refused="$work/out/runs-refused.txt"
+  cli --profile a project list >"$shown" 2>&1 || fail "bosun project list failed: $(cat "$shown")"
+  grep -qE '^e2e/m0 +M0 +- +[0-9a-f-]+$' "$shown" ||
+    fail "bosun project list does not show the project e2e/m0: $(cat "$shown")"
+  [ "$(cli --profile b --json project show e2e/m0 | jq -r .path)" = e2e/m0 ] ||
+    fail "bosun project show --json did not print the project e2e/m0"
+  push watched-failure <<'EOF'
+name: watched-failure
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - run: |
+          echo "about to fail"
+          exit 1
+EOF
+  cli --profile a workflow disable e2e/m0/watched-failure >"$shown" 2>&1 ||
+    fail "bosun workflow disable failed: $(cat "$shown")"
+  grep -qE '^disabled the workflow watched-failure [0-9a-f-]+; a dispatch of it is refused and nothing else runs it$' \
+    "$shown" || fail "bosun workflow disable printed: $(cat "$shown")"
+  cli --profile b workflow list e2e/m0 >"$shown" 2>&1 || fail "bosun workflow list failed: $(cat "$shown")"
+  grep -qE '^watched-failure +server +disabled +- +[0-9a-f-]+$' "$shown" ||
+    fail "bosun workflow list does not show the workflow disabled: $(cat "$shown")"
+  if cli --profile a workflow dispatch e2e/m0/watched-failure >"$refused" 2>&1; then
+    fail "a disabled workflow was dispatched: $(cat "$refused")"
+  fi
+  expect_line "$refused" 'error: workflow `watched-failure` is disabled, so it cannot be dispatched' \
+    "the refused dispatch did not say why"
+  cli --profile b workflow enable e2e/m0/watched-failure >"$shown" 2>&1 ||
+    fail "bosun workflow enable failed: $(cat "$shown")"
+  grep -qE '^enabled the workflow watched-failure [0-9a-f-]+; it is dispatched and its triggers run it$' \
+    "$shown" || fail "bosun workflow enable printed: $(cat "$shown")"
+
+  failing="$(cli --profile a --json workflow dispatch e2e/m0/watched-failure | jq -r .id)" ||
+    fail "the dispatch of the enabled workflow failed"
+  watched="$work/out/run-watch-failure.txt"
+  spawn run-watch-failure "$watched" "$bin/bosun" --profile b run watch "$failing"
+  watcher=$spawned
+  exited_within "$watcher" 60 ||
+    fail "bosun run watch of the failed run did not end within 60s: $(cat "$watched")"
+  forget run-watch-failure
+  reap "$watcher"
+  [ "$reaped" -eq 3 ] || fail "bosun run watch exited with $reaped for a failed run, not 3: $(cat "$watched")"
+  expect_line "$watched" "build | about to fail" "bosun run watch printed no log line"
+  expect_line "$watched" "build: completed failure" "bosun run watch did not show the job fail"
+  [ "$(tail -n 1 "$watched")" = "run $failing: completed failure" ] ||
+    fail "bosun run watch did not end with the conclusion: $(cat "$watched")"
+  [ "$(cli --profile a --json workflow show e2e/m0/watched-failure | jq -r .latest_run.id)" = "$failing" ] ||
+    fail "the workflow does not carry the run as its latest"
+
+  cli --profile a --json run list --status failure >"$work/out/run-list.json" ||
+    fail "bosun run list --status failure --json failed"
+  api GET "/api/v1/runs?status=failure" | jq -S .items >"$work/out/run-list-api.json" ||
+    fail "the API did not list the failed runs"
+  [ "$(jq -S . "$work/out/run-list.json")" = "$(cat "$work/out/run-list-api.json")" ] ||
+    fail "bosun run list --json printed $(cat "$work/out/run-list.json") while the API returns $(cat "$work/out/run-list-api.json")"
+  jq -e --arg id "$failing" 'any(.id == $id) and all(.conclusion == "failure")' \
+    "$work/out/run-list.json" >/dev/null || fail "the failed runs do not hold the run, or hold another one"
+  cli --profile b run list --workflow e2e/m0/watched-failure --event workflow_dispatch >"$shown" 2>&1 ||
+    fail "bosun run list --workflow failed: $(cat "$shown")"
+  grep -qE "^completed failure +watched-failure #1 +workflow_dispatch +- +e2e +[^ ]+ +$failing\$" "$shown" ||
+    fail "bosun run list does not show the failed run: $(cat "$shown")"
+
+  push cancel-one <<'EOF'
+name: cancel-one
+on: workflow_dispatch
+jobs:
+  hold:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - run: |
+          echo "holding"
+          exec sleep 600
+  after:
+    runs-on: [self-hosted, alpha]
+    needs: hold
+    if: always()
+    steps:
+      - run: echo "hold ended ${{ needs.hold.result }}"
+  apart:
+    runs-on: [self-hosted, beta]
+    steps:
+      - run: echo "apart runs"
+EOF
+  run="$(cli --profile a --json workflow dispatch e2e/m0/cancel-one | jq -r .id)" ||
+    fail "the dispatch of cancel-one failed"
+  watched="$work/out/run-watch-cancel.txt"
+  spawn run-watch-cancel "$watched" "$bin/bosun" --profile b run watch "$run"
+  watcher=$spawned
+  await_line "$watched" '^hold \| holding$' 60 "the start of the job to cancel"
+  job="$(job_id hold)"
+  [ -n "$job" ] || fail "the watch named no job: $(cat "$watched")"
+  cli --profile a job cancel "$job" >"$shown" 2>&1 || fail "bosun job cancel failed: $(cat "$shown")"
+  expect_line "$shown" "the cancellation of job hold $job is accepted" "bosun job cancel printed no acceptance"
+  exited_within "$watcher" 60 ||
+    fail "bosun run watch of the run with a cancelled job did not end within 60s: $(cat "$watched")"
+  forget run-watch-cancel
+  reap "$watcher"
+  [ "$reaped" -eq 4 ] ||
+    fail "bosun run watch exited with $reaped for a cancelled run, not 4: $(cat "$watched")"
+  expect_line "$watched" "hold: completed cancelled" "the cancelled job did not end cancelled"
+  expect_line "$watched" "after | hold ended cancelled" "the dependent job did not see cancelled"
+  expect_line "$watched" "after: completed success" "the dependent job did not run after the cancel"
+  expect_line "$watched" "apart: completed success" "the job apart was not left to finish"
+  [ "$(tail -n 1 "$watched")" = "run $run: completed cancelled" ] ||
+    fail "the run with a cancelled job did not end cancelled: $(cat "$watched")"
+  cli --profile a run show "$run" >"$shown" 2>&1 || fail "bosun run show failed: $(cat "$shown")"
+  grep -qE '^status +completed cancelled$' "$shown" || fail "bosun run show printed: $(cat "$shown")"
+  grep -qE "^hold +hold +completed cancelled +$job\$" "$shown" ||
+    fail "bosun run show does not show the cancelled job: $(cat "$shown")"
   passed
 }
 
