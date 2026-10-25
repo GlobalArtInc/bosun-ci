@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "expired",
+    "message": "retention removed the log of step `0192f3a4-5b6c-7d8e-9f01-00000000000c` of execution `0192f3a4-5b6c-7d8e-9f01-00000000000b`; the execution's `logs_expired_at` says when",
+    "fields": [],
+    "diagnostics": []
+  }
+}

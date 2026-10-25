@@ -9,9 +9,12 @@ use crate::access::{Caller, OnProject, ProjectManage, ProjectView};
 use crate::envelope::ApiError;
 use crate::projects::ProjectPath;
 use crate::reply::{Tagged, etag};
-use crate::request::{Changes, IfMatch, database};
+use crate::request::{Changes, Faults, IfMatch, database};
+use crate::site::Retention;
 
 const WHAT: &str = "the settings";
+
+const REFUSED: &str = "the settings are not valid";
 
 pub(crate) async fn show(
     State(state): State<AppState>,
@@ -33,7 +36,8 @@ pub(crate) async fn change(
     let project = project.resolve(&state.db, &caller).await?;
     let stored = stored(&state.db, &project).await?;
     condition.check(&etag(stored.version), WHAT)?;
-    let changed = changes?.apply(&stored.settings, "setting", "the settings are not valid")?;
+    let changed = changes?.apply(&stored.settings, "setting", REFUSED)?;
+    bounded(&changed, &stored.settings, state.site.retention())?;
     if changed == stored.settings {
         return Ok(tagged(stored));
     }
@@ -62,6 +66,37 @@ async fn stored<C: ConnectionTrait>(db: &C, project: &Project) -> Result<Setting
                 format!("there is no project `{}`", project.id),
             )
         })
+}
+
+fn bounded(
+    changed: &ProjectSettings,
+    stored: &ProjectSettings,
+    retention: Retention,
+) -> Result<(), ApiError> {
+    let mut faults = Faults::default();
+    if changed.log_retention != stored.log_retention && changed.log_retention > retention.max_logs {
+        faults.add(
+            "log_retention",
+            format!(
+                "`log_retention` is {} days, and this installation keeps logs and step summaries \
+                 for at most {} days",
+                changed.log_retention, retention.max_logs
+            ),
+        );
+    }
+    if changed.run_retention != stored.run_retention
+        && let (Some(days), Some(max)) = (changed.run_retention, retention.max_runs)
+        && days > max
+    {
+        faults.add(
+            "run_retention",
+            format!(
+                "`run_retention` is {days} days, and this installation keeps runs for at most \
+                 {max} days"
+            ),
+        );
+    }
+    faults.finish(REFUSED)
 }
 
 fn tagged(stored: Settings) -> Tagged<ProjectSettings> {

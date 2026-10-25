@@ -828,6 +828,7 @@
           "unauthenticated",
           "forbidden",
           "not_found",
+          "expired",
           "conflict",
           "invalid_state",
           "precondition_failed",
@@ -879,6 +880,13 @@
             "format": "uuid",
             "type": "string"
           },
+          "logs_expired_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "number": {
             "format": "uint32",
             "minimum": 0,
@@ -921,6 +929,7 @@
           "reason",
           "started_at",
           "completed_at",
+          "logs_expired_at",
           "steps"
         ],
         "type": "object"
@@ -1947,8 +1956,23 @@
           "github_workflows": {
             "type": "boolean"
           },
+          "log_retention": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
           "report": {
             "$ref": "#/components/schemas/Reporting"
+          },
+          "run_retention": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "token_permissions": {
             "additionalProperties": false,
@@ -2006,7 +2030,9 @@
           "github_workflows",
           "fork_policy",
           "token_permissions",
-          "report"
+          "report",
+          "log_retention",
+          "run_retention"
         ],
         "type": "object"
       },
@@ -4975,8 +5001,23 @@
                   "github_workflows": {
                     "type": "boolean"
                   },
+                  "log_retention": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
                   "report": {
                     "$ref": "#/components/schemas/Reporting"
+                  },
+                  "run_retention": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 1,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "token_permissions": {
                     "additionalProperties": false,

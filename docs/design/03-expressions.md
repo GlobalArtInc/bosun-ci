@@ -229,8 +229,9 @@ The planner evaluates the server's keys with these contexts:
   records, the workflow's `name` and file, the run's numbers, the actor of the run, with its forge
   id when it is a forge account, and the actor of the attempt, and the job's key, which is empty
   for `run-name`. The workspace is the agent's, so `github.workspace` is empty on the server.
-  `retention_days` is 90, the default of the log retention ([07-storage.md](07-storage.md)), until
-  project settings change it.
+  `retention_days` is the period of the run's logs: its project's `log_retention`, 90 days unless
+  the project changes it, capped by the installation's `limits.max_log_retention`
+  ([07-storage.md](07-storage.md#retention)).
 - `inputs`, the inputs of a dispatch with their types, as
   [02-workflows.md](02-workflows.md#dispatch-inputs) specifies, and empty for every other event.
 - `vars`, the variables of the run's organisation and project, read when the planner takes the run

@@ -253,6 +253,8 @@ max_queue_time = "24h"
 max_pause = "24h"
 max_hold = "2h"
 agent_grace = "10m"
+max_log_retention = 400
+max_run_retention = 730
 ```
 
 The file is `--config <file>`, or `/etc/bosun/server.toml` when that exists, or `etc/bosun.toml` in
@@ -377,6 +379,15 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   an assignment before its job returns to the queue, defaults to 30 seconds, and
   `limits.max_queue_time`, after which a job no agent took is cancelled with `no_agent`, to 24
   hours ([04-runs.md](04-runs.md#dispatch)). Tests shorten them.
+- `limits.max_log_retention` and `limits.max_run_retention` are the installation's maximums of the
+  project settings `log_retention` and `run_retention` ([11-api.md](11-api.md#project-settings)),
+  whole numbers of days from 1 to 65535. Logs and step summaries are kept for at most 400 days by
+  default, and runs have no maximum unless one is set, so a project keeps its runs while its
+  `run_retention` is `null`. A project's period is its setting or the maximum, whichever is
+  shorter, so lowering a maximum shortens the periods above it at the next round of retention
+  without a change to any setting; a change of a setting above its maximum is refused
+  ([07-storage.md](07-storage.md#retention)). Webhook payloads are kept 30 days and the
+  `agent.status` events of the event stream 7 days, which no setting changes.
 
 `agent-<n>.toml` holds the server address, the agent's directory, the agent id and credential,
 labels, `allow_terminal`, proxy settings, the log spool limit and `cache_max_bytes`:

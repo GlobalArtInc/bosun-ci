@@ -167,7 +167,9 @@ async fn a_change_needs_the_etag_of_the_current_version() {
         "github_workflows": true,
         "fork_policy": "automatic",
         "token_permissions": { "contents": "write", "pull_requests": "read" },
-        "report": "statuses"
+        "report": "statuses",
+        "log_retention": 30,
+        "run_retention": 365
     });
     let whole = change(&site, path, &owner, Some(&listed), everything.clone()).await;
     assert_eq!(whole.status, StatusCode::OK, "{whole:?}");
@@ -215,7 +217,7 @@ async fn an_unknown_setting_and_a_value_outside_its_set_are_invalid_input_naming
     assert_eq!(
         unknown.body["error"]["fields"][0]["message"],
         "there is no setting `retention`; the settings are `fork_policy`, `github_workflows`, \
-         `report`, `token_permissions`"
+         `log_retention`, `report`, `run_retention`, `token_permissions`"
     );
     let outside = change(
         &site,

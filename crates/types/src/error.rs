@@ -9,6 +9,7 @@ pub enum ErrorCode {
     Unauthenticated,
     Forbidden,
     NotFound,
+    Expired,
     Conflict,
     InvalidState,
     PreconditionFailed,
@@ -18,10 +19,11 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub const ALL: [ErrorCode; 9] = [
+    pub const ALL: [ErrorCode; 10] = [
         ErrorCode::Unauthenticated,
         ErrorCode::Forbidden,
         ErrorCode::NotFound,
+        ErrorCode::Expired,
         ErrorCode::Conflict,
         ErrorCode::InvalidState,
         ErrorCode::PreconditionFailed,
@@ -35,6 +37,7 @@ impl ErrorCode {
             ErrorCode::Unauthenticated => 401,
             ErrorCode::Forbidden => 403,
             ErrorCode::NotFound => 404,
+            ErrorCode::Expired => 410,
             ErrorCode::Conflict | ErrorCode::InvalidState => 409,
             ErrorCode::PreconditionFailed => 412,
             ErrorCode::InvalidInput => 422,

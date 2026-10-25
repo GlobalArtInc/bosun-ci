@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::num::NonZeroU16;
 
 use bosun_types::api::{ForkPolicy, Project, ProjectSettings, Repository};
 use bosun_types::id::{ExecutionId, JobId, OrganisationId, ProjectId, RunId, WorkflowId};
@@ -243,6 +244,17 @@ pub async fn change_settings<C: ConnectionTrait>(
             row::text(TABLE, settings.report)?.into(),
         )
         .col_expr(
+            project::Column::LogRetention,
+            i32::from(settings.log_retention.get()).into(),
+        )
+        .col_expr(
+            project::Column::RunRetention,
+            settings
+                .run_retention
+                .map(|days| i32::from(days.get()))
+                .into(),
+        )
+        .col_expr(
             project::Column::SettingsVersion,
             Expr::col(project::Column::SettingsVersion).add(1),
         )
@@ -368,6 +380,18 @@ fn decode_settings(project: project::Model) -> Result<Settings, Error> {
             fork_policy: row::name(TABLE, project.fork_policy)?,
             token_permissions: row::json(TABLE, project.token_permissions)?,
             report: row::name(TABLE, project.report)?,
+            log_retention: days(project.log_retention)?,
+            run_retention: project.run_retention.map(days).transpose()?,
         },
     })
+}
+
+pub(crate) fn days(value: i32) -> Result<NonZeroU16, Error> {
+    u16::try_from(value)
+        .ok()
+        .and_then(NonZeroU16::new)
+        .ok_or_else(|| Error::Row {
+            table: TABLE,
+            message: format!("{value} is not a number of days from 1 to {}", u16::MAX),
+        })
 }

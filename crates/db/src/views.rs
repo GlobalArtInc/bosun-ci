@@ -277,6 +277,7 @@ pub async fn execution<C: ConnectionTrait>(
             .transpose()?,
         started_at: found.started_at,
         completed_at: found.completed_at,
+        logs_expired_at: found.logs_expired_at,
         steps,
     }))
 }

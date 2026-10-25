@@ -16,6 +16,8 @@ pub struct Model {
     pub report: String,
     pub settings_version: i64,
     pub repository_id: Option<i64>,
+    pub log_retention: i32,
+    pub run_retention: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

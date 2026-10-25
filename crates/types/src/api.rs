@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU16;
 
 use chrono::{DateTime, Utc};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -359,6 +360,8 @@ pub struct ProjectSettings {
     pub fork_policy: ForkPolicy,
     pub token_permissions: BTreeMap<ForgePermission, ForgeAccess>,
     pub report: Reporting,
+    pub log_retention: NonZeroU16,
+    pub run_retention: Option<NonZeroU16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -608,6 +611,7 @@ pub struct Execution {
     pub reason: Option<StatusReason>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+    pub logs_expired_at: Option<DateTime<Utc>>,
     pub steps: Vec<Step>,
 }
 

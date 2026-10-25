@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+
 use bosun_types::id::{JobId, RunId};
 use url::Url;
 
@@ -5,10 +7,34 @@ const GRAPHQL: &str = "graphql";
 
 const ENTERPRISE_API: &str = "v3";
 
+const DEFAULT_MAX_LOG_RETENTION: NonZeroU16 = NonZeroU16::new(400).expect("400 is not zero");
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Site {
     url: String,
     forge: Option<ForgeSite>,
+    retention: Retention,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Retention {
+    pub(crate) max_logs: NonZeroU16,
+    pub(crate) max_runs: Option<NonZeroU16>,
+}
+
+impl Default for Retention {
+    fn default() -> Retention {
+        Retention {
+            max_logs: DEFAULT_MAX_LOG_RETENTION,
+            max_runs: None,
+        }
+    }
+}
+
+impl Retention {
+    pub(crate) fn logs(self, setting: NonZeroU16) -> NonZeroU16 {
+        setting.min(self.max_logs)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +51,17 @@ impl Site {
                 .map(|url| url.trim_end_matches('/').to_owned())
                 .unwrap_or_default(),
             forge: None,
+            retention: Retention::default(),
         }
+    }
+
+    pub(crate) fn with_retention(mut self, retention: Retention) -> Site {
+        self.retention = retention;
+        self
+    }
+
+    pub(crate) fn retention(&self) -> Retention {
+        self.retention
     }
 
     pub(crate) fn with_forge(mut self, server_url: &Url, api_url: &Url) -> Site {

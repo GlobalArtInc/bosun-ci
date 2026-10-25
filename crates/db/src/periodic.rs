@@ -11,6 +11,7 @@ pub(crate) enum Task {
     LogCompaction,
     SessionSweep,
     Schedules,
+    Retention,
 }
 
 impl Task {
@@ -22,6 +23,7 @@ impl Task {
             Task::LogCompaction => *b"bosunlog",
             Task::SessionSweep => *b"bosunses",
             Task::Schedules => *b"bosuncrn",
+            Task::Retention => *b"bosunret",
         })
     }
 }

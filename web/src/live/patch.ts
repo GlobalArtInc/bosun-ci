@@ -251,6 +251,7 @@ function executionCreated(queryClient: QueryClient, event: Of<'execution.created
       reason: null,
       started_at: null,
       completed_at: null,
+      logs_expired_at: null,
       steps: [],
     });
   }

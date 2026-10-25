@@ -32,8 +32,6 @@ use crate::site::{ForgeSite, Site};
 use concurrency::{Entered, Later, Owner, Reconciled};
 use matrix::Expansion;
 
-const LOG_RETENTION_DAYS: u32 = 90;
-
 const INVALID_TYPE: &str = "invalid_type";
 
 const INVALID_VALUE: &str = "invalid_value";
@@ -725,6 +723,7 @@ struct World {
     ir: ir::Workflow,
     facts: RunFacts,
     forge: Option<ForgeSite>,
+    retention_days: u32,
     attempt: u32,
     inputs: Value,
     bosun: Value,
@@ -776,6 +775,7 @@ impl World {
                 .repository
                 .as_ref()
                 .and_then(|_| site.forge().cloned()),
+            retention_days: u32::from(site.retention().logs(facts.log_retention).get()),
             ir,
             facts,
         })
@@ -813,7 +813,7 @@ impl World {
                 id: self.facts.global_number,
                 number: self.facts.number,
                 attempt: self.attempt,
-                retention_days: LOG_RETENTION_DAYS,
+                retention_days: self.retention_days,
             },
             actor: Account {
                 login: login(&self.facts.actor).unwrap_or_default().to_owned(),

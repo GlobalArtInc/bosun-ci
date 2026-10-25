@@ -7,6 +7,7 @@ pub mod attempt;
 pub mod concurrency_member;
 pub mod control_message;
 pub mod execution;
+pub mod expired_object;
 pub mod forge_check_run;
 pub mod forge_installation;
 pub mod forge_repository;

@@ -107,6 +107,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Request,
     ),
     (
+        "error-expired.json",
+        "get",
+        "/api/v1/executions/{execution}/steps/{step}/log",
+        Part::Response("default"),
+    ),
+    (
         "error-invalid-input.json",
         "put",
         "/api/v1/workflows/{workflow}/source",

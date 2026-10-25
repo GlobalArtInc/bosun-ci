@@ -6,6 +6,7 @@ use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use bosun_blob::{Key, Store as _};
 use bosun_db::projects::Holder;
+use bosun_db::results::StoredSummary;
 use bosun_types::error::ErrorCode;
 use bosun_types::id::{ExecutionId, StepId};
 use serde_json::json;
@@ -63,18 +64,35 @@ async fn show(
     caller
         .holding(&state.db, Holder::Execution(execution_id), missing)
         .await?;
-    let summary = bosun_db::results::summary(&state.db, execution_id, step_id)
+    let expired = || {
+        ApiError::new(
+            ErrorCode::Expired,
+            format!(
+                "retention removed the summary of step `{step}` of execution `{execution}`; the \
+                 execution's `logs_expired_at` says when"
+            ),
+        )
+    };
+    let summary = match bosun_db::results::summary(&state.db, execution_id, step_id)
         .await
         .map_err(database)?
         .ok_or_else(missing)?
-        .ok_or_else(|| {
-            ApiError::new(
+    {
+        StoredSummary::Kept(summary) => summary,
+        StoredSummary::Expired => return Err(expired()),
+        StoredSummary::Absent => {
+            return Err(ApiError::new(
                 ErrorCode::NotFound,
                 format!("step `{step}` of execution `{execution}` has no summary"),
-            )
-        })?;
+            ));
+        }
+    };
     let key = Key::new(summary.key).map_err(failed)?;
-    let object = state.store.get(&key, ..).await.map_err(failed)?;
+    let object = match state.store.get(&key, ..).await {
+        Ok(object) => object,
+        Err(bosun_blob::Error::NotFound(_)) => return Err(expired()),
+        Err(error) => return Err(failed(error)),
+    };
     Ok(Markdown(
         (
             [

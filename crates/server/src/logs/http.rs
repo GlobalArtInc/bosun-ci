@@ -82,6 +82,15 @@ async fn show(
             format!("there is no step `{step}` in execution `{execution}`"),
         )
     };
+    let expired = || {
+        ApiError::new(
+            ErrorCode::Expired,
+            format!(
+                "retention removed the log of step `{step}` of execution `{execution}`; the \
+                 execution's `logs_expired_at` says when"
+            ),
+        )
+    };
     let execution_id: ExecutionId = execution.parse().map_err(|_| missing())?;
     let step_id: StepId = step.parse().map_err(|_| missing())?;
     caller
@@ -102,6 +111,7 @@ async fn show(
         let first = match reader.scan().await {
             Ok(first) => first,
             Err(Failure::Missing) => return Err(missing()),
+            Err(Failure::Expired) => return Err(expired()),
             Err(failure) => return Err(failed(failure)),
         };
         let needle = Needle::new(&text);
@@ -110,6 +120,7 @@ async fn show(
     let first = match reader.read().await {
         Ok(first) => first,
         Err(Failure::Missing) => return Err(missing()),
+        Err(Failure::Expired) => return Err(expired()),
         Err(failure) => return Err(failed(failure)),
     };
     Ok(Log(match subscription {

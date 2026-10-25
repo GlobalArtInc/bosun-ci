@@ -472,6 +472,7 @@ export const expected: State = {
       reason: null,
       started_at: at(2),
       completed_at: at(10),
+      logs_expired_at: null,
       steps: [
         {
           id: COMPILE,
@@ -499,6 +500,7 @@ export const expected: State = {
       reason: null,
       started_at: at(12),
       completed_at: at(21),
+      logs_expired_at: null,
       steps: [
         {
           id: CHECK,

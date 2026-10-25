@@ -49,6 +49,7 @@ pub struct Notice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub completed_at: Option<DateTimeUtc>,
+    pub expired: bool,
     pub log: Log,
 }
 
@@ -216,8 +217,8 @@ pub async fn window(
 ) -> Result<Option<Window>, Error> {
     let rows = sqlx::query(
         "SELECT e.log_compacted_at IS NOT NULL AS compacted, s.status = $5 AS completed, \
-         s.completed_at, o.key, o.size, o.lines, o.frames, c.seq, c.data, c.dropped \
-         FROM execution e JOIN step s ON s.execution_id = e.id \
+         e.logs_expired_at IS NOT NULL AS expired, s.completed_at, o.key, o.size, o.lines, \
+         o.frames, c.seq, c.data, c.dropped FROM execution e JOIN step s ON s.execution_id = e.id \
          LEFT JOIN log_object o ON o.step_id = s.id \
          LEFT JOIN LATERAL (SELECT seq, data, dropped FROM log_chunk \
          WHERE execution_id = e.id AND step_id = s.id AND seq > $3 ORDER BY seq LIMIT $4) c \
@@ -245,6 +246,7 @@ pub async fn window(
     } else {
         None
     };
+    let expired = first.try_get::<bool, _>("expired").map_err(failed)?;
     let log = if first.try_get::<bool, _>("compacted").map_err(failed)? {
         Log::Compacted(object(first)?)
     } else {
@@ -262,7 +264,11 @@ pub async fn window(
         }
         Log::Live(chunks)
     };
-    Ok(Some(Window { completed_at, log }))
+    Ok(Some(Window {
+        completed_at,
+        expired,
+        log,
+    }))
 }
 
 fn object(found: &PgRow) -> Result<Option<StoredObject>, Error> {

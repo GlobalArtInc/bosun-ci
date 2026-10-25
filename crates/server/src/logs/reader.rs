@@ -38,6 +38,8 @@ pub(crate) enum Scanned {
 pub(crate) enum Failure {
     #[error("there is no such step in that execution")]
     Missing,
+    #[error("retention removed the log of the step")]
+    Expired,
     #[error(transparent)]
     Database(#[from] bosun_db::Error),
     #[error(transparent)]
@@ -103,9 +105,13 @@ impl Reader {
     }
 
     async fn window(&self) -> Result<Window, Failure> {
-        bosun_db::logs::window(&self.db, self.execution, self.step, self.seq, PAGE)
+        let window = bosun_db::logs::window(&self.db, self.execution, self.step, self.seq, PAGE)
             .await?
-            .ok_or(Failure::Missing)
+            .ok_or(Failure::Missing)?;
+        if window.expired {
+            return Err(Failure::Expired);
+        }
+        Ok(window)
     }
 
     async fn read_object(&mut self, stored: &StoredObject) -> Result<Read, Failure> {
@@ -124,7 +130,11 @@ impl Reader {
             .ok_or_else(|| unreadable(format!("it has no frame for line {}", self.position + 1)))?;
         let end = stored.frames.get(index + 1).copied().unwrap_or(stored.size);
         let key = Key::new(stored.key.clone()).map_err(|error| unreadable(error.to_string()))?;
-        let mut body = self.store.get(&key, start..end).await?;
+        let mut body = match self.store.get(&key, start..end).await {
+            Ok(body) => body,
+            Err(bosun_blob::Error::NotFound(_)) => return Err(Failure::Expired),
+            Err(error) => return Err(error.into()),
+        };
         let mut compressed = Vec::new();
         body.read_to_end(&mut compressed)
             .await

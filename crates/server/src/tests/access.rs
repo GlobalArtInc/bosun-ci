@@ -279,6 +279,10 @@ impl Site {
     }
 
     pub(super) async fn with_clock(clock: Clock) -> Site {
+        Site::configured(clock, Public::default()).await
+    }
+
+    pub(super) async fn configured(clock: Clock, public: Public) -> Site {
         let world = World::new().await;
         let directory = tempfile::tempdir().expect("a directory");
         let mut state = super::state(
@@ -288,6 +292,7 @@ impl Site {
             sign_in::Settings::new(Vec::new(), 1000, directory.path().join("data")),
         )
         .await;
+        state.site = public;
         let provider = FakeIdentityProvider::start().await;
         provider.add_person(Person::new("signed-in-elsewhere", &["bosun"]));
         state.oidc = Arc::new(oidc::providers(&provider, directory.path()));

@@ -97,6 +97,7 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
 | `unauthenticated` | 401 |
 | `forbidden` | 403 |
 | `not_found` | 404 |
+| `expired` | 410 |
 | `conflict`, `invalid_state` | 409 |
 | `precondition_failed` | 412 |
 | `invalid_input` | 422 |
@@ -483,20 +484,27 @@ projects returns, or the requests that create one.
   | `fork_policy` | `disabled`, `approval` or `automatic` ([08-access.md](08-access.md#code-from-outside-the-team)) | `disabled` |
   | `token_permissions` | the permissions of the forge token for workflows that declare no `permissions`, a map of App permissions (`actions`, `attestations`, `checks`, `contents`, `deployments`, `discussions`, `issues`, `metadata`, `models`, `packages`, `pages`, `pull_requests`, `repository_projects`, `security_events`, `statuses`) to `read` or `write` ([06-runtime-services.md](06-runtime-services.md#the-forge-token)) | `{"contents": "read", "metadata": "read"}` |
   | `report` | `checks` or `statuses`: how runs are reported to the forge ([06-runtime-services.md](06-runtime-services.md)) | `checks` |
+  | `log_retention` | a whole number of days from 1 to 65535: how long the logs and step summaries of an execution are kept after it completes, at most the installation's `limits.max_log_retention` ([07-storage.md](07-storage.md#retention)) | `90` |
+  | `run_retention` | a whole number of days from 1 to 65535, or `null`: how long a run is kept after it completes, with everything it owns; `null` keeps runs, for at most `limits.max_run_retention` when the installation sets it ([07-storage.md](07-storage.md#retention)) | `null` |
 
   The names of `token_permissions` are the forge's names of App permissions, with `_`, not the
   scopes of a workflow's `permissions`, with `-`, because `metadata` is not a scope.
 - `PATCH /projects/{project}/settings` takes `If-Match` and a JSON object that names the settings
   to change, each with its whole new value: a `token_permissions` replaces the map rather than
-  merging into it, and `null` is not a value of any setting. A full document is a valid change.
-  It answers `200` with the new document and its new `ETag`. An object that names a setting the
-  document does not have, or a value outside the setting's values, is `422 invalid_input` with
-  `the settings are not valid` and one entry of `fields` for each setting at fault, named as in the
-  document; an empty object is `invalid_input` as well, since it changes nothing. A refused change
-  stores nothing of what it names.
+  merging into it, and `null` is a value of `run_retention` alone. A full document is a valid
+  change. It answers `200` with the new document and its new `ETag`. An object that names a
+  setting the document does not have, or a value outside the setting's values, is
+  `422 invalid_input` with `the settings are not valid` and one entry of `fields` for each setting
+  at fault, named as in the document; an empty object is `invalid_input` as well, since it changes
+  nothing. A change that sets `log_retention` or `run_retention` to more days than the
+  installation's maximum ([12-operations.md](12-operations.md#configuration)) is `invalid_input`
+  too, its entry of `fields` naming the maximum; a period stored above a maximum that was lowered
+  since is not refused when the change leaves it as it is, and retention applies the maximum to it.
+  A refused change stores nothing of what it names.
 - Each later step that adds a setting adds it to the document with a default, which a project that
   existed before takes. Applying the settings belongs to the steps that use them: `github_workflows`
   to step 27, `report` to step 28, `fork_policy` to step 29 and `token_permissions` to step 34.
+  Step 36 added `log_retention` and `run_retention`, and applies them.
 
 ### Commands
 
@@ -551,7 +559,12 @@ projects returns, or the requests that create one.
   of M1 ([../plan.md](../plan.md)) added what a step reports besides its log
   ([Step results](#step-results)): a step's `annotations`, in the order its agent reported them,
   `[]` until it finishes, and its `summary_size`, the size in bytes of its summary, `null` while it
-  has none.
+  has none. Step 36 added the execution's `logs_expired_at`, the time retention removed the logs
+  and the step summaries of its steps, `null` while they are kept
+  ([07-storage.md](07-storage.md#retention)), so the run page can show them as expired without
+  asking for each log; the steps' `summary_size` are `null` from then on.
+- A run that retention deleted under its project's `run_retention` is gone with its attempts, jobs
+  and executions, which are `404 not_found` as ones that never existed.
 - `{run}`, `{job}` and `{execution}` are ids. Any other segment, and an id of nothing, are
   `404 not_found` with the message ``there is no run `<run>` `` (or `job`, `execution`); an attempt
   the run does not have is ``there is no attempt `<n>` of run `<run>` ``.
@@ -756,6 +769,16 @@ Step 24 of M1 ([../plan.md](../plan.md)) settled these endpoints; how a secret i
   settled the search; an empty `search`, and `search` with `follow`, are `422 invalid_input`.
 - Any other query parameter, a value that is not a number of lines or a boolean, and a
   `Last-Event-ID` that is not a line number are `422 invalid_input`.
+- A log that retention removed ([07-storage.md](07-storage.md#retention)) is `410 expired`, ranged,
+  followed or searched, with the message ``retention removed the log of step `<step>` of execution
+  `<execution>`; the execution's `logs_expired_at` says when``, after the permission and the query
+  are checked. So is a ranged or followed log whose object is missing from the store, as while
+  retention removes it or after a restore of an older bucket
+  ([12-operations.md](12-operations.md#backups)); a search that meets a missing object ends its body
+  early. Step 36 of M1 ([../plan.md](../plan.md)) settled the answer. `404` would tell a client that
+  the step does not exist, while the step, its annotations and its run remain; `410` is the status
+  HTTP gives a resource that existed and was removed for good, and its own code lets a client tell
+  the two apart without reading the message. `contracts/fixtures/api/error-expired.json` pins it.
 
 ### Step results
 
@@ -773,7 +796,10 @@ its log, the annotations and the step summary its agent sends in `StepFinished`
   `Content-Length` the step's `summary_size`. A step, an execution or a segment that does not
   exist is `404 not_found` with the message of the log, ``there is no step `<step>` in execution
   `<execution>` ``, and a step without a summary is `404 not_found` with ``step `<step>` of
-  execution `<execution>` has no summary``.
+  execution `<execution>` has no summary``. A summary that retention removed is `410 expired`, as a
+  log is ([Logs](#logs)), with ``retention removed the summary of step `<step>` of execution
+  `<execution>`; the execution's `logs_expired_at` says when``, and so is a summary whose object is
+  missing from the store.
 - Reading annotations, summaries and logs needs `project.view` on the run's project, as reading
   the execution does.
 

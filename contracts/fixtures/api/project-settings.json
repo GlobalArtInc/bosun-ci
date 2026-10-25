@@ -5,5 +5,7 @@
     "contents": "read",
     "metadata": "read"
   },
-  "report": "checks"
+  "report": "checks",
+  "log_retention": 90,
+  "run_retention": null
 }

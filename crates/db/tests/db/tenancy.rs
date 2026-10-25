@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+
 use bosun_db::{Error, organisations, projects};
 use bosun_testkit::TestDatabase;
 use bosun_types::api::{ForgeAccess, ForgePermission, ForkPolicy, ProjectSettings, Reporting};
@@ -122,6 +124,8 @@ async fn settings_start_at_the_defaults_and_change_only_from_their_current_versi
         ]
         .into(),
         report: Reporting::Statuses,
+        log_retention: NonZeroU16::new(30).expect("30 days"),
+        run_retention: NonZeroU16::new(365),
     };
     let other = ProjectSettings {
         fork_policy: ForkPolicy::Automatic,

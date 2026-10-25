@@ -67,6 +67,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 | runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `concurrency_member`, `approval`, `annotation`, `step_summary`, `forge_token`, `terminal_session` |
 | agents | `pool`, `pool_access`, `agent`, `registration_token`, `control_message`, `label_alias` |
 | logs | `log_chunk`, `log_object` |
+| retention | `expired_object` |
 | artifacts and caches | `artifact`, `artifact_block`, `cache_entry` |
 | actions and tools | `action_ref`, `tool_object` |
 | delivery | `webhook_delivery`, `outbox`, `forge_check_run`, `webhook_subscription`, `idempotency_key` |
@@ -89,7 +90,7 @@ job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, 
              capabilities text[], actions jsonb, pinned_agent_id, carried_from,
              queued_at, started_at, completed_at
 execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
-             completed_at, log_bytes, log_compacted_at, stages jsonb
+             completed_at, log_bytes, log_compacted_at, stages jsonb, logs_expired_at
 step         id, execution_id, parent_step_id, index, name, status, outcome, conclusion,
              conclusion_source, outputs jsonb, started_at, completed_at
 log_chunk    execution_id, seq, step_id, data bytea, dropped
@@ -182,7 +183,9 @@ setting, with the defaults of the settings as the columns' defaults: `github_wor
 permission names to levels. `settings_version` is the version their `ETag` carries; it starts at 1
 and grows by one with each change, which is an `UPDATE` conditioned on the version the change was
 made from. They arrived with step 25 of [../plan.md](../plan.md); a later setting arrives as a
-column with its default, so a project that existed before takes the default.
+column with its default, so a project that existed before takes the default. The periods of
+retention, `log_retention` and `run_retention`, arrived that way with step 36 as `integer` numbers of
+days, 90 and `null`, the `null` of `run_retention` keeping runs ([Retention](#retention)).
 
 Secrets and variables are rows of `secret` and `variable`, each owned by an organisation and, for
 one of a project, by that project as well: `organisation_id` and a nullable `project_id`, the pair
@@ -199,7 +202,9 @@ creates; a project's `repository_id` names its repository, a plain foreign key w
 so a repository is bound to one project at most
 ([06-runtime-services.md](06-runtime-services.md#installations-and-repositories)).
 `webhook_delivery` holds `id, delivery, event, payload jsonb, received_at, attempts,
-next_attempt_at, last_error, processed_at`, unique by `delivery`, the forge's id of the delivery.
+next_attempt_at, last_error, processed_at`, unique by `delivery`, the forge's id of the delivery;
+retention replaces a payload older than 30 days with the JSON `null` and keeps the row
+([Retention](#retention)).
 `outbox` holds `id bigserial, kind, collapse_key, payload jsonb, created_at, attempts,
 next_attempt_at, last_error, failing_since, dead_at` ([The outbox](#the-outbox)), with a partial
 index on `(next_attempt_at, id) where dead_at is null` for the claim and one on
@@ -269,10 +274,11 @@ user, an entry of a token's restriction its token and the organisation and proje
 registration token its pool, an entry of an access list its pool and the organisation and project
 it names, a label alias its organisation, a secret or a variable its organisation and project, and
 a member of a concurrency group its run and its project. Deleting a run under `run_retention`
-therefore removes everything it owns in one statement. The other references inside one run (the
-attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a
-log object) carry no foreign key, because the owner already bounds them and a cascade would have
-to check each of them.
+therefore removes everything it owns in one statement; the objects of the store that its rows name
+are listed in `expired_object` by the same transaction ([Retention](#retention)). The other
+references inside one run (the attempt, job, execution and step of a journal event, the step of a
+log chunk, the execution of a log object) carry no foreign key, because the owner already bounds
+them and a cascade would have to check each of them.
 References to rows that are not owners (the current revision of a workflow, the revision of a
 run, the pool of an agent, the agent of an execution, the pool of a label alias) are plain foreign keys, which refuse to delete what is still referenced. Every
 foreign key column leads an index, which a test asserts.
@@ -487,7 +493,8 @@ changes. Outbox delivery is not a singleton: workers in every replica claim rows
 Each task has a lock of its own, a transaction-level `pg_try_advisory_xact_lock` whose key spells
 the task in eight bytes (`bosunagt` for the sweep of agents, `bosunlse` for the lease expiry,
 `bosunqto` for the queue timeout, `bosunlog` for log compaction, `bosunses` for the removal of
-sessions, `bosuncrn` for the cron scheduler). A replica that finds the lock taken skips the round.
+sessions, `bosuncrn` for the cron scheduler, `bosunret` for retention). A replica that finds the
+lock taken skips the round.
 The transaction that holds it only finds the rows to change; each change then runs in a transaction
 of its own under the lock of its run, or, for log compaction, which changes no run, under an
 advisory lock of its execution and then its execution's row, or, for the cron scheduler, under the
@@ -497,7 +504,9 @@ round that overlaps another changes nothing twice. The removal of sessions chang
 decides by time alone, so it deletes in the transaction that holds its lock: a session that ended
 stays ended, a count of failed sign-ins whose last failure lies a day back and that holds no lock
 any more is forgotten whether or not the task removes it, and a used state whose sign-in has ended
-is refused by the cookie's own time before its row matters.
+is refused by the cookie's own time before its row matters. Retention keeps the transaction of its
+lock open for its whole round, and its changes run in transactions of their own as above
+([Retention](#retention)).
 
 ## The outbox
 
@@ -759,13 +768,79 @@ Project settings, each capped by an installation maximum:
 | artifacts | 90 days, or `retention-days` of the upload |
 | caches | 7 days without a read; 10 GiB per project, least recently used first |
 | terminal recordings | 30 days |
-| inbound webhook payloads | 30 days |
 | audit events | 1 year |
 | runs, attempts, jobs, steps and the journal | kept, unless `run_retention` is set, which deletes runs older than it with everything they own |
 | drafts | until deleted |
 
-Besides these, retention deletes the `agent.status` events of the event stream that are older than
-7 days ([The journal](#the-journal)); they belong to no project, so no setting applies to them.
+Besides these, two periods hold for the whole installation, because what they remove belongs to no
+project: inbound webhook payloads are kept 30 days, and the `agent.status` events of the event
+stream 7 days ([The journal](#the-journal)).
+
+Step 36 of M1 ([../plan.md](../plan.md)) settled retention for what M1 keeps: logs and step
+summaries, runs, webhook payloads and `agent.status` events.
+
+- **Settings.** `log_retention` and `run_retention` are settings of the project
+  ([11-api.md](11-api.md#project-settings)), whole numbers of days from 1 to 65535: `log_retention`
+  is 90 by default, and `run_retention` `null`, which keeps runs. The installation's maximums are
+  `limits.max_log_retention`, 400 days unless the configuration says otherwise, and
+  `limits.max_run_retention`, which is not set by default
+  ([12-operations.md](12-operations.md#configuration)). A project's period is its setting or the
+  maximum, whichever is shorter, and a project whose `run_retention` is `null` keeps its runs for
+  the maximum when one is set. Lowering a maximum therefore shortens the periods above it without a
+  change to any setting, while a change of a setting to a period above its maximum is refused. A
+  run's `github.retention_days` is the period of its logs ([03-expressions.md](03-expressions.md)).
+  Webhook payloads and `agent.status` events have fixed periods, since no project's setting can
+  apply to them: a delivery is stored before it is matched to a project, and an installation event
+  concerns none.
+- **From when.** The logs and summaries of an execution age from its completion, and a run from its
+  completion, by the server's clock, which tests inject. An execution or a run that has not
+  completed is never removed, because an agent may still report to it; a run that waits forever, for
+  an admission that never comes, is cancelled by a person rather than removed.
+- **The round.** Every replica runs a round every 60 seconds under the advisory lock `bosunret`
+  ([Periodic tasks](#periodic-tasks)). Unlike the other tasks, a round keeps the transaction of its
+  lock open until it ends and writes nothing in it, which holds neither a transaction id nor a
+  snapshot between statements, so it delays neither the event stream's horizon nor vacuum. The
+  rounds of two replicas therefore never overlap, and each object is deleted from the store by one
+  of them, once. Each change runs in a transaction of its own and checks its condition again under
+  the lock of what it changes, as the changes of the other tasks do, so a round that a lost
+  connection let overlap another changes nothing twice. A round works through what expired in
+  batches until none is left, in this order:
+  1. **Logs and summaries.** Up to 100 executions at a time whose logs expired, through the partial
+     index on `execution (completed_at) where status = 'completed' and logs_expired_at is null`,
+     which the shortest period of any project bounds so the scan stops early. For each, a
+     transaction takes the execution's row `FOR NO KEY UPDATE SKIP LOCKED` on the condition that
+     it still expired, lists the keys of its log objects and summaries in `expired_object`, deletes
+     its rows of `log_object`, `step_summary` and `log_chunk`, and sets `logs_expired_at`, and
+     `log_compacted_at` when that was not set, so that a chunk arriving later is not stored and the
+     compaction passes the execution over. Annotations stay with their steps until the run goes.
+  2. **Runs.** Up to 100 completed runs at a time past their period, through the partial index on
+     `run (completed_at) where status = 'completed'`, bounded the same way. For each, a transaction
+     takes the run's row `FOR UPDATE SKIP LOCKED` on the condition that it still expired, lists the
+     keys of the log objects and summaries of its executions in `expired_object`, and deletes the
+     run, which deletes everything it owns ([Tables](#tables)). The API then answers for the run,
+     its jobs and its executions as for ones that never existed.
+  3. **Webhook payloads.** Up to 1000 deliveries at a time received 30 days ago or earlier, through
+     a partial index on `webhook_delivery (received_at) where payload <> 'null'`: the payload
+     becomes the JSON `null`, and the row keeps its `delivery`, so a redelivery of that id is still
+     recognised and not processed again
+     ([06-runtime-services.md](06-runtime-services.md#deliveries)). A delivery that was still not
+     processed is marked processed with the error `retention removed the payload of the delivery
+     before the delivery could be processed`, since an event that old would start runs of a state
+     long past. The column keeps `NOT NULL` and its type, as an additive migration must, and the
+     forge never sends a payload that is not an object, so `null` is unambiguous.
+  4. **`agent.status` events** 7 days old or older, 1000 at a time, through a partial index on
+     `stream_event (at) where kind = 'agent.status'`.
+  5. **Objects.** `expired_object` (`key, created_at`) lists the objects of the store whose rows
+     retention removed and which it has yet to delete. The round deletes them from the store, 100
+     at a time, and then their rows. A key is listed in the transaction that removes the rows that
+     name its object, so neither a crash nor a store that fails leaves an object that nothing will
+     delete: the next round deletes what is left, and deleting an object that is gone succeeds.
+- **Readers.** A reader that found a row just before retention removed it meets a missing object,
+  and so does one after a restore of an older bucket; the API answers both as it answers a log or a
+  summary that expired ([11-api.md](11-api.md#logs), [12-operations.md](12-operations.md#backups)).
+- **Its log.** A round that removed anything logs `removed what retention expired` with the numbers
+  of `logs`, `runs`, `payloads`, `agent_events` and `objects`; a round that fails is logged at
+  warning level, and the next one goes on where it stopped.
 
 ## Secrets at rest
 

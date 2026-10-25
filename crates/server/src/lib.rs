@@ -41,6 +41,7 @@ mod projects;
 mod queue;
 mod reply;
 mod request;
+mod retention;
 mod retry;
 mod roles;
 mod runs;
@@ -223,6 +224,12 @@ pub async fn serve(
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
     tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
     tasks.spawn(sessions::sweep(db.clone(), clock.clone()));
+    tasks.spawn(retention::sweep(
+        db.clone(),
+        Arc::clone(&store),
+        clock.clone(),
+        config.site.retention(),
+    ));
     tasks.spawn(schedules::work(
         db.clone(),
         config.site.clone(),

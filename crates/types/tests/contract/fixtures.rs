@@ -154,6 +154,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<CreateWorkflowRequest>,
         ),
         ("api/dispatch.json", round_trip::<DispatchRequest>),
+        ("api/error-expired.json", round_trip::<ErrorEnvelope>),
         ("api/error-invalid-input.json", round_trip::<ErrorEnvelope>),
         ("api/error-invalid-state.json", round_trip::<ErrorEnvelope>),
         ("api/execution.json", round_trip::<Execution>),

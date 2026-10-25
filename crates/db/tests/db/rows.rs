@@ -1,10 +1,11 @@
 use bosun_db::entity::{
     action_ref, agent, annotation, api_token, api_token_scope, attempt, concurrency_member,
-    control_message, execution, forge_check_run, forge_installation, forge_repository, forge_token,
-    idempotency_key, job, label_alias, log_chunk, log_object, oidc_state, organisation, outbox,
-    pool_access, project, registration_token, role, role_binding, run, run_event, schedule, secret,
-    session, sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object,
-    user, user_identity, variable, webhook_delivery, workflow, workflow_revision,
+    control_message, execution, expired_object, forge_check_run, forge_installation,
+    forge_repository, forge_token, idempotency_key, job, label_alias, log_chunk, log_object,
+    oidc_state, organisation, outbox, pool_access, project, registration_token, role, role_binding,
+    run, run_event, schedule, secret, session, sign_in_failure, step, step_summary, stream_event,
+    team, team_member, tool_object, user, user_identity, variable, webhook_delivery, workflow,
+    workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -114,6 +115,7 @@ pub struct Rows {
     pub user_identity: user_identity::Model,
     pub oidc_state: oidc_state::Model,
     pub schedule: schedule::Model,
+    pub expired_object: expired_object::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -161,6 +163,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         slug: ActiveValue::Set("keel".to_owned()),
         name: ActiveValue::Set(format!("Keel {label}")),
         repository_id: ActiveValue::Set(Some(REPOSITORY)),
+        log_retention: ActiveValue::Set(30),
+        run_retention: ActiveValue::Set(Some(365)),
         ..Default::default()
     }
     .insert(db)
@@ -383,6 +387,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         stages: ActiveValue::Set(Some(
             json!([{ "phase": "pre", "step": 0 }, { "phase": "main", "step": 0 }]),
         )),
+        logs_expired_at: ActiveValue::Set(None),
     }
     .insert(db)
     .await
@@ -748,6 +753,14 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a schedule");
 
+    let expired_object = expired_object::ActiveModel {
+        key: ActiveValue::Set(format!("summaries/{}/{label}.md", id(EXECUTION))),
+        created_at: ActiveValue::Set(at("2026-10-24T18:35:09Z")),
+    }
+    .insert(db)
+    .await
+    .expect("an expired object");
+
     Rows {
         organisation,
         project,
@@ -793,6 +806,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         user_identity,
         oidc_state,
         schedule,
+        expired_object,
     }
 }
 
@@ -880,5 +894,10 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         user_identity: one::<_, user_identity::Entity>(db, id(IDENTITY)).await,
         oidc_state: one::<_, oidc_state::Entity>(db, vec![0x77; 32]).await,
         schedule: one::<_, schedule::Entity>(db, id(SCHEDULE)).await,
+        expired_object: expired_object::Entity::find()
+            .one(db)
+            .await
+            .expect("a query")
+            .expect("an expired object"),
     }
 }

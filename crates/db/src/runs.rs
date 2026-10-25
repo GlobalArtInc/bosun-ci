@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
+use std::num::NonZeroU16;
 
 use bosun_types::actor::Actor;
 use bosun_types::api::{Annotation, Run, Workflow};
@@ -28,7 +29,7 @@ use crate::entity::{attempt, job, run, workflow};
 use crate::journal::{self, NewEvent};
 use crate::results::Summary;
 use crate::row::statement;
-use crate::{Error, row};
+use crate::{Error, projects, row};
 
 const RUNS: &str = "run";
 
@@ -138,6 +139,7 @@ pub struct RunFacts {
     pub project: String,
     pub organisation_id: OrganisationId,
     pub project_id: ProjectId,
+    pub log_retention: NonZeroU16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -334,7 +336,7 @@ impl<'a> Locked<'a> {
             .query_one(statement(
                 "SELECT r.number, r.global_number, r.event, r.ref, r.sha, r.trigger, r.inputs, \
                  w.name AS workflow, o.slug AS organisation, p.slug AS project, \
-                 o.id AS organisation_id, p.id AS project_id, \
+                 o.id AS organisation_id, p.id AS project_id, p.log_retention, \
                  a.actor AS triggering_actor, f.id AS repository_id, \
                  f.owner AS repository_owner, f.name AS repository_name, \
                  i.account_id AS repository_owner_id FROM run r \
@@ -388,6 +390,7 @@ impl<'a> Locked<'a> {
             project: found.try_get("", "project")?,
             organisation_id: row::id("organisation", found.try_get("", "organisation_id")?)?,
             project_id: row::id("project", found.try_get("", "project_id")?)?,
+            log_retention: projects::days(found.try_get("", "log_retention")?)?,
         })
     }
 

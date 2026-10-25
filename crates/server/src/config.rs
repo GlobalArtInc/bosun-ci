@@ -1,6 +1,7 @@
 use std::env::{self, VarError};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use url::Url;
 use crate::Error;
 use crate::address;
 use crate::owner::{self, LOGIN_RULE};
-use crate::site::Site;
+use crate::site::{Retention, Site};
 use crate::slug::{is_slug, reads_as_id};
 use crate::tools::Runtimes;
 
@@ -286,6 +287,8 @@ struct LimitsFile {
     agent_grace: Option<String>,
     max_queue_time: Option<String>,
     failed_sign_ins: Option<u32>,
+    max_log_retention: Option<i64>,
+    max_run_retention: Option<i64>,
 }
 
 impl Config {
@@ -423,6 +426,12 @@ impl Config {
                 "is 0, and a sign-in is locked only after at least one failure".to_owned(),
             ));
         }
+        let retention = Retention {
+            max_logs: retention_days("max_log_retention", file.limits.max_log_retention)?
+                .unwrap_or(Retention::default().max_logs),
+            max_runs: retention_days("max_run_retention", file.limits.max_run_retention)?,
+        };
+        let site = site.with_retention(retention);
         let store = store(file.store, &data_dir)?;
         let github = github(file.github)?;
         let site = match &github {
@@ -972,6 +981,23 @@ fn duration(
     }
 }
 
+fn retention_days(key: &str, file: Option<i64>) -> Result<Option<NonZeroU16>, Error> {
+    let Some(text) = variable("limits", key)?.or(file.map(|days| days.to_string())) else {
+        return Ok(None);
+    };
+    text.parse().map(Some).map_err(|_| {
+        invalid(
+            "limits",
+            key,
+            format!(
+                "is `{text}`, which is not a number of days: a period of retention is a whole \
+                 number of days from 1 to {}",
+                u16::MAX
+            ),
+        )
+    })
+}
+
 fn parse_duration(text: &str) -> Option<Duration> {
     let split = text
         .find(|character: char| !character.is_ascii_digit())
@@ -1034,9 +1060,11 @@ fn invalid(section: &str, key: &str, problem: String) -> Error {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::num::NonZeroU16;
     use std::time::Duration;
 
     use super::{Config, parse_duration};
+    use crate::site::Retention;
     use crate::tools::Runtimes;
 
     const DATABASE: &str = "[database]\nurl = \"postgres://bosun@127.0.0.1:1/bosun\"\n";
@@ -1089,6 +1117,54 @@ mod tests {
             "https://mirror.example.org/node/"
         );
         assert_eq!(tools.node_musl_upstream.as_str(), "file:///srv/node-musl");
+    }
+
+    fn refused(text: &str) -> String {
+        let directory = tempfile::tempdir().expect("a directory for the configuration");
+        let path = directory.path().join("server.toml");
+        fs::write(&path, text).expect("a configuration file");
+        match Config::load(Some(&path)) {
+            Ok(_) => panic!("{text} was accepted"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn the_retention_maximums_keep_logs_400_days_and_runs_without_limit_unless_set() {
+        assert_eq!(load(DATABASE).site.retention(), Retention::default());
+        assert_eq!(
+            Retention::default(),
+            Retention {
+                max_logs: NonZeroU16::new(400).expect("400 days"),
+                max_runs: None,
+            }
+        );
+        assert_eq!(
+            load(&format!(
+                "{DATABASE}\n[limits]\nmax_log_retention = 30\nmax_run_retention = 365\n"
+            ))
+            .site
+            .retention(),
+            Retention {
+                max_logs: NonZeroU16::new(30).expect("30 days"),
+                max_runs: NonZeroU16::new(365),
+            }
+        );
+        for (key, value) in [
+            ("max_log_retention", "0"),
+            ("max_run_retention", "65536"),
+            ("max_log_retention", "-1"),
+        ] {
+            let error = refused(&format!("{DATABASE}\n[limits]\n{key} = {value}\n"));
+            assert!(
+                error.contains(&format!("limits.{key}"))
+                    && error.contains(&format!(
+                        "is `{value}`, which is not a number of days: a period of retention is \
+                         a whole number of days from 1 to 65535"
+                    )),
+                "{error}"
+            );
+        }
     }
 
     #[test]

@@ -17,6 +17,7 @@ pub struct Model {
     pub log_bytes: i64,
     pub log_compacted_at: Option<DateTimeUtc>,
     pub stages: Option<Json>,
+    pub logs_expired_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

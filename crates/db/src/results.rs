@@ -24,6 +24,13 @@ pub struct Summary {
     pub size: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StoredSummary {
+    Kept(Summary),
+    Expired,
+    Absent,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct JobResults {
     pub summaries: Vec<Summary>,
@@ -87,10 +94,12 @@ pub async fn summary<C: ConnectionTrait>(
     db: &C,
     execution: ExecutionId,
     step: StepId,
-) -> Result<Option<Option<Summary>>, Error> {
+) -> Result<Option<StoredSummary>, Error> {
     let Some(found) = db
         .query_one(statement(
-            "SELECT m.key, m.size FROM step s LEFT JOIN step_summary m ON m.step_id = s.id \
+            "SELECT e.logs_expired_at IS NOT NULL AS expired, m.key, m.size FROM step s \
+             JOIN execution e ON e.id = s.execution_id \
+             LEFT JOIN step_summary m ON m.step_id = s.id \
              WHERE s.id = $1 AND s.execution_id = $2",
             [Uuid::from(step).into(), Uuid::from(execution).into()],
         ))
@@ -98,10 +107,13 @@ pub async fn summary<C: ConnectionTrait>(
     else {
         return Ok(None);
     };
+    if found.try_get::<bool>("", "expired")? {
+        return Ok(Some(StoredSummary::Expired));
+    }
     let Some(key) = found.try_get::<Option<String>>("", "key")? else {
-        return Ok(Some(None));
+        return Ok(Some(StoredSummary::Absent));
     };
-    Ok(Some(Some(Summary {
+    Ok(Some(StoredSummary::Kept(Summary {
         key,
         size: row::unsigned(SUMMARIES, found.try_get("", "size")?)?,
     })))
