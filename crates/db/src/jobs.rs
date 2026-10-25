@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bosun_types::actor::Actor;
 use bosun_types::event::{
     Event, ExecutionCreated, ExecutionStatusChanged, JobStatusChanged, StepCreated,
@@ -14,7 +16,7 @@ use sea_orm::prelude::{DateTimeUtc, Uuid};
 
 use crate::row::statement;
 use crate::runs::{Locked, refuse};
-use crate::{Error, row};
+use crate::{Error, queue, row};
 
 const JOBS: &str = "job";
 
@@ -74,7 +76,7 @@ impl Locked<'_> {
             }),
         )
         .await?;
-        Ok(())
+        queue::announce(self.transaction(), job).await
     }
 
     pub async fn complete_job(
@@ -94,7 +96,12 @@ impl Locked<'_> {
         self.close_job(job, from, conclusion, reason, actor).await
     }
 
-    pub async fn assign_job(&self, job: JobId, agent: AgentId) -> Result<ExecutionId, Error> {
+    pub async fn assign_job(
+        &self,
+        job: JobId,
+        agent: AgentId,
+        lease: Duration,
+    ) -> Result<ExecutionId, Error> {
         let (from, _) = self.job(job).await?;
         if from != JobStatus::Queued {
             return Err(refuse("job", job, from, JobStatus::Assigned));
@@ -103,14 +110,16 @@ impl Locked<'_> {
         let created = self
             .transaction()
             .query_one(statement(
-                "INSERT INTO execution (id, job_id, number, agent_id, status) \
-                 SELECT $1, $2, coalesce(max(number), 0) + 1, $3, $4 FROM execution \
+                "INSERT INTO execution (id, job_id, number, agent_id, status, lease_until) \
+                 SELECT $1, $2, coalesce(max(number), 0) + 1, $3, $4, \
+                 now() + make_interval(secs => $5) FROM execution \
                  WHERE job_id = $2 RETURNING number",
                 [
                     Uuid::from(execution).into(),
                     Uuid::from(job).into(),
                     Uuid::from(agent).into(),
                     row::text(EXECUTIONS, ExecutionStatus::Assigned)?.into(),
+                    lease.as_secs_f64().into(),
                 ],
             ))
             .await?
@@ -140,6 +149,129 @@ impl Locked<'_> {
         )
         .await?;
         Ok(execution)
+    }
+
+    pub async fn expire_lease(&self, execution: ExecutionId) -> Result<Option<JobId>, Error> {
+        let (_, status) = self.execution(execution).await?;
+        if status != ExecutionStatus::Assigned {
+            return Ok(None);
+        }
+        let expired = self
+            .transaction()
+            .query_one(statement(
+                "SELECT coalesce(lease_until < now(), false) AS expired FROM execution \
+                 WHERE id = $1",
+                [Uuid::from(execution).into()],
+            ))
+            .await?
+            .map(|found| found.try_get::<bool>("", "expired"))
+            .transpose()?
+            .unwrap_or(false);
+        if !expired {
+            return Ok(None);
+        }
+        self.requeue(execution, StatusReason::LeaseExpired, &Actor::System)
+            .await
+            .map(Some)
+    }
+
+    pub async fn reject(&self, execution: ExecutionId, actor: &Actor) -> Result<(), Error> {
+        self.requeue(execution, StatusReason::RejectedByAgent, actor)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn time_out(&self, job: JobId, max_queue_time: Duration) -> Result<bool, Error> {
+        let found = self
+            .transaction()
+            .query_one(statement(
+                "SELECT status, coalesce(queued_at < now() - make_interval(secs => $3), false) \
+                 AS overdue FROM job WHERE id = $1 AND attempt_id = $2",
+                [
+                    Uuid::from(job).into(),
+                    Uuid::from(self.state().attempt_id).into(),
+                    max_queue_time.as_secs_f64().into(),
+                ],
+            ))
+            .await?
+            .ok_or_else(|| Error::Outside(format!("job {job}"), self.state().id))?;
+        let status: JobStatus = row::name(JOBS, found.try_get("", "status")?)?;
+        if status != JobStatus::Queued || !found.try_get::<bool>("", "overdue")? {
+            return Ok(false);
+        }
+        self.close_job(
+            job,
+            status,
+            Conclusion::Cancelled,
+            Some(StatusReason::NoAgent),
+            &Actor::System,
+        )
+        .await?;
+        Ok(true)
+    }
+
+    async fn requeue(
+        &self,
+        execution: ExecutionId,
+        reason: StatusReason,
+        actor: &Actor,
+    ) -> Result<JobId, Error> {
+        let (job, from) = self.execution(execution).await?;
+        if from != ExecutionStatus::Assigned {
+            return Err(refuse(
+                "execution",
+                execution,
+                from,
+                ExecutionStatus::Completed,
+            ));
+        }
+        let (job_from, _) = self.job(job).await?;
+        if job_from != JobStatus::Assigned {
+            return Err(refuse("job", job, job_from, JobStatus::Queued));
+        }
+        self.transaction()
+            .execute(statement(
+                "UPDATE execution SET status = $2, conclusion = $3, reason = $4, \
+                 completed_at = now() WHERE id = $1",
+                [
+                    Uuid::from(execution).into(),
+                    row::text(EXECUTIONS, ExecutionStatus::Completed)?.into(),
+                    row::text(EXECUTIONS, Conclusion::Cancelled)?.into(),
+                    row::text(EXECUTIONS, reason)?.into(),
+                ],
+            ))
+            .await?;
+        self.append(
+            Some(job),
+            Some(execution),
+            None,
+            actor,
+            Event::ExecutionStatusChanged(ExecutionStatusChanged {
+                from,
+                to: ExecutionStatus::Completed,
+                conclusion: Some(Conclusion::Cancelled),
+                reason: Some(reason),
+            }),
+        )
+        .await?;
+        self.set_job(job, JobStatus::Queued).await?;
+        self.append(
+            Some(job),
+            Some(execution),
+            None,
+            actor,
+            Event::JobStatusChanged(JobStatusChanged {
+                from: job_from,
+                to: JobStatus::Queued,
+                waiting_reason: None,
+                conclusion: None,
+                conclusion_source: None,
+                reason: Some(reason),
+            }),
+        )
+        .await?;
+        queue::announce(self.transaction(), job).await?;
+        Ok(job)
     }
 
     pub async fn start_execution(

@@ -63,23 +63,50 @@ pub struct ExecutionState {
     pub status: ExecutionStatus,
 }
 
+pub(crate) const RUN_STATE: &str = "r.status, r.conclusion, \
+     r.cancel_requested_at IS NOT NULL AS cancel_requested, a.id AS attempt_id, \
+     a.number AS attempt";
+
 pub async fn lock(
     transaction: &DatabaseTransaction,
     run: RunId,
 ) -> Result<Option<Locked<'_>>, Error> {
     let Some(found) = transaction
         .query_one(statement(
-            "SELECT r.status, r.conclusion, r.cancel_requested_at IS NOT NULL AS cancel_requested, \
-             a.id AS attempt_id, a.number AS attempt FROM run r JOIN attempt a ON a.run_id = r.id \
-             WHERE r.id = $1 ORDER BY a.number DESC LIMIT 1 FOR NO KEY UPDATE OF r",
+            &format!(
+                "SELECT {RUN_STATE} FROM run r JOIN attempt a ON a.run_id = r.id \
+                 WHERE r.id = $1 ORDER BY a.number DESC LIMIT 1 FOR NO KEY UPDATE OF r"
+            ),
             [Uuid::from(run).into()],
         ))
         .await?
     else {
         return Ok(None);
     };
+    let state = decode_state(run, &found)?;
+    Ok(Some(Locked { transaction, state }))
+}
+
+pub async fn lock_job(
+    transaction: &DatabaseTransaction,
+    job: JobId,
+) -> Result<Option<Locked<'_>>, Error> {
+    let Some(owner) = transaction
+        .query_one(statement(
+            "SELECT a.run_id FROM job j JOIN attempt a ON a.id = j.attempt_id WHERE j.id = $1",
+            [Uuid::from(job).into()],
+        ))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let run = row::id(RUNS, owner.try_get::<Uuid>("", "run_id")?)?;
+    lock(transaction, run).await
+}
+
+pub(crate) fn decode_state(run: RunId, found: &QueryResult) -> Result<RunState, Error> {
     let attempt: i32 = found.try_get("", "attempt")?;
-    let state = RunState {
+    Ok(RunState {
         id: run,
         attempt_id: row::id("attempt", found.try_get::<Uuid>("", "attempt_id")?)?,
         attempt: u32::try_from(attempt).map_err(|error| Error::Row {
@@ -92,8 +119,7 @@ pub async fn lock(
             .map(|conclusion| row::name(RUNS, conclusion))
             .transpose()?,
         cancel_requested: found.try_get("", "cancel_requested")?,
-    };
-    Ok(Some(Locked { transaction, state }))
+    })
 }
 
 pub async fn lock_execution(
@@ -129,6 +155,10 @@ pub async fn lock_execution(
 }
 
 impl<'a> Locked<'a> {
+    pub(crate) fn new(transaction: &'a DatabaseTransaction, state: RunState) -> Locked<'a> {
+        Locked { transaction, state }
+    }
+
     pub fn state(&self) -> &RunState {
         &self.state
     }

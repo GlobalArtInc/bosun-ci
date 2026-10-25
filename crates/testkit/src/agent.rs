@@ -5,8 +5,8 @@ use bosun_proto::agent::v1::agent_client::AgentClient;
 use bosun_proto::agent::v1::agent_message::Message as Outgoing;
 use bosun_proto::agent::v1::server_message::Message as Incoming;
 use bosun_proto::agent::v1::{
-    AgentMessage, Capability, Control, ControlAck, Heartbeat, Hello, PROTOCOL, ServerMessage,
-    Welcome,
+    AgentMessage, Assignment, Capability, Control, ControlAck, Heartbeat, Hello, Idle, PROTOCOL,
+    ServerMessage, Welcome,
 };
 use bosun_types::api::{RegisterAgentRequest, RegisterAgentResponse};
 use bosun_types::id::AgentId;
@@ -180,6 +180,17 @@ impl Connection {
 
     async fn message(&mut self) -> Result<Option<Incoming>, Status> {
         next(&mut self.inbound).await
+    }
+
+    pub fn idle(&self) {
+        self.send(Outgoing::Idle(Idle {}));
+    }
+
+    pub async fn assignment(&mut self) -> Assignment {
+        match self.message().await {
+            Ok(Some(Incoming::Assignment(assignment))) => assignment,
+            other => panic!("the server sent no assignment but {other:?}"),
+        }
     }
 
     pub async fn control(&mut self) -> Control {

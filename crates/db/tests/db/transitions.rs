@@ -12,6 +12,8 @@ use sea_orm::{DatabaseConnection, TransactionTrait};
 use crate::rows::{self, AGENT, BUILD, EXECUTION, RUN, TEST};
 use crate::strings;
 
+const LEASE: Duration = Duration::from_secs(30);
+
 fn run_id() -> RunId {
     rows::id(RUN).try_into().expect("a run id")
 }
@@ -132,7 +134,7 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
         }
         other => panic!("a job on an agent was completed without its execution: {other:?}"),
     }
-    match run.assign_job(job(TEST), agent).await {
+    match run.assign_job(job(TEST), agent, LEASE).await {
         Err(Error::Transition { from, to, .. }) => {
             assert_eq!((from.as_str(), to.as_str()), ("pending", "assigned"));
         }
@@ -151,7 +153,7 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
     .await
     .expect("the test job queued");
     let execution = run
-        .assign_job(job(TEST), agent)
+        .assign_job(job(TEST), agent, LEASE)
         .await
         .expect("the test job assigned");
     match run.start_step(execution, 0, None, &Actor::System).await {

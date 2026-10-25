@@ -1,11 +1,10 @@
 use bosun_types::id::{AgentId, ExecutionId};
 use sea_orm::prelude::Uuid;
-use sea_orm::sqlx::postgres::PgListener;
 use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait, QueryResult, TransactionTrait};
 
 use crate::entity::control_message;
 use crate::row::statement;
-use crate::{Error, row, sqlx_error};
+use crate::{Error, row};
 
 const TABLE: &str = "control_message";
 
@@ -47,8 +46,6 @@ pub struct Notice {
     pub agent_id: AgentId,
     pub control_id: Uuid,
 }
-
-pub struct Listener(PgListener);
 
 pub fn channel(replica_id: Uuid) -> String {
     format!("{CHANNEL}{}", replica_id.simple())
@@ -142,29 +139,7 @@ pub async fn acknowledge<C: ConnectionTrait>(
     Ok(updated.rows_affected() == 1)
 }
 
-impl Listener {
-    pub async fn connect(url: &str, replica_id: Uuid) -> Result<Listener, Error> {
-        let mut listener = PgListener::connect(url).await.map_err(sqlx_error)?;
-        listener
-            .listen(&channel(replica_id))
-            .await
-            .map_err(sqlx_error)?;
-        Ok(Listener(listener))
-    }
-
-    pub async fn next(&mut self) -> Result<Option<Notice>, Error> {
-        loop {
-            let Some(notification) = self.0.try_recv().await.map_err(sqlx_error)? else {
-                return Ok(None);
-            };
-            if let Some(notice) = notice(notification.payload()) {
-                return Ok(Some(notice));
-            }
-        }
-    }
-}
-
-fn notice(payload: &str) -> Option<Notice> {
+pub(crate) fn notice(payload: &str) -> Option<Notice> {
     let (agent, control) = payload.split_once(' ')?;
     Some(Notice {
         agent_id: agent.parse().ok()?,

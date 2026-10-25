@@ -6,6 +6,7 @@ mod journal;
 mod migrations;
 mod parallel;
 mod pools;
+mod queue;
 mod rows;
 mod runs;
 mod tenancy;

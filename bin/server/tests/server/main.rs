@@ -8,6 +8,7 @@ mod http;
 mod owner;
 mod projects;
 mod proxy;
+mod queue;
 mod shutdown;
 mod start;
 mod workflows;

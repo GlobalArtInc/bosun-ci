@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
+use std::time::Duration;
 
 use bosun_types::event::Event;
 use bosun_types::id::{ExecutionId, JobId, RunId};
@@ -13,6 +14,7 @@ use proptest::test_runner::{Config, TestCaseError, TestRunner};
 use super::{Projection, World, job_cancel, replay, run_cancel, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
 use crate::commands::Applied;
+use crate::queue;
 
 const MOST_JOBS: usize = 6;
 
@@ -40,6 +42,9 @@ enum Action {
     FinishStep(ExecutionId, u32, Conclusion),
     FinishJob(ExecutionId, Conclusion),
     Lose(ExecutionId),
+    Expire(ExecutionId),
+    Reject(ExecutionId),
+    TimeOut(JobId),
     CancelRun,
     CancelJob(JobId),
 }
@@ -225,11 +230,16 @@ fn actions(
         extra.push(Action::CancelJob(job));
         if row.status == JobStatus::Queued {
             progress.push(Action::Assign(job));
+            extra.push(Action::TimeOut(job));
         }
     }
     for (&execution, row) in &projection.executions {
         match row.status {
-            ExecutionStatus::Assigned => progress.push(Action::Accept(execution)),
+            ExecutionStatus::Assigned => {
+                progress.push(Action::Accept(execution));
+                extra.push(Action::Expire(execution));
+                extra.push(Action::Reject(execution));
+            }
             ExecutionStatus::InProgress => {
                 let results = &case.jobs[index_of(&projection.jobs[&row.job].key)].steps;
                 progress.push(next_report(projection, execution, results));
@@ -297,6 +307,29 @@ async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, Test
                 .map_err(|error| TestCaseError::fail(error.to_string()))?;
             return Ok(false);
         }
+        Action::Expire(execution) => {
+            let returned = queue::expire(db, execution)
+                .await
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+            if returned.is_none() {
+                return Err(TestCaseError::fail(format!(
+                    "the lapsed assignment {execution} stayed assigned"
+                )));
+            }
+            return Ok(false);
+        }
+        Action::TimeOut(job) => {
+            let cancelled = queue::cancel_unclaimed(db, job, Duration::ZERO)
+                .await
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+            if !cancelled {
+                return Err(TestCaseError::fail(format!(
+                    "the queued job {job} outlived max_queue_time"
+                )));
+            }
+            return Ok(false);
+        }
+        Action::Reject(execution) => progress::rejected(db, agent, execution).await,
         Action::Accept(execution) => progress::accepted(db, agent, execution).await,
         Action::StartStep(execution, index) => {
             progress::step_started(db, agent, execution, index, None).await

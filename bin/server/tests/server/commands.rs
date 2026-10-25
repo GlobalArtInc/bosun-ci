@@ -6,9 +6,7 @@ use bosun_proto::agent::v1::{
 };
 use bosun_testkit::TestDatabase;
 use bosun_testkit::agent::FakeAgent;
-use bosun_types::id::{AgentId, JobId, RunId};
 use reqwest::Method;
-use sea_orm::TransactionTrait;
 use serde_json::{Value, json};
 use tokio::time::{Instant, sleep};
 use uuid::Uuid;
@@ -287,19 +285,10 @@ async fn a_cancel_reaches_the_agent_running_the_job_and_the_run_ends_cancelled_w
     connection.beat_every(Duration::from_secs(1));
     let run = dispatched(&api, SLEEPS).await;
     let sleeping = job_id(&database, &run, "sleep").await;
-    let execution = {
-        let transaction = database.connection().begin().await.expect("a transaction");
-        let run_id: RunId = run.parse().expect("a run id");
-        let locked = bosun_db::runs::lock(&transaction, run_id)
-            .await
-            .expect("a lock")
-            .expect("the run");
-        let job: JobId = sleeping.parse().expect("a job id");
-        let agent: AgentId = fake.id();
-        let execution = locked.assign_job(job, agent).await.expect("an assignment");
-        transaction.commit().await.expect("a commit");
-        execution.to_string()
-    };
+    connection.idle();
+    let assignment = connection.assignment().await;
+    assert_eq!(assignment.job_id, sleeping);
+    let execution = assignment.execution_id;
 
     connection.send(Report::Accept(Accept {
         execution_id: execution.clone(),

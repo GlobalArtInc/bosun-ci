@@ -425,7 +425,12 @@ which name its workspace, and each step's `shell` as the text `bosun_types::ir::
 agent of step 12 rejects an assignment without valid slugs
 ([design/05-execution.md](design/05-execution.md#the-job-assignment)).
 
-**Touches.** `crates/server/`, `crates/db/`.
+**Touches.** `crates/server/` (the dispatcher, `Idle` and `Reject`, the queue sweep, the settings
+`agents.assignment_lease` and `limits.max_queue_time`), `crates/db/` (the claim, the indexes of the
+queue, the lease expiry and the queue timeout, the notification connection that also hears
+`bosun_queue`, and a migration lock that waits without holding a snapshot, which
+`CREATE INDEX CONCURRENTLY` needs), `crates/testkit/` (the fake agent says it is idle and receives
+assignments).
 
 **Out of scope.** Fair share and project caps (M2), trust levels (M1).
 

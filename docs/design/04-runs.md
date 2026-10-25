@@ -185,9 +185,17 @@ busy repository cannot starve the others; then the oldest. A project may also ha
 running jobs; jobs beyond it stay `queued`.
 
 The queue lives in Postgres ([07-storage.md](07-storage.md)). An assignment is a lease: when the
-agent does not confirm the start within 30 seconds, the job goes back to `queued`. A job that stays
+agent does not confirm the start within 30 seconds (`agents.assignment_lease`), the job goes back to
+`queued`, and so it does at once when the agent rejects it. The execution that was offered
+completes as `cancelled` with the reason `lease_expired` or `rejected_by_agent`, and the job's
+`job.status` event from `assigned` to `queued` carries the same reason; the job keeps its
+`queued_at`, so it keeps its place in the queue. An agent whose lease expired is also sent a
+`cancel` for that execution, in case it starts the job after all. A job that stays
 `queued` longer than the installation's `max_queue_time` (default 24 hours) is cancelled with the
-reason `no_agent`, so a typo in `runs-on` does not wait forever; the run page shows which labels no
+reason `no_agent`, so a typo in `runs-on` does not wait forever; the time counts from `queued_at`, so
+returns to the queue do not restart it. The job completes `cancelled` with the source `natural`, as
+in the example of [The journal](#the-journal), its dependents are skipped, and the run ends
+`cancelled` unless a job failed. The run page shows which labels no
 online agent offers from the moment the job is queued.
 
 Concurrency groups follow the target syntax: a group has at most one running member and, with
@@ -211,8 +219,9 @@ with its identity), a JSON payload, and the time. The status columns of runs, jo
 steps are a projection of the journal, written in the same transaction as the event, so reading a
 status never requires replaying events and the journal never disagrees with it; a run's
 `cancel_requested_at` belongs to the projection too, set by the `command.accepted` of a
-`run.cancel`. A property test drives random job graphs with random step results, commands and lost
-agents, and checks after every transaction that the columns equal a replay of the journal.
+`run.cancel`. A property test drives random job graphs with random step results, commands, lost
+agents, expired leases, rejected assignments and queue timeouts, and checks after every transaction
+that the columns equal a replay of the journal.
 
 An event has this shape, the same in the database, in the API and in the event stream:
 

@@ -5,19 +5,21 @@ mod replica;
 mod stream;
 mod sweep;
 
+use std::future::Future;
 use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
 use axum::routing::{get, post};
-use bosun_db::control::Listener;
+use bosun_db::notify::Listener;
 use sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
 
 use crate::config::Agents;
+use crate::queue::Dispatcher;
 use crate::{AppState, auth};
 
-pub(crate) use replica::Replica;
+pub(crate) use replica::{Offer, Replica, Turn, Turned};
 pub(crate) use stream::Connector;
 
 const NAME_RULE: &str = "an agent name is 1 to 64 characters without spaces or control characters";
@@ -30,6 +32,10 @@ const LONGEST: usize = 64;
 pub(crate) struct Tasks(Vec<JoinHandle<()>>);
 
 impl Tasks {
+    pub(crate) fn spawn(&mut self, task: impl Future<Output = ()> + Send + 'static) {
+        self.0.push(tokio::spawn(task));
+    }
+
     pub(crate) async fn stop(mut self) {
         for task in &self.0 {
             task.abort();
@@ -72,9 +78,10 @@ pub(crate) fn start(
     replica: Arc<Replica>,
     listener: Listener,
     settings: Agents,
+    dispatcher: Arc<Dispatcher>,
 ) -> Tasks {
     Tasks(vec![
-        tokio::spawn(replica::forward(db.clone(), replica, listener)),
+        tokio::spawn(replica::forward(db.clone(), replica, listener, dispatcher)),
         tokio::spawn(sweep::run(db, settings)),
     ])
 }

@@ -14,6 +14,7 @@ mod organisations;
 mod owner;
 mod planner;
 mod projects;
+mod queue;
 mod request;
 mod shutdown;
 mod slug;
@@ -57,16 +58,20 @@ pub async fn serve(
         owner::bootstrap(&db, login).await?;
     }
     let replica = agents::Replica::new();
-    let notifications = bosun_db::control::Listener::connect(&config.database.url, replica.id())
+    let notifications = bosun_db::notify::Listener::connect(&config.database.url, replica.id())
         .await
         .map_err(Error::Notifications)?;
-    let tasks = agents::start(
+    let dispatcher = queue::Dispatcher::new(db.clone(), Arc::clone(&replica), config.queue);
+    let mut tasks = agents::start(
         db.clone(),
         Arc::clone(&replica),
         notifications,
         config.agents,
+        Arc::clone(&dispatcher),
     );
-    let connector = agents::Connector::new(db.clone(), Arc::clone(&replica), config.agents);
+    tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
+    let connector =
+        agents::Connector::new(db.clone(), Arc::clone(&replica), config.agents, dispatcher);
     let listen = config.listen;
     let listener = TcpListener::bind(listen)
         .await

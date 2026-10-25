@@ -7,8 +7,9 @@ store, the log pipeline, retention, and secrets at rest.
 ## Postgres
 
 One database `bosun` with one schema `bosun`, Postgres 15 or newer. Entities are sea-orm models
-over sqlx; the queue, the notifications and the hot log path use sqlx directly, because their
-queries depend on `FOR UPDATE SKIP LOCKED`, `LISTEN` and `NOTIFY`.
+over sqlx. The queue runs raw SQL through the same connection rather than entities, because its
+queries depend on `FOR UPDATE SKIP LOCKED` and `NOTIFY`; the listener of the notifications and the
+hot log path use sqlx directly, the listener because it depends on `LISTEN`.
 
 **Migrations** are SQL files applied by sqlmig with its ledger. Inside a major version they are
 additive only: new tables, new nullable columns or columns with defaults, new indexes created
@@ -20,17 +21,25 @@ start against a schema of a newer major version.
 
 The files are `crates/db/migrations/<milliseconds>-<slug>.up.sql`, embedded in the binary. There
 are no down files, and a test refuses `DROP`, `ALTER … DROP` and `ALTER … TYPE` in any of them.
+`CREATE INDEX CONCURRENTLY` refuses to run inside a transaction or next to another statement, so a
+file that creates an index holds that one statement and opens with sqlmig's directive
+`-- migrator:no-transaction`, the only line of a migration that is not SQL to run.
 `bosun-db` creates the schema `bosun` before the first migration and sets `search_path` to it on
 every connection, so the ledger of sqlmig (`migrations` and `migrations_checksum`) lives there too.
 The migrations seed the trusted pool `default` ([05-execution.md](05-execution.md)). The future of
 sqlmig's `apply` is not `Send`, so the server awaits the migrations on the task that starts it
 rather than spawning them.
 
-`bosun-db` wraps the whole migration in an advisory lock of its own, held for up to 150 seconds on
-a connection it takes out of the pool for the purpose: the creation of the schema, the check of
-the major version, sqlmig's `apply` and the record of the major version. sqlmig's own lock covers
-only the files; `CREATE SCHEMA IF NOT EXISTS` and the creation of sqlmig's ledger run before it
-and fail with a unique violation when two replicas start against an empty database at once.
+`bosun-db` wraps the whole migration in an advisory lock of its own, held on a connection it takes
+out of the pool for the purpose: the creation of the schema, the check of the major version,
+sqlmig's `apply` and the record of the major version. A replica that finds the lock taken asks
+again with `pg_try_advisory_lock` every 100 milliseconds, idle in between, and gives up after 150
+seconds with an error that says so. It does not wait inside `pg_advisory_lock`, because a session
+blocked in a statement holds a snapshot, `CREATE INDEX CONCURRENTLY` waits for every older snapshot
+in the database, and the replica holding the lock would wait for the one waiting for it until that
+one gave up. sqlmig's own lock covers only the files; `CREATE SCHEMA IF NOT EXISTS` and the creation
+of sqlmig's ledger run before it and fail with a unique violation when two replicas start against
+an empty database at once.
 Because sqlmig holds two pooled connections at once while it applies, the pool of a server has at
 least two.
 
@@ -95,8 +104,9 @@ open to the project, which until pool access lists arrive in M1 is every pool.
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
 `derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `outputs`,
 `pinned_agent_id` and `carried_from` of jobs, `parent_step_id` and `outputs` of steps) arrive with
-their milestones as additive migrations, and the indexes of the queue arrive with the claim
-(step 11 of [../plan.md](../plan.md)).
+their milestones as additive migrations. The indexes of the queue arrived with the claim (step 11
+of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
+'assigned'` that the lease expiry reads.
 
 An agent records its current replica in `agent.replica_id`, which no row references: replicas are
 processes, not rows. `control_message` holds the control messages sent to agents
@@ -149,7 +159,8 @@ Rows are locked in one order to rule out deadlocks: the run, then its jobs, exec
 then agents, whose row a control message takes `FOR SHARE`. A transaction that holds an agent's row,
 such as the sweep that marks agents offline, takes no run's lock; the sweep fails abandoned
 executions afterwards, one transaction each. The claim of the queue takes the job and its run's
-lock with `SKIP LOCKED`, so it never waits for a run that another transaction is changing.
+lock with `SKIP LOCKED`, so it never waits for a run that another transaction is changing; it takes
+the agent's row first, and never waits after that, so it closes no cycle.
 
 The lock orders the journal of one run, not the journal of all runs. A reader across runs, such as
 the event stream filtered by project ([11-api.md](11-api.md)), arrives with a cursor of its own:
@@ -162,8 +173,8 @@ delays the stream by its length. The column arrives with the stream.
 ## The queue
 
 The queue is the set of `job` rows in status `queued`. A partial index on
-`(priority desc, queued_at) where status = 'queued'` orders them and a GIN index on `labels`
-filters them; labels are stored lowercased.
+`(priority desc, queued_at) where status = 'queued'` orders them and a GIN index on `labels`, partial
+on the same condition, filters them; labels are stored lowercased.
 
 An idle agent claims a job in one transaction: select the candidates whose labels are contained
 in the agent's labels, whose pools include the agent's pool, and whose trust matches the pool's
@@ -171,13 +182,42 @@ in the agent's labels, whose pools include the agent's pool, and whose trust mat
 order them by priority, by the
 project's ratio of running jobs to its weight, and by `queued_at`, take the first with
 `FOR UPDATE SKIP LOCKED`, together with the lock of its run ([The journal](#the-journal)), create
-its execution with `lease_until` 30 seconds ahead, and set the job
+its execution with `lease_until` 30 seconds ahead (`agents.assignment_lease`), and set the job
 to `assigned`. Two replicas claiming for two agents at the same moment never take the same job and
-never wait on each other.
+never wait on each other. The trust condition arrives with trust levels in M1 and the ratio with
+fair share in M2; until then the order is priority, then `queued_at`, then the job's id.
 
-A job that becomes `queued` is announced with `NOTIFY bosun_queue`; every replica with idle agents
-attempts a claim for them. A sweep every 5 seconds does the same, so a lost notification costs at
-most a few seconds.
+An agent is idle from the `Idle` it sends until the replica that holds its stream sends it an
+assignment ([05-execution.md](05-execution.md)). That replica keeps the state in memory, for its
+own streams only, and claims for one agent at a time: a reason to claim that arrives while a claim
+for the agent runs makes it try once more when that claim finds nothing. The claim itself checks the
+database too: it takes the agent's row `FOR NO KEY UPDATE`, which orders two claims for one agent,
+and takes nothing for an agent whose current replica is another one or that still has an execution
+that is not `completed`. It looks for those executions in a statement of its own after the lock is
+held, so a claim that waited for another one of the same agent sees the execution that one created.
+A job an agent rejected on its current stream is passed over for that agent until it reconnects, so
+an assignment it cannot run is not offered to it again and again.
+
+A claim that finds no candidate it could lock, while candidates exist, took none only because
+other transactions held their runs, most often other claims for jobs of the same run. It says so,
+and the replica tries again after a pause between half of and all of 10 milliseconds, doubled with
+every such claim in a row up to 1 second, instead of leaving the agent idle until the next sweep.
+
+A job that becomes `queued` is announced with `NOTIFY bosun_queue` in the transaction that queues
+it, at dispatch, when its needs complete, and when it returns to the queue; every replica with idle
+agents attempts a claim for them. A sweep every 5 seconds does the same, so a lost notification
+costs at most a few seconds, and runs the lease expiry and the queue timeout below.
+
+An assignment whose agent did not answer `Accept` before `lease_until` returns to the queue. The
+lease expiry finds such executions under its advisory lock and returns each in a transaction of its
+own under its run's lock, after checking again that it is still `assigned` and past its lease: the
+execution completes as `cancelled` with the reason `lease_expired`, the job goes back to `queued`
+with its `queued_at` unchanged, so it keeps its place, and a `cancel` control message goes to the
+agent in case it starts the job after all. A `Reject` does the same at once with the reason
+`rejected_by_agent`, without the control message. The queue timeout finds, under its own advisory
+lock, the jobs `queued` since longer than `limits.max_queue_time` and cancels each in a transaction
+of its own under its run's lock, after checking again, with the reason `no_agent`
+([04-runs.md](04-runs.md#dispatch)); the planner then takes the run on.
 
 ## Notifications between replicas
 
@@ -197,12 +237,20 @@ outside its pool.
 
 ## Periodic tasks
 
-Periodic tasks run in every replica but each takes a Postgres advisory lock first, so exactly one
-replica performs each at a time: the cron scheduler (minute resolution), lease expiry, offline
+Periodic tasks run in every replica: the cron scheduler (minute resolution), lease expiry, offline
 detection of agents together with the end of their grace period, the queue timeout, retention,
 cache eviction, the removal of idempotency keys older than 24 hours, and the expiry of tokens and
-sessions. Outbox delivery is not a singleton: workers in every replica claim rows with
+sessions. Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
+work of each task, and each change it finds checks its condition again under the lock of what it
+changes. Outbox delivery is not a singleton: workers in every replica claim rows with
 `SKIP LOCKED`.
+
+Each task has a lock of its own, a transaction-level `pg_try_advisory_xact_lock` whose key spells
+the task in eight bytes (`bosunagt` for the sweep of agents, `bosunlse` for the lease expiry,
+`bosunqto` for the queue timeout). A replica that finds the lock taken skips the round. The
+transaction that holds it only finds the rows to change; each change then runs in a transaction of
+its own under the lock of its run and checks its condition again, so a change never waits for a
+lock while holding the task's, and a round that overlaps another changes nothing twice.
 
 ## The outbox
 

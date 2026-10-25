@@ -74,6 +74,18 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             "the setting limits.agent_grace (BOSUN_LIMITS_AGENT_GRACE) is `0s`, which is not a \
              duration",
         ),
+        (
+            "[agents]\nassignment_lease = \"0s\"\n",
+            None,
+            "the setting agents.assignment_lease (BOSUN_AGENTS_ASSIGNMENT_LEASE) is `0s`, which \
+             is not a duration",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            Some(("BOSUN_LIMITS_MAX_QUEUE_TIME", Some("forever"))),
+            "the setting limits.max_queue_time (BOSUN_LIMITS_MAX_QUEUE_TIME) is `forever`, \
+             which is not a duration",
+        ),
     ] {
         let mut launch = Launch::serve("postgres://bosun@127.0.0.1:1/bosun").config(config);
         launch = match variable {

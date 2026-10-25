@@ -118,7 +118,13 @@ report about an execution of another agent, or one that does not fit the executi
 a `StepStarted` for a step that already started or an `Accept` for an assignment a cancel already
 completed, is ignored and logged at warning level; a report whose execution id or conclusion is
 malformed ends the stream like any other breach of the protocol. `Idle`, `Reject` and the lease of
-an assignment belong to the queue ([07-storage.md](07-storage.md)).
+an assignment belong to the queue ([07-storage.md](07-storage.md#the-queue)): an `Idle` makes the
+replica that holds the stream claim a job for the agent, and again whenever a job is queued, until
+it sends the agent an `Assignment`; a `Reject` of an execution still `assigned` returns its job to
+the queue with the reason `rejected_by_agent`, and the agent is not offered that job again on the
+same stream; an `Accept` after the lease returned the job is ignored like any report that does not
+fit. A replica sends an assignment only to an agent that said it is idle and has no execution that
+is not `completed`.
 
 The heartbeat interval is the setting `agents.heartbeat_interval` (default 30 seconds), which the
 `Welcome` carries; a `Heartbeat` refreshes the agent's `last_seen_at`. A stream on which the agent
@@ -198,6 +204,11 @@ another job, when it is stopping, or when the assignment holds something it cann
 without an action it knows, a template segment it does not know, a shell that is neither named nor
 has `{0}`, or slugs that are not slugs. After a `Reject` with its slot free, and whenever its slot
 becomes free, it sends `Idle`.
+
+The assignment of M0 carries the steps as structured templates whose segments are text, and `env`
+as text. Until the server evaluates expressions at assignment, a step's expression segment travels
+as a segment with no known kind, which the agent rejects, and a variable of the workflow's or the
+job's `env` whose value holds an expression is left out of `env`.
 
 ## The execution engine
 

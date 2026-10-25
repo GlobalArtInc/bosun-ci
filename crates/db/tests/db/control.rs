@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use bosun_db::Error;
-use bosun_db::control::{self, Kind, Listener, Notice};
+use bosun_db::control::{self, Kind, Notice};
+use bosun_db::notify::{Listener, Notification};
 use bosun_testkit::TestDatabase;
 use bosun_types::id::{AgentId, ExecutionId};
 use sea_orm::ConnectionTrait;
@@ -53,10 +54,10 @@ async fn a_control_message_is_announced_on_the_channel_of_the_replica_holding_th
         .expect("a notice without a reconnect");
     assert_eq!(
         notice,
-        Notice {
+        Notification::Control(Notice {
             agent_id: agent_id(),
             control_id: published.id,
-        }
+        })
     );
     assert!(
         timeout(Duration::from_millis(300), elsewhere.next())

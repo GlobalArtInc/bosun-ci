@@ -27,6 +27,7 @@ use super::replica::{self, Outbound, Replica};
 use super::{LABEL_RULE, valid_label};
 use crate::auth;
 use crate::config::Agents;
+use crate::queue::Dispatcher;
 use crate::token::{AGENT, Token};
 
 const AUTOMATIC: &str = "self-hosted";
@@ -36,6 +37,7 @@ pub(crate) struct Connector {
     db: DatabaseConnection,
     replica: Arc<Replica>,
     settings: Agents,
+    dispatcher: Arc<Dispatcher>,
 }
 
 impl Connector {
@@ -43,11 +45,13 @@ impl Connector {
         db: DatabaseConnection,
         replica: Arc<Replica>,
         settings: Agents,
+        dispatcher: Arc<Dispatcher>,
     ) -> Connector {
         Connector {
             db,
             replica,
             settings,
+            dispatcher,
         }
     }
 
@@ -181,6 +185,7 @@ impl Agent for Connector {
         let session = Session {
             db: self.db.clone(),
             replica: Arc::clone(&self.replica),
+            dispatcher: Arc::clone(&self.dispatcher),
             settings: self.settings,
             reporter: Reporter {
                 id: agent.id,
@@ -197,6 +202,7 @@ impl Agent for Connector {
 struct Session {
     db: DatabaseConnection,
     replica: Arc<Replica>,
+    dispatcher: Arc<Dispatcher>,
     settings: Agents,
     reporter: Reporter,
     number: u64,
@@ -281,6 +287,20 @@ impl Session {
                         "an acknowledgement could not be recorded"
                     ),
                 }
+            }
+            Some(Inbound::Idle(_)) => self.dispatcher.idle(self.reporter.id, self.number),
+            Some(Inbound::Reject(reject)) => {
+                let execution = execution_id(&reject.execution_id)?;
+                self.replica
+                    .rejected(self.reporter.id, self.number, execution);
+                info!(
+                    agent_id = %self.reporter.id,
+                    execution_id = %execution,
+                    reason = reject.reason,
+                    "an agent rejected a job"
+                );
+                let rejected = progress::rejected(&self.db, &self.reporter, execution).await;
+                self.report("Reject", execution, rejected);
             }
             Some(Inbound::Accept(accept)) => {
                 let execution = execution_id(&accept.execution_id)?;

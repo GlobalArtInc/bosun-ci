@@ -62,6 +62,24 @@ pub(crate) async fn accepted(
     Ok(Progress::Applied)
 }
 
+pub(crate) async fn rejected(
+    db: &DatabaseConnection,
+    agent: &Reporter,
+    execution: ExecutionId,
+) -> Result<Progress, Error> {
+    let transaction = db.begin().await?;
+    let run = match open(&transaction, agent, execution).await? {
+        Opened::Found(run, _) => run,
+        Opened::Ignored(reason) => return Ok(Progress::Ignored(reason)),
+    };
+    let rejected = run.reject(execution, &agent.actor()).await;
+    if let Some(reason) = tolerated(rejected)? {
+        return Ok(Progress::Ignored(reason));
+    }
+    transaction.commit().await?;
+    Ok(Progress::Applied)
+}
+
 pub(crate) async fn step_started(
     db: &DatabaseConnection,
     agent: &Reporter,

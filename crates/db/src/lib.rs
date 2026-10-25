@@ -5,14 +5,19 @@ mod error;
 pub mod idempotency;
 mod jobs;
 pub mod journal;
+pub mod notify;
 pub mod organisations;
+mod periodic;
 pub mod pools;
 pub mod projects;
+pub mod queue;
 mod row;
 pub mod runs;
 pub mod tokens;
 pub mod users;
 pub mod workflows;
+
+use std::time::{Duration, Instant};
 
 use sea_orm::sea_query::OnConflict;
 use sea_orm::sqlx::{self, Connection, PgConnection};
@@ -30,7 +35,9 @@ const SCHEMA: &str = "bosun";
 
 const MIGRATION_LOCK: i64 = i64::from_be_bytes(*b"bosunmig");
 
-const LOCK_WAIT: &str = "150s";
+const LOCK_WAIT: Duration = Duration::from_secs(150);
+
+const LOCK_RETRY: Duration = Duration::from_millis(100);
 
 const MAJOR: i32 = match i32::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10) {
     Ok(major) => major,
@@ -48,27 +55,36 @@ pub async fn connect(url: &str, max_connections: u32) -> Result<DatabaseConnecti
 }
 
 pub async fn migrate(db: &DatabaseConnection) -> Result<Vec<String>, Error> {
-    let lock = hold_migration_lock(db).await.map_err(Error::Lock)?;
+    let lock = hold_migration_lock(db).await?;
     let migrated = migrate_locked(db).await;
     let _ = lock.close().await;
     migrated
 }
 
-async fn hold_migration_lock(db: &DatabaseConnection) -> Result<PgConnection, DbErr> {
+async fn hold_migration_lock(db: &DatabaseConnection) -> Result<PgConnection, Error> {
+    let failed = |error| Error::Lock(sqlx_error(error));
     let mut lock = db
         .get_postgres_connection_pool()
         .acquire()
         .await
-        .map_err(sqlx_error)?
+        .map_err(failed)?
         .detach();
-    sqlx::raw_sql(&format!(
-        "SET lock_timeout = '{LOCK_WAIT}'; SELECT pg_advisory_lock({MIGRATION_LOCK}); \
-         RESET lock_timeout"
-    ))
-    .execute(&mut lock)
-    .await
-    .map_err(sqlx_error)?;
-    Ok(lock)
+    let deadline = Instant::now() + LOCK_WAIT;
+    loop {
+        let held: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+            .bind(MIGRATION_LOCK)
+            .fetch_one(&mut lock)
+            .await
+            .map_err(failed)?;
+        if held {
+            return Ok(lock);
+        }
+        if Instant::now() >= deadline {
+            let _ = lock.close().await;
+            return Err(Error::LockTimeout(LOCK_WAIT));
+        }
+        tokio::time::sleep(LOCK_RETRY).await;
+    }
 }
 
 async fn migrate_locked(db: &DatabaseConnection) -> Result<Vec<String>, Error> {

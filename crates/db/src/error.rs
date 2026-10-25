@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bosun_types::id::{ExecutionId, RunId};
 use sea_orm::DbErr;
 
@@ -28,6 +30,8 @@ pub enum Error {
     Vanished(String),
     #[error("could not hold the migration lock: {0}")]
     Lock(#[source] DbErr),
+    #[error("could not hold the migration lock: another migration kept it for {0:?}")]
+    LockTimeout(Duration),
     #[error(
         "the schema belongs to major version {found} of Bosun and this server is major version \
          {supported}, which never runs against a schema of a newer major version"

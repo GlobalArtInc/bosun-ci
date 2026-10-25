@@ -164,6 +164,7 @@ groups_claim = "groups"
 [agents]
 heartbeat_interval = "30s"
 offline_after = "60s"
+assignment_lease = "30s"
 
 [limits]
 max_queue_time = "24h"
@@ -195,7 +196,10 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   zero.
 - `agents.heartbeat_interval` defaults to 30 seconds and `agents.offline_after` to 60 seconds,
   which must be longer than the interval; `limits.agent_grace` defaults to 10 minutes
-  ([05-execution.md](05-execution.md)). Tests shorten them.
+  ([05-execution.md](05-execution.md)). `agents.assignment_lease`, the time an agent has to accept
+  an assignment before its job returns to the queue, defaults to 30 seconds, and
+  `limits.max_queue_time`, after which a job no agent took is cancelled with `no_agent`, to 24
+  hours ([04-runs.md](04-runs.md#dispatch)). Tests shorten them.
 
 `agent-<n>.toml` holds the server address, the agent's directory, the agent id and credential,
 labels, `allow_terminal`, proxy settings, the log spool limit and `cache_max_bytes`:

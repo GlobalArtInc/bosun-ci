@@ -1,8 +1,10 @@
 mod cancel;
 mod journal;
 mod planning;
+mod queue;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
 
 use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_db::entity::{attempt, control_message, execution, job, run, step};
@@ -134,7 +136,7 @@ impl World {
             .expect("a lock")
             .expect("the run");
         let execution = locked
-            .assign_job(job, self.agent.id)
+            .assign_job(job, self.agent.id, Duration::ZERO)
             .await
             .expect("an assignment");
         transaction.commit().await.expect("a commit");

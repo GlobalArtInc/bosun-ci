@@ -12,12 +12,11 @@ use sea_orm::{
 use serde::Serialize;
 
 use crate::entity::{agent, execution, registration_token};
+use crate::periodic::{self, Task};
 use crate::row::statement;
 use crate::{Error, row};
 
 const TABLE: &str = "agent";
-
-const SWEEP_LOCK: i64 = i64::from_be_bytes(*b"bosunagt");
 
 pub const RUNNING: [ExecutionStatus; 3] = [
     ExecutionStatus::InProgress,
@@ -226,16 +225,7 @@ pub async fn sweep<C: TransactionTrait>(
     grace: Duration,
 ) -> Result<Option<Sweep>, Error> {
     let transaction = db.begin().await?;
-    let locked = transaction
-        .query_one(statement(
-            "SELECT pg_try_advisory_xact_lock($1) AS locked",
-            [SWEEP_LOCK.into()],
-        ))
-        .await?
-        .map(|row| row.try_get::<bool>("", "locked"))
-        .transpose()?
-        .unwrap_or(false);
-    if !locked {
+    if !periodic::try_lock(&transaction, Task::AgentSweep).await? {
         return Ok(None);
     }
     let offline = transaction

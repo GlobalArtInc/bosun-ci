@@ -21,6 +21,10 @@ const DEFAULT_OFFLINE_AFTER: Duration = Duration::from_secs(60);
 
 const DEFAULT_AGENT_GRACE: Duration = Duration::from_secs(600);
 
+const DEFAULT_ASSIGNMENT_LEASE: Duration = Duration::from_secs(30);
+
+const DEFAULT_MAX_QUEUE_TIME: Duration = Duration::from_secs(24 * 3600);
+
 const DURATION_RULE: &str = "a duration is a whole number followed by ms, s, m or h, such as 30s";
 
 pub struct Config {
@@ -29,6 +33,13 @@ pub struct Config {
     pub(crate) keys: Keys,
     pub(crate) bootstrap_admin: Option<String>,
     pub(crate) agents: Agents,
+    pub(crate) queue: Queue,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Queue {
+    pub(crate) lease: Duration,
+    pub(crate) max_queue_time: Duration,
 }
 
 #[derive(Clone, Copy)]
@@ -90,12 +101,14 @@ struct BootstrapFile {
 struct AgentsFile {
     heartbeat_interval: Option<String>,
     offline_after: Option<String>,
+    assignment_lease: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct LimitsFile {
     agent_grace: Option<String>,
+    max_queue_time: Option<String>,
 }
 
 impl Config {
@@ -185,6 +198,18 @@ impl Config {
             file.limits.agent_grace,
             DEFAULT_AGENT_GRACE,
         )?;
+        let lease = duration(
+            "agents",
+            "assignment_lease",
+            file.agents.assignment_lease,
+            DEFAULT_ASSIGNMENT_LEASE,
+        )?;
+        let max_queue_time = duration(
+            "limits",
+            "max_queue_time",
+            file.limits.max_queue_time,
+            DEFAULT_MAX_QUEUE_TIME,
+        )?;
         Ok(Config {
             listen,
             database: Database {
@@ -197,6 +222,10 @@ impl Config {
                 heartbeat_interval,
                 offline_after,
                 grace,
+            },
+            queue: Queue {
+                lease,
+                max_queue_time,
             },
         })
     }

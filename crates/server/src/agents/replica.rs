@@ -3,15 +3,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use bosun_db::control::{self, Control, Kind, Listener};
+use bosun_db::control::{self, Control, Kind};
+use bosun_db::notify::{Listener, Notification};
 use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::agent::v1::{self as proto, ControlKind, ServerMessage};
-use bosun_types::id::AgentId;
+use bosun_types::id::{AgentId, ExecutionId, JobId};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc::UnboundedSender;
 use tonic::Status;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+use crate::queue::Dispatcher;
 
 const RETRY: Duration = Duration::from_secs(1);
 
@@ -27,6 +30,37 @@ struct Stream {
     number: u64,
     outbound: Outbound,
     sent: HashSet<Uuid>,
+    idle: bool,
+    claiming: bool,
+    again: bool,
+    offered: Option<(ExecutionId, JobId)>,
+    passed_over: HashSet<JobId>,
+}
+
+pub(crate) struct Turn {
+    pub(crate) number: u64,
+    pub(crate) passed_over: Vec<JobId>,
+}
+
+pub(crate) struct Offer {
+    pub(crate) job: JobId,
+    pub(crate) execution: ExecutionId,
+    pub(crate) message: ServerMessage,
+}
+
+pub(crate) enum Turned {
+    Offered(Box<Offer>),
+    Contended,
+    Nothing,
+}
+
+impl Stream {
+    fn turn(&self) -> Turn {
+        Turn {
+            number: self.number,
+            passed_over: self.passed_over.iter().copied().collect(),
+        }
+    }
 }
 
 impl Replica {
@@ -50,6 +84,11 @@ impl Replica {
                 number,
                 outbound,
                 sent: HashSet::new(),
+                idle: false,
+                claiming: false,
+                again: false,
+                offered: None,
+                passed_over: HashSet::new(),
             },
         );
         if let Some(replaced) = replaced {
@@ -91,6 +130,61 @@ impl Replica {
         }));
     }
 
+    pub(crate) fn set_idle(&self, agent: AgentId, number: u64) {
+        let mut streams = self.streams();
+        if let Some(stream) = current(&mut streams, agent, number) {
+            stream.idle = true;
+        }
+    }
+
+    pub(crate) fn rejected(&self, agent: AgentId, number: u64, execution: ExecutionId) {
+        let mut streams = self.streams();
+        if let Some(stream) = current(&mut streams, agent, number)
+            && let Some((offered, job)) = stream.offered
+            && offered == execution
+        {
+            stream.passed_over.insert(job);
+        }
+    }
+
+    pub(crate) fn take_turn(&self, agent: AgentId) -> Option<Turn> {
+        let mut streams = self.streams();
+        let stream = streams.get_mut(&agent).filter(|stream| stream.idle)?;
+        if stream.claiming {
+            stream.again = true;
+            return None;
+        }
+        stream.claiming = true;
+        stream.again = false;
+        Some(stream.turn())
+    }
+
+    pub(crate) fn end_turn(&self, agent: AgentId, number: u64, turned: Turned) -> Option<Turn> {
+        let mut streams = self.streams();
+        let stream = current(&mut streams, agent, number)?;
+        let retry = match turned {
+            Turned::Offered(offer) => {
+                let _ = stream.outbound.send(Ok(offer.message));
+                stream.offered = Some((offer.execution, offer.job));
+                stream.idle = false;
+                false
+            }
+            Turned::Contended => stream.idle,
+            Turned::Nothing => stream.again && stream.idle,
+        };
+        stream.again = false;
+        stream.claiming = retry;
+        retry.then(|| stream.turn())
+    }
+
+    pub(crate) fn idle_agents(&self) -> Vec<AgentId> {
+        self.streams()
+            .iter()
+            .filter(|(_, stream)| stream.idle)
+            .map(|(agent, _)| *agent)
+            .collect()
+    }
+
     fn holds(&self, agent: AgentId) -> bool {
         self.streams().contains_key(&agent)
     }
@@ -104,6 +198,16 @@ impl Replica {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+fn current(
+    streams: &mut HashMap<AgentId, Stream>,
+    agent: AgentId,
+    number: u64,
+) -> Option<&mut Stream> {
+    streams
+        .get_mut(&agent)
+        .filter(|stream| stream.number == number)
 }
 
 pub(crate) async fn deliver_pending(db: &DatabaseConnection, replica: &Replica, agent: AgentId) {
@@ -121,10 +225,16 @@ pub(crate) async fn deliver_pending(db: &DatabaseConnection, replica: &Replica, 
     }
 }
 
-pub(crate) async fn forward(db: DatabaseConnection, replica: Arc<Replica>, mut listener: Listener) {
+pub(crate) async fn forward(
+    db: DatabaseConnection,
+    replica: Arc<Replica>,
+    mut listener: Listener,
+    dispatcher: Arc<Dispatcher>,
+) {
     loop {
         match listener.next().await {
-            Ok(Some(notice)) => {
+            Ok(Some(Notification::Queued(_))) => dispatcher.wake_all(),
+            Ok(Some(Notification::Control(notice))) => {
                 if !replica.holds(notice.agent_id) {
                     continue;
                 }
@@ -141,11 +251,13 @@ pub(crate) async fn forward(db: DatabaseConnection, replica: Arc<Replica>, mut l
             Ok(None) => {
                 info!("the notification connection was re-established");
                 resend(&db, &replica).await;
+                dispatcher.wake_all();
             }
             Err(error) => {
                 warn!(%error, "the notification connection failed");
                 tokio::time::sleep(RETRY).await;
                 resend(&db, &replica).await;
+                dispatcher.wake_all();
             }
         }
     }
