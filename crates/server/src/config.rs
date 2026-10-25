@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bosun_blob::S3Settings;
+use bosun_types::slug::SLUG_RULE;
 use ipnet::IpNet;
 use serde::Deserialize;
 use url::Url;
@@ -13,6 +14,7 @@ use crate::Error;
 use crate::address;
 use crate::owner::{self, LOGIN_RULE};
 use crate::site::Site;
+use crate::slug::{is_slug, reads_as_id};
 use crate::tools::Runtimes;
 
 const DEFAULT_LISTEN: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
@@ -69,6 +71,16 @@ const NODE_MUSL_UPSTREAM: &str = "https://unofficial-builds.nodejs.org/download/
 
 const DEFAULT_NODE: &str = "24.22.1";
 
+const OPENID: &str = "openid";
+
+const DEFAULT_SCOPES: [&str; 3] = [OPENID, "profile", "email"];
+
+const DEFAULT_LOGIN_CLAIM: &str = "preferred_username";
+
+const DEFAULT_EMAIL_CLAIM: &str = "email";
+
+const DEFAULT_GROUPS_CLAIM: &str = "groups";
+
 pub struct Config {
     pub(crate) listen: SocketAddr,
     pub(crate) data_dir: PathBuf,
@@ -84,6 +96,7 @@ pub struct Config {
     pub(crate) failed_sign_ins: u32,
     pub(crate) github: Option<GitHub>,
     pub(crate) tools: Tools,
+    pub(crate) oidc: Vec<Oidc>,
 }
 
 #[derive(Clone)]
@@ -91,6 +104,28 @@ pub(crate) struct Tools {
     pub(crate) node_upstream: Url,
     pub(crate) node_musl_upstream: Url,
     pub(crate) runtimes: Runtimes,
+}
+
+#[derive(Clone)]
+pub(crate) struct Oidc {
+    pub(crate) name: String,
+    pub(crate) issuer: String,
+    pub(crate) client_id: String,
+    pub(crate) client_secret_file: PathBuf,
+    pub(crate) scopes: Vec<String>,
+    pub(crate) login_claim: String,
+    pub(crate) email_claim: String,
+    pub(crate) groups_claim: String,
+    pub(crate) allowed_groups: Vec<String>,
+    pub(crate) allowed_email_domains: Vec<String>,
+    pub(crate) teams: Vec<TeamMapping>,
+}
+
+#[derive(Clone)]
+pub(crate) struct TeamMapping {
+    pub(crate) group: String,
+    pub(crate) organisation: String,
+    pub(crate) team: String,
 }
 
 pub(crate) struct GitHub {
@@ -142,6 +177,7 @@ struct File {
     store: StoreFile,
     github: GitHubFile,
     tools: ToolsFile,
+    oidc: Vec<OidcFile>,
 }
 
 #[derive(Default, Deserialize)]
@@ -215,6 +251,29 @@ struct ToolsFile {
     node16: Option<String>,
     node20: Option<String>,
     node24: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct OidcFile {
+    name: Option<String>,
+    issuer: Option<String>,
+    client_id: Option<String>,
+    client_secret_file: Option<PathBuf>,
+    scopes: Option<Vec<String>>,
+    login_claim: Option<String>,
+    email_claim: Option<String>,
+    groups_claim: Option<String>,
+    allowed_groups: Vec<String>,
+    allowed_email_domains: Vec<String>,
+    teams: Vec<TeamFile>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct TeamFile {
+    group: Option<String>,
+    team: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -373,6 +432,16 @@ impl Config {
         let tools = tools(file.tools)?;
         let agent_binaries = path("agents", "binary_dir", file.agents.binary_dir)?
             .unwrap_or_else(|| PathBuf::from(DEFAULT_AGENT_BINARIES));
+        let oidc = oidc(file.oidc)?;
+        if !oidc.is_empty() && site.url().is_empty() {
+            return Err(invalid(
+                "server",
+                "public_url",
+                "is not set, and the identity providers of [[oidc]] need it for the address \
+                 their sign-ins return to"
+                    .to_owned(),
+            ));
+        }
         Ok(Config {
             listen,
             data_dir,
@@ -398,6 +467,7 @@ impl Config {
             failed_sign_ins,
             github,
             tools,
+            oidc,
         })
     }
 }
@@ -463,6 +533,133 @@ fn upstream(key: &str, file: Option<String>, default: &str) -> Result<Url, Error
         ));
     }
     Ok(url)
+}
+
+fn oidc(files: Vec<OidcFile>) -> Result<Vec<Oidc>, Error> {
+    let mut providers: Vec<Oidc> = Vec::with_capacity(files.len());
+    for (index, file) in files.into_iter().enumerate() {
+        let label = match &file.name {
+            Some(name) => format!("`{name}`"),
+            None => format!("number {}", index + 1),
+        };
+        let refused = |key: &str, problem: String| Error::Oidc {
+            provider: label.clone(),
+            key: key.to_owned(),
+            problem,
+        };
+        let required = |key: &str, value: Option<String>| {
+            value
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| refused(key, "is not set".to_owned()))
+        };
+        let name = required("name", file.name.clone())?;
+        if !is_slug(&name) || reads_as_id(&name) {
+            return Err(refused(
+                "name",
+                format!("is `{name}`, and the name of a provider is {SLUG_RULE} and unlike an id"),
+            ));
+        }
+        if providers.iter().any(|provider| provider.name == name) {
+            return Err(refused(
+                "name",
+                "is the name of an earlier provider, and each provider has a name of its own"
+                    .to_owned(),
+            ));
+        }
+        let issuer = required("issuer", file.issuer)?;
+        if let Err(Error::Setting { problem, .. }) = address("oidc", "issuer", &issuer) {
+            return Err(refused("issuer", problem));
+        }
+        let client_id = required("client_id", file.client_id)?;
+        let client_secret_file = match file.client_secret_file {
+            Some(path) if !path.as_os_str().is_empty() => path,
+            Some(_) => return Err(refused("client_secret_file", "is empty".to_owned())),
+            None => return Err(refused("client_secret_file", "is not set".to_owned())),
+        };
+        let scopes = file
+            .scopes
+            .unwrap_or_else(|| DEFAULT_SCOPES.map(str::to_owned).to_vec());
+        if let Some(scope) = scopes
+            .iter()
+            .find(|scope| scope.is_empty() || scope.chars().any(char::is_whitespace))
+        {
+            return Err(refused(
+                "scopes",
+                format!("holds `{scope}`, and a scope is a word without white space"),
+            ));
+        }
+        if !scopes.iter().any(|scope| scope == OPENID) {
+            return Err(refused(
+                "scopes",
+                format!("lacks `{OPENID}`, which asks the provider for the ID token"),
+            ));
+        }
+        let claim = |key: &str, value: Option<String>, default: &str| match value {
+            Some(claim) if claim.trim().is_empty() => Err(refused(key, "is empty".to_owned())),
+            Some(claim) => Ok(claim),
+            None => Ok(default.to_owned()),
+        };
+        let login_claim = claim("login_claim", file.login_claim, DEFAULT_LOGIN_CLAIM)?;
+        let email_claim = claim("email_claim", file.email_claim, DEFAULT_EMAIL_CLAIM)?;
+        let groups_claim = claim("groups_claim", file.groups_claim, DEFAULT_GROUPS_CLAIM)?;
+        if file.allowed_groups.iter().any(String::is_empty) {
+            return Err(refused("allowed_groups", "holds an empty group".to_owned()));
+        }
+        let mut allowed_email_domains = Vec::with_capacity(file.allowed_email_domains.len());
+        for domain in file.allowed_email_domains {
+            if domain.is_empty() || domain.contains('@') || domain.chars().any(char::is_whitespace)
+            {
+                return Err(refused(
+                    "allowed_email_domains",
+                    format!("holds `{domain}`, which is not a domain such as example.org"),
+                ));
+            }
+            allowed_email_domains.push(domain.to_lowercase());
+        }
+        let mut teams = Vec::with_capacity(file.teams.len());
+        for (number, mapping) in file.teams.into_iter().enumerate() {
+            let key = format!("teams.{number}");
+            let group = mapping
+                .group
+                .filter(|group| !group.is_empty())
+                .ok_or_else(|| refused(&format!("{key}.group"), "is not set".to_owned()))?;
+            let team = mapping
+                .team
+                .ok_or_else(|| refused(&format!("{key}.team"), "is not set".to_owned()))?;
+            let Some((organisation, slug)) = team.split_once('/').filter(|(organisation, slug)| {
+                [organisation, slug]
+                    .iter()
+                    .all(|part| is_slug(part) && !reads_as_id(part))
+            }) else {
+                return Err(refused(
+                    &format!("{key}.team"),
+                    format!(
+                        "is `{team}`, which is not `<organisation>/<team>` with the slugs of \
+                         both"
+                    ),
+                ));
+            };
+            teams.push(TeamMapping {
+                group,
+                organisation: organisation.to_owned(),
+                team: slug.to_owned(),
+            });
+        }
+        providers.push(Oidc {
+            name,
+            issuer,
+            client_id,
+            client_secret_file,
+            scopes,
+            login_claim,
+            email_claim,
+            groups_claim,
+            allowed_groups: file.allowed_groups,
+            allowed_email_domains,
+            teams,
+        });
+    }
+    Ok(providers)
 }
 
 fn trusted_proxies(file: Option<Vec<String>>) -> Result<Vec<IpNet>, Error> {

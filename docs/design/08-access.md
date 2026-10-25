@@ -14,7 +14,8 @@ reads as an id (a UUID), because a request names a user by its id or its login.
   (from M3).
 - **OpenID Connect**, with one or more providers in the server configuration (issuer, client,
   claim names for login, email and groups). A first sign-in creates the user when the provider's
-  claims match the configured allow rules (groups or email domains); otherwise it is refused.
+  claims match the configured allow rules (groups or email domains); otherwise it is refused
+  ([OpenID Connect](#openid-connect)).
 - **Forge account link.** A user links their forge account through the App's user authorisation.
   The link maps forge actors to Bosun users: for re-runs requested on the forge, for approvals
   shown on the forge, and for `github.actor` of runs started in Bosun.
@@ -117,6 +118,85 @@ Step 8 of M1 ([../plan.md](../plan.md)) settled the mechanisms below; the endpoi
   it is missing. When `admin` changes that password, the server deletes both files from its data
   directory; the token stays valid until it expires or is revoked. A replica whose data directory
   does not hold the files deletes nothing.
+
+### OpenID Connect
+
+Step 11 of M1 ([../plan.md](../plan.md)) settled the mechanisms below; the providers are
+configured as `[[oidc]]` ([12-operations.md](12-operations.md#configuration)) and the endpoints are
+in [11-api.md](11-api.md#sign-in-and-sessions).
+
+- **Discovery.** A provider's configuration is the discovery document at
+  `<issuer>/.well-known/openid-configuration`, read when a sign-in first needs it and kept for an
+  hour; its `issuer` must be the configured issuer exactly, or the provider is not used. The keys
+  of `jwks_uri` are read when an ID token first needs them and read again when a token names a
+  key that the kept ones lack, so a provider that rotates its keys needs no restart. A provider
+  that does not answer fails the sign-in with `500 internal`, whose cause the server's log has;
+  the server starts without asking any provider, so a provider that is down stops only its own
+  sign-ins.
+- **The start.** `GET /api/v1/auth/oidc/{provider}/start` makes a state, a nonce and a PKCE
+  verifier, each 32 random bytes in base64url, and sends the browser to the authorization
+  endpoint with `response_type=code`, the client, the scopes, the state, the nonce, and the
+  challenge of the verifier with the method `S256`. The address the provider returns the browser
+  to is `<server.public_url>/api/v1/auth/oidc/<provider>/callback`, which the client at the
+  provider must allow.
+- **The cookie of the sign-in.** The state, the nonce, the verifier, the provider and the time
+  the sign-in ends, 10 minutes after it starts, are a JSON object in the cookie
+  `__Host-bosun_oidc` (`Max-Age=600; Path=/; Secure; HttpOnly; SameSite=Lax`), written as its
+  base64url, a dot and the base64url of the HMAC-SHA256 of `bosun oidc state`, a zero byte and
+  that base64url. The key of the HMAC is derived from the KEK, as an HMAC-SHA256 of
+  `bosun signing key` and a zero byte under the KEK, so every replica that shares the KEK checks
+  the cookie of any other, and nobody without the KEK makes or changes one. The cookie is not
+  encrypted: it holds nothing that the browser which started the sign-in may not know. A cookie signed under an earlier KEK that `keys.previous_kek_files` still
+  names is taken too, so a rotation does not fail the sign-ins under way. `SameSite=Lax` lets the
+  browser send the cookie with the provider's redirect, which is a top-level navigation.
+- **The callback.** `GET /api/v1/auth/oidc/{provider}/callback` refuses a callback whose browser
+  holds no cookie of a sign-in through that provider, whose cookie Bosun did not sign, whose
+  sign-in started more than 10 minutes ago, or whose `state` is not the state of the cookie: a
+  callback that belongs to another browser never signs this one in. It then records the state as
+  used, as its SHA-256 in `oidc_state` until the sign-in would have ended, and refuses a state
+  that was used already, so a callback works once even when its cookie and its address were
+  copied. Only after that does it look at the provider's `error`, at an `iss` that is not the
+  provider's issuer ([RFC 9207](https://www.rfc-editor.org/rfc/rfc9207)), and at the code, which
+  it exchanges at the token endpoint with the verifier, authenticating the client with
+  `client_secret_basic`.
+- **The ID token.** The token is a JWS signed with RS256, the algorithm every provider offers
+  and the only one taken, so neither `none` nor an HMAC under a published key passes. Its key is
+  the RSA signing key of the provider's set whose `kid` the token names, or the only one when the
+  token names none. The claims must hold the configured issuer as `iss`, the client among `aud`,
+  and as `azp` when there are several audiences or `azp` is present, an `exp` after the time of
+  the callback, the nonce of the cookie, and a `sub`. The person's claims are read from the ID
+  token alone, so the provider puts the login, the email address and the groups into it.
+- **Users and identities.** `user_identity` links the provider's `iss` and `sub` to a user, which
+  OpenID Connect names as the only stable identifier of a person; the name of the provider in the
+  configuration is not part of it, so renaming a provider keeps its users. A sign-in whose
+  identity is linked signs in its user. A first sign-in creates a user from the claims: the login
+  claim in lower case, which must be a login, the `name` claim as the display name or the login
+  when it has none, and the email claim; the user has no password and is not an owner. A login
+  that another user holds refuses the first sign-in with `409 conflict`, since a provider could
+  name any login and an identity is never linked to an existing user by its login. Deleting the
+  user deletes its identities, so its next sign-in creates a new user.
+- **Allow rules.** A person is admitted when one of their groups is in `allowed_groups`, or when
+  their email address is marked verified (`email_verified: true`) and its domain, compared
+  without regard to case, is in `allowed_email_domains`; an address the provider has not verified
+  could be anyone's. A provider without rules admits nobody. The rules are checked at every
+  sign-in, not only the first, so a person whom the provider no longer puts in an allowed group
+  cannot sign in again; their user and their other sessions stay until an owner deletes the
+  user.
+- **Teams from groups.** `[[oidc.teams]]` maps a group to a team of an organisation. At every
+  sign-in, for each team the provider maps, the person becomes a member when one of their groups
+  maps to it and stops being one otherwise, so leaving the group at the provider leaves the team
+  at the next sign-in, and with the team its bindings
+  ([When it is read](#roles-and-bindings)). A mapped team that does not exist yet is created at
+  the first sign-in that makes someone a member, with its slug as its name: the mapping states
+  that the team should exist, and a team grants nothing until it has a binding. A mapping of an
+  organisation that does not exist is skipped with a warning in the log, since creating an
+  organisation is an owner's decision. Teams of an organisation that no mapping of the provider
+  names, and the members that others added to them, are left alone.
+- **The session** is a session of [Local sign-in](#local-sign-in) in every respect. A successful
+  callback sets its cookie, empties `__Host-bosun_oidc` and sends the browser to the web interface
+  at `server.public_url`.
+- **Removal.** The periodic task that removes ended sessions also removes the rows of
+  `oidc_state` whose sign-in has ended.
 
 ## Sessions and tokens
 
@@ -238,8 +318,8 @@ are computed; the endpoints are in [11-api.md](11-api.md#identity-and-access).
   belongs to the installation rather than to an organisation. A local user is created with a login,
   a display name, an email address and an initial password, and must replace that password at the
   first sign-in, through the change of password of [Local sign-in](#local-sign-in); until then its
-  sessions reach nothing else. Deleting a user removes its sessions, tokens, team memberships and
-  bindings with it. An owner cannot delete themselves, so an installation always keeps an owner.
+  sessions reach nothing else. Deleting a user removes its sessions, tokens, team memberships,
+  bindings and linked identities with it. An owner cannot delete themselves, so an installation always keeps an owner.
 - **Organisations manage their teams, roles and bindings.** Teams with their members, custom roles
   and role bindings are each managed with `organisation.manage` in the organisation they belong
   to; a binding on a project belongs to the project's organisation. `organisation.manage` lets its

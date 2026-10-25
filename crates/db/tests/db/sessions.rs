@@ -1,4 +1,4 @@
-use bosun_db::entity::{session, sign_in_failure};
+use bosun_db::entity::{oidc_state, session, sign_in_failure};
 use bosun_db::sessions::{self, NewSession, Sweep, Swept};
 use bosun_db::sign_in::{self, Kind, Lockout, Reservation, Subject};
 use bosun_db::tokens::NewToken;
@@ -222,6 +222,16 @@ async fn the_sweep_holds_its_lock_and_removes_expired_sessions_and_forgotten_fai
         .await
         .expect("a failed sign-in");
     }
+    for (byte, expires_at) in [
+        (20, now - TimeDelta::seconds(1)),
+        (21, now + TimeDelta::minutes(9)),
+    ] {
+        assert!(
+            bosun_db::identities::spend_state(db, &[byte; 32], expires_at)
+                .await
+                .expect("a state")
+        );
+    }
     let sweep = || Sweep {
         idle_before: now - TimeDelta::hours(12),
         created_before: now - TimeDelta::days(30),
@@ -247,9 +257,18 @@ async fn the_sweep_holds_its_lock_and_removes_expired_sessions_and_forgotten_fai
         sessions::sweep(db, sweep()).await.expect("a sweep"),
         Some(Swept {
             sessions: 2,
-            failures: 1
+            failures: 1,
+            states: 1
         })
     );
+    let states: Vec<Vec<u8>> = oidc_state::Entity::find()
+        .all(db)
+        .await
+        .expect("the states")
+        .into_iter()
+        .map(|state| state.sha256)
+        .collect();
+    assert_eq!(states, [vec![21; 32]]);
     assert_eq!(session::Entity::find().count(db).await.expect("a count"), 1);
     assert!(
         sessions::find(db, &[11; 32])

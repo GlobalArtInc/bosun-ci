@@ -557,7 +557,9 @@ fn every_operation_declares_the_parameters_of_its_path() {
         assert!(
             operation["responses"]
                 .as_object()
-                .is_some_and(|responses| responses.keys().any(|status| status.starts_with('2'))),
+                .is_some_and(|responses| responses
+                    .keys()
+                    .any(|status| status.starts_with('2') || status == "303")),
             "{method} {path} has no successful response"
         );
     }

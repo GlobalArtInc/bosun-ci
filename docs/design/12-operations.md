@@ -182,7 +182,8 @@ them jobs again ([05-execution.md](05-execution.md#draining-and-deleting-agents)
 
 ## Configuration
 
-`server.toml`, every key overridable by an environment variable `BOSUN_<SECTION>_<KEY>`:
+`server.toml`, every key outside `[[oidc]]` overridable by an environment variable
+`BOSUN_<SECTION>_<KEY>`:
 
 ```toml
 [server]
@@ -222,6 +223,12 @@ issuer = "https://sso.example.org/realms/main"
 client_id = "bosun"
 client_secret_file = "/etc/bosun/oidc-secret"
 groups_claim = "groups"
+allowed_groups = ["bosun"]
+allowed_email_domains = ["globalart.dev"]
+
+[[oidc.teams]]
+group = "keel-developers"
+team = "globalart/keel"
 
 [tools]
 node_upstream = "https://nodejs.org/dist"
@@ -334,6 +341,30 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   time an agent asks for it, with the proxy of its environment (`HTTPS_PROXY`), and keeps it in the
   object store. Actions come from the forge through the GitHub App, so a server without one runs no
   job that uses an action.
+- `[[oidc]]` lists the OpenID Connect providers people sign in through
+  ([08-access.md](08-access.md#openid-connect)), in the order the sign-in page offers them. The
+  list is read from the file alone: a variable cannot name a member of a list, and the secret of
+  a provider is a file anyway. Each provider has:
+  - `name`, which follows the rule of slugs, is unique, and is the `{provider}` of its addresses;
+  - `issuer`, the provider's issuer as its discovery document names it, an http or https address
+    without a user, a query or a fragment;
+  - `client_id`, and `client_secret_file`, the file of the client's secret, whose surrounding
+    whitespace does not count;
+  - `scopes`, `["openid", "profile", "email"]` by default, which must hold `openid`;
+  - `login_claim`, `email_claim` and `groups_claim`, the claims of the ID token that hold the
+    login, the email address and the list of groups, `preferred_username`, `email` and `groups` by
+    default;
+  - `allowed_groups` and `allowed_email_domains`, the allow rules, both empty by default, so a
+    provider admits nobody until one of them is set;
+  - `[[oidc.teams]]`, the mapping of groups to teams, each a `group` and the `team` it maps to as
+    `<organisation>/<team>` with the slugs of both.
+
+  A key that is missing, empty or malformed stops the server with an error that names the key and
+  the provider. Providers need `server.public_url`, the address their sign-ins return to, and the
+  server refuses to start with providers but without it. `serve` reads every
+  `client_secret_file` before it connects to the database, and a file it cannot read or that is
+  empty stops it with an error line that names the file; it asks no provider anything until a
+  sign-in does.
 - `agents.heartbeat_interval` defaults to 30 seconds and `agents.offline_after` to 60 seconds,
   which must be longer than the interval; `limits.agent_grace` defaults to 10 minutes
   ([05-execution.md](05-execution.md)). `agents.assignment_lease`, the time an agent has to accept

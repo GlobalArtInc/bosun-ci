@@ -6,6 +6,7 @@ use std::path::Path;
 
 use bosun_db::secrets::Sealed;
 use ring::aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
+use ring::hmac;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use tracing::warn;
@@ -25,6 +26,8 @@ const VALUE_LABEL: &[u8] = b"bosun secret value\0";
 
 const DATA_KEY_LABEL: &[u8] = b"bosun secret data key\0";
 
+const SIGNING_LABEL: &[u8] = b"bosun signing key\0";
+
 const GENERATED: &str = "keys/kek";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,6 +39,7 @@ pub(crate) enum Generation {
 pub(crate) struct Kek {
     id: String,
     key: LessSafeKey,
+    signing: hmac::Key,
 }
 
 impl Kek {
@@ -65,9 +69,11 @@ impl Kek {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect();
+        let derived = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &bytes), SIGNING_LABEL);
         Ok(Kek {
             id: id[..ID_DIGITS].to_owned(),
             key: cipher(&bytes).ok_or_else(malformed)?,
+            signing: hmac::Key::new(hmac::HMAC_SHA256, derived.as_ref()),
         })
     }
 }
@@ -140,6 +146,19 @@ impl Keyring {
         let data_key = self.data_key(binding, sealed)?;
         encrypt(&self.current.key, &aad(DATA_KEY_LABEL, binding), &data_key)
             .map_err(|_| Unreadable::Refused(sealed.kek_id.clone()))
+    }
+
+    pub(crate) fn sign(&self, label: &[u8], message: &[u8]) -> Vec<u8> {
+        hmac::sign(&self.current.signing, &aad(label, message))
+            .as_ref()
+            .to_vec()
+    }
+
+    pub(crate) fn verify(&self, label: &[u8], message: &[u8], tag: &[u8]) -> bool {
+        let signed = aad(label, message);
+        std::iter::once(&self.current)
+            .chain(&self.previous)
+            .any(|kek| hmac::verify(&kek.signing, &signed, tag).is_ok())
     }
 
     fn data_key(&self, binding: &[u8], sealed: &Sealed) -> Result<Vec<u8>, Unreadable> {
@@ -291,6 +310,17 @@ mod tests {
         ] {
             assert!(Kek::parse(malformed, "the test").is_err(), "{malformed}");
         }
+    }
+
+    #[test]
+    fn a_signature_holds_under_its_label_and_the_keks_that_the_keyring_keeps() {
+        let keys = Keyring::new(kek(FIRST), Vec::new());
+        let tag = keys.sign(b"label\0", b"message");
+        assert!(keys.verify(b"label\0", b"message", &tag));
+        assert!(!keys.verify(b"label\0", b"massage", &tag));
+        assert!(!keys.verify(b"other\0", b"message", &tag));
+        assert!(!Keyring::new(kek(SECOND), Vec::new()).verify(b"label\0", b"message", &tag));
+        assert!(Keyring::new(kek(SECOND), vec![kek(FIRST)]).verify(b"label\0", b"message", &tag));
     }
 
     #[test]

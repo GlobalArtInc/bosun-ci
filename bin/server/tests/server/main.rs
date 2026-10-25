@@ -12,6 +12,7 @@ mod hooks;
 mod http;
 mod install;
 mod logs;
+mod oidc;
 mod openapi;
 mod owner;
 mod pools;

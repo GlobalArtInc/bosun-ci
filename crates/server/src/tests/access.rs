@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{self, Body};
@@ -13,6 +14,7 @@ use bosun_db::roles::{NewBinding, Subject};
 use bosun_db::secrets::Scope;
 use bosun_db::tokens::NewToken;
 use bosun_db::workflows::NewWorkflow;
+use bosun_testkit::oidc::{FakeIdentityProvider, Person};
 use bosun_types::api::{Permissions, Project, Workflow};
 use bosun_types::id::{
     AgentId, ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, TokenId,
@@ -26,7 +28,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
-use super::{World, template, workflow};
+use super::{World, oidc, template, workflow};
 use crate::agents::progress;
 use crate::clock::Clock;
 use crate::commands::{self, COMMANDS};
@@ -263,6 +265,7 @@ pub(super) struct Site {
     pub(super) world: World,
     pub(super) state: AppState,
     pub(super) router: Router,
+    provider: FakeIdentityProvider,
     _directory: TempDir,
 }
 
@@ -270,18 +273,22 @@ impl Site {
     pub(super) async fn new() -> Site {
         let world = World::new().await;
         let directory = tempfile::tempdir().expect("a directory");
-        let state = super::state(
+        let mut state = super::state(
             &world.database,
             directory.path(),
             Clock::system(),
             sign_in::Settings::new(Vec::new(), 1000, directory.path().join("data")),
         )
         .await;
+        let provider = FakeIdentityProvider::start().await;
+        provider.add_person(Person::new("signed-in-elsewhere", &["bosun"]));
+        state.oidc = Arc::new(oidc::providers(&provider, directory.path()));
         let router = api().into_router(&state).with_state(state.clone());
         Site {
             world,
             state,
             router,
+            provider,
             _directory: directory,
         }
     }
@@ -835,7 +842,10 @@ async fn every_built_in_role_is_allowed_or_refused_as_the_two_tables_say() {
                     call.command.unwrap_or_default()
                 );
                 if allowed {
-                    assert!(answer.status.is_success(), "{context}: {answer:?}");
+                    assert!(
+                        answer.status.is_success() || answer.status == StatusCode::SEE_OTHER,
+                        "{context}: {answer:?}"
+                    );
                 } else {
                     forbidden(&answer, &context);
                 }
@@ -982,6 +992,33 @@ async fn calls(
             }
             return calls;
         }
+        ("GET", "/api/v1/auth/oidc/{provider}/callback") => {
+            let begun = site
+                .router
+                .clone()
+                .oneshot(
+                    request(
+                        Method::GET,
+                        &format!("/api/v1/auth/oidc/{}/start", oidc::PROVIDER),
+                    )
+                    .body(Body::empty())
+                    .expect("a request"),
+                )
+                .await
+                .expect("an answer");
+            assert_eq!(begun.status(), StatusCode::SEE_OTHER);
+            let location = begun.headers()["location"].to_str().expect("a Location");
+            let back = site
+                .provider
+                .authorize(location, "signed-in-elsewhere")
+                .await;
+            let started = oidc::cookie(begun.headers(), "__Host-bosun_oidc")
+                .expect("the cookie of the sign-in");
+            return vec![Call {
+                headers: vec![("cookie", oidc::pair(&started))],
+                ..call(oidc::target(&back), None)
+            }];
+        }
         ("DELETE", "/api/v1/tokens/{token}") => {
             let user = bosun_db::users::find_by_login(site.db(), login)
                 .await
@@ -1022,7 +1059,8 @@ async fn calls(
             .replace("{job}", &fixture.job.to_string())
             .replace("{execution}", &fixture.execution.to_string())
             .replace("{step}", &fixture.step.to_string())
-            .replace("{team}", &fixture.team.to_string()),
+            .replace("{team}", &fixture.team.to_string())
+            .replace("{provider}", oidc::PROVIDER),
     };
     let body = match (endpoint.method.as_str(), endpoint.path.as_str()) {
         ("GET", _) => None,

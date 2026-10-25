@@ -7,7 +7,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::entity::{session, sign_in_failure, user};
+use crate::entity::{oidc_state, session, sign_in_failure, user};
 use crate::periodic::{self, Task};
 use crate::{Error, row, users};
 
@@ -38,6 +38,7 @@ pub struct Sweep {
 pub struct Swept {
     pub sessions: u64,
     pub failures: u64,
+    pub states: u64,
 }
 
 pub async fn create<C: ConnectionTrait>(db: &C, new: NewSession) -> Result<SessionId, Error> {
@@ -129,6 +130,15 @@ pub async fn sweep<C: TransactionTrait>(db: &C, sweep: Sweep) -> Result<Option<S
         .exec(&transaction)
         .await?
         .rows_affected;
+    let states = oidc_state::Entity::delete_many()
+        .filter(oidc_state::Column::ExpiresAt.lte(sweep.now))
+        .exec(&transaction)
+        .await?
+        .rows_affected;
     transaction.commit().await?;
-    Ok(Some(Swept { sessions, failures }))
+    Ok(Some(Swept {
+        sessions,
+        failures,
+        states,
+    }))
 }

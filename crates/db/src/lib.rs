@@ -6,6 +6,7 @@ pub mod deliveries;
 pub mod entity;
 mod error;
 pub mod idempotency;
+pub mod identities;
 pub mod installations;
 mod jobs;
 pub mod journal;

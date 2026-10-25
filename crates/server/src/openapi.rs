@@ -357,6 +357,10 @@ fn path_parameter(name: &str) -> (&'static str, Value) {
         "binding" => ("the role binding's id", id),
         "token" => ("the personal token's id", id),
         "agent" => ("the agent's id", id),
+        "provider" => (
+            "the name of the identity provider, as `GET /api/v1/auth/methods` lists it",
+            json!({ "type": "string" }),
+        ),
         "name" => (
             "the name of the secret or the variable, matched without regard to case",
             json!({ "type": "string" }),

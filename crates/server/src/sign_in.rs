@@ -7,7 +7,7 @@ use axum::http::header::{CONTENT_TYPE, RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bosun_db::sign_in::{Granted, Kind, Lockout, Reservation, Subject};
-use bosun_types::api::{Me, PasswordChangeRequest, SignInMethods, SignInRequest};
+use bosun_types::api::{Me, PasswordChangeRequest, SignInMethods, SignInProvider, SignInRequest};
 use bosun_types::error::ErrorCode;
 use chrono::{DateTime, TimeDelta, Utc};
 use ipnet::IpNet;
@@ -242,10 +242,16 @@ async fn login(
     })
 }
 
-async fn methods() -> Json<SignInMethods> {
+async fn methods(State(state): State<AppState>) -> Json<SignInMethods> {
     Json(SignInMethods {
         password: true,
-        providers: Vec::new(),
+        providers: state
+            .oidc
+            .names()
+            .map(|name| SignInProvider {
+                name: name.to_owned(),
+            })
+            .collect(),
     })
 }
 

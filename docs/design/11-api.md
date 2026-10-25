@@ -183,8 +183,24 @@ The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-s
   `new_password` or `current_password`; a wrong current password also counts as a failed sign-in,
   and so may be `429 rate_limited`. A user without a password is `409 invalid_state`.
 - `GET /auth/methods` needs no credentials and answers `{"password": true, "providers": […]}`:
-  whether password sign-in is offered, and the configured identity providers, each as `{"name"}`.
-  The list stays empty until OpenID Connect arrives with step 11 of M1.
+  whether password sign-in is offered, and the identity providers of `[[oidc]]`
+  ([12-operations.md](12-operations.md#configuration)), each as `{"name"}`, in the order of the
+  configuration.
+- `GET /auth/oidc/{provider}/start` and `GET /auth/oidc/{provider}/callback` sign a browser in
+  through an identity provider, as [08-access.md](08-access.md#openid-connect) says; both need no
+  credentials, and a provider that is not configured is `404 not_found` with ``there is no
+  identity provider `<name>` ``. The start answers `303` to the provider's authorization endpoint
+  and sets the cookie `__Host-bosun_oidc` with the state of the sign-in. The callback takes the
+  query the provider returns the browser with (`code`, `state`, or `error` and
+  `error_description` when the provider refused, and `iss`), and answers `303` to the web
+  interface at `server.public_url` with the session cookie set and `__Host-bosun_oidc` emptied.
+  Its refusals are the error envelope, since a browser shows the answer as it is: `401
+  unauthenticated` for a state that is missing, changed, of another sign-in, expired or used
+  already, for a refusal of the provider, a code it does not exchange and an ID token that does
+  not hold; `403 forbidden` for a person outside the provider's allow rules or whose login claim
+  is not a login; `409 conflict` for a login that another user has; `422 invalid_input` naming
+  `code` for a callback without one; and `500 internal` when the provider does not answer as it
+  should, whose cause the server's log has.
 - While the caller's password must change, a session reaches only `GET /me`, `POST /auth/logout`
   and `POST /auth/password`; every other operation is `403 forbidden`.
 
@@ -253,6 +269,8 @@ with the answers each built-in role gets:
 | `POST /auth/logout` | — | `authenticated` |
 | `POST /auth/password` | — | `authenticated` |
 | `GET /auth/methods` | — | `anyone` |
+| `GET /auth/oidc/{provider}/start` | — | `anyone` |
+| `GET /auth/oidc/{provider}/callback` | — | `anyone` |
 | `POST /organisations` | `organisation.manage` | `installation` |
 | `GET /organisations/{organisation}` | `project.view` | `organisation` |
 | `PATCH /organisations/{organisation}` | `organisation.manage` | `installation` |
@@ -752,7 +770,10 @@ How the document follows the handlers:
   `__Host-bosun_session`. An operation behind credentials whose method is not `GET` requires
   `bearer`, or `session` together with `csrf`, the header `X-Bosun-CSRF`, in its own `security`.
   `POST /agents/register`, which the registration token in its body authenticates, and
-  `POST /auth/login` and `GET /auth/methods`, which need no credentials, have an empty `security`.
+  `POST /auth/login`, `GET /auth/methods` and the two operations of OpenID Connect, which need no
+  credentials, have an empty `security`. The start and the callback of OpenID Connect answer
+  `303`, which counts as their success, with the `Location` and `Set-Cookie` headers documented,
+  and the callback documents the cookie `__Host-bosun_oidc` as a parameter `in: cookie`.
 - Routes are registered through `Api::new()` behind credentials, `Api::interim()` behind
   credentials that a session whose password must change may also use (`/me`, `/auth/logout`,
   `/auth/password`), and `Api::public()` without credentials. The sign-in answers with its own

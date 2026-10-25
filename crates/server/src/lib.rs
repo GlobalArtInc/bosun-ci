@@ -26,6 +26,7 @@ mod keys;
 mod logs;
 mod me;
 mod names;
+mod oidc;
 mod openapi;
 mod organisations;
 mod outbox;
@@ -98,6 +99,7 @@ struct AppState {
     parses: Arc<forge_events::Parses>,
     keys: Arc<keys::Keyring>,
     tools: Arc<tools::Tools>,
+    oidc: Arc<oidc::Providers>,
 }
 
 pub struct Rewrapped {
@@ -128,6 +130,7 @@ pub async fn serve(
         .map(forge::load)
         .transpose()?
         .map(Arc::new);
+    let oidc = Arc::new(oidc::Providers::load(&config.oidc, &config.site)?);
     let store = Arc::new(store::open(&config.store).await?);
     let db = connect(&config).await?;
     bosun_db::migrate(&db).await.map_err(Error::Migrate)?;
@@ -232,6 +235,7 @@ pub async fn serve(
         parses,
         keys,
         tools,
+        oidc,
     };
     axum::serve(
         listener,
@@ -287,6 +291,7 @@ fn api() -> openapi::Api {
     openapi::Api::interim()
         .get("/api/v1/me", me::show)
         .merge(sign_in::routes())
+        .merge(oidc::routes())
         .merge(organisations::routes())
         .merge(projects::routes())
         .merge(workflows::routes())

@@ -3606,6 +3606,136 @@
         }
       }
     },
+    "/api/v1/auth/oidc/{provider}/callback": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the name of the identity provider, as `GET /api/v1/auth/methods` lists it",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the authorization code that the identity provider returns the browser with",
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the state of the sign-in, which must be the state the browser's cookie holds",
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the error code of an identity provider that refused the sign-in",
+            "in": "query",
+            "name": "error",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the description of the error of an identity provider that refused the sign-in",
+            "in": "query",
+            "name": "error_description",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the issuer of the identity provider that returns the browser, which must be the issuer of the provider the path names",
+            "in": "query",
+            "name": "iss",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the state of the sign-in, which `GET /api/v1/auth/oidc/{provider}/start` set in this browser",
+            "in": "cookie",
+            "name": "__Host-bosun_oidc",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "See Other",
+            "headers": {
+              "Location": {
+                "description": "the web interface at `server.public_url`",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Set-Cookie": {
+                "description": "the session cookie `__Host-bosun_session`, and the cookie `__Host-bosun_oidc` emptied",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "x-bosun-permission": {
+          "on": "anyone"
+        }
+      }
+    },
+    "/api/v1/auth/oidc/{provider}/start": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the name of the identity provider, as `GET /api/v1/auth/methods` lists it",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "See Other",
+            "headers": {
+              "Location": {
+                "description": "the authorization endpoint of the identity provider with the request of the sign-in",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Set-Cookie": {
+                "description": "the cookie `__Host-bosun_oidc`, which holds the state, the nonce and the PKCE verifier of the sign-in for 10 minutes",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "x-bosun-permission": {
+          "on": "anyone"
+        }
+      }
+    },
     "/api/v1/auth/password": {
       "post": {
         "requestBody": {

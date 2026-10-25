@@ -1,6 +1,7 @@
 pub mod agent;
 mod bucket;
 pub mod forge;
+pub mod oidc;
 
 use std::collections::HashSet;
 use std::future::Future;

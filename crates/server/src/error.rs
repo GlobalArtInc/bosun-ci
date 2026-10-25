@@ -67,6 +67,26 @@ pub enum Error {
     },
     #[error("the webhook secret of the GitHub App in {} is empty", path.display())]
     EmptyWebhookSecret { path: PathBuf },
+    #[error("the setting oidc.{key} of the identity provider {provider} {problem}")]
+    Oidc {
+        provider: String,
+        key: String,
+        problem: String,
+    },
+    #[error(
+        "could not read the client secret of the identity provider `{provider}` from {}: {source}",
+        path.display()
+    )]
+    ReadClientSecret {
+        provider: String,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("the client secret of the identity provider `{provider}` in {} is empty", path.display())]
+    EmptyClientSecret { provider: String, path: PathBuf },
+    #[error("the identity providers cannot be used: {0}")]
+    IdentityProviders(String),
     #[error("the GitHub App cannot be used: {0}")]
     GitHub(#[source] bosun_forge::Error),
     #[error("the object store {location} cannot be used: {problem}")]

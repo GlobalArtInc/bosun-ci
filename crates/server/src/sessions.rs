@@ -59,6 +59,10 @@ pub(crate) async fn start<C: ConnectionTrait>(
 }
 
 pub(crate) fn cookie(headers: &HeaderMap) -> Option<&str> {
+    named(headers, COOKIE_NAME)
+}
+
+pub(crate) fn named<'a>(headers: &'a HeaderMap, wanted: &str) -> Option<&'a str> {
     headers
         .get_all(COOKIE)
         .iter()
@@ -66,7 +70,7 @@ pub(crate) fn cookie(headers: &HeaderMap) -> Option<&str> {
         .flat_map(|value| value.split(';'))
         .find_map(|pair| {
             let (name, value) = pair.trim().split_once('=')?;
-            (name == COOKIE_NAME).then_some(value)
+            (name == wanted).then_some(value)
         })
 }
 
@@ -106,11 +110,15 @@ pub(crate) async fn sweep(db: DatabaseConnection, clock: Clock) {
         ticks.tick().await;
         let now = clock.now();
         match bosun_db::sessions::sweep(&db, expiry(now)).await {
-            Ok(Some(swept)) if swept.sessions > 0 || swept.failures > 0 => info!(
-                sessions = swept.sessions,
-                failures = swept.failures,
-                "removed expired sessions and forgotten failed sign-ins"
-            ),
+            Ok(Some(swept)) if swept.sessions > 0 || swept.failures > 0 || swept.states > 0 => {
+                info!(
+                    sessions = swept.sessions,
+                    failures = swept.failures,
+                    oidc_states = swept.states,
+                    "removed expired sessions, forgotten failed sign-ins and expired states of \
+                     sign-ins through identity providers"
+                );
+            }
             Ok(_) => {}
             Err(error) => warn!(%error, "the removal of expired sessions failed"),
         }

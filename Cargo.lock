@@ -483,6 +483,7 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "axum",
+ "base64 0.22.1",
  "bosun-blob",
  "bosun-db",
  "bosun-expr",
@@ -3984,6 +3985,7 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]

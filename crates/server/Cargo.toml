@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 argon2.workspace = true
 axum = { workspace = true, features = ["http1", "http2", "json", "query", "tokio"] }
+base64.workspace = true
 bosun-blob.workspace = true
 bosun-db.workspace = true
 bosun-expr.workspace = true
@@ -42,7 +43,7 @@ toml.workspace = true
 tonic = { workspace = true, features = ["router"] }
 tower = { workspace = true, features = ["util"] }
 tracing.workspace = true
-url.workspace = true
+url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v7"] }
 
 [dev-dependencies]

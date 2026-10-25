@@ -8,6 +8,7 @@ mod identity;
 mod journal;
 mod logs;
 mod matrix;
+mod oidc;
 mod openapi;
 mod planning;
 mod queue;
@@ -113,6 +114,7 @@ async fn state(
         parses: Arc::new(crate::forge_events::Parses::default()),
         keys: Arc::new(keys()),
         tools: Arc::new(tools),
+        oidc: Arc::new(crate::oidc::Providers::default()),
     }
 }
 

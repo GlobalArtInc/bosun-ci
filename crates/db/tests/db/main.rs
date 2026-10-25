@@ -3,6 +3,7 @@ mod control;
 mod deliveries;
 mod entities;
 mod idempotency;
+mod identities;
 mod installations;
 mod journal;
 mod logs;

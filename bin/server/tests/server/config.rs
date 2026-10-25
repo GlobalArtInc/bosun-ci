@@ -13,6 +13,9 @@ type Refused = (
     &'static str,
 );
 
+const OIDC: &str = "[[oidc]]\nname = \"keycloak\"\nissuer = \"https://sso.example.org\"\n\
+                    client_id = \"bosun\"\nclient_secret_file = \"/nonexistent/oidc-secret\"\n";
+
 const S3_WITHOUT_CREDENTIALS: &str =
     "[store]\nkind = \"s3\"\nendpoint = \"http://127.0.0.1:1\"\nbucket = \"bosun\"\n";
 
@@ -38,7 +41,7 @@ async fn variables_override_the_configuration_file() {
 
 #[tokio::test]
 async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fault() {
-    let cases: [Refused; 37] = [
+    let cases: [Refused; 44] = [
         (
             "[database]\nurll = \"postgres://bosun@db/bosun\"\n",
             &[],
@@ -271,6 +274,50 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             "the setting tools.node_upstream (BOSUN_TOOLS_NODE_UPSTREAM) is \
              `https://:secret@mirror.example.org/dist`, which is not an address without a user, a \
              password, a query or a fragment",
+        ),
+        (
+            OIDC,
+            &[("BOSUN_SERVER_PUBLIC_URL", None)],
+            "the setting server.public_url (BOSUN_SERVER_PUBLIC_URL) is not set, and the identity \
+             providers of [[oidc]] need it",
+        ),
+        (
+            "[[oidc]]\nissuer = \"https://sso.example.org\"\n",
+            &[("BOSUN_SERVER_PUBLIC_URL", Some("https://ci.example.org"))],
+            "the setting oidc.name of the identity provider number 1 is not set",
+        ),
+        (
+            "[[oidc]]\nname = \"Keycloak\"\n",
+            &[("BOSUN_SERVER_PUBLIC_URL", Some("https://ci.example.org"))],
+            "the setting oidc.name of the identity provider `Keycloak` is `Keycloak`, and the \
+             name of a provider is 1 to 64 lowercase letters",
+        ),
+        (
+            "[[oidc]]\nname = \"keycloak\"\nissuer = \"sso.example.org\"\n",
+            &[("BOSUN_SERVER_PUBLIC_URL", Some("https://ci.example.org"))],
+            "the setting oidc.issuer of the identity provider `keycloak` is `sso.example.org`, \
+             which is not an address",
+        ),
+        (
+            "[[oidc]]\nname = \"keycloak\"\nissuer = \"https://sso.example.org\"\n\
+             client_id = \"bosun\"\nclient_secret_file = \"/etc/bosun/oidc-secret\"\n\
+             scopes = [\"email\"]\n",
+            &[("BOSUN_SERVER_PUBLIC_URL", Some("https://ci.example.org"))],
+            "the setting oidc.scopes of the identity provider `keycloak` lacks `openid`",
+        ),
+        (
+            "[[oidc]]\nname = \"keycloak\"\nissuer = \"https://sso.example.org\"\n\
+             client_id = \"bosun\"\nclient_secret_file = \"/etc/bosun/oidc-secret\"\n\n\
+             [[oidc.teams]]\ngroup = \"keel\"\nteam = \"keel\"\n",
+            &[("BOSUN_SERVER_PUBLIC_URL", Some("https://ci.example.org"))],
+            "the setting oidc.teams.0.team of the identity provider `keycloak` is `keel`, which \
+             is not `<organisation>/<team>`",
+        ),
+        (
+            OIDC,
+            &[("BOSUN_SERVER_PUBLIC_URL", Some("https://ci.example.org"))],
+            "could not read the client secret of the identity provider `keycloak` from \
+             /nonexistent/oidc-secret",
         ),
     ];
     for (config, variables, expected) in cases {

@@ -61,7 +61,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 
 | Area | Tables |
 |------|--------|
-| identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `api_token_scope`, `session`, `sign_in_failure` |
+| identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `api_token_scope`, `session`, `sign_in_failure`, `oidc_state` |
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `forge_repository`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
 | runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
@@ -377,8 +377,8 @@ Periodic tasks run in every replica: the cron scheduler (minute resolution), lea
 detection of agents together with the end of their grace period and the open executions of deleted
 agents, the queue timeout, log compaction, retention, cache eviction, the removal of idempotency
 keys older than 24 hours, the expiry of tokens, and the removal of ended sessions together with
-forgotten failed sign-ins
-([08-access.md](08-access.md#local-sign-in)). Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
+forgotten failed sign-ins and the used states of sign-ins through identity providers that have
+ended ([08-access.md](08-access.md#local-sign-in), [OpenID Connect](08-access.md#openid-connect)). Each takes a Postgres advisory lock first, so exactly one replica at a time finds the
 work of each task, and each change it finds checks its condition again under the lock of what it
 changes. Outbox delivery is not a singleton: workers in every replica claim rows with
 `SKIP LOCKED`, and so does the processing of webhook deliveries
@@ -393,8 +393,9 @@ run, or, for log compaction, which changes no run, under an advisory lock of its
 its execution's row, and checks its condition again, so a change never waits for a lock while holding
 the task's, and a round that overlaps another changes nothing twice. The removal of sessions changes
 no run and decides by time alone, so it deletes in the transaction that holds its lock: a session
-that ended stays ended, and a count of failed sign-ins whose last failure lies a day back and that
-holds no lock any more is forgotten whether or not the task removes it.
+that ended stays ended, a count of failed sign-ins whose last failure lies a day back and that
+holds no lock any more is forgotten whether or not the task removes it, and a used state whose
+sign-in has ended is refused by the cookie's own time before its row matters.
 
 ## The outbox
 

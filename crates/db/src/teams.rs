@@ -32,6 +32,26 @@ pub async fn create<C: ConnectionTrait>(
     decode(created)
 }
 
+pub async fn ensure<C: ConnectionTrait>(
+    db: &C,
+    organisation_id: OrganisationId,
+    slug: &str,
+) -> Result<Team, Error> {
+    db.execute(statement(
+        "INSERT INTO team (id, organisation_id, slug, name) VALUES ($1, $2, $3, $3) \
+         ON CONFLICT (organisation_id, slug) DO NOTHING",
+        [
+            Uuid::now_v7().into(),
+            Uuid::from(organisation_id).into(),
+            slug.into(),
+        ],
+    ))
+    .await?;
+    find_by_slug(db, organisation_id, slug)
+        .await?
+        .ok_or_else(|| Error::Vanished(format!("the team `{slug}`")))
+}
+
 pub async fn list<C: ConnectionTrait>(
     db: &C,
     organisation_id: OrganisationId,

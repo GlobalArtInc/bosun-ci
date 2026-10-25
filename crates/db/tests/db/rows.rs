@@ -1,9 +1,10 @@
 use bosun_db::entity::{
     action_ref, agent, api_token, api_token_scope, attempt, control_message, execution,
     forge_check_run, forge_installation, forge_repository, idempotency_key, job, label_alias,
-    log_chunk, log_object, organisation, outbox, pool_access, project, registration_token, role,
-    role_binding, run, run_event, secret, session, sign_in_failure, step, stream_event, team,
-    team_member, tool_object, user, variable, webhook_delivery, workflow, workflow_revision,
+    log_chunk, log_object, oidc_state, organisation, outbox, pool_access, project,
+    registration_token, role, role_binding, run, run_event, secret, session, sign_in_failure, step,
+    stream_event, team, team_member, tool_object, user, user_identity, variable, webhook_delivery,
+    workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -42,6 +43,7 @@ pub const SECRET: u8 = 0x1a;
 pub const VARIABLE: u8 = 0x1b;
 pub const ACTION: u8 = 0x1c;
 pub const TOOL: u8 = 0x1d;
+pub const IDENTITY: u8 = 0x1e;
 
 pub const OUTBOX: i64 = 41;
 pub const CHECK_RUN: i64 = 7_301_115_026;
@@ -102,6 +104,8 @@ pub struct Rows {
     pub forge_check_run: forge_check_run::Model,
     pub action_ref: action_ref::Model,
     pub tool_object: tool_object::Model,
+    pub user_identity: user_identity::Model,
+    pub oidc_state: oidc_state::Model,
 }
 
 pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
@@ -482,6 +486,25 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a session");
 
+    let user_identity = user_identity::ActiveModel {
+        id: ActiveValue::Set(id(IDENTITY)),
+        user_id: ActiveValue::Set(id(USER)),
+        issuer: ActiveValue::Set("https://sso.example.org/realms/main".to_owned()),
+        subject: ActiveValue::Set(format!("f81d4fae-7dec-11d0-a765-{label}")),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:50.078Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a linked identity");
+
+    let oidc_state = oidc_state::ActiveModel {
+        sha256: ActiveValue::Set(vec![0x77; 32]),
+        expires_at: ActiveValue::Set(at("2026-10-24T18:44:50Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a used state");
+
     let sign_in_failure = sign_in_failure::ActiveModel {
         kind: ActiveValue::Set("account".to_owned()),
         key: ActiveValue::Set(format!("roman-{label}")),
@@ -679,6 +702,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         forge_check_run,
         action_ref,
         tool_object,
+        user_identity,
+        oidc_state,
     }
 }
 
@@ -759,5 +784,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         forge_check_run: one::<_, forge_check_run::Entity>(db, id(BUILD)).await,
         action_ref: one::<_, action_ref::Entity>(db, id(ACTION)).await,
         tool_object: one::<_, tool_object::Entity>(db, id(TOOL)).await,
+        user_identity: one::<_, user_identity::Entity>(db, id(IDENTITY)).await,
+        oidc_state: one::<_, oidc_state::Entity>(db, vec![0x77; 32]).await,
     }
 }
