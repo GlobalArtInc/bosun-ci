@@ -1,0 +1,45 @@
+{
+  "name": "@globalart/bosun-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dictionaries": "node scripts/dictionaries.mjs",
+    "lint": "biome check .",
+    "test": "node scripts/dictionaries.mjs && vitest run",
+    "build": "node scripts/dictionaries.mjs && openapi-typescript ../contracts/openapi.json --output generated/api.ts && tsc -b && vite build",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "5.3.0",
+    "@radix-ui/themes": "3.3.0",
+    "@tanstack/react-query": "5.104.2",
+    "lucide-react": "1.55.0",
+    "openapi-fetch": "0.17.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router": "7.18.4"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@biomejs/biome": "2.5.15",
+    "@playwright/test": "1.56.1",
+    "@testing-library/jest-dom": "6.10.0",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "jsdom": "27.4.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "4.1.11"
+  }
+}

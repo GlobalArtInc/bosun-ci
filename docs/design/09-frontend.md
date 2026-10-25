@@ -25,6 +25,60 @@ Strings are translated into English and Russian through OwnLate, in a project of
 own; keys exist in OwnLate before the change that uses them is pushed, because the build pulls the
 dictionaries. The interface has a light and a dark theme.
 
+### Serving
+
+`web/` builds into `web/dist/interface/`, and the build script of `bosun-server` embeds every file
+of it in the binary. A file under `/assets/`, whose name Vite derives from its content, is answered
+with `Cache-Control: public, max-age=31536000, immutable`; `index.html` and the other files at the
+root with `no-cache`. A `GET` or `HEAD` of any other path is answered with `index.html`, so a route
+of the client such as `/runs/<id>` loads the interface. Paths under `/api`, `/hooks`, `/_runtime`,
+`/twirp`, `/mcp` and `/assets` are never the page: there a path the server does not serve keeps the
+JSON `not_found` of the API ([11-api.md](11-api.md)), and gRPC is told apart before any route.
+Every file carries `X-Content-Type-Options: nosniff`, and the page also
+`Content-Security-Policy: frame-ancestors 'none'`, so no other site can frame it.
+
+### A build without the interface
+
+`web/dist/` is in git with nothing but its `.gitignore`, so the build script always has a directory
+to watch: Cargo reruns it when `pnpm build` writes `web/dist/interface/`, and never because the
+interface was not built. Without `web/dist/interface/index.html` the build succeeds and embeds
+nothing. Such a server logs a warning when it starts and answers the paths of the interface with
+`404` and a line of text saying how to build it; the API, the CLI and the agents work as before. So
+`cargo build`, `cargo test` and `cargo clippy` need neither Node nor the network. The image, CI and
+`hack/e2e.sh` build the interface before the server, so everything they ship or test carries it.
+
+### Strings, languages and themes
+
+The build pulls the latest release of the interface's OwnLate project, as the over-the-air bundle
+its access key serves without credentials (`web/scripts/dictionaries.mjs`), into
+`web/generated/dictionaries.json`, which is not in git; `pnpm test` and `pnpm build` both pull it
+first. A key the code uses, as the argument of `t('…')` or as a quoted key of a namespace it uses,
+that a pulled dictionary lacks fails `pnpm test`, and so does a translation whose placeholders
+differ from the English text. The type of `t` refuses a key the English dictionary lacks, so
+`pnpm build` fails on it as well. The names of the languages in the language switch are written in
+their own language and are not translated, and neither is the name Bosun.
+
+The language and the theme a user picks are kept in the browser's local storage. Until a user picks
+them, the interface follows the browser's languages and colour scheme.
+
+### The API client and sign-in
+
+The client's types are generated from `contracts/openapi.json` by `openapi-typescript` at every
+`pnpm build`, into `web/generated/api.ts`, and the client is `openapi-fetch` over them, so a change
+of the document that breaks the interface fails the type check of the build. The client keeps the
+`csrf_token` of the last `Me` it received and sends it as `X-Bosun-CSRF` with every request other
+than `GET`, `HEAD` and `OPTIONS`. Every answer that is not a success becomes an error with the
+envelope's `code`, `message`, `fields` and `diagnostics` and the seconds of `Retry-After`; an answer
+without the envelope becomes `internal`.
+
+The sign-in page offers the password form when `GET /auth/methods` says `password: true`, and a
+link to `/api/v1/auth/oidc/{name}/start` for each provider it lists. A session whose password must
+change is led to `/password`, which asks for the current password and the new one twice and checks
+the rule of 12 characters before it sends them. Every other page sends a visitor without a session
+to `/sign-in?next=<path>`, and sign-in returns there; `next` is followed only when it is a path on
+the same origin. The shell has the navigation, the switches of language and theme, and the user
+menu with sign-out.
+
 ## Live updates
 
 Each tab keeps one connection to `GET /api/v1/events` with the filters of the page it shows, and
@@ -132,4 +186,26 @@ bound project.
 
 The interface is usable with the keyboard alone, keeps visible focus, and meets contrast for text
 in both themes. Unit tests run with Vitest; end-to-end tests run with Playwright against a server
-started by `hack/e2e.sh` with a real agent.
+started by `hack/e2e.sh` with a real agent. CI runs `pnpm lint` (Biome), `pnpm test` and
+`pnpm build` in `web/` before the checks of the Rust code, with Node 24 and pnpm through corepack
+at the version `packageManager` pins.
+
+`hack/e2e.sh` runs every scenario under `web/e2e/` in two Playwright projects, `light` and `dark`,
+which emulate the colour scheme the interface follows. It gives the scenarios two variables:
+
+- `BOSUN_E2E_URL`, the first replica of its installation, with the agents the other scenarios use;
+  it is the `baseURL` of both projects.
+- `BOSUN_E2E_FIRST_START`, a JSON object with a server per theme, each started for the first time
+  on a database of its own, as `{"light": {"url", "password"}, "dark": {…}}`, where `password` is
+  the content of its `admin.password`. Scenarios that need an installation nobody has signed in to,
+  such as the sign-in scenario, which changes that password, use these.
+
+The accessibility scenario runs axe with the rules of WCAG 2.1 A and AA on the sign-in page in each
+theme, and walks its tab order, requiring a visible focus indicator at every stop.
+
+On Linux with docker, which is how the self-hosted runner runs it, the scenarios run inside
+`mcr.microsoft.com/playwright:v<version>-noble`, the image of the exact `@playwright/test` version
+of the lockfile, with the host's network, the runner's own user and `web/` mounted at its own path.
+The image carries the browser and every library it needs, so nothing is installed on the runner and
+nothing needs root. Elsewhere, as on a developer's Mac, they run directly, after
+`playwright install --only-shell chromium` has fetched the browser once.

@@ -6,4 +6,12 @@
 !crates/
 !proto/
 !deploy/install-agent.sh
+!contracts/openapi.json
+!contracts/fixtures/api/
+!web/
+web/node_modules
+web/generated
+web/dist/interface
+web/test-results
+web/playwright-report
 **/.DS_Store

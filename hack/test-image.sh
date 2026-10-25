@@ -130,7 +130,8 @@ compacted() {
 }
 
 scenario_quick_start() {
-  begin quick-start "the image starts with only BOSUN_DATABASE_URL and a volume and writes admin.token"
+  begin quick-start \
+    "the image starts with only BOSUN_DATABASE_URL and a volume, writes admin.token and serves the interface"
   start_server
   [ "$(on_server id -u)" = 210 ] || fail "the server does not run as uid 210"
   [ "$(on_server stat -c '%a %u' /bosun-data/admin.token)" = "600 210" ] ||
@@ -144,6 +145,8 @@ scenario_quick_start() {
     bst_*) ;;
     *) fail "admin.token holds no personal token" ;;
   esac
+  holds '<div id="root"></div>' on_server wget -qO- http://127.0.0.1:8080/sign-in ||
+    fail "the image does not serve the web interface"
   passed
 }
 

@@ -11,8 +11,22 @@ RUN rustup toolchain install \
  && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 COPY . .
 
+FROM --platform=$BUILDPLATFORM docker.io/library/node:24.21.0-trixie-slim AS web
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+WORKDIR /src/web
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN --mount=type=cache,id=bosun-corepack,target=/root/.cache/node/corepack,sharing=locked \
+    --mount=type=cache,id=bosun-pnpm-store,target=/pnpm-store,sharing=locked \
+    corepack pnpm install --frozen-lockfile --store-dir /pnpm-store
+COPY contracts/openapi.json /src/contracts/openapi.json
+COPY contracts/fixtures/api/ /src/contracts/fixtures/api/
+COPY web/ ./
+RUN --mount=type=cache,id=bosun-corepack,target=/root/.cache/node/corepack,sharing=locked \
+    corepack pnpm build
+
 FROM toolchain AS build
 ARG CARGO_BUILD_JOBS
+COPY --from=web /src/web/dist/ /src/web/dist/
 RUN --mount=type=cache,id=bosun-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=bosun-target,target=/src/target,sharing=locked \
     cargo zigbuild --locked --release -p bosun-server-bin -p bosun-agent \

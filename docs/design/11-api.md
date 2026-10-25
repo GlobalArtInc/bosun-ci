@@ -58,7 +58,10 @@ the CLI and MCP are clients of the same API, and none of them can do anything th
 
   A path the server does not serve, and a method a served path does not accept, are both
   `not_found` with the message `there is no <METHOD> <path>`: the table below has no code for
-  `405`, and to a client both mean that the endpoint it asked for does not exist.
+  `405`, and to a client both mean that the endpoint it asked for does not exist. The one exception
+  is a `GET` or `HEAD` outside `/api`, `/hooks`, `/_runtime`, `/twirp`, `/mcp` and `/assets`, which
+  is a route of the web interface and is answered with its page
+  ([09-frontend.md](09-frontend.md#serving)).
 
 - Optional fields of responses are present with `null` rather than left out, so a client sees the
   whole shape of a resource in every response.
@@ -122,7 +125,8 @@ Outside `/api/v1`: `/hooks/github` and `/hooks/plugins/{instance}` for incoming 
 `/twirp/` and `/_runtime/` for the services jobs call ([06-runtime-services.md](06-runtime-services.md)), `/mcp`,
 `/healthz`, `/readyz`, `/metrics`, `/install-agent.sh` and the agent binaries at
 `/_runtime/agent/linux-<arch>` without a token ([12-operations.md](12-operations.md#agents)), and
-the gRPC services `bosun.agent.v1.Agent` and `bosun.plugin.v1.*` on the same listener.
+the gRPC services `bosun.agent.v1.Agent` and `bosun.plugin.v1.*` on the same listener. Every other
+path belongs to the web interface ([09-frontend.md](09-frontend.md#serving)).
 
 ### Sign-in and sessions
 

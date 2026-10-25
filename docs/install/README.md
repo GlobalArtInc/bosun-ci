@@ -63,6 +63,10 @@ which the image runs as its health check, exits with 0 once the server answers `
 
 ## Signing in
 
+In a browser, open the server's address and sign in as `admin` with the password in
+`admin.password`; the interface then asks for a password of your own. The session cookie is
+`Secure`, so a browser keeps it only over HTTPS, or on `localhost` and `127.0.0.1`.
+
 The CLI `bosun` reads the token from standard input:
 
 ```sh

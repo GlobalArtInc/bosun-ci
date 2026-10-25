@@ -12,6 +12,7 @@ mod grpc;
 mod health;
 mod idempotency;
 mod install;
+mod interface;
 mod keys;
 mod logs;
 mod me;
@@ -44,6 +45,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::Request;
+use axum::http::{Method, Uri};
 use axum::middleware;
 use axum::routing::get;
 use bosun_proto::agent::v1::agent_server::AgentServer;
@@ -51,7 +53,7 @@ use sea_orm::DatabaseConnection;
 use tokio::net::TcpListener;
 use tonic::service::Routes;
 use tower::{ServiceExt, service_fn};
-use tracing::info;
+use tracing::{info, warn};
 
 pub use check::check;
 pub use config::Config;
@@ -74,6 +76,13 @@ pub async fn serve(
     stop: impl Future<Output = String> + Send + 'static,
 ) -> Result<(), Error> {
     info!(version = env!("CARGO_PKG_VERSION"), "starting");
+    let interface = interface::Interface::embedded();
+    if interface.is_empty() {
+        warn!(
+            "this build carries no web interface, so the server answers its pages with how to \
+             build it; the API, the CLI and the agents work without it"
+        );
+    }
     keys::load(&config.keys, &config.data_dir)?;
     let store = Arc::new(store::open(&config.store).await?);
     let db = connect(&config).await?;
@@ -137,7 +146,8 @@ pub async fn serve(
     };
     axum::serve(
         listener,
-        app(state, connector, shutdown).into_make_service_with_connect_info::<SocketAddr>(),
+        app(state, interface, connector, shutdown)
+            .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         let reason = stop.await;
@@ -186,13 +196,18 @@ fn api() -> openapi::Api {
         .merge(agents::routes())
 }
 
-fn app(state: AppState, connector: agents::Connector, shutdown: shutdown::Shutdown) -> Router {
+fn app(
+    state: AppState,
+    interface: interface::Interface,
+    connector: agents::Connector,
+    shutdown: shutdown::Shutdown,
+) -> Router {
     let http = Router::new()
         .route("/healthz", get(health::alive))
         .route("/readyz", get(health::ready))
         .merge(api().into_router(&state))
         .merge(install::routes())
-        .fallback(envelope::no_route)
+        .fallback(move |method: Method, uri: Uri| interface::answer(interface, method, uri))
         .method_not_allowed_fallback(envelope::no_route)
         .with_state(state);
     let grpc = grpc::routes(Routes::new(AgentServer::new(connector)), shutdown);

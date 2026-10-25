@@ -17,6 +17,7 @@ env:
   CARGO_INCREMENTAL: 1
   CARGO_BUILD_JOBS: 6
   RUST_BACKTRACE: 1
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
 
 jobs:
   check:
@@ -73,6 +74,27 @@ jobs:
             --target wasm32-unknown-unknown,x86_64-unknown-linux-musl
           rustc --version
           cargo --version
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+
+      - name: Install the dependencies of the interface
+        working-directory: web
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Lint the interface
+        working-directory: web
+        run: corepack pnpm lint
+
+      - name: Test the interface
+        working-directory: web
+        run: corepack pnpm test
+
+      - name: Build the interface
+        working-directory: web
+        run: corepack pnpm build
 
       - name: Find the IPv4 port of Postgres
         run: |

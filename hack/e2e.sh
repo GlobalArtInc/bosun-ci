@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment journal-replay"
+scenarios="$scenarios step-environment journal-replay interface"
 
 usage() {
   echo "usage: hack/e2e.sh [scenario...]" >&2
@@ -33,15 +33,20 @@ done
 export NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
 export no_proxy="$NO_PROXY"
 
-for tool in cargo curl jq psql python3; do
+tools="cargo curl jq psql python3"
+case " $selected " in
+  *" interface "*) tools="$tools corepack node" ;;
+esac
+for tool in $tools; do
   command -v "$tool" >/dev/null || { echo "hack/e2e.sh needs $tool on the PATH" >&2; exit 1; }
 done
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 work="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/bosun-e2e.XXXXXX")" && pwd -P)"
 export XDG_CONFIG_HOME="$work/config"
 mkdir -p "$work/logs" "$work/agents" "$work/workflows" "$work/out" "$work/gates" "$work/store"
 database="bosun_e2e_$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
-database_created=0
+databases=""
 current="setup"
 started=""
 serves=0
@@ -63,10 +68,10 @@ finish() {
       tail -n 40 "$log" >&2
     done
   fi
-  if [ "$database_created" -eq 1 ]; then
-    psql "$postgres" -qXc "DROP DATABASE IF EXISTS $database WITH (FORCE)" >/dev/null 2>&1 ||
-      echo "the database $database could not be dropped" >&2
-  fi
+  for name in $databases; do
+    psql "$postgres" -qXc "DROP DATABASE IF EXISTS $name WITH (FORCE)" >/dev/null 2>&1 ||
+      echo "the database $name could not be dropped" >&2
+  done
   rm -rf "$work"
   exit "$status"
 }
@@ -151,20 +156,50 @@ server() {
   env "${settings[@]}" "$bin/bosun-server" --config "$work/server.toml" "$@"
 }
 
+create_database() {
+  psql "$postgres" -qXv ON_ERROR_STOP=1 -c "CREATE DATABASE $1" >/dev/null ||
+    fail "the database $1 could not be created"
+  databases="$databases $1"
+  created_url="$(python3 -c '
+import sys, urllib.parse as u
+p = u.urlsplit(sys.argv[1])
+print(u.urlunsplit(p._replace(path="/" + sys.argv[2])))
+' "$postgres" "$1")"
+}
+
+ready() {
+  local what="$1" log="$2" deadline
+  await_line "$log" '"message":"listening"' 60 "$what listening"
+  address="$(jq -Rr 'fromjson? | select(.message == "listening") | .address' "$log" | head -n 1)"
+  [ -n "$address" ] || fail "$what logged no address: $(cat "$log")"
+  deadline=$((SECONDS + 30))
+  until curl -fsS --noproxy '*' "http://$address/readyz" >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "$what at $address did not become ready within 30s"
+    sleep 0.2
+  done
+}
+
 serve() {
-  local replica="$1" listen="$2" log deadline
+  local replica="$1" listen="$2" log
   serves=$((serves + 1))
   log="$work/logs/server-$replica.$serves.log"
   spawn "server-$replica" "$log" env "${settings[@]}" BOSUN_SERVER_LISTEN="$listen" \
     "$bin/bosun-server" --config "$work/server.toml" serve
-  await_line "$log" '"message":"listening"' 60 "replica $replica listening"
-  address="$(jq -Rr 'fromjson? | select(.message == "listening") | .address' "$log" | head -n 1)"
-  [ -n "$address" ] || fail "replica $replica logged no address: $(cat "$log")"
-  deadline=$((SECONDS + 30))
-  until curl -fsS --noproxy '*' "http://$address/readyz" >/dev/null 2>&1; do
-    [ "$SECONDS" -lt "$deadline" ] || fail "replica $replica at $address did not become ready within 30s"
-    sleep 0.2
-  done
+  ready "replica $replica" "$log"
+}
+
+first_start() {
+  local theme="$1" data="$work/first-start-$1"
+  create_database "${database}_$theme"
+  mkdir -p "$data"
+  spawn "first-start-$theme" "$work/logs/first-start-$theme.log" \
+    env BOSUN_DATABASE_URL="$created_url" BOSUN_DATABASE_MAX_CONNECTIONS=4 BOSUN_KEYS_KEK="$kek" \
+    BOSUN_SERVER_DATA_DIR="$data" "$bin/bosun-server" --config "$work/server.toml" serve
+  ready "the $theme first start" "$work/logs/first-start-$theme.log"
+  [ -s "$data/admin.password" ] || fail "the $theme first start wrote no admin.password"
+  first_starts="$(jq -c --arg theme "$theme" --arg url "http://$address" \
+    --rawfile password "$data/admin.password" \
+    '. + {($theme): {url: $url, password: ($password | rtrimstr("\n"))}}' <<<"$first_starts")"
 }
 
 cli() {
@@ -557,19 +592,68 @@ scenario_journal_replay() {
   passed
 }
 
+header() {
+  tr -d '\r' <"$1" | awk -v name="$2" 'tolower($0) ~ "^" name ":" { sub(/^[^:]*: */, ""); print; exit }'
+}
+
+expect_served() {
+  local path="$1" status="$2" cache="$3" name="${1//[^a-z0-9]/_}" answer
+  answer="$(curl -sS --noproxy '*' -D "$work/out/$name.headers" -o "$work/out/$name.body" \
+    -w '%{http_code}' "http://$address_a$path")" || fail "GET $path did not answer"
+  [ "$answer" = "$status" ] || fail "GET $path answered $answer, not $status"
+  [ "$(header "$work/out/$name.headers" cache-control)" = "$cache" ] ||
+    fail "GET $path answered with cache-control '$(header "$work/out/$name.headers" cache-control)', not '$cache'"
+  served="$work/out/$name.body"
+}
+
+playwright() {
+  local version
+  if [ "$(uname -s)" = Linux ] && command -v docker >/dev/null; then
+    version="$(jq -r .version "$root/web/node_modules/@playwright/test/package.json")"
+    docker run --rm --network host --ipc host --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI \
+      -e BOSUN_E2E_URL -e BOSUN_E2E_FIRST_START -v "$root/web:$root/web" -w "$root/web" \
+      "mcr.microsoft.com/playwright:v$version-noble" node node_modules/@playwright/test/cli.js test
+  else
+    (cd "$root/web" && corepack pnpm exec playwright install --only-shell chromium &&
+      corepack pnpm exec playwright test)
+  fi
+}
+
+scenario_interface() {
+  begin interface \
+    "the server serves the interface, and the Playwright scenarios of web/e2e pass in both themes"
+  local asset
+  expect_served "/runs/$(python3 -c 'import uuid; print(uuid.uuid4())')" 200 no-cache
+  grep -q '<div id="root"></div>' "$served" || fail "a client route did not answer with the page"
+  asset="$(grep -oE '/assets/[^"]+\.js' "$served" | head -n 1)"
+  [ -n "$asset" ] || fail "the page names no script under /assets/: $(cat "$served")"
+  expect_served "$asset" 200 "public, max-age=31536000, immutable"
+  expect_served /index.html 200 no-cache
+  expect_served /api/v1/nothing 404 ""
+  [ "$(jq -r .error.code "$served")" = not_found ] ||
+    fail "an unknown API path did not answer with the JSON not_found: $(cat "$served")"
+  first_starts="{}"
+  first_start light
+  first_start dark
+  BOSUN_E2E_URL="http://$address_a" BOSUN_E2E_FIRST_START="$first_starts" playwright ||
+    fail "the Playwright scenarios of web/e2e failed"
+  passed
+}
+
+case " $selected " in
+  *" interface "*)
+    echo "building the interface"
+    (cd "$root/web" && corepack pnpm install --frozen-lockfile && corepack pnpm build)
+    ;;
+esac
 echo "building bosun-server, bosun-agent and bosun"
 cargo build --manifest-path "$root/Cargo.toml" -p bosun-server-bin -p bosun-agent -p bosun-cli
 target="$(cargo metadata --manifest-path "$root/Cargo.toml" --format-version 1 --no-deps |
   jq -r .target_directory)"
 bin="$target/debug"
 
-psql "$postgres" -qXv ON_ERROR_STOP=1 -c "CREATE DATABASE $database" >/dev/null
-database_created=1
-database_url="$(python3 -c '
-import sys, urllib.parse as u
-p = u.urlsplit(sys.argv[1])
-print(u.urlunsplit(p._replace(path="/" + sys.argv[2])))
-' "$postgres" "$database")"
+create_database "$database"
+database_url="$created_url"
 kek="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 printf '[server]\nlisten = "127.0.0.1:0"\n' >"$work/server.toml"
 settings=(
