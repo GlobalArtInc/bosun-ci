@@ -1,0 +1,26 @@
+{
+  "seq": 3,
+  "project_id": null,
+  "run_id": null,
+  "at": "2026-10-24T18:35:07.512Z",
+  "kind": "agent.status",
+  "data": {
+    "id": "0192f3a4-5b6c-7d8e-9f01-00000000000e",
+    "name": "runner1-1",
+    "pool_id": "0192f3a4-5b6c-7d8e-9f01-00000000000d",
+    "labels": [
+      "self-hosted",
+      "linux",
+      "x64",
+      "shell"
+    ],
+    "capabilities": [
+      "shell"
+    ],
+    "version": "0.1.0",
+    "online": false,
+    "last_seen_at": "2026-10-24T18:34:50.078Z",
+    "execution_id": null,
+    "created_at": "2026-10-24T18:30:00Z"
+  }
+}

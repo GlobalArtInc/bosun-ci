@@ -4,6 +4,7 @@ use std::fs;
 
 use bosun_types::command::CommandRequest;
 use bosun_types::error::ErrorCode;
+use bosun_types::event::{Change, Event};
 use bosun_types::permission::Permission;
 use bosun_types::status::{
     ExecutionStatus, JobStatus, RunStatus, StatusReason, StepStatus, WaitingReason,
@@ -158,7 +159,31 @@ fn status_reasons_match_the_design() {
 
 #[test]
 fn event_kinds_match_the_design_and_the_fixtures() {
-    let documented = first_column(&document("04-runs.md"), "| Kind | Data |");
+    let journal = first_column(&document("04-runs.md"), "| Kind | Data |");
+    let stream = first_column(&document("11-api.md"), "| Stream kind | Data | Written |");
+    assert!(
+        journal.is_disjoint(&stream),
+        "a kind of the journal is also a kind of the stream events"
+    );
+    assert_eq!(
+        Event::KINDS
+            .iter()
+            .map(|kind| kind.to_string())
+            .collect::<BTreeSet<_>>(),
+        journal
+    );
+    assert_eq!(
+        Event::KINDS.len(),
+        journal.len(),
+        "a journal kind is listed twice"
+    );
+    assert_eq!(
+        Change::KINDS
+            .iter()
+            .map(|kind| kind.to_string())
+            .collect::<BTreeSet<_>>(),
+        stream
+    );
     let root = repository().join("contracts/fixtures/events");
     let mut fixtures = BTreeSet::new();
     for entry in fs::read_dir(&root).expect("the event fixtures are readable") {
@@ -166,7 +191,7 @@ fn event_kinds_match_the_design_and_the_fixtures() {
         let value = fixture(&format!("events/{}", file.to_string_lossy()));
         fixtures.insert(value["kind"].as_str().expect("a kind").to_string());
     }
-    assert_eq!(fixtures, documented);
+    assert_eq!(fixtures, journal.union(&stream).cloned().collect());
 }
 
 #[test]

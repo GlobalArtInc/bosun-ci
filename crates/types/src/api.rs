@@ -489,6 +489,14 @@ pub struct Job {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct QueuedJob {
+    pub job: Job,
+    pub project_id: ProjectId,
+    pub since: Option<DateTime<Utc>>,
+    pub missing_labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Execution {
     pub id: ExecutionId,
     pub job_id: JobId,

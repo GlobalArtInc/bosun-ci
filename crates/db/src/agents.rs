@@ -14,7 +14,7 @@ use serde::Serialize;
 use crate::entity::{agent, execution, registration_token};
 use crate::periodic::{self, Task};
 use crate::row::statement;
-use crate::{Error, row};
+use crate::{Error, row, stream};
 
 const TABLE: &str = "agent";
 
@@ -127,6 +127,7 @@ pub async fn register<C: TransactionTrait>(
     .insert(&transaction)
     .await?;
     let registered = decode(stored, None)?;
+    stream::agent_changed(&transaction, registered.clone()).await?;
     transaction.commit().await?;
     Ok(Registration::Registered(registered))
 }
@@ -149,7 +150,7 @@ pub async fn authenticate<C: ConnectionTrait>(
     }
 }
 
-pub async fn connect<C: ConnectionTrait>(
+pub async fn connect<C: TransactionTrait>(
     db: &C,
     agent: AgentId,
     connection: Connection,
@@ -159,27 +160,60 @@ pub async fn connect<C: ConnectionTrait>(
         .iter()
         .map(name)
         .collect::<Result<Vec<String>, Error>>()?;
-    db.execute(statement(
-        "UPDATE agent SET online = true, last_seen_at = now(), replica_id = $2, version = $3, \
-         labels = $4, capabilities = $5 WHERE id = $1",
-        [
-            Uuid::from(agent).into(),
-            connection.replica_id.into(),
-            connection.version.into(),
-            connection.labels.into(),
-            capabilities.into(),
-        ],
-    ))
-    .await?;
+    let transaction = db.begin().await?;
+    let connected = agent::Entity::find()
+        .from_raw_sql(statement(
+            "UPDATE agent SET online = true, last_seen_at = now(), replica_id = $2, version = $3, \
+             labels = $4, capabilities = $5 WHERE id = $1 RETURNING *",
+            [
+                Uuid::from(agent).into(),
+                connection.replica_id.into(),
+                connection.version.into(),
+                connection.labels.into(),
+                capabilities.into(),
+            ],
+        ))
+        .all(&transaction)
+        .await?;
+    changed(&transaction, connected).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
-pub async fn heartbeat<C: ConnectionTrait>(db: &C, agent: AgentId) -> Result<(), Error> {
-    db.execute(statement(
-        "UPDATE agent SET online = true, last_seen_at = now() WHERE id = $1",
-        [Uuid::from(agent).into()],
-    ))
-    .await?;
+pub async fn heartbeat<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    agent: AgentId,
+) -> Result<(), Error> {
+    let seen = db
+        .execute(statement(
+            "UPDATE agent SET last_seen_at = now() WHERE id = $1 AND online",
+            [Uuid::from(agent).into()],
+        ))
+        .await?;
+    if seen.rows_affected() > 0 {
+        return Ok(());
+    }
+    let transaction = db.begin().await?;
+    let back = agent::Entity::find()
+        .from_raw_sql(statement(
+            "UPDATE agent SET online = true, last_seen_at = now() WHERE id = $1 AND NOT online \
+             RETURNING *",
+            [Uuid::from(agent).into()],
+        ))
+        .all(&transaction)
+        .await?;
+    changed(&transaction, back).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn changed<C: ConnectionTrait>(db: &C, agents: Vec<agent::Model>) -> Result<(), Error> {
+    let ids: Vec<Uuid> = agents.iter().map(|agent| agent.id).collect();
+    let running = running(db, &ids).await?;
+    for agent in agents {
+        let execution = running.get(&agent.id).copied();
+        stream::agent_changed(db, decode(agent, execution)?).await?;
+    }
     Ok(())
 }
 
@@ -228,22 +262,20 @@ pub async fn sweep<C: TransactionTrait>(
     if !periodic::try_lock(&transaction, Task::AgentSweep).await? {
         return Ok(None);
     }
-    let offline = transaction
-        .query_all(statement(
+    let gone = agent::Entity::find()
+        .from_raw_sql(statement(
             "UPDATE agent SET online = false WHERE online \
              AND (last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => $1)) \
-             RETURNING id, name",
+             RETURNING *",
             [offline_after.as_secs_f64().into()],
         ))
-        .await?
-        .into_iter()
-        .map(|found| {
-            Ok((
-                row::id(TABLE, found.try_get::<Uuid>("", "id")?)?,
-                found.try_get::<String>("", "name")?,
-            ))
-        })
+        .all(&transaction)
+        .await?;
+    let offline = gone
+        .iter()
+        .map(|agent| Ok((row::id(TABLE, agent.id)?, agent.name.clone())))
         .collect::<Result<Vec<_>, Error>>()?;
+    changed(&transaction, gone).await?;
     let abandoned = transaction
         .query_all(statement(
             "SELECT e.id FROM execution e JOIN agent a ON a.id = e.agent_id \

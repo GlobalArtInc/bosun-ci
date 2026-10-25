@@ -9,13 +9,12 @@ use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::agent::v1::{self as proto, ControlKind, ServerMessage};
 use bosun_types::id::{AgentId, ExecutionId, JobId};
 use sea_orm::DatabaseConnection;
-use tokio::sync::Notify;
 use tokio::sync::mpsc::UnboundedSender;
 use tonic::Status;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::logs::Followers;
+use super::Listeners;
 use crate::queue::Dispatcher;
 
 const RETRY: Duration = Duration::from_secs(1);
@@ -232,14 +231,16 @@ pub(crate) async fn forward(
     replica: Arc<Replica>,
     mut listener: Listener,
     dispatcher: Arc<Dispatcher>,
-    followers: Arc<Followers>,
-    deliveries: Arc<Notify>,
+    listeners: Listeners,
 ) {
     loop {
         match listener.next().await {
             Ok(Some(Notification::Queued(_))) => dispatcher.wake_all(),
-            Ok(Some(Notification::Delivery)) => deliveries.notify_waiters(),
-            Ok(Some(Notification::Log(notice))) => followers.announce(notice.execution_id),
+            Ok(Some(Notification::Delivery)) => listeners.deliveries.notify_waiters(),
+            Ok(Some(Notification::Log(notice))) => {
+                listeners.followers.announce(notice.execution_id);
+            }
+            Ok(Some(Notification::Events(notice))) => listeners.events.announce(notice),
             Ok(Some(Notification::Control(notice))) => {
                 if !replica.holds(notice.agent_id) {
                     continue;
@@ -258,16 +259,18 @@ pub(crate) async fn forward(
                 info!("the notification connection was re-established");
                 resend(&db, &replica).await;
                 dispatcher.wake_all();
-                followers.wake_all();
-                deliveries.notify_waiters();
+                listeners.followers.wake_all();
+                listeners.deliveries.notify_waiters();
+                listeners.events.wake_all();
             }
             Err(error) => {
                 warn!(%error, "the notification connection failed");
                 tokio::time::sleep(RETRY).await;
                 resend(&db, &replica).await;
                 dispatcher.wake_all();
-                followers.wake_all();
-                deliveries.notify_waiters();
+                listeners.followers.wake_all();
+                listeners.deliveries.notify_waiters();
+                listeners.events.wake_all();
             }
         }
     }

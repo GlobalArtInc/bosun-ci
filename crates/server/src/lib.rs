@@ -11,6 +11,7 @@ mod config;
 mod dispatch;
 mod envelope;
 mod error;
+mod events;
 mod forge;
 mod grpc;
 mod health;
@@ -77,6 +78,7 @@ struct AppState {
     site: site::Site,
     store: Arc<store::Backend>,
     followers: Arc<logs::Followers>,
+    events: Arc<events::Hub>,
     shutdown: shutdown::Shutdown,
     agent_binaries: Arc<Path>,
     clock: clock::Clock,
@@ -128,14 +130,18 @@ pub async fn serve(
     );
     let followers = Arc::new(logs::Followers::default());
     let deliveries = Arc::new(Notify::new());
+    let events = Arc::new(events::Hub::default());
     let mut tasks = agents::start(
         db.clone(),
         Arc::clone(&replica),
         notifications,
         config.agents,
         Arc::clone(&dispatcher),
-        Arc::clone(&followers),
-        Arc::clone(&deliveries),
+        agents::Listeners {
+            followers: Arc::clone(&followers),
+            deliveries: Arc::clone(&deliveries),
+            events: Arc::clone(&events),
+        },
     );
     if let Some(forge) = &forge {
         tasks.spawn(hooks::work(db.clone(), Arc::clone(forge), deliveries));
@@ -163,6 +169,7 @@ pub async fn serve(
         site: config.site,
         store,
         followers,
+        events,
         shutdown: shutdown.clone(),
         agent_binaries: Arc::from(config.agent_binaries.as_path()),
         clock,
@@ -226,6 +233,8 @@ fn api() -> openapi::Api {
         .merge(roles::routes())
         .merge(bindings::routes())
         .merge(tokens::routes())
+        .merge(events::routes())
+        .merge(queue::routes())
 }
 
 fn app(

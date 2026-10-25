@@ -187,6 +187,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Response("200"),
     ),
     (
+        "queued-job.json",
+        "get",
+        "/api/v1/queue",
+        Part::Within("QueuedJob"),
+    ),
+    (
         "register-agent-request.json",
         "post",
         "/api/v1/agents/register",

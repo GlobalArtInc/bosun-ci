@@ -1,6 +1,7 @@
 mod access;
 mod cancel;
 mod evaluation;
+mod events;
 mod identity;
 mod journal;
 mod logs;
@@ -65,6 +66,7 @@ async fn state(
         db: database.connection().clone(),
         store: Arc::new(Backend::Directory(store)),
         followers: Arc::new(crate::logs::Followers::default()),
+        events: Arc::new(crate::events::Hub::default()),
         shutdown: shutdown::channel().1,
         agent_binaries: Arc::from(directory.join("agent")),
         clock,
@@ -154,13 +156,22 @@ impl World {
     }
 
     async fn dispatch_with(&self, workflow: &ir::Workflow, warnings: &[Diagnostic]) -> RunId {
+        self.dispatch_in(&self.workflow, workflow, warnings).await
+    }
+
+    async fn dispatch_in(
+        &self,
+        stored: &Workflow,
+        workflow: &ir::Workflow,
+        warnings: &[Diagnostic],
+    ) -> RunId {
         let transaction = self.db().begin().await.expect("a transaction");
-        let payload = json!({ "inputs": null, "ref": null, "workflow": self.workflow.name });
+        let payload = json!({ "inputs": null, "ref": null, "workflow": stored.name });
         let run = planner::dispatch(
             &transaction,
             NewRun {
-                workflow: &self.workflow,
-                revision_id: self.workflow.revision_id.expect("a current revision"),
+                workflow: stored,
+                revision_id: stored.revision_id.expect("a current revision"),
                 ir: workflow,
                 payload: &payload,
                 actor: &operator(),

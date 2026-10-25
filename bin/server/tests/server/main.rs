@@ -5,6 +5,7 @@ mod check;
 mod commands;
 mod config;
 mod data;
+mod events;
 mod health;
 mod hooks;
 mod http;

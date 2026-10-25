@@ -2,7 +2,8 @@ use bosun_db::entity::{
     agent, api_token, api_token_scope, attempt, control_message, execution, forge_installation,
     forge_repository, idempotency_key, job, label_alias, log_chunk, log_object, organisation,
     pool_access, project, registration_token, role, role_binding, run, run_event, session,
-    sign_in_failure, step, team, team_member, user, webhook_delivery, workflow, workflow_revision,
+    sign_in_failure, step, stream_event, team, team_member, user, webhook_delivery, workflow,
+    workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -72,6 +73,7 @@ pub struct Rows {
     pub execution: execution::Model,
     pub step: step::Model,
     pub run_event: run_event::Model,
+    pub stream_event: stream_event::Model,
     pub log_chunk: log_chunk::Model,
     pub log_object: log_object::Model,
     pub control_message: control_message::Model,
@@ -377,6 +379,19 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a journal event");
 
+    let stream_event = stream_event::ActiveModel {
+        xact: ActiveValue::Set(812),
+        subject: ActiveValue::Set(id(AGENT)),
+        project_id: ActiveValue::Set(Some(id(PROJECT))),
+        run_id: ActiveValue::Set(Some(id(RUN))),
+        kind: ActiveValue::Set("agent.status".to_owned()),
+        data: ActiveValue::Set(fixture("events/agent-status.json")["data"].clone()),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("a stream event");
+
     let log_chunk = log_chunk::ActiveModel {
         execution_id: ActiveValue::Set(id(EXECUTION)),
         seq: ActiveValue::Set(1),
@@ -537,6 +552,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         execution,
         step,
         run_event,
+        stream_event,
         log_chunk,
         log_object,
         control_message,
@@ -597,6 +613,12 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
             .await
             .expect("a query")
             .expect("a journal event"),
+        stream_event: stream_event::Entity::find()
+            .filter(stream_event::Column::Subject.eq(id(AGENT)))
+            .one(db)
+            .await
+            .expect("a query")
+            .expect("a stream event"),
         log_chunk: one::<_, log_chunk::Entity>(db, (id(EXECUTION), 1)).await,
         log_object: one::<_, log_object::Entity>(db, id(STEP)).await,
         control_message: one::<_, control_message::Entity>(db, id(CONTROL)).await,

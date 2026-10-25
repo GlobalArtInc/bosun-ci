@@ -1,17 +1,21 @@
 use bosun_types::actor::Actor;
 use bosun_types::event::{Event, RunEvent};
 use bosun_types::id::{AttemptId, ExecutionId, JobId, RunId, StepId};
+use bosun_types::status::JobStatus;
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
-    QueryOrder,
+    ColumnTrait, ConnectionTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
 };
 use serde_json::{Map, Value};
 
 use crate::entity::run_event;
+use crate::row::statement;
+use crate::stream::{self, XACT};
 use crate::{Error, row};
 
 const TABLE: &str = "run_event";
+
+const QUEUE: [JobStatus; 2] = [JobStatus::Queued, JobStatus::Waiting];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewEvent {
@@ -30,20 +34,36 @@ pub async fn append<C: ConnectionTrait>(db: &C, event: NewEvent) -> Result<RunEv
         .get_mut("data")
         .map(Value::take)
         .unwrap_or(Value::Null);
-    let stored = run_event::ActiveModel {
-        seq: ActiveValue::NotSet,
-        run_id: ActiveValue::Set(event.run_id.into()),
-        attempt_id: ActiveValue::Set(event.attempt_id.map(Uuid::from)),
-        job_id: ActiveValue::Set(event.job_id.map(Uuid::from)),
-        execution_id: ActiveValue::Set(event.execution_id.map(Uuid::from)),
-        step_id: ActiveValue::Set(event.step_id.map(Uuid::from)),
-        kind: ActiveValue::Set(event.event.kind().to_owned()),
-        actor: ActiveValue::Set(serde_json::to_value(&event.actor)?),
-        data: ActiveValue::Set(data),
-        at: ActiveValue::NotSet,
+    let found = db
+        .query_one(statement(
+            &format!(
+                "WITH stored AS (INSERT INTO run_event \
+                 (run_id, attempt_id, job_id, execution_id, step_id, kind, actor, data, xact) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, greatest({XACT}, coalesce((SELECT xact \
+                 FROM run_event WHERE run_id = $1 ORDER BY seq DESC LIMIT 1), 0))) RETURNING *) \
+                 SELECT stored.* FROM stored CROSS JOIN (SELECT pg_notify($9, $10)) announced"
+            ),
+            [
+                Uuid::from(event.run_id).into(),
+                event.attempt_id.map(Uuid::from).into(),
+                event.job_id.map(Uuid::from).into(),
+                event.execution_id.map(Uuid::from).into(),
+                event.step_id.map(Uuid::from).into(),
+                event.event.kind().into(),
+                serde_json::to_value(&event.actor)?.into(),
+                data.into(),
+                stream::CHANNEL.into(),
+                stream::announcement(event.run_id).into(),
+            ],
+        ))
+        .await?
+        .ok_or_else(|| Error::Vanished(format!("the journal of run {}", event.run_id)))?;
+    let stored = run_event::Model::from_query_result(&found, "")?;
+    if let (Event::JobStatusChanged(changed), Some(job)) = (&event.event, event.job_id)
+        && (QUEUE.contains(&changed.from) || QUEUE.contains(&changed.to))
+    {
+        stream::queue_changed(db, job).await?;
     }
-    .insert(db)
-    .await?;
     decode(stored)
 }
 
@@ -64,7 +84,7 @@ pub async fn read<C: ConnectionTrait>(
         .collect()
 }
 
-fn decode(stored: run_event::Model) -> Result<RunEvent, Error> {
+pub(crate) fn decode(stored: run_event::Model) -> Result<RunEvent, Error> {
     let mut tagged = Map::new();
     tagged.insert("kind".to_owned(), Value::String(stored.kind));
     tagged.insert("data".to_owned(), stored.data);

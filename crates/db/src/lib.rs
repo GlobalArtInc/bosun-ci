@@ -20,6 +20,7 @@ mod row;
 pub mod runs;
 pub mod sessions;
 pub mod sign_in;
+pub mod stream;
 pub mod teams;
 pub mod tokens;
 pub mod users;

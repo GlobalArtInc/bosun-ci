@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
 use bosun_types::actor::Actor;
-use bosun_types::api::{Execution, Job, Notice, Run, Step};
+use bosun_types::api::{Execution, Job, Notice, QueuedJob, Run, Step};
 use bosun_types::id::{ExecutionId, JobId, RunId};
+use bosun_types::status::JobStatus;
 use sea_orm::prelude::Uuid;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QueryResult, QuerySelect,
+};
 use serde_json::Value;
 
 use crate::entity::{attempt, execution, job, run, run_event, step};
@@ -193,6 +196,111 @@ pub async fn execution<C: ConnectionTrait>(
         completed_at: found.completed_at,
         steps,
     }))
+}
+
+pub async fn queue<C: ConnectionTrait>(
+    db: &C,
+    reach: &Reach,
+    after: Option<Uuid>,
+    limit: u64,
+) -> Result<Vec<QueuedJob>, Error> {
+    let mut values: Vec<sea_orm::Value> = vec![
+        after.unwrap_or(Uuid::nil()).into(),
+        i64::try_from(limit).unwrap_or(i64::MAX).into(),
+    ];
+    let reach = if reach.everywhere {
+        "true".to_owned()
+    } else {
+        let projects: Vec<Uuid> = reach.projects.iter().copied().map(Uuid::from).collect();
+        let organisations: Vec<Uuid> = reach
+            .organisations
+            .iter()
+            .copied()
+            .map(Uuid::from)
+            .collect();
+        values.push(projects.into());
+        values.push(organisations.into());
+        "(r.project_id = ANY($3) OR r.project_id IN \
+         (SELECT id FROM project WHERE organisation_id = ANY($4)))"
+            .to_owned()
+    };
+    let found = db
+        .query_all(statement(
+            &format!(
+                "{} WHERE j.status IN ({}, {}) AND j.id > $1 AND {reach} ORDER BY j.id LIMIT $2",
+                entry()?,
+                quoted(JobStatus::Queued)?,
+                quoted(JobStatus::Waiting)?,
+            ),
+            values,
+        ))
+        .await?;
+    entries(db, found).await
+}
+
+pub(crate) async fn queued_job<C: ConnectionTrait>(
+    db: &C,
+    job: JobId,
+) -> Result<Option<QueuedJob>, Error> {
+    let found = db
+        .query_all(statement(
+            &format!("{} WHERE j.id = $1", entry()?),
+            [Uuid::from(job).into()],
+        ))
+        .await?;
+    Ok(entries(db, found).await?.pop())
+}
+
+fn entry() -> Result<String, Error> {
+    let queued = quoted(JobStatus::Queued)?;
+    let waiting = quoted(JobStatus::Waiting)?;
+    Ok(format!(
+        "SELECT j.id, a.run_id, r.project_id, CASE j.status WHEN {queued} THEN j.queued_at \
+         WHEN {waiting} THEN (SELECT e.at FROM run_event e WHERE e.run_id = a.run_id \
+         AND e.job_id = j.id AND e.kind = 'job.status' ORDER BY e.seq DESC LIMIT 1) END AS since, \
+         CASE WHEN j.status IN ({queued}, {waiting}) THEN ARRAY(SELECT l.label \
+         FROM unnest(j.labels) WITH ORDINALITY AS l (label, place) WHERE NOT EXISTS \
+         (SELECT 1 FROM agent g WHERE g.online AND l.label = ANY (g.labels)) ORDER BY l.place) \
+         ELSE '{{}}' END AS missing_labels \
+         FROM job j JOIN attempt a ON a.id = j.attempt_id JOIN run r ON r.id = a.run_id"
+    ))
+}
+
+fn quoted(status: JobStatus) -> Result<String, Error> {
+    Ok(format!("'{}'", row::text("job", status)?))
+}
+
+async fn entries<C: ConnectionTrait>(
+    db: &C,
+    found: Vec<QueryResult>,
+) -> Result<Vec<QueuedJob>, Error> {
+    let ids: Vec<Uuid> = found
+        .iter()
+        .map(|found| found.try_get::<Uuid>("", "id"))
+        .collect::<Result<_, _>>()?;
+    let mut jobs: HashMap<Uuid, job::Model> = job::Entity::find()
+        .filter(job::Column::Id.is_in(ids.clone()))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|stored| (stored.id, stored))
+        .collect();
+    let executions = latest_executions(db, &ids).await?;
+    let mut entries = Vec::with_capacity(found.len());
+    for found in found {
+        let id: Uuid = found.try_get("", "id")?;
+        let stored = jobs
+            .remove(&id)
+            .ok_or_else(|| Error::Vanished(format!("job {id}")))?;
+        let run: RunId = row::id("attempt", found.try_get::<Uuid>("", "run_id")?)?;
+        entries.push(QueuedJob {
+            job: decode_job(stored, run, executions.get(&id).copied())?,
+            project_id: row::id("run", found.try_get::<Uuid>("", "project_id")?)?,
+            since: found.try_get("", "since")?,
+            missing_labels: found.try_get("", "missing_labels")?,
+        });
+    }
+    Ok(entries)
 }
 
 async fn latest_executions<C: ConnectionTrait>(

@@ -1799,6 +1799,37 @@
         ],
         "type": "object"
       },
+      "QueuedJob": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "missing_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "job",
+          "project_id",
+          "since",
+          "missing_labels"
+        ],
+        "type": "object"
+      },
       "RegisterAgentRequest": {
         "properties": {
           "labels": {
@@ -2776,6 +2807,74 @@
         ],
         "type": "object"
       },
+      "StreamEvent": {
+        "oneOf": [
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/Agent"
+              },
+              "kind": {
+                "const": "agent.status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/QueuedJob"
+              },
+              "kind": {
+                "const": "queue.job",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "project_id",
+          "run_id",
+          "at"
+        ],
+        "type": "object"
+      },
       "Target": {
         "properties": {
           "attempt": {
@@ -3226,6 +3325,103 @@
         ],
         "x-bosun-permission": {
           "on": "authenticated"
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "parameters": [
+          {
+            "description": "only the events of these projects, each its id or the slugs of its organisation and of itself joined by `/`",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "only the events of these runs",
+            "in": "query",
+            "name": "run",
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "only the events of these kinds",
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "items": {
+                "enum": [
+                  "run.created",
+                  "attempt.created",
+                  "job.created",
+                  "execution.created",
+                  "step.created",
+                  "run.status",
+                  "job.status",
+                  "execution.status",
+                  "step.status",
+                  "command.accepted",
+                  "command.refused",
+                  "run.notice",
+                  "agent.status",
+                  "queue.job"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "the id of the last message a stream sent, to resume after it",
+            "in": "header",
+            "name": "Last-Event-ID",
+            "schema": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-bosun-events": {
+                  "message": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/RunEvent"
+                      },
+                      {
+                        "$ref": "#/components/schemas/StreamEvent"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "installation": "agent.manage",
+          "key": "project.view",
+          "on": "items"
         }
       }
     },
@@ -4180,6 +4376,50 @@
         "x-bosun-permission": {
           "key": "workflow.edit",
           "on": "project"
+        }
+      }
+    },
+    "/api/v1/queue": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/QueuedJob"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.view",
+          "on": "items"
         }
       }
     },

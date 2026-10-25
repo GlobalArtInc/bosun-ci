@@ -14,6 +14,7 @@ mod roles;
 mod rows;
 mod runs;
 mod sessions;
+mod stream;
 mod tenancy;
 mod transitions;
 mod users;

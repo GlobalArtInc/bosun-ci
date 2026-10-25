@@ -14,6 +14,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use crate::config::Agents;
+use crate::events::Hub;
 use crate::logs::Followers;
 use crate::openapi::Api;
 use crate::queue::Dispatcher;
@@ -29,6 +30,12 @@ pub(crate) const LABEL_RULE: &str =
 const LONGEST: usize = 64;
 
 pub(crate) struct Tasks(Vec<JoinHandle<()>>);
+
+pub(crate) struct Listeners {
+    pub(crate) followers: Arc<Followers>,
+    pub(crate) deliveries: Arc<Notify>,
+    pub(crate) events: Arc<Hub>,
+}
 
 impl Tasks {
     pub(crate) fn spawn(&mut self, task: impl Future<Output = ()> + Send + 'static) {
@@ -77,8 +84,7 @@ pub(crate) fn start(
     listener: Listener,
     settings: Agents,
     dispatcher: Arc<Dispatcher>,
-    followers: Arc<Followers>,
-    deliveries: Arc<Notify>,
+    listeners: Listeners,
 ) -> Tasks {
     let site = dispatcher.site().clone();
     Tasks(vec![
@@ -87,8 +93,7 @@ pub(crate) fn start(
             replica,
             listener,
             dispatcher,
-            followers,
-            deliveries,
+            listeners,
         )),
         tokio::spawn(sweep::run(db, settings, site)),
     ])

@@ -96,6 +96,18 @@ async fn every_operation_reaches_a_handler_with_the_owners_token() {
                 if operation.get("requestBody").is_some() {
                     request = request.json(&json!({}));
                 }
+                let streamed = operation
+                    .pointer("/responses/200/content")
+                    .and_then(Value::as_object)
+                    .is_some_and(|content| {
+                        content.len() == 1 && content.contains_key("text/event-stream")
+                    });
+                if streamed {
+                    let response = request.send().await.expect("a response");
+                    let status = response.status().as_u16();
+                    assert_eq!(status, 200, "{method} {path} did not open its event stream");
+                    continue;
+                }
                 let (status, body) = send(request).await;
                 assert!(
                     status != 401 && status != 403,

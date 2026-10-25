@@ -60,6 +60,8 @@ pub(crate) struct Listed<K>(PhantomData<fn() -> K>);
 
 pub(crate) struct ByCommand;
 
+pub(crate) struct Subscribed;
+
 impl Rule for Authenticated {
     fn declaration() -> Value {
         json!({ "on": "authenticated" })
@@ -87,6 +89,16 @@ impl<K: Key> Rule for OnProject<K> {
 impl<K: Key> Rule for Listed<K> {
     fn declaration() -> Value {
         json!({ "on": "items", "key": K::KEY })
+    }
+}
+
+impl Rule for Subscribed {
+    fn declaration() -> Value {
+        json!({
+            "on": "items",
+            "key": Permission::ProjectView,
+            "installation": Permission::AgentManage
+        })
     }
 }
 
@@ -254,22 +266,37 @@ impl<K: Key> Caller<OnProject<K>> {
 
 impl<K: Key> Caller<Listed<K>> {
     pub(crate) fn reach(&self) -> Reach {
-        let permissions = self.permissions();
-        Reach {
-            everywhere: permissions.installation.contains(&K::KEY),
-            organisations: permissions
-                .organisations
-                .iter()
-                .filter(|(_, held)| held.contains(&K::KEY))
-                .map(|(organisation, _)| *organisation)
-                .collect(),
-            projects: permissions
-                .projects
-                .iter()
-                .filter(|(_, held)| held.contains(&K::KEY))
-                .map(|(project, _)| *project)
-                .collect(),
-        }
+        reach(self.permissions(), K::KEY)
+    }
+}
+
+impl Caller<Subscribed> {
+    pub(crate) fn reach(&self) -> Reach {
+        reach(self.permissions(), Permission::ProjectView)
+    }
+
+    pub(crate) fn installation(&self) -> bool {
+        self.permissions()
+            .installation
+            .contains(&Permission::AgentManage)
+    }
+}
+
+fn reach(permissions: &Permissions, key: Permission) -> Reach {
+    Reach {
+        everywhere: permissions.installation.contains(&key),
+        organisations: permissions
+            .organisations
+            .iter()
+            .filter(|(_, held)| held.contains(&key))
+            .map(|(organisation, _)| *organisation)
+            .collect(),
+        projects: permissions
+            .projects
+            .iter()
+            .filter(|(_, held)| held.contains(&key))
+            .map(|(project, _)| *project)
+            .collect(),
     }
 }
 

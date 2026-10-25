@@ -1,3 +1,5 @@
+mod http;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,6 +20,8 @@ use crate::agents::{Offer, Replica, Turn, Turned};
 use crate::config::Queue;
 use crate::planner::{self, Assigned};
 use crate::site::Site;
+
+pub(crate) use http::routes;
 
 const SWEEP: Duration = Duration::from_secs(5);
 

@@ -20,6 +20,7 @@ use super::{World, finished, template, workflow};
 use crate::agents::progress::{self, StepEnd};
 use crate::agents::{self, Replica};
 use crate::config::{Agents, Queue};
+use crate::events::Hub;
 use crate::logs::compaction::compact;
 use crate::logs::reader::{Line, Read, Reader};
 use crate::logs::{Followers, LIMIT, notice};
@@ -414,8 +415,11 @@ async fn a_stored_chunk_wakes_the_followers_of_its_execution_through_bosun_log()
             grace: HOUR,
         },
         dispatcher,
-        Arc::clone(&followers),
-        Arc::new(Notify::new()),
+        agents::Listeners {
+            followers: Arc::clone(&followers),
+            deliveries: Arc::new(Notify::new()),
+            events: Arc::new(Hub::default()),
+        },
     );
 
     assert_eq!(logged.ingest(0, 1, b"a\n").await, Ingested::Stored);

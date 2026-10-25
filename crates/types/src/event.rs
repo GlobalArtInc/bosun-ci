@@ -6,10 +6,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::actor::Actor;
+use crate::api::{Agent, QueuedJob};
 use crate::command::CommandRequest;
 use crate::diagnostic::Diagnostic;
 use crate::error::ErrorCode;
-use crate::id::{AgentId, AttemptId, ExecutionId, JobId, RevisionId, RunId, StepId, WorkflowId};
+use crate::id::{
+    AgentId, AttemptId, ExecutionId, JobId, ProjectId, RevisionId, RunId, StepId, WorkflowId,
+};
 use crate::key::JobKey;
 use crate::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, RunConclusion, RunStatus,
@@ -60,6 +63,21 @@ pub enum Event {
 }
 
 impl Event {
+    pub const KINDS: [&'static str; 12] = [
+        "run.created",
+        "attempt.created",
+        "job.created",
+        "execution.created",
+        "step.created",
+        "run.status",
+        "job.status",
+        "execution.status",
+        "step.status",
+        "command.accepted",
+        "command.refused",
+        "run.notice",
+    ];
+
     pub fn kind(&self) -> &'static str {
         match self {
             Event::RunCreated(_) => "run.created",
@@ -74,6 +92,36 @@ impl Event {
             Event::CommandAccepted(_) => "command.accepted",
             Event::CommandRefused(_) => "command.refused",
             Event::RunNotice(_) => "run.notice",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StreamEvent {
+    pub seq: u64,
+    pub project_id: Option<ProjectId>,
+    pub run_id: Option<RunId>,
+    pub at: DateTime<Utc>,
+    #[serde(flatten)]
+    pub change: Change,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", content = "data")]
+pub enum Change {
+    #[serde(rename = "agent.status")]
+    AgentStatus(Agent),
+    #[serde(rename = "queue.job")]
+    QueueJob(QueuedJob),
+}
+
+impl Change {
+    pub const KINDS: [&'static str; 2] = ["agent.status", "queue.job"];
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Change::AgentStatus(_) => "agent.status",
+            Change::QueueJob(_) => "queue.job",
         }
     }
 }

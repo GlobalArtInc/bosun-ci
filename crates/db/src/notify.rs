@@ -4,6 +4,7 @@ use sea_orm::sqlx::postgres::PgListener;
 
 use crate::control::{self, Notice};
 use crate::logs::{self, Notice as LogNotice};
+use crate::stream::{self, Notice as EventNotice};
 use crate::{Error, deliveries, queue, sqlx_error};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +13,7 @@ pub enum Notification {
     Queued(JobId),
     Log(LogNotice),
     Delivery,
+    Events(EventNotice),
 }
 
 pub struct Listener(PgListener);
@@ -26,6 +28,7 @@ impl Listener {
                 queue::CHANNEL,
                 logs::CHANNEL,
                 deliveries::CHANNEL,
+                stream::CHANNEL,
             ])
             .await
             .map_err(sqlx_error)?;
@@ -42,6 +45,7 @@ impl Listener {
                 queue::CHANNEL => payload.parse().ok().map(Notification::Queued),
                 logs::CHANNEL => logs::notice(payload).map(Notification::Log),
                 deliveries::CHANNEL => Some(Notification::Delivery),
+                stream::CHANNEL => stream::notice(payload).map(Notification::Events),
                 _ => control::notice(payload).map(Notification::Control),
             };
             if let Some(heard) = heard {

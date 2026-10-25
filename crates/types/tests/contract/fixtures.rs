@@ -7,7 +7,7 @@ use bosun_types::api::{
     CreatePoolRequest, CreateProjectRequest, CreateRoleBindingRequest, CreateRoleRequest,
     CreateTeamRequest, CreateUserRequest, CreateWorkflowRequest, DispatchRequest, Execution, Job,
     LabelAlias, LogEnd, LogLine, Me, Organisation, Page, PasswordChangeRequest, PersonalToken,
-    PersonalTokenCreated, Pool, Project, ProjectSettings, RegisterAgentRequest,
+    PersonalTokenCreated, Pool, Project, ProjectSettings, QueuedJob, RegisterAgentRequest,
     RegisterAgentResponse, RegistrationTokenCreated, RegistrationTokenRequest, Revision, Role,
     RoleBinding, Run, SetLabelAliasRequest, SignInMethods, SignInRequest, Step, Team,
     UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest, User, Workflow,
@@ -15,7 +15,7 @@ use bosun_types::api::{
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
 use bosun_types::error::ErrorEnvelope;
-use bosun_types::event::RunEvent;
+use bosun_types::event::{RunEvent, StreamEvent};
 use bosun_types::ir;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -160,6 +160,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/pool.json", round_trip::<Pool>),
         ("api/project.json", round_trip::<Project>),
         ("api/project-settings.json", round_trip::<ProjectSettings>),
+        ("api/queued-job.json", round_trip::<QueuedJob>),
         (
             "api/register-agent-request.json",
             round_trip::<RegisterAgentRequest>,
@@ -333,6 +334,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<Diagnostic>,
         ),
         ("diagnostics/yaml-syntax.json", round_trip::<Diagnostic>),
+        ("events/agent-status.json", round_trip::<StreamEvent>),
         ("events/attempt-created.json", round_trip::<RunEvent>),
         ("events/command-accepted.json", round_trip::<RunEvent>),
         ("events/command-refused.json", round_trip::<RunEvent>),
@@ -341,6 +343,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/job-created.json", round_trip::<RunEvent>),
         ("events/job-created-member.json", round_trip::<RunEvent>),
         ("events/job-status.json", round_trip::<RunEvent>),
+        ("events/queue-job.json", round_trip::<StreamEvent>),
         ("events/run-created.json", round_trip::<RunEvent>),
         ("events/run-notice.json", round_trip::<RunEvent>),
         ("events/run-status.json", round_trip::<RunEvent>),
@@ -440,11 +443,16 @@ fn every_event_fixture_names_its_kind() {
             continue;
         }
         let value = fixture(path);
-        let event: RunEvent =
-            serde_json::from_value(value.clone()).unwrap_or_else(|error| panic!("{path}: {error}"));
+        let kind = match serde_json::from_value::<RunEvent>(value.clone()) {
+            Ok(event) => event.event.kind(),
+            Err(_) => serde_json::from_value::<StreamEvent>(value.clone())
+                .unwrap_or_else(|error| panic!("{path}: {error}"))
+                .change
+                .kind(),
+        };
         assert_eq!(
             value["kind"].as_str(),
-            Some(event.event.kind()),
+            Some(kind),
             "{path} carries another kind than its event"
         );
     }

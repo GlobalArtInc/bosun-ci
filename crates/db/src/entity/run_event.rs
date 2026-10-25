@@ -16,6 +16,7 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     pub data: Json,
     pub at: DateTimeUtc,
+    pub xact: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

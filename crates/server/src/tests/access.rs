@@ -100,7 +100,7 @@ enum Needs {
     Installation(Permission),
     Organisation(Permission),
     Project(Permission),
-    Items(Permission),
+    Items(Permission, Option<Permission>),
     Command,
 }
 
@@ -115,7 +115,12 @@ impl Needs {
             "organisation" => Needs::Organisation(held()),
             "project" if declaration.get("by_command").is_some() => Needs::Command,
             "project" => Needs::Project(held()),
-            "items" => Needs::Items(held()),
+            "items" => Needs::Items(
+                held(),
+                declaration
+                    .get("installation")
+                    .map(|installation| key(installation.as_str().expect("a key"))),
+            ),
             other => panic!("`{other}` is not a scope of x-bosun-permission"),
         }
     }
@@ -143,7 +148,12 @@ impl Needs {
             "organisation" => Needs::Organisation(held()),
             "project" if permission.starts_with("the command's") => Needs::Command,
             "project" => Needs::Project(held()),
-            "items" => Needs::Items(held()),
+            "items" => match keys.as_slice() {
+                [one, installation] if permission.contains("on the installation") => {
+                    Needs::Items(key(one), Some(key(installation)))
+                }
+                _ => Needs::Items(held(), None),
+            },
             other => panic!("`{other}` is not a scope of the endpoint table"),
         }
     }
@@ -244,9 +254,9 @@ struct Fixture {
 }
 
 pub(super) struct Site {
-    world: World,
-    state: AppState,
-    router: Router,
+    pub(super) world: World,
+    pub(super) state: AppState,
+    pub(super) router: Router,
     _directory: TempDir,
 }
 
@@ -469,10 +479,17 @@ impl Site {
             .expect("an answer");
         let status = response.status();
         let headers = response.headers().clone();
+        let streamed = headers
+            .get("content-type")
+            .is_some_and(|value| value == "text/event-stream");
         Answer {
             status,
             headers,
-            body: read(response.into_body()).await,
+            body: if streamed {
+                Value::Null
+            } else {
+                read(response.into_body()).await
+            },
         }
     }
 
@@ -583,7 +600,7 @@ impl Site {
     }
 }
 
-fn request(method: Method, path: &str) -> axum::http::request::Builder {
+pub(super) fn request(method: Method, path: &str) -> axum::http::request::Builder {
     let peer: SocketAddr = "192.0.2.10:41234".parse().expect("a peer");
     Request::builder()
         .method(method)
@@ -753,7 +770,7 @@ async fn every_built_in_role_is_allowed_or_refused_as_the_two_tables_say() {
                 let allowed = match &endpoint.needs {
                     Needs::Anyone | Needs::Authenticated => true,
                     Needs::Installation(_) => name == OWNER,
-                    Needs::Organisation(key) | Needs::Project(key) | Needs::Items(key) => {
+                    Needs::Organisation(key) | Needs::Project(key) | Needs::Items(key, _) => {
                         held.contains(key)
                     }
                     Needs::Command => {

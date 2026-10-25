@@ -4,7 +4,7 @@ use bosun_db::entity::{job, run, run_event};
 use bosun_db::journal::{self, NewEvent};
 use bosun_testkit::TestDatabase;
 use bosun_types::actor::Actor;
-use bosun_types::event::{AttemptCreated, Event, JobStatusChanged, RunEvent};
+use bosun_types::event::{AttemptCreated, Change, Event, JobStatusChanged, RunEvent};
 use bosun_types::id::{JobId, RunId};
 use bosun_types::status::JobStatus;
 use sea_orm::prelude::Uuid;
@@ -96,6 +96,12 @@ async fn every_event_fixture_round_trips_through_the_journal() {
 
     let mut appended = Vec::new();
     for (name, value) in event_fixtures() {
+        if value["kind"]
+            .as_str()
+            .is_some_and(|kind| Change::KINDS.contains(&kind))
+        {
+            continue;
+        }
         let fixture: RunEvent =
             serde_json::from_value(value.clone()).unwrap_or_else(|error| panic!("{name}: {error}"));
         let stored = journal::append(db, new_event(run, &fixture))

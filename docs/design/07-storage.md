@@ -64,7 +64,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 | identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `api_token_scope`, `session`, `sign_in_failure` |
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `forge_repository`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
-| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
+| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `approval`, `annotation`, `step_summary`, `terminal_session` |
 | agents | `pool`, `pool_access`, `agent`, `registration_token`, `control_message`, `label_alias` |
 | logs | `log_chunk`, `log_object` |
 | artifacts and caches | `artifact`, `artifact_block`, `cache_entry` |
@@ -95,7 +95,8 @@ step         id, execution_id, parent_step_id, index, name, status, outcome, con
 log_chunk    execution_id, seq, step_id, data bytea, dropped
 log_object   step_id, execution_id, key, size, lines, frames bigint[], created_at
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
-             actor jsonb, data jsonb, at
+             actor jsonb, data jsonb, at, xact
+stream_event seq bigserial, xact, subject, project_id, run_id, kind, data jsonb, at
 ```
 
 A run's `trigger` holds the actor and the payload of the event, `{"actor": …, "payload": …}`; for
@@ -170,14 +171,14 @@ sources and of idempotent requests are SHA-256 in `bytea`.
 A row that another row owns references its owner with `ON DELETE CASCADE`: a project its
 organisation, a workflow its project, a revision its workflow, a run its project and its workflow,
 an attempt its run, a job its attempt, an execution its job, a step its execution, a journal event
-its run, a log chunk its execution, a log object its step, a control message its execution, a
-personal token its user, an entry of a token's restriction its token and the organisation and
-project it names, a registration token its pool, an entry of an access list its pool and
-the organisation and project it names, and a label alias its organisation. Deleting a run under `run_retention`
-therefore removes everything it owns in one statement. The other references inside one run (the
-attempt, job, execution and step of a journal event, the step of a log chunk, the execution of a
-log object) carry no foreign key, because the owner already bounds them and a cascade would have
-to check each of them.
+its run, a stream event its project and its run, a log chunk its execution, a log object its step,
+a control message its execution, a personal token its user, an entry of a token's restriction its
+token and the organisation and project it names, a registration token its pool, an entry of an
+access list its pool and the organisation and project it names, and a label alias its
+organisation. Deleting a run under `run_retention` therefore removes everything it owns in one
+statement. The other references inside one run (the attempt, job, execution and step of a journal
+event, the step of a log chunk, the execution of a log object) carry no foreign key, because the
+owner already bounds them and a cascade would have to check each of them.
 References to rows that are not owners (the current revision of a workflow, the revision of a
 run, the pool of an agent, the agent of an execution, the pool of a label alias) are plain foreign keys, which refuse to delete what is still referenced. Every
 foreign key column leads an index, which a test asserts.
@@ -215,18 +216,51 @@ lock with `SKIP LOCKED`, so it never waits for a run that another transaction is
 the agent's row first, and never waits after that, so it closes no cycle.
 
 The lock orders the journal of one run, not the journal of all runs. A reader across runs, such as
-the event stream filtered by project ([11-api.md](11-api.md)), arrives with a cursor of its own:
-each event records its transaction (`pg_current_xact_id()`), and the stream reads only the events of
-transactions older than the oldest one still running (`pg_snapshot_xmin(pg_current_snapshot())`),
-in the order of transaction and sequence number, resuming after the pair it last delivered. Every
-transaction below that horizon has ended, so nothing appears behind the cursor; a long transaction
-delays the stream by its length. The column arrives with the stream.
+the event stream filtered by project ([11-api.md](11-api.md#the-event-stream)), arrives with a
+cursor of its own: each event records its transaction (`pg_current_xact_id()`), and the stream reads
+only the events of transactions older than the oldest one still running
+(`pg_snapshot_xmin(pg_current_snapshot())`), in the order of transaction and sequence number,
+resuming after the pair it last delivered. Every transaction below that horizon has ended, so
+nothing appears behind the cursor; a long transaction delays the stream by its length.
+
+Step 37 of M1 ([../plan.md](../plan.md)) added the column, `run_event.xact`, and settled what it
+holds. A transaction's id is drawn when it first writes or locks a row, which can be before it takes
+a run's lock: the claim of the queue locks the agent's row first, and another transaction may change
+the run and commit between that moment and the claim's lock of the run. Ordered by the bare id, the
+claim's events would come before the events that committed ahead of them. So `xact` is the
+transaction's id raised to the `xact` of the run's latest event when that is higher, written as
+`bigint`: within one run it never falls, its order is the order of the journal, and it is never
+lower than the id of the transaction that wrote it, so every event below the horizon is final. The
+pair (`xact`, `seq`) is an event's position. The insert reads the latest event through
+`run_event (run_id, seq)`, under the run's lock, and the stream reads through an index on
+`(xact, seq)`. Events written before the column existed have `xact` 0, below every horizon; the
+column's default is the bare id of the writing transaction, so the events that a replica of an
+earlier version writes during a rolling update reach the stream too, in the order of the bare ids.
+
+The events of the stream that belong to no run's journal ([11-api.md](11-api.md#the-event-stream))
+are rows of `stream_event`, a second sequence with positions of the same kind: `seq bigserial, xact,
+subject, project_id, run_id, kind, data jsonb, at`. `subject` is the agent of an `agent.status` or
+the job of a `queue.job`, and `xact` is raised to that of the subject's latest event, which the
+insert reads through `stream_event (subject, seq)`. Writers of one subject run one after another,
+since the events of an agent are written in the transaction that inserts or updates its row, under
+that row's lock, and the events of a job under its run's lock, in the transaction of the
+`job.status` event that moves it into, within or out of the queue, so the subject's events are
+ordered as the journal of a run is. A `queue.job` belongs to its project and its run, which delete
+it with `ON DELETE CASCADE`, so `run_retention` removes it with its run. An `agent.status` belongs
+to neither, and an agent writes a few for each of its connections; retention deletes those older
+than 7 days ([Retention](#retention)), from step 36 of M1 on, and a client that resumes after a
+longer gap reads `GET /agents` again. Each sequence is read up to the horizon of the statement that
+reads it, and a reader that reaches an event above it stops there and tries again shortly
+([11-api.md](11-api.md#the-event-stream)). The horizon counts the transactions of every database of
+the Postgres server, so a long transaction anywhere on it delays the stream.
 
 ## The queue
 
 The queue is the set of `job` rows in status `queued`. A partial index on
 `(priority desc, queued_at) where status = 'queued'` orders them and a GIN index on `labels`, partial
-on the same condition, filters them; labels are stored lowercased.
+on the same condition, filters them; labels are stored lowercased. `GET /queue` lists the queued and
+the waiting jobs together ([11-api.md](11-api.md#the-queue)) through a partial index on `job (id)
+where status in ('queued', 'waiting')`, which step 37 of M1 added.
 
 An idle agent claims a job in one transaction: select the candidates whose labels are contained
 in the agent's labels, whose pools include the agent's pool, whose project the access list of the
@@ -279,16 +313,19 @@ of its own under its run's lock, after checking again, with the reason `no_agent
 |---------|---------|----------|
 | `bosun_queue` | job id | replicas with idle agents |
 | `bosun_replica_<id>` | agent id and control message id, separated by a space | the replica holding that agent's stream |
-| `bosun_events` | run id and event sequence number | replicas with subscribers on the event stream |
+| `bosun_events` | `run` and the run's id, or `agent` and the agent's id, separated by a space | replicas with subscribers on the event stream |
 | `bosun_log` | execution id and the sequence number of the chunk stored, separated by a space | replicas with followers of that log |
 | `bosun_webhook` | the id of a stored webhook delivery | the webhook worker of every replica with a GitHub App |
 
-Payloads carry identifiers only; the data is read from the tables. A listener that reconnects
-reads everything newer than the last sequence number it saw, so a dropped connection loses nothing;
-for `bosun_replica_<id>` that is every unacknowledged control message of the agents the replica
-holds. The `<id>` of a replica is a UUIDv7 it draws at start, written as 32 hexadecimal digits,
-and the `listening` line of its log names it. A replica listens on one connection of its own,
-outside its pool.
+Payloads carry identifiers only; the data is read from the tables. A listener that reconnects reads
+everything newer than the last sequence number it saw, so a dropped connection loses nothing; for
+`bosun_replica_<id>` that is every unacknowledged control message of the agents the replica holds,
+and for `bosun_events` every stream reads after its position. Every journal event and every stream
+event announces itself in the statement that inserts it, and since Postgres delivers a payload once
+per transaction however often it was sent, a transaction announces each run and each agent it wrote
+events of once. The `<id>` of a replica is a UUIDv7 it draws at start, written as 32 hexadecimal
+digits, and the `listening` line of its log names it. A replica listens on one connection of its
+own, outside its pool.
 
 ## Periodic tasks
 
@@ -495,6 +532,9 @@ Project settings, each capped by an installation maximum:
 | audit events | 1 year |
 | runs, attempts, jobs, steps and the journal | kept, unless `run_retention` is set, which deletes runs older than it with everything they own |
 | drafts | until deleted |
+
+Besides these, retention deletes the `agent.status` events of the event stream that are older than
+7 days ([The journal](#the-journal)); they belong to no project, so no setting applies to them.
 
 ## Secrets at rest
 

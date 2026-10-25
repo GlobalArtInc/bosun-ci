@@ -629,7 +629,7 @@ design document it names, as the M0 steps do. Remarks that hold for every step:
 | 33 | Node actions with pre and post steps | 23, 32 | yes |
 | 34 | The forge token | 22, 29 | yes |
 | 35 | Step results on the server | 23, 28 | no |
-| 36 | Retention | 25, 35 | yes |
+| 36 | Retention | 25, 35, 37 | yes |
 | 37 | The event stream and the queue | 9 | yes |
 | 38 | Projects, workflows and runs in the CLI | 9, 26 | no |
 | 39 | Metrics | 28 | no |
@@ -2224,11 +2224,12 @@ matching lines with their numbers. `bosun job logs --grep` uses it.
 ### 36. Retention
 
 **Goal.** Retention, as design/07-storage.md specifies it, for what exists in M1: logs and step
-summaries, inbound webhook payloads, and runs under `run_retention`. The periods join the project
-settings of step 25 with the defaults of design/07-storage.md, capped by installation maximums in
-the configuration. A periodic task under an advisory lock removes what has expired, from the
-database and from the object store. A webhook delivery keeps its id after its payload is removed, so
-redeliveries are still recognised.
+summaries, inbound webhook payloads, runs under `run_retention`, and the `agent.status` events of
+the event stream (step 37) older than 7 days, which belong to no project. The periods join the
+project settings of step 25 with the defaults of design/07-storage.md, capped by installation
+maximums in the configuration. A periodic task under an advisory lock removes what has expired, from
+the database and from the object store. A webhook delivery keeps its id after its payload is
+removed, so redeliveries are still recognised.
 
 The step settles how the API answers for a log or a summary that retention removed, so the run page
 can show it as expired. It records the answer in design/11-api.md and the configuration in
@@ -2238,7 +2239,7 @@ design/12-operations.md.
 `contracts/openapi.json`, `docs/design/07-storage.md`, `docs/design/11-api.md`,
 `docs/design/12-operations.md`.
 
-**Depends on.** 25, 35.
+**Depends on.** 25, 35, 37 (the `stream_event` table).
 
 **Out of scope.** Retention of artifacts and caches (M2), of terminal recordings and of audit events
 (M3).
@@ -2249,7 +2250,8 @@ design/12-operations.md.
   - logs and summaries older than the project's setting are removed from the store and the database,
     and the API answers as settled;
   - webhook payloads older than 30 days are removed, while their delivery ids still deduplicate;
-  - runs older than `run_retention` disappear with everything they own, and newer runs stay.
+  - runs older than `run_retention` disappear with everything they own, and newer runs stay;
+  - `agent.status` events older than 7 days are removed, and newer ones stay.
 - A project setting above the installation's maximum is `invalid_input`.
 - With two replicas, the task runs on one at a time, and each expired object is removed once.
 

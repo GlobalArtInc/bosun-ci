@@ -35,7 +35,7 @@ const LEASE: Duration = Duration::from_secs(30);
 
 const LABELS: [&str; 4] = ["self-hosted", "linux", "x64", "shell"];
 
-fn runs_on(mut job: JobTemplate, group: Option<&str>, labels: &[&str]) -> JobTemplate {
+pub(super) fn runs_on(mut job: JobTemplate, group: Option<&str>, labels: &[&str]) -> JobTemplate {
     job.runs_on = Evaluable::Literal(RunsOn {
         group: group.map(Template::text),
         labels: labels.iter().copied().map(Template::text).collect(),
@@ -43,7 +43,12 @@ fn runs_on(mut job: JobTemplate, group: Option<&str>, labels: &[&str]) -> JobTem
     job
 }
 
-async fn connected(world: &World, name: &str, labels: &[&str], replica: Uuid) -> Reporter {
+pub(super) async fn connected(
+    world: &World,
+    name: &str,
+    labels: &[&str],
+    replica: Uuid,
+) -> Reporter {
     let pool = bosun_db::pools::default_pool(world.db())
         .await
         .expect("the default pool");
@@ -933,6 +938,19 @@ async fn a_job_queued_longer_than_max_queue_time_is_cancelled_with_no_agent() {
     assert_eq!(replay(&journal), Ok(projection));
 }
 
+async fn announced(listener: &mut Listener) -> JobId {
+    loop {
+        let heard = timeout(Duration::from_secs(30), listener.next())
+            .await
+            .expect("a notification in time")
+            .expect("a notification")
+            .expect("a notification without a reconnect");
+        if let Notification::Queued(job) = heard {
+            return job;
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_job_that_becomes_queued_is_announced_on_the_queue_channel() {
     let world = World::new().await;
@@ -947,12 +965,7 @@ async fn a_job_that_becomes_queued_is_announced_on_the_queue_channel() {
         ]))
         .await;
     let (build, _) = world.project(run).await.job("build");
-    let heard = timeout(Duration::from_secs(30), listener.next())
-        .await
-        .expect("a notification in time")
-        .expect("a notification")
-        .expect("a notification without a reconnect");
-    assert_eq!(heard, Notification::Queued(build));
+    assert_eq!(announced(&mut listener).await, build);
 
     let replica = Uuid::now_v7();
     let agent = connected(&world, "runner1-1", &LABELS, replica).await;
@@ -962,12 +975,7 @@ async fn a_job_that_becomes_queued_is_announced_on_the_queue_channel() {
     progress::rejected(db, &agent, offered.execution_id)
         .await
         .expect("a rejection");
-    let heard = timeout(Duration::from_secs(30), listener.next())
-        .await
-        .expect("a notification in time")
-        .expect("a notification")
-        .expect("a notification without a reconnect");
-    assert_eq!(heard, Notification::Queued(build));
+    assert_eq!(announced(&mut listener).await, build);
 }
 
 async fn pool(world: &World, name: &str, trust: TrustLevel, access: &[Access]) -> PoolId {

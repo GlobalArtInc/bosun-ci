@@ -139,6 +139,7 @@ fails when the generated document differs from the committed one ([below](#the-o
 | `/runs/{run}/artifacts`, `/artifacts/{artifact}` | GET, DELETE | artifacts and their download |
 | `/approvals` | GET | the caller's approval inbox |
 | `/queue` | GET | queued and waiting jobs with their reasons |
+| `/events` | GET | the event stream ([below](#the-event-stream)) |
 | `/pools`, `/agents`, `/registration-tokens` | GET, POST, PATCH, DELETE | pools, agents (drain, labels), registration tokens |
 | `/agents/register` | POST | agent registration with a `brt_` token |
 | `/environments`, `/secrets`, `/variables` | GET, POST, PUT, DELETE | scoped by `?organisation=` or `?project=`; secrets are write-only |
@@ -231,6 +232,7 @@ where it is checked:
 | `{"on": "organisation", "key": K}` | `K` on the organisation the path, the query or the body names, or on the organisation of the team, role or role binding the path names |
 | `{"on": "project", "key": K}` | `K` on the project the path names, or the project of the workflow, run, job or execution it names |
 | `{"on": "items", "key": K}` | a list of the items on whose project the caller holds `K` |
+| `{"on": "items", "key": K, "installation": I}` | a stream of the items on whose project the caller holds `K`, and of the items that belong to no project when the caller holds `I` on the installation ([The event stream](#the-event-stream)) |
 | `{"on": "project", "by_command": {…}}` | the permission of the command in the body, on the run's project; the map gives it for each command the endpoint takes, as the command table of [04-runs.md](04-runs.md#operator-commands) does |
 
 The endpoints and what they need, which a test compares with `contracts/openapi.json`, and
@@ -266,6 +268,8 @@ with the answers each built-in role gets:
 | `GET /jobs/{job}` | `project.view` | `project` |
 | `GET /executions/{execution}` | `project.view` | `project` |
 | `GET /executions/{execution}/steps/{step}/log` | `project.view` | `project` |
+| `GET /events` | `project.view`, and `agent.manage` on the installation for the events of no project | `items` |
+| `GET /queue` | `project.view` | `items` |
 | `GET /agents` | `agent.manage` | `installation` |
 | `POST /registration-tokens` | `agent.manage` | `installation` |
 | `POST /agents/register` | — | `anyone` |
@@ -543,6 +547,23 @@ token holds, is in [08-access.md](08-access.md#users-teams-roles-and-tokens).
 - Any other query parameter, a value that is not a number of lines or a boolean, and a
   `Last-Event-ID` that is not a line number are `422 invalid_input`.
 
+### The queue
+
+- `GET /queue` lists the jobs that are `queued` or `waiting`, of the projects on which the caller
+  holds `project.view`, oldest job first, as a cursor page without filters. Step 37 of M1
+  ([../plan.md](../plan.md)) settled the entry, `QueuedJob`:
+  `{"job", "project_id", "since", "missing_labels"}`.
+  - `job` is the job in the shape of `GET /jobs/{job}`, whose `status` and `waiting_reason` are the
+    reason it waits, and whose `labels` are those its `runs-on` evaluated to.
+  - `since` is when the job took its place: the `queued_at` of a queued job, which a return to the
+    queue keeps ([04-runs.md](04-runs.md#dispatch)), and the time of the `job.status` event that
+    made a waiting job wait. Its waiting time is the time since then, which a client counts itself.
+  - `missing_labels` are the labels of the job that no online agent offers, in the order of the
+    job's labels, `[]` when each of them is offered by some online agent. Labels are compared as
+    they are stored, lowercased.
+- An entry that a `queue.job` event carries for a job that left the queue holds the job with its new
+  status, `since` `null` and `missing_labels` `[]` ([The event stream](#the-event-stream)).
+
 ## The OpenAPI document
 
 `contracts/openapi.json` describes, in OpenAPI 3.1, every operation served under `/api/v1`. Paths
@@ -648,6 +669,68 @@ Each event has an id that is the journal's sequence number for run events and a 
 sequence for the others (agents, queue, approvals), encoded so that `Last-Event-ID` resumes both.
 Event payloads are the same objects the REST resources return, so a client can apply them without
 a second request.
+
+Step 37 of M1 ([../plan.md](../plan.md)) settled the stream as follows; how its events are kept
+and read in order is in [07-storage.md](07-storage.md#the-journal).
+
+- **Events.** The answer is `200` with `text/event-stream`. Every event is a message without a
+  name, whose data is one JSON object: a journal event of a run in the shape of
+  [04-runs.md](04-runs.md#the-journal), `RunEvent`, or an event that belongs to no run's journal, a
+  stream event, `StreamEvent`: `{"seq", "project_id", "run_id", "at", "kind", "data"}`. `kind` tells
+  the two apart, since the kinds of the journal and these differ. The extension `x-bosun-events` of
+  the operation maps `message` to both schemas.
+
+| Stream kind | Data | Written |
+|-------------|------|---------|
+| `agent.status` | the agent as `GET /agents` lists it | when an agent registers, when it connects, when a heartbeat brings an agent that was marked offline back online, and when the sweep marks it offline; `project_id` and `run_id` are `null` |
+| `queue.job` | the job's entry as `GET /queue` lists it ([The queue](#the-queue)) | when a job becomes `queued` or `waiting`, when it moves between the two, and when it leaves them; `project_id` and `run_id` are those of the job |
+
+A heartbeat of an online agent changes its `last_seen_at` without an event, and an agent's
+`execution_id` follows its executions, whose `execution.created` and `execution.status` are run
+events. The missing labels of an entry are those of the moment its event was written; agents that
+come or go change them without a `queue.job` event, and `GET /queue` reads them afresh.
+
+- **Who receives what.** An event of a project, every run event and every `queue.job`, reaches a
+  caller who holds `project.view` on that project. An event of no project, every `agent.status`,
+  reaches a caller who holds `agent.manage` on the installation, as `GET /agents` does. The
+  operation declares both, `{"on": "items", "key": "project.view", "installation":
+  "agent.manage"}`. The permissions are read once, when the request arrives, and the server ends a
+  stream 60 seconds after it began; the client reconnects with `Last-Event-ID`, and the new request
+  checks its credentials and reads its permissions again, so a revoked token, an ended session or a
+  removed binding stops the events within a minute. The first message of a stream sets the
+  reconnection time of an `EventSource` to one second (`retry: 1000`) and carries the position the
+  stream begins at (**Ids** below), and a comment every 15 seconds keeps a quiet stream open.
+- **Filters.** `project` takes a project's id or `<organisation>/<project>`, `run` a run's id, and
+  `kind` a kind of the journal or of the table above. Each may be given more than once: the values
+  of one parameter are alternatives, and the parameters together must all hold. An event of no
+  project matches no `project` and no `run`. A project or a run the caller may not view is `422
+  invalid_input` with the message of one that does not exist, ``there is no project `<p>` `` or
+  ``there is no run `<r>` ``, so a filter tells nothing about what the caller cannot see. An unknown
+  kind, any other query parameter and a malformed `Last-Event-ID` are `422 invalid_input` too.
+- **Ids.** The journal and the stream events are two sequences, and an event's place in its
+  sequence is its position, two numbers ([07-storage.md](07-storage.md#the-journal)). The id of a
+  message is the position the stream had reached in both sequences once it was sent:
+  `<journal>.<journal>.<stream>.<stream>`, four decimal numbers, such as `1028.42.1031.7`.
+  `Last-Event-ID` resumes each sequence after its own position, so a client that reconnects receives
+  exactly the events of both that it missed, each once. Without it, a stream begins at the moment of
+  the request: it delivers every event committed after the request arrived, and possibly some
+  committed shortly before. A client therefore opens the stream before it reads the resources it
+  shows, and so misses nothing between the two. The first message of every stream has no data and,
+  as its id, the position the stream begins at, which sets the last event id of an `EventSource`
+  without dispatching an event. A stream that the server ends before it delivered an event is
+  therefore resumed where it began, and its client misses nothing across that reconnect either.
+- **Order.** The events of one run arrive in the order of its journal, and the stream events of one
+  agent, or of one job's entry, in the order they were written. Events of different runs, agents and
+  jobs may arrive in another order than they were committed.
+- **Across replicas.** The transaction that writes an event announces it with
+  `NOTIFY bosun_events` ([07-storage.md](07-storage.md#notifications-between-replicas)), and every
+  replica wakes the streams the announcement may concern: a stream filtered by `run` wakes for those
+  runs only. A woken stream reads what it may deliver. When it reaches events that are committed
+  but not yet readable in order ([07-storage.md](07-storage.md#the-journal)), it reads again after
+  50 milliseconds, doubling the pause up to a second until they are, and announcements do not cut
+  these pauses short. A stream that hears nothing reads again every 5 seconds, and every stream
+  reads again when the replica's listening connection is re-established. When the server shuts
+  down, its streams end, so that their clients reconnect to another replica.
 
 ## Outgoing webhooks
 

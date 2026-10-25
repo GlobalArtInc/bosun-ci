@@ -24,6 +24,7 @@ pub mod schema_version;
 pub mod session;
 pub mod sign_in_failure;
 pub mod step;
+pub mod stream_event;
 pub mod team;
 pub mod team_member;
 pub mod user;
