@@ -2,7 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bosun_blob::{Key, Store as _};
-use bosun_db::outbox::{Claimed, ForkStatus, Kind, Report, ReportedCheckRun, State};
+use bosun_db::outbox::{
+    Claimed, ForkStatus, Kind, Report, ReportedCheckRun, State, TokenRevocation,
+};
 use bosun_forge::{
     ANNOTATIONS_PER_REQUEST, CheckOutput, CheckRun, CheckStatus, CommitStatus, Forge as _,
     Repository, SUMMARY_LIMIT, StatusState,
@@ -10,7 +12,7 @@ use bosun_forge::{
 use bosun_types::api::Annotation;
 use bosun_types::id::JobId;
 use bosun_types::status::{Conclusion, RunConclusion};
-use chrono::TimeDelta;
+use chrono::{TimeDelta, Utc};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde::de::DeserializeOwned;
 use tokio::io::AsyncReadExt;
@@ -19,6 +21,8 @@ use tracing::{error, info, warn};
 
 use crate::clock::Clock;
 use crate::forge::Forge;
+use crate::forge_token;
+use crate::keys::Keyring;
 use crate::retry::{Failure, backoff};
 use crate::site::Site;
 use crate::store::Backend;
@@ -46,6 +50,7 @@ pub(crate) struct Outbox {
     pub(crate) db: DatabaseConnection,
     pub(crate) store: Arc<Backend>,
     pub(crate) forge: Arc<Forge>,
+    pub(crate) keys: Arc<Keyring>,
     pub(crate) site: Site,
     pub(crate) clock: Clock,
 }
@@ -174,6 +179,7 @@ fn name(kind: Kind) -> &'static str {
         Kind::CheckRun => "check_run",
         Kind::CommitStatus => "commit_status",
         Kind::ForkStatus => "fork_status",
+        Kind::TokenRevocation => "token_revocation",
     }
 }
 
@@ -201,7 +207,40 @@ async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<(), Failure> {
         Kind::CheckRun => check_run(outbox, payload(claimed)?).await,
         Kind::CommitStatus => commit_status(outbox, payload(claimed)?).await,
         Kind::ForkStatus => fork_status(outbox, payload(claimed)?).await,
+        Kind::TokenRevocation => revoke(outbox, payload(claimed)?).await,
     }
+}
+
+async fn revoke(outbox: &Outbox, revocation: TokenRevocation) -> Result<(), Failure> {
+    let execution = revocation.execution_id;
+    for token in bosun_db::forge_tokens::of_execution(&outbox.db, execution).await? {
+        if token.expires_at > Utc::now() {
+            match forge_token::open(&outbox.keys, &token) {
+                Ok(secret) => match outbox.forge.app.revoke_token(&secret).await {
+                    Ok(()) | Err(bosun_forge::Error::Status { status: 401, .. }) => {}
+                    Err(error @ bosun_forge::Error::Status { status, .. })
+                        if (400..500).contains(&status) =>
+                    {
+                        warn!(
+                            %execution,
+                            %error,
+                            expires_at = %token.expires_at,
+                            "the forge refused to revoke a forge token, so it lives until it expires"
+                        );
+                    }
+                    Err(error) => return Err(error.into()),
+                },
+                Err(error) => warn!(
+                    %execution,
+                    %error,
+                    expires_at = %token.expires_at,
+                    "a forge token cannot be revoked, so it lives until it expires"
+                ),
+            }
+        }
+        bosun_db::forge_tokens::forget(&outbox.db, token.id).await?;
+    }
+    Ok(())
 }
 
 fn details(outbox: &Outbox, report: &Report) -> Option<String> {

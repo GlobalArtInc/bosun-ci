@@ -45,6 +45,19 @@ impl Fixed {
             ]),
         }
     }
+
+    pub(crate) fn set_secret(&mut self, name: &str, secret: &str) {
+        let mut entries: Vec<(String, Value)> = match &self.secrets {
+            Value::Object(entries) => entries
+                .iter()
+                .filter(|(known, _)| known != name)
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        };
+        entries.push((name.to_owned(), Value::String(secret.to_owned())));
+        self.secrets = Value::Object(entries.into());
+    }
 }
 
 pub(crate) fn value(json: serde_json::Value) -> Value {

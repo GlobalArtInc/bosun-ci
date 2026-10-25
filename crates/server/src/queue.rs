@@ -15,10 +15,10 @@ use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{info, warn};
 
-use crate::actions::Actions;
+use crate::actions::{self, Actions};
 use crate::agents::{Offer, Replica, Turn, Turned};
 use crate::config::Queue;
-use crate::keys::Keyring;
+use crate::forge_token::{Minted, Tokens};
 use crate::planner::{self, Assigned, Outcome};
 use crate::site::Site;
 use crate::tools;
@@ -56,7 +56,7 @@ pub(crate) struct Dispatcher {
     replica: Arc<Replica>,
     settings: Queue,
     site: Site,
-    keys: Arc<Keyring>,
+    tokens: Arc<Tokens>,
     actions: Arc<Actions>,
 }
 
@@ -66,7 +66,7 @@ impl Dispatcher {
         replica: Arc<Replica>,
         settings: Queue,
         site: Site,
-        keys: Arc<Keyring>,
+        tokens: Arc<Tokens>,
         actions: Arc<Actions>,
     ) -> Arc<Dispatcher> {
         Arc::new(Dispatcher {
@@ -74,13 +74,17 @@ impl Dispatcher {
             replica,
             settings,
             site,
-            keys,
+            tokens,
             actions,
         })
     }
 
     pub(crate) fn site(&self) -> &Site {
         &self.site
+    }
+
+    pub(crate) fn tokens(&self) -> &Arc<Tokens> {
+        &self.tokens
     }
 
     pub(crate) fn idle(self: &Arc<Self>, agent: AgentId, number: u64) {
@@ -122,7 +126,7 @@ impl Dispatcher {
                         "assigned a job to an agent"
                     );
                     let job_id = claimed.job_id;
-                    match assignment(&self.db, *claimed, &self.site, &self.keys, &self.actions)
+                    match assignment(&self.db, *claimed, &self.site, &self.tokens, &self.actions)
                         .await
                     {
                         Ok(Some(offer)) => Turned::Offered(Box::new(offer)),
@@ -281,21 +285,22 @@ pub(crate) async fn assignment(
     db: &DatabaseConnection,
     claimed: ClaimedJob,
     site: &Site,
-    keys: &Keyring,
+    tokens: &Tokens,
     actions: &Actions,
 ) -> Result<Option<Offer>, Unoffered> {
     let execution = claimed.execution_id;
     let prepared = actions.prepare(&claimed).await?;
-    let transaction = db.begin().await?;
-    let Some((mut run, state)) = bosun_db::runs::lock_execution(&transaction, execution).await?
-    else {
-        return Ok(None);
+    let minted = match &prepared {
+        actions::Prepared::Failed(_) => Minted::Tokenless,
+        actions::Prepared::Ready { .. } => tokens.mint(&claimed).await,
     };
-    if state.status != ExecutionStatus::Assigned {
-        return Ok(None);
-    }
-    let outcome = planner::assign(&mut run, site, keys, &claimed, &prepared).await?;
-    transaction.commit().await?;
+    let outcome = match settle(db, site, tokens, &claimed, &prepared, &minted).await {
+        Ok(Some(outcome)) => outcome,
+        unsettled => {
+            tokens.discard(minted);
+            return unsettled.map(|_| None);
+        }
+    };
     match outcome {
         Outcome::Assigned(assigned) => offer(claimed, *assigned, prepared.into_actions()).map(Some),
         Outcome::Failed(reason) => {
@@ -309,6 +314,28 @@ pub(crate) async fn assignment(
             Ok(None)
         }
     }
+}
+
+async fn settle(
+    db: &DatabaseConnection,
+    site: &Site,
+    tokens: &Tokens,
+    claimed: &ClaimedJob,
+    prepared: &actions::Prepared,
+    minted: &Minted,
+) -> Result<Option<Outcome>, Unoffered> {
+    let transaction = db.begin().await?;
+    let Some((mut run, state)) =
+        bosun_db::runs::lock_execution(&transaction, claimed.execution_id).await?
+    else {
+        return Ok(None);
+    };
+    if state.status != ExecutionStatus::Assigned {
+        return Ok(None);
+    }
+    let outcome = planner::assign(&mut run, site, tokens.keys(), claimed, prepared, minted).await?;
+    transaction.commit().await?;
+    Ok(Some(outcome))
 }
 
 fn offer(
@@ -328,6 +355,9 @@ fn offer(
         },
         actions,
     };
+    let forge_token = assigned
+        .forge_token
+        .map(|issued| Box::new(issued.message()));
     let mut assignment = Assignment {
         run_id: claimed.run_id.to_string(),
         attempt_id: claimed.attempt_id.to_string(),
@@ -337,6 +367,7 @@ fn offer(
         job_name: claimed.name,
         organisation: claimed.organisation,
         project: claimed.project,
+        forge_token,
         ..Assignment::default()
     };
     documents.write(&mut assignment)?;

@@ -526,6 +526,25 @@ impl Forge for GitHubApp {
         Ok(repositories)
     }
 
+    async fn installation_permissions(&self, installation: u64) -> Result<Permissions, Error> {
+        let installation = installation.to_string();
+        let reply = self
+            .request(
+                Credential::App,
+                Method::GET,
+                self.url(&["app", "installations", &installation], ""),
+                JSON,
+                None,
+            )
+            .await?;
+        let found: wire::Installation = reply.json()?;
+        Ok(found
+            .permissions
+            .into_iter()
+            .filter_map(|(name, level)| held(&level).map(|access| (name, access)))
+            .collect())
+    }
+
     async fn mint_token(
         &self,
         installation: u64,
@@ -837,6 +856,14 @@ fn access_name(access: Access) -> &'static str {
     match access {
         Access::Read => "read",
         Access::Write => "write",
+    }
+}
+
+fn held(level: &str) -> Option<Access> {
+    match level {
+        "read" => Some(Access::Read),
+        "write" | "admin" => Some(Access::Write),
+        _ => None,
     }
 }
 

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
@@ -11,6 +13,12 @@ pub(super) struct Failure {
 #[derive(Deserialize)]
 pub(super) struct App {
     pub(super) slug: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct Installation {
+    #[serde(default)]
+    pub(super) permissions: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]

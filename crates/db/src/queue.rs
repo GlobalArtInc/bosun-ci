@@ -11,6 +11,7 @@ use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult, TransactionTrai
 use serde_json::Value;
 
 use crate::actions::Pin;
+use crate::forge_tokens::Grant;
 use crate::periodic::{self, Task};
 use crate::row::statement;
 use crate::runs::{self, Evaluated, Locked, RUN_STATE};
@@ -48,6 +49,19 @@ pub struct ClaimedJob {
     pub continue_on_error: bool,
     pub installation: Option<u64>,
     pub pins: Option<Vec<Pin>>,
+    pub first_execution: bool,
+    pub trusted: bool,
+    pub permissions: Option<ir::Permissions>,
+    pub token_permissions: Grant,
+    pub repository: Option<ClaimedRepository>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimedRepository {
+    pub id: u64,
+    pub installation: u64,
+    pub owner: String,
+    pub name: String,
 }
 
 const CANDIDATES: &str = "FROM job j JOIN attempt a ON a.id = j.attempt_id \
@@ -152,11 +166,21 @@ async fn assign(
     let found = transaction
         .query_one(statement(
             "SELECT r.ir, o.slug AS organisation, p.slug AS project, j.evaluated, \
-             j.continue_on_error, j.actions, fi.id AS installation FROM run r \
+             j.continue_on_error, j.actions, fi.id AS installation, \
+             p.token_permissions, e.number AS execution_number, f.id AS repository_id, \
+             f.installation_id AS repository_installation, f.owner AS repository_owner, \
+             f.name AS repository_name FROM run r \
              JOIN project p ON p.id = r.project_id \
              JOIN organisation o ON o.id = p.organisation_id JOIN job j ON j.id = $2 \
-             LEFT JOIN forge_installation fi ON fi.organisation_id = o.id WHERE r.id = $1",
-            [Uuid::from(run_id).into(), Uuid::from(job_id).into()],
+             JOIN execution e ON e.id = $3 \
+             LEFT JOIN forge_installation fi ON fi.organisation_id = o.id \
+             LEFT JOIN forge_repository f ON f.id = p.repository_id \
+             AND f.installation_id IS NOT NULL WHERE r.id = $1",
+            [
+                Uuid::from(run_id).into(),
+                Uuid::from(job_id).into(),
+                Uuid::from(execution_id).into(),
+            ],
         ))
         .await?
         .ok_or_else(|| Error::Vanished(format!("run {run_id}")))?;
@@ -196,7 +220,27 @@ async fn assign(
             .try_get::<Option<Value>>("", "actions")?
             .map(|pins| row::json("job", pins))
             .transpose()?,
+        first_execution: found.try_get::<i32>("", "execution_number")? == 1,
+        trusted: run.state().trusted,
+        permissions: workflow.permissions,
+        token_permissions: row::json("project", found.try_get("", "token_permissions")?)?,
+        repository: claimed_repository(&found)?,
     })
+}
+
+fn claimed_repository(found: &QueryResult) -> Result<Option<ClaimedRepository>, Error> {
+    let (Some(id), Some(installation)) = (
+        found.try_get::<Option<i64>>("", "repository_id")?,
+        found.try_get::<Option<i64>>("", "repository_installation")?,
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(ClaimedRepository {
+        id: row::unsigned("forge_repository", id)?,
+        installation: row::unsigned("forge_repository", installation)?,
+        owner: found.try_get("", "repository_owner")?,
+        name: found.try_get("", "repository_name")?,
+    }))
 }
 
 pub async fn expired_leases<C: TransactionTrait>(

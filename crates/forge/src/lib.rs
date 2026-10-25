@@ -61,6 +61,11 @@ pub trait Forge: Send + Sync {
         installation: u64,
     ) -> impl Future<Output = Result<Vec<InstalledRepository>, Error>> + Send;
 
+    fn installation_permissions(
+        &self,
+        installation: u64,
+    ) -> impl Future<Output = Result<Permissions, Error>> + Send;
+
     fn mint_token(
         &self,
         installation: u64,

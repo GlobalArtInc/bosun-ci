@@ -29,6 +29,7 @@ use crate::matchers::{Place, Registry};
 use crate::output::Output;
 use crate::scope::{self, Fixed, Record, Standing, StepScope};
 use crate::shell::Invocation;
+use crate::token::{Renewal, SECRET};
 use crate::tracking::{self, Processes, Tracking};
 use crate::workflow_commands::{Processor, Reports, Settings};
 
@@ -55,6 +56,7 @@ pub struct Job {
     pub contexts: Contexts,
     pub evaluated: Evaluated,
     pub actions: Vec<NodeAction>,
+    pub forge_token: Option<Renewal>,
     pub fetched: Result<(), String>,
     pub minute: Duration,
 }
@@ -135,6 +137,7 @@ pub async fn run(
         contexts,
         evaluated,
         actions,
+        forge_token,
         fetched,
         minute,
     } = job;
@@ -217,6 +220,8 @@ pub async fn run(
         working_directory: working_directory.filter(|directory| !directory.is_empty()),
         fixed,
         actions,
+        forge_token,
+        unrenewed: None,
         minute,
         deadline: limit(minute, timeout_minutes).and_then(|limit| started.checked_add(limit)),
         standing: Standing::default(),
@@ -409,6 +414,8 @@ struct Execution {
     working_directory: Option<String>,
     fixed: Fixed,
     actions: Vec<NodeAction>,
+    forge_token: Option<Renewal>,
+    unrenewed: Option<String>,
     minute: Duration,
     deadline: Option<Instant>,
     standing: Standing,
@@ -484,8 +491,41 @@ impl Execution {
                 phase: stage.phase,
                 action: name.clone(),
             };
+            self.renew().await;
             if self.step(at, step, state).await {
                 reached[position] = true;
+            }
+        }
+    }
+
+    async fn renew(&mut self) {
+        let Some(renewal) = self.forge_token.as_mut() else {
+            return;
+        };
+        if !renewal.due() {
+            return;
+        }
+        match renewal.ask().await {
+            Ok(fresh) => {
+                let stale = std::mem::replace(&mut renewal.token, fresh);
+                let fresh = &renewal.token.token;
+                self.events.add_mask(fresh);
+                self.github
+                    .insert("token".to_owned(), Value::String(fresh.clone()));
+                self.fixed.set_secret(SECRET, fresh);
+                if !stale.token.is_empty() {
+                    for value in self.env.values_mut() {
+                        if value.contains(&stale.token) {
+                            *value = value.replace(&stale.token, fresh);
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                self.unrenewed = Some(format!(
+                    "the forge token could not be renewed, so the step runs with the token it \
+                     holds: {error}"
+                ));
             }
         }
     }
@@ -613,6 +653,9 @@ impl Execution {
     fn start(&mut self, index: u32) {
         self.last = Some(index);
         self.events.started(index);
+        if let Some(unrenewed) = self.unrenewed.take() {
+            self.events.line(index, &unrenewed);
+        }
     }
 
     fn conclude(&mut self, at: &At, step: &Step, ran: Ran, scope: &StepScope) {

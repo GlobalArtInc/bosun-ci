@@ -139,6 +139,7 @@ anew, so a server that moved to another address is found without restarting the 
 | `ControlAck` | the id of a control message and whether it took effect |
 | `TerminalOutput` | session id and bytes |
 | `Heartbeat` | load, free disk, image cache size |
+| `RenewForgeToken` | the execution whose forge token expires soon |
 
 | Server to agent | Carries |
 |-----------------|---------|
@@ -148,6 +149,7 @@ anew, so a server that moved to another address is found without restarting the 
 | `TerminalOpen`, `TerminalInput`, `TerminalResize`, `TerminalClose` | a debug terminal session |
 | `LogAck` | the sequence number of a log chunk the server handled, which releases every chunk up to it |
 | `Drain` | the agent is drained: it finishes the current job and is offered no other ([Draining and deleting agents](#draining-and-deleting-agents)) |
+| `RenewedForgeToken` | the execution and a forge token with the time it has left, or the reason there is none ([06-runtime-services.md](06-runtime-services.md#the-forge-token)) |
 
 The protobuf definitions live in `proto/bosun/agent/v1/agent.proto` and are compiled by
 `bosun-proto` with a protobuf compiler written in Rust, so building needs no `protoc`. The first
@@ -324,10 +326,12 @@ and decrypts them in the transaction that builds the assignment, from the organi
 project of the run, a project's secret shadowing its organisation's of the same name, and nowhere
 else ([07-storage.md](07-storage.md#secrets-at-rest)). `vars` holds every variable of the
 organisation and the project, as the server's own expressions see them
-([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)). `GITHUB_TOKEN` arrives
-with the forge token (step 34 of [../plan.md](../plan.md)). The assignment of a job of an untrusted
-run reads no secret at all, so its `secrets` is empty whatever the job references, and its `vars`
-are those of any run ([08-access.md](08-access.md#code-from-outside-the-team)).
+([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)). `GITHUB_TOKEN` is the
+forge token, which `github.token` holds too, and both are empty strings for a job without one
+([06-runtime-services.md](06-runtime-services.md#the-forge-token)). The assignment of a job of an
+untrusted run reads no secret at all, so its `secrets` holds its read-only `GITHUB_TOKEN` alone
+whatever the job references, and its `vars` are those of any run
+([08-access.md](08-access.md#code-from-outside-the-team)).
 
 **Encoding.** The identity travels in fields of `Assignment`. Everything else travels in four JSON
 documents beside it, which the agent reads with every field it does not know refused:
@@ -364,6 +368,12 @@ with the same types from `bosun-types`. And a JSON reader can refuse what it doe
 protobuf drops an unknown field without a word, which would let an agent run a job without a part it
 never saw. The documents replaced the structured steps and the text `env` of M0, whose field
 numbers are reserved.
+
+The forge token travels in a field of `Assignment` as well, `forge_token`, with `expires_in`, the
+time it has left when the server sends it, from which the agent counts its expiry on its own clock
+(step 34 of [../plan.md](../plan.md)). `contexts` holds the same token, so an agent of the same
+revision that does not know the field still runs the job with it and only never renews it; the
+field is absent for a job without a token.
 
 An expression of the workflow's `env` that fails to evaluate, an expression that reads a secret and
 fails, and a secret that does not decrypt fail the job at its assignment, as an error of the planner
@@ -426,6 +436,14 @@ it was before. Before a step starts, the agent evaluates its `if` with `bosun_ex
 function, runs only while the status is `success`. A step whose `if` does not hold is skipped. An
 `if` that fails to evaluate fails the step, without `continue-on-error`, and its error is the step's
 log.
+
+**The forge token.** Before each stage, a pre and a post stage included, and before its `if`,
+the agent renews the job's forge token when it expires within 45 minutes, as
+[06-runtime-services.md](06-runtime-services.md#the-forge-token) specifies: the stage and every
+later one see the fresh token in `github.token`, `secrets.GITHUB_TOKEN` and the job's `env`, and
+the masker holds it from then on. When the server sends none within 30 seconds or says why it
+has none, the stage runs with the token the job holds, and the first line of its log, when it
+starts, says that the forge token could not be renewed and why.
 
 **Templates.** Once the step starts, the agent evaluates `timeout-minutes`, `env`,
 `working-directory` and `run`, in this order, and `continue-on-error` when the step failed or timed
@@ -766,12 +784,12 @@ the job, and the error of a document that does not parse, which can quote a valu
 writes one whose values fail to parse, so the parse error a reason carries is that of a field the
 agent does not know, which names the field and no value (see *Fields an agent does not know*).
 
-**Values.** The masker holds every secret in the assignment's `secrets` context, the forge token,
-the job token and every value given to `::add-mask::`, whatever their length; a value of
-`::add-mask::` joins it from the next text on. A value is taken without the white space around it,
-as in the target, and so is each of its lines, split at `\r` and `\n`; one that is only white space
-masks nothing. A multi-line value is so masked as a whole, as a message of the agent can quote it,
-and line by line, as a step prints it.
+**Values.** The masker holds every secret in the assignment's `secrets` context, the forge token and
+every fresh one the agent receives for the job, the job token and every value given to
+`::add-mask::`, whatever their length; a value of `::add-mask::` joins it from the next text on. A
+value is taken without the white space around it, as in the target, and so is each of its lines,
+split at `\r` and `\n`; one that is only white space masks nothing. A multi-line value is so masked
+as a whole, as a message of the agent can quote it, and line by line, as a step prints it.
 
 **Encoded forms.** For each value it also masks the encoded forms the target masks:
 

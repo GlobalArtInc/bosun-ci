@@ -8,11 +8,12 @@ use bosun_proto::agent::v1::agent_message::Message;
 use bosun_proto::agent::v1::server_message::Message as Incoming;
 use bosun_proto::agent::v1::{
     ASSIGNMENT_REVISION, Accept, Assignment, Capability, Control, ControlAck, ControlKind, Hello,
-    Idle, Log, LogAck, PROTOCOL, Reject, RunningExecution,
+    Idle, Log, LogAck, PROTOCOL, Reject, RenewForgeToken, RenewedForgeToken, RunningExecution,
 };
-use bosun_runner::Tracking;
+use bosun_runner::{Renewed, Tracking};
 use bosun_types::id::ExecutionId;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::oneshot;
 use tokio::time::{self, MissedTickBehavior, sleep};
 use tracing::{info, warn};
 
@@ -42,6 +43,7 @@ pub(crate) struct Agent {
     out: UnboundedSender<Out>,
     results: UnboundedReceiver<Out>,
     controls: Controls,
+    renewing: Option<(ExecutionId, oneshot::Sender<Renewed>)>,
     stopping: bool,
 }
 
@@ -62,6 +64,7 @@ impl Agent {
             out,
             results,
             controls: Controls::default(),
+            renewing: None,
             stopping: false,
         }
     }
@@ -128,6 +131,11 @@ impl Agent {
         match out {
             Out::Log { .. } => {}
             Out::Report(message) => self.pending.push_back(message),
+            Out::Renew { reply, .. } => {
+                let _ = reply.send(Err(
+                    "the agent has no connection to the server to ask for a fresh token".to_owned(),
+                ));
+            }
             Out::Finished(execution) => self.finished(execution),
         }
     }
@@ -197,7 +205,9 @@ impl Agent {
             server_version = connection.welcome.server_version,
             "connected"
         );
-        let reason = match self.serve(&mut connection, stop).await {
+        let served = self.serve(&mut connection, stop).await;
+        self.renewing = None;
+        let reason = match served {
             Ok(()) => {
                 connection.close(CLOSING).await;
                 return Ended::Stopped;
@@ -251,6 +261,14 @@ impl Agent {
                             self.pending.push_back(message);
                             return Err(reason);
                         }
+                    }
+                    Out::Renew { execution, reply } => {
+                        self.renewing = Some((execution, reply));
+                        connection
+                            .send(Message::RenewForgeToken(RenewForgeToken {
+                                execution_id: execution.to_string(),
+                            }))
+                            .await?;
                     }
                     Out::Finished(execution) => {
                         self.finished(execution);
@@ -335,11 +353,45 @@ impl Agent {
                 }
                 Ok(())
             }
+            Incoming::RenewedForgeToken(renewed) => {
+                self.renewed(renewed);
+                Ok(())
+            }
             Incoming::Welcome(_) => {
                 warn!("the server sent a second Welcome, which the agent ignores");
                 Ok(())
             }
         }
+    }
+
+    fn renewed(&mut self, renewed: RenewedForgeToken) {
+        let waiting = self
+            .renewing
+            .as_ref()
+            .is_some_and(|(execution, _)| execution.to_string() == renewed.execution_id);
+        let Some((execution, reply)) = self.renewing.take().filter(|_| waiting) else {
+            warn!(
+                execution_id = renewed.execution_id,
+                "the server sent a forge token that no job asked for"
+            );
+            return;
+        };
+        let answer = match renewed.token {
+            _ if !renewed.error.is_empty() => {
+                warn!(
+                    execution_id = %execution,
+                    error = renewed.error,
+                    "the server did not renew the forge token"
+                );
+                Err(renewed.error)
+            }
+            Some(token) => {
+                info!(execution_id = %execution, "received a fresh forge token");
+                Ok(job::received(token))
+            }
+            None => Err("the server answered without a token".to_owned()),
+        };
+        let _ = reply.send(answer);
     }
 
     async fn assigned(

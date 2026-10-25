@@ -2,8 +2,8 @@ use std::mem;
 
 use bosun_types::api::Reporting;
 use bosun_types::event::Event;
-use bosun_types::id::{JobId, RunId};
-use bosun_types::status::{JobStatus, RunConclusion};
+use bosun_types::id::{ExecutionId, JobId, RunId};
+use bosun_types::status::{ExecutionStatus, JobStatus, RunConclusion};
 use chrono::{DateTime, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult};
@@ -34,10 +34,16 @@ pub enum Kind {
     CheckRun,
     CommitStatus,
     ForkStatus,
+    TokenRevocation,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 3] = [Kind::CheckRun, Kind::CommitStatus, Kind::ForkStatus];
+    pub const ALL: [Kind; 4] = [
+        Kind::CheckRun,
+        Kind::CommitStatus,
+        Kind::ForkStatus,
+        Kind::TokenRevocation,
+    ];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +61,11 @@ pub struct Report {
 pub struct ForkStatus {
     pub repository_id: u64,
     pub sha: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenRevocation {
+    pub execution_id: ExecutionId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,8 +98,14 @@ pub(crate) async fn record<C: ConnectionTrait>(
     db: &C,
     run: RunId,
     job: Option<JobId>,
+    execution: Option<ExecutionId>,
     event: &Event,
 ) -> Result<(), Error> {
+    if let (Event::ExecutionStatusChanged(changed), Some(execution)) = (event, execution)
+        && changed.to == ExecutionStatus::Completed
+    {
+        return revoke_tokens(db, execution).await;
+    }
     match (event, job) {
         (Event::JobStatusChanged(changed), Some(job)) => {
             let Some(state) = reported(changed.to, changed.conclusion.map(RunConclusion::from))
@@ -228,6 +245,30 @@ pub async fn refuse_fork<C: ConnectionTrait>(db: &C, status: &ForkStatus) -> Res
         serde_json::to_value(status)?,
     )
     .await
+}
+
+pub async fn revoke_tokens<C: ConnectionTrait>(
+    db: &C,
+    execution: ExecutionId,
+) -> Result<(), Error> {
+    let kind = row::text(TABLE, Kind::TokenRevocation)?;
+    db.execute(statement(
+        "WITH stored AS (INSERT INTO outbox (kind, collapse_key, payload) SELECT $1, $2, $3 \
+         WHERE EXISTS (SELECT 1 FROM forge_token WHERE execution_id = $5) RETURNING id) \
+         SELECT pg_notify($4, id::text) FROM stored",
+        [
+            kind.as_str().into(),
+            format!("{kind}/execution/{execution}").into(),
+            serde_json::to_value(TokenRevocation {
+                execution_id: execution,
+            })?
+            .into(),
+            CHANNEL.into(),
+            Uuid::from(execution).into(),
+        ],
+    ))
+    .await?;
+    Ok(())
 }
 
 async fn insert<C: ConnectionTrait>(

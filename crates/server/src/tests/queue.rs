@@ -24,7 +24,7 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, TransactionTrait};
 use tokio::time::timeout;
 
-use super::{World, finished, keys, replay, site, template, workflow};
+use super::{World, finished, replay, site, template, workflow};
 use crate::agents::progress::{self, Progress, Reporter};
 use crate::queue;
 use crate::site::Site;
@@ -331,13 +331,18 @@ async fn a_claim_assigns_the_job_with_a_lease_and_hands_over_what_its_assignment
 }
 
 pub(super) async fn assigned(world: &World, claimed: ClaimedJob) -> (Assignment, Documents) {
-    let Some(Message::Assignment(assignment)) =
-        queue::assignment(world.db(), claimed, &site(), &keys(), world.actions())
-            .await
-            .expect("an assignment")
-            .expect("an offer")
-            .message
-            .message
+    let Some(Message::Assignment(assignment)) = queue::assignment(
+        world.db(),
+        claimed,
+        &site(),
+        world.tokens(),
+        world.actions(),
+    )
+    .await
+    .expect("an assignment")
+    .expect("an offer")
+    .message
+    .message
     else {
         panic!("the offer of a claim is not an assignment");
     };
@@ -445,7 +450,7 @@ jobs:
     assert_eq!(claimed.run_id, run);
     let execution = claimed.execution_id;
     assert!(
-        queue::assignment(db, claimed, &site(), &keys(), world.actions())
+        queue::assignment(db, claimed, &site(), world.tokens(), world.actions())
             .await
             .expect("a failed assignment")
             .is_none(),

@@ -6,11 +6,12 @@ use std::time::{Duration, SystemTime};
 use bosun_proto::agent::v1::agent_message::Message;
 use bosun_proto::agent::v1::{
     Annotation as Reported, AnnotationKind as ReportedKind, Assignment, Conclusion as Concluded,
-    JobFinished, StepFinished, StepStarted,
+    ForgeToken as Sent, JobFinished, StepFinished, StepStarted,
 };
 use bosun_proto::assignment::{self, Documents};
 use bosun_runner::{
-    Annotation, AnnotationKind, BosunFacts, Completed, Event, Job, NodeAction, Runner, Tracking,
+    Annotation, AnnotationKind, BosunFacts, Completed, Event, ForgeToken, Job, NodeAction, Renewal,
+    Renewed, Runner, Tracking,
 };
 use bosun_types::id::ExecutionId;
 use bosun_types::ir::{self, Action, JobKind, Shell};
@@ -19,7 +20,7 @@ use bosun_types::status::Conclusion;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 use tokio::task;
 use tokio::time::{Instant, sleep_until};
 use tracing::{info, warn};
@@ -36,8 +37,15 @@ const FLUSH_AFTER: Duration = Duration::from_millis(200);
 const MINUTE: Duration = Duration::from_secs(60);
 
 pub(crate) enum Out {
-    Log { execution: ExecutionId, seq: u64 },
+    Log {
+        execution: ExecutionId,
+        seq: u64,
+    },
     Report(Message),
+    Renew {
+        execution: ExecutionId,
+        reply: oneshot::Sender<Renewed>,
+    },
     Finished(ExecutionId),
 }
 
@@ -56,6 +64,7 @@ pub(crate) struct Prepared {
     execution: ExecutionId,
     job: Job,
     fetches: Fetches,
+    forge_token: Option<ForgeToken>,
 }
 
 impl Prepared {
@@ -106,6 +115,7 @@ pub(crate) fn prepare(
     let repository = repository(&contexts.github)?
         .unwrap_or(&assignment.project)
         .to_owned();
+    let forge_token = assignment.forge_token.map(|token| received(*token));
     let work = config.dir.join("work");
     Ok(Prepared {
         execution,
@@ -130,6 +140,7 @@ pub(crate) fn prepare(
             contexts,
             evaluated,
             actions,
+            forge_token: None,
             fetched: Ok(()),
             minute: MINUTE,
         },
@@ -138,7 +149,19 @@ pub(crate) fn prepare(
             credential: config.credential.clone(),
             archives,
         },
+        forge_token,
     })
+}
+
+pub(crate) fn received(token: Sent) -> ForgeToken {
+    let left = token
+        .expires_in
+        .and_then(|left| Duration::try_from(left).ok())
+        .unwrap_or_default();
+    ForgeToken {
+        token: token.token,
+        expires_at: Instant::now() + left,
+    }
 }
 
 fn local(
@@ -310,7 +333,20 @@ pub(crate) fn start(
         execution,
         mut job,
         fetches,
+        forge_token,
     } = prepared;
+    if let Some(token) = forge_token {
+        let (renew, mut renewals) = mpsc::unbounded_channel();
+        job.forge_token = Some(Renewal { token, renew });
+        let out = out.clone();
+        tokio::spawn(async move {
+            while let Some(reply) = renewals.recv().await {
+                if out.send(Out::Renew { execution, reply }).is_err() {
+                    return;
+                }
+            }
+        });
+    }
     let (cancel, cancelled) = watch::channel(false);
     let (events, received) = mpsc::unbounded_channel();
     let runner = async move {
@@ -900,6 +936,7 @@ mod tests {
             .map(|out| match out {
                 Out::Log { seq, .. } => seq,
                 Out::Report(message) => panic!("an unexpected report {message:?}"),
+                Out::Renew { .. } => panic!("an unexpected renewal"),
                 Out::Finished(_) => panic!("an unexpected end"),
             })
             .collect();

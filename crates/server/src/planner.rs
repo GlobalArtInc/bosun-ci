@@ -25,6 +25,7 @@ use sea_orm::DatabaseTransaction;
 use serde_json::{Map, json};
 
 use crate::actions;
+use crate::forge_token::{self, Minted};
 use crate::keys::Keyring;
 use crate::secrets;
 use crate::site::{ForgeSite, Site};
@@ -45,6 +46,8 @@ const START: Span = Span {
 };
 
 const SECRET_UNREADABLE: &str = "secret_unreadable";
+
+const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
 
 const SINGLE: Strategy = Strategy {
     fail_fast: true,
@@ -483,6 +486,7 @@ pub(crate) struct Assigned {
     pub(crate) env: BTreeMap<String, String>,
     pub(crate) shell: Option<Shell>,
     pub(crate) working_directory: Option<String>,
+    pub(crate) forge_token: Option<forge_token::Issued>,
 }
 
 pub(crate) enum Outcome {
@@ -496,6 +500,7 @@ pub(crate) async fn assign(
     keys: &Keyring,
     claimed: &ClaimedJob,
     prepared: &actions::Prepared,
+    minted: &Minted,
 ) -> Result<Outcome, Error> {
     let execution = claimed.execution_id;
     let job_id = claimed.job_id;
@@ -518,6 +523,33 @@ pub(crate) async fn assign(
         return fail_assigned(run, site, world, execution, StatusReason::ActionUnavailable).await;
     }
     let template = world.template(&job.key)?;
+    let forge_token = match minted {
+        Minted::Failed(message) => {
+            let fault = Fault {
+                code: forge_token::UNAVAILABLE,
+                message: message.clone(),
+                span: template.span,
+                path: at(&job.key, &[]),
+            };
+            run.notice(Some(job.id), &world.diagnostic(fault)).await?;
+            return fail_assigned(run, site, world, execution, StatusReason::TokenUnavailable)
+                .await;
+        }
+        Minted::Token { fresh, lacking } => {
+            forge_token::store(run.transaction(), keys, execution, fresh).await?;
+            if claimed.first_execution {
+                for notice in forge_token::notices(claimed, lacking, &world.facts.workflow) {
+                    run.notice(Some(job.id), &notice).await?;
+                }
+            }
+            Some(fresh.issued())
+        }
+        Minted::Tokenless => None,
+    };
+    let token = forge_token
+        .as_ref()
+        .map(|issued| issued.token.clone())
+        .unwrap_or_default();
     let read = if run.state().trusted {
         secrets::read(
             run.transaction(),
@@ -553,12 +585,17 @@ pub(crate) async fn assign(
             return refuse(run, site, world, job.id, execution, fault).await;
         }
     };
-    let secrets_context: Map<String, serde_json::Value> = secrets
+    let mut secrets_context: Map<String, serde_json::Value> = secrets
         .into_iter()
         .map(|(name, value)| (name, serde_json::Value::String(value)))
         .collect();
+    secrets_context.insert(
+        GITHUB_TOKEN.to_owned(),
+        serde_json::Value::String(token.clone()),
+    );
     let secrets = value(serde_json::Value::Object(secrets_context.clone()))?;
-    let github = world.github_context(job.key.as_str());
+    let mut github = world.github_context(job.key.as_str());
+    github.insert("token".to_owned(), serde_json::Value::String(token));
     let contexts = Contexts {
         github: value(serde_json::Value::Object(github.clone()))?,
         needs: Value::Null,
@@ -653,6 +690,7 @@ pub(crate) async fn assign(
         env,
         shell: job_values.shell,
         working_directory: job_values.working_directory,
+        forge_token,
     })))
 }
 
@@ -1392,7 +1430,7 @@ fn prepare(
     };
     contexts.secrets_read.set(false);
     let environment = environment(job, workflow, contexts);
-    let deferred = contexts.secrets_read.get();
+    let deferred = contexts.secrets_read.get() || forge_token::read_by(job);
     let environment = if deferred {
         Environment::default()
     } else {

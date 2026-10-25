@@ -10,6 +10,7 @@ pub mod execution;
 pub mod forge_check_run;
 pub mod forge_installation;
 pub mod forge_repository;
+pub mod forge_token;
 pub mod idempotency_key;
 pub mod job;
 pub mod label_alias;

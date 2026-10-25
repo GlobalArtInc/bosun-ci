@@ -103,6 +103,7 @@ pub fn job(directory: &Path, steps: Vec<Step>) -> Job {
             continue_on_error: false,
         },
         actions: Vec::new(),
+        forge_token: None,
         fetched: Ok(()),
         minute: Duration::from_secs(60),
     }

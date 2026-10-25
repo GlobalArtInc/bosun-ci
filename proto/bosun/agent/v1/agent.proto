@@ -21,6 +21,7 @@ message AgentMessage {
     JobFinished job_finished = 8;
     ControlAck control_ack = 9;
     Heartbeat heartbeat = 10;
+    RenewForgeToken renew_forge_token = 11;
   }
 }
 
@@ -31,6 +32,7 @@ message ServerMessage {
     Control control = 3;
     LogAck log_ack = 4;
     Drain drain = 5;
+    RenewedForgeToken renewed_forge_token = 6;
   }
 }
 
@@ -112,6 +114,22 @@ message Assignment {
   string contexts = 12;
   string evaluated = 13;
   string actions = 14;
+  ForgeToken forge_token = 15;
+}
+
+message ForgeToken {
+  string token = 1;
+  google.protobuf.Duration expires_in = 2;
+}
+
+message RenewForgeToken {
+  string execution_id = 1;
+}
+
+message RenewedForgeToken {
+  string execution_id = 1;
+  ForgeToken token = 2;
+  string error = 3;
 }
 
 message Accept {

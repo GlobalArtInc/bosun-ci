@@ -472,6 +472,7 @@ that is not self-explanatory:
 | `agent_removed` | the agent was deleted while it held the job: a job it ran fails, and one it had not accepted yet returns to the queue ([05-execution.md](05-execution.md#draining-and-deleting-agents)) |
 | `action_unavailable` | an action a step uses could not be resolved, downloaded or read, or is of a kind the server does not run yet; the run's notices name the action ([05-execution.md](05-execution.md#actions-and-tools)) |
 | `concurrency` | its concurrency group cancelled it: a newer member arrived under `queue: single` or with `cancel-in-progress`, which a `concurrency.cancelled` event names, or the group refused it, which the run's notices say ([Concurrency groups](#concurrency-groups)) |
+| `token_unavailable` | the forge did not mint the forge token of the job's execution at its assignment: the server has no GitHub App, or the forge refused, was rate limited or could not be reached; the run's notices hold the forge's error ([06-runtime-services.md](06-runtime-services.md#the-forge-token)) |
 
 ### Run notices
 
@@ -491,8 +492,10 @@ that is not a status. Notices are `run.notice` events, so they keep the order of
 - when the server prepares the actions of a job at its assignment and one of them cannot be used,
   as an error at the step that uses it, or when it runs one on another Node than its `using`
   names, as a warning there ([05-execution.md](05-execution.md#actions-and-tools));
-- from later milestones: a scope of the forge token that the App lacks (step 34 of
-  [../plan.md](../plan.md)).
+- when the server mints the forge token of a job at its first assignment and the installation of
+  the GitHub App does not hold a permission the job asks for, as a warning per permission, or when
+  the forge does not mint the token, as an error that fails the job
+  ([06-runtime-services.md](06-runtime-services.md#the-forge-token)).
 
 The codes of runtime notices:
 
@@ -514,6 +517,13 @@ The codes of the notices about actions:
 | `action_invalid` | error | the action has no `action.yml` or `action.yaml` in its directory, or its metadata has errors; the message quotes the first one with its line |
 | `not_implemented` | error | the action declares `using: composite` or `using: docker`, which arrive in M2 |
 | `node_substituted` | warning | the installation's runtime map runs the action on another major version of Node than its `using` names |
+
+The codes of the notices about the forge token:
+
+| Code | Severity | Meaning |
+|------|----------|---------|
+| `permission_unavailable` | warning | the job's `permissions`, the workflow's or the project's `token_permissions` ask the forge token for a permission that the installation of the GitHub App does not hold, or holds only for reading; the token is minted without it, or with the level the installation holds |
+| `token_unavailable` | error | the forge did not mint the job's forge token: the server has no GitHub App, or the forge refused, was rate limited or could not be reached |
 
 The journal is the source for:
 

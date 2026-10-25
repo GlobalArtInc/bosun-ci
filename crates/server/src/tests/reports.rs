@@ -98,6 +98,7 @@ impl Scene {
                 db: db.clone(),
                 store: Arc::clone(world.store()),
                 forge: Arc::new(forge),
+                keys: Arc::new(super::keys()),
                 site: site(),
                 clock: clock.clone(),
             },

@@ -6,7 +6,8 @@ use bosun_proto::agent::v1::agent_message::Message as Outgoing;
 use bosun_proto::agent::v1::server_message::Message as Incoming;
 use bosun_proto::agent::v1::{
     ASSIGNMENT_REVISION, AgentMessage, Assignment, Capability, Conclusion, Control, ControlAck,
-    Heartbeat, Hello, Idle, JobFinished, LogAck, PROTOCOL, ServerMessage, Welcome,
+    Heartbeat, Hello, Idle, JobFinished, LogAck, PROTOCOL, RenewForgeToken, RenewedForgeToken,
+    ServerMessage, Welcome,
 };
 use bosun_proto::assignment::Documents;
 use bosun_types::api::{RegisterAgentRequest, RegisterAgentResponse};
@@ -237,6 +238,16 @@ impl Connection {
         match self.message().await {
             Ok(Some(Incoming::LogAck(ack))) => ack,
             other => panic!("the server sent no log acknowledgement but {other:?}"),
+        }
+    }
+
+    pub async fn renew_forge_token(&mut self, execution: &str) -> RenewedForgeToken {
+        self.send(Outgoing::RenewForgeToken(RenewForgeToken {
+            execution_id: execution.to_owned(),
+        }));
+        match self.message().await {
+            Ok(Some(Incoming::RenewedForgeToken(renewed))) => renewed,
+            other => panic!("the server renewed no forge token but sent {other:?}"),
         }
     }
 

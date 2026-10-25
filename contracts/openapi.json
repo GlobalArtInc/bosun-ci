@@ -2979,7 +2979,8 @@
           "agent_lost",
           "agent_removed",
           "action_unavailable",
-          "concurrency"
+          "concurrency",
+          "token_unavailable"
         ],
         "type": "string"
       },

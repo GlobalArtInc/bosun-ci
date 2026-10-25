@@ -7,8 +7,8 @@ use bosun_proto::agent::v1::agent_server::Agent;
 use bosun_proto::agent::v1::server_message::Message as Outgoing;
 use bosun_proto::agent::v1::{
     ASSIGNMENT_REVISION, AgentMessage, Annotation as Reported, AnnotationKind as ReportedKind,
-    Capability as Offered, Conclusion as Concluded, Hello, Log, LogAck, ServerMessage, Settings,
-    Welcome,
+    Capability as Offered, Conclusion as Concluded, Hello, Log, LogAck, RenewedForgeToken,
+    ServerMessage, Settings, Welcome,
 };
 use bosun_types::api::{self, Annotation, AnnotationKind, Capability, TrustLevel};
 use bosun_types::id::ExecutionId;
@@ -453,6 +453,10 @@ impl Session {
                 self.report("JobFinished", execution, recorded);
             }
             Some(Inbound::Log(log)) => self.log(log).await?,
+            Some(Inbound::RenewForgeToken(renew)) => {
+                let execution = execution_id(&renew.execution_id)?;
+                self.renew(execution, renew.execution_id);
+            }
             Some(Inbound::Hello(_)) => {
                 return Err(Ending::Breach(
                     "a stream carries one Hello, as its first message".to_owned(),
@@ -465,6 +469,40 @@ impl Session {
 }
 
 impl Session {
+    fn renew(&self, execution: ExecutionId, execution_id: String) {
+        let tokens = Arc::clone(self.dispatcher.tokens());
+        let outbound = self.outbound.clone();
+        let agent = self.reporter.id;
+        tokio::spawn(
+            async move {
+                let renewed = match tokens.renew(agent, execution).await {
+                    Ok(issued) => RenewedForgeToken {
+                        execution_id,
+                        token: Some(issued.message()),
+                        error: String::new(),
+                    },
+                    Err(error) => {
+                        warn!(
+                            agent_id = %agent,
+                            %execution,
+                            %error,
+                            "the forge token of an execution could not be renewed"
+                        );
+                        RenewedForgeToken {
+                            execution_id,
+                            token: None,
+                            error,
+                        }
+                    }
+                };
+                let _ = outbound.send(Ok(ServerMessage {
+                    message: Some(Outgoing::RenewedForgeToken(renewed)),
+                }));
+            }
+            .instrument(Span::current()),
+        );
+    }
+
     async fn deleted(&self) -> Result<(), Ending> {
         match bosun_db::agents::held(&self.db, self.reporter.id).await {
             Ok(held) if held.is_empty() => {

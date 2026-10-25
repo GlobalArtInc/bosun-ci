@@ -9,6 +9,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let descriptors = protox::compile(FILES, [&root])?;
     tonic_prost_build::configure()
         .build_transport(false)
+        .boxed(".bosun.agent.v1.Assignment.forge_token")
         .compile_fds(descriptors)?;
     Ok(())
 }

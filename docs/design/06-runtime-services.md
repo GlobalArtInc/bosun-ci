@@ -41,16 +41,17 @@ events a job causes with its forge token, and the target ignores them for the sa
 workflow from triggering itself. The server compares the id of the payload's `sender` with the id of
 the bot, which it reads from the forge once per process.
 
-The forge sits behind the trait `Forge` in `bosun-forge`. In M1 it reads a file and a directory at
-a commit with their blob hashes, resolves a ref to a commit, reads the parents of a commit, compares
+The forge sits behind the trait `Forge` in `bosun-forge`. In M1 it reads a file and a directory at a
+commit with their blob hashes, resolves a ref to a commit, reads the parents of a commit, compares
 two commits and says whether the forge truncated the list of changed files, lists the files of a
 pull request and says the same of them, lists the repositories an installation can see with their
-default branches, reads the App's own identity (its slug and the account of its bot), mints an
-installation token for given repositories and permissions and revokes a token, creates and updates a
-check run, creates a commit status, and downloads a repository's tarball at a commit. It also resolves a ref and downloads a tarball
-without credentials, which reaches public repositories only and serves the organisations that have
-no installation ([05-execution.md](05-execution.md#actions-and-tools)). Creating a commit and a pull request join
-it with the editor in M4. A second forge implements the same trait
+default branches, reads the App's own identity (its slug and the account of its bot), reads the
+permissions an installation holds, mints an installation token for given repositories and
+permissions and revokes a token, creates and updates a check run, creates a commit status, and
+downloads a repository's tarball at a commit. It also resolves a ref and downloads a tarball without
+credentials, which reaches public repositories only and serves the organisations that have no
+installation ([05-execution.md](05-execution.md#actions-and-tools)). Creating a commit and a pull
+request join it with the editor in M4. A second forge implements the same trait
 ([13-decisions.md](13-decisions.md)).
 
 ### Deliveries
@@ -154,6 +155,9 @@ server or the fake below.
 - **Tokens for jobs.** `mint_token` always names the repositories and the permissions, and an empty
   list of either is refused before any request, because the forge reads an empty list as everything
   the installation holds. These tokens are not cached; whoever holds one revokes it.
+  `installation_permissions` reads what an installation holds from `/app/installations/<id>` with
+  the App's JWT, a level `admin` counting as `write`, so that a token is never asked for more than
+  the forge would grant.
 - **The bot.** The App's bot account is `<slug>[bot]`, read without credentials from
   `/users/<login>`, since the forge accepts an App's JWT only on the App's own endpoints.
 - **Conditional requests.** Every `GET` remembers the `ETag` of a successful answer, keyed by who
@@ -222,9 +226,10 @@ with a path. It holds, in memory:
   the public key of the App's fixture key and whose claims keep the forge's limits. A minted token
   is recorded with its installation, repositories and permissions; a request for a repository or a
   permission the installation lacks is refused with `422`, as the forge does; `DELETE
-  /installation/token` revokes. A token minted without repositories has the selection `all` and
-  covers every repository of its installation, those created or renamed after it included, as the
-  forge's does. Tokens live an hour unless a test shortens it;
+  /installation/token` revokes, and `/app/installations/<id>` answers what an installation holds. A
+  token minted without repositories has the selection `all` and covers every repository of its
+  installation, those created or renamed after it included, as the forge's does. Tokens live an hour
+  unless a test shortens it;
 - `/installation/repositories`, the repositories a token covers, in pages of 30 by default and 100
   at most with `Link` headers;
 - the repository endpoints the client uses. Each checks that the token is live, covers the
@@ -289,7 +294,7 @@ every other property is a string, numbers included, except `ref_protected`, whic
 | `job` | the job's key |
 | `workspace` | the job's working directory on the agent, `GITHUB_WORKSPACE`; empty in the expressions the server evaluates |
 | `server_url`, `api_url`, `graphql_url` | the forge's addresses |
-| `token` | the forge token, below |
+| `token` | the forge token, below, which the server adds to the context at the assignment, so it is empty in the expressions the planner evaluates |
 
 The ref and the commit follow the target's table of events:
 
@@ -402,6 +407,81 @@ execution ends. An installation token lives at most one hour, so for an executio
 running when the token is about to expire, the agent asks the server for a fresh one and rewrites
 the credentials it configured; actions that copied the token earlier see it expire, which is
 recorded as a known limitation in the compatibility corpus.
+
+Step 34 of M1 ([../plan.md](../plan.md)) settled how.
+
+- **Which jobs get one.** A job whose run belongs to a project bound to a repository that an
+  installation of the App sees gets a token for each of its executions. A job of a project without a
+  repository, or whose repository no installation sees any more, gets none: `github.token` and
+  `secrets.GITHUB_TOKEN` are empty strings, the assignment carries no `forge_token`, and nothing is
+  asked of the forge. A token without a repository would cover every repository of the
+  installation, since the forge reads an empty list as all of them, and the empty value fails at
+  once with the toolkit's own error, as the empty `GITHUB_REPOSITORY` of such a project does.
+- **The permissions.** The job's `permissions` replace the workflow's, as in the target. A scope
+  maps to the App permission of its name with `_` for `-`; `none` and `id-token`, which no App
+  permission carries, ask for nothing. `read-all` asks for every permission of `token_permissions`
+  ([11-api.md](11-api.md#project-settings)) for reading, `metadata` included, and `write-all` for
+  every one for writing but `metadata` and `models`, which the forge grants for reading only. An
+  untrusted run asks for the same permissions, each for reading alone. The server then reads what
+  the installation holds ([The GitHub App client](#the-github-app-client)), keeps a permission it
+  holds at a lower level at that level, leaves out one it does not hold, and, when the job's first
+  execution is assigned, adds to the run's notices a warning `permission_unavailable` at the job for
+  each ([04-runs.md](04-runs.md#run-notices)). What asks for nothing, such as `permissions: {}`,
+  gets `metadata: read`, as the target's token keeps it. The token names the repository by its
+  current name, and the forge records it as `selected`.
+- **When it is minted.** After the replica claimed the job and prepared its actions, and before it
+  takes the run's lock, as the actions are prepared
+  ([05-execution.md](05-execution.md#actions-and-tools)). A forge that refuses, is rate limited or
+  cannot be reached, and a server without a GitHub App for a job that should have a token, fail the
+  job before it reaches an agent: an error notice `token_unavailable` at the job quotes the forge's
+  error, and in the same transaction the execution and the job complete as `failure` with the reason
+  `token_unavailable`, as after an action that cannot be prepared. A job whose actions cannot be
+  prepared gets no token.
+- **Where it is kept.** The transaction that sends the assignment writes the token, before anything
+  else in it can fail the job, as a row of `forge_token` ([07-storage.md](07-storage.md#tables)):
+  its execution, the repository's forge id, the permissions it holds, its expiry, and the token
+  sealed under the KEK like a secret, with labels of its own (`bosun forge token value` and `bosun
+  forge token data key`) and bound to the row's id and its execution's, so it opens neither as a
+  secret nor as another row ([07-storage.md](07-storage.md#secrets-at-rest)). The server needs it
+  again only to revoke it, which only the token itself can do.
+- **In the assignment.** `contexts` holds the token as `github.token` and `secrets.GITHUB_TOKEN`,
+  an untrusted run's included, and the field `forge_token` of `Assignment` holds it with the time it
+  has left, `expires_in` ([05-execution.md](05-execution.md#the-job-assignment)). The workflow's
+  `env` sees it, and so do the job's `env` and `defaults.run` when they read `github.token`, since
+  the assignment evaluates them then ([03-expressions.md](03-expressions.md)).
+- **Revocation.** The journal event that completes an execution, `execution.status` to `completed`,
+  writes an outbox row of kind `token_revocation` when the execution has a token
+  ([07-storage.md](07-storage.md#the-outbox)), with the collapse key
+  `token_revocation/execution/<execution>`. Every way an execution ends goes through that event:
+  `JobFinished`, after a cancel or not, a cancel before the agent accepted, a rejection, an expired
+  lease, an agent lost or deleted, and a failure at the assignment. Its delivery revokes each token
+  of the execution that has not expired with `DELETE /installation/token`, counts a `401` as
+  revoked, since the forge answers so for a token that expired or was revoked, takes another `4xx`
+  as final with a warning, and deletes each row, an expired one without a request; a failure that
+  may pass is tried again as any outbox row is. A token that was minted for an assignment that is
+  then not sent, because its transaction did not commit or the execution was taken back meanwhile,
+  is revoked at once without the outbox, and so is a fresh one whose execution ended before it was
+  stored; one that a replica minted before it died expires within the hour.
+- **Renewal.** Before each stage of the job ([05-execution.md](05-execution.md#node-actions)), when
+  the token it holds expires within 45 minutes, the agent sends `RenewForgeToken` for the execution
+  and waits up to 30 seconds for `RenewedForgeToken`. The agent counts the expiry on its own clock
+  from `expires_in` as it receives a token, so the clocks of the agent and the server need not
+  agree. The replica that holds the stream answers in a task of its own, so a slow forge delays no
+  report of the agent: when the newest token of the execution has more than 50 minutes left it
+  sends that one again, and otherwise it mints a fresh one for the same repository and permissions,
+  writes it under the run's lock once it has checked that the execution is still the agent's and
+  not completed, and sends it. An execution of another agent, one that completed, one without a
+  token and a mint that fails are answered with `error`, which the log of the stage then names; the
+  stage runs with the token it holds, and so does one whose answer does not come in time. An
+  earlier token stays valid until it expires, and the revocation covers every token of the
+  execution.
+- **What later steps see.** A fresh token replaces `github.token` and `secrets.GITHUB_TOKEN` for the
+  stage that asked for it and every later one, replaces the earlier token wherever it occurs in the
+  values of the job's `env` that the server rendered, and joins the masker. What a step copied
+  elsewhere keeps the earlier token: the credentials an action wrote itself, such as the
+  `http.extraheader` of `actions/checkout`, a value a step wrote to `GITHUB_ENV`, and the
+  environment of a step that is running when its token expires. These are the known limitation of
+  [compat/README.md](../../compat/README.md#known-limitations).
 
 ## The job token
 

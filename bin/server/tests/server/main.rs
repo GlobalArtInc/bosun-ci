@@ -8,6 +8,7 @@ mod config;
 mod data;
 mod events;
 mod forge_events;
+mod forge_tokens;
 mod health;
 mod hooks;
 mod http;

@@ -62,3 +62,19 @@ recorded in a public repository whose hosted minutes cost nothing:
 Until the first recorded run, `recordings/expr.json` is an empty list. `hack/test-compat-recordings.sh`
 runs the tools on `fixtures/recordings/`, and a test of `bosun-workflow` checks that both recording
 workflows validate without diagnostics; CI runs both.
+
+## Known limitations
+
+What the corpus records as differing from GitHub Actions on purpose, with the reason.
+
+- **A copied forge token expires.** The forge token of a job is an installation token, which lives
+  an hour, where the target's lives as long as the job, up to a day. The agent asks for a fresh one
+  before a step when less than 45 minutes are left, and the later steps see it in `github.token`,
+  `secrets.GITHUB_TOKEN` and the job's `env`
+  ([docs/design/06-runtime-services.md](../docs/design/06-runtime-services.md#the-forge-token)).
+  A copy the job made elsewhere keeps the earlier token and fails once it expires: the credentials
+  `actions/checkout` writes into the repository's `.git/config` (`persist-credentials`), so a
+  `git push` of a later step is refused once the token it wrote has expired; a value a step wrote
+  to `GITHUB_ENV`; and a single step that runs for longer than the token has left. A workflow that
+  pushes late in a long job runs `actions/checkout` again, or passes `secrets.GITHUB_TOKEN` to the
+  step that pushes.

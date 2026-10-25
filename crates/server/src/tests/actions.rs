@@ -35,7 +35,7 @@ use tokio::task::JoinHandle;
 use tower::ServiceExt;
 use url::Url;
 
-use super::{NODE, World, finished, keys, site, tools_settings};
+use super::{NODE, World, finished, site, tools_settings};
 use crate::actions::Actions;
 use crate::agents::progress::{self, Progress, Reporter};
 use crate::clock::Clock;
@@ -254,7 +254,7 @@ impl Harness {
     }
 
     async fn assign_through(&self, actions: &Actions, claimed: ClaimedJob) -> Option<Documents> {
-        let offer = queue::assignment(self.db(), claimed, &site(), &keys(), actions)
+        let offer = queue::assignment(self.db(), claimed, &site(), self.world.tokens(), actions)
             .await
             .expect("an assignment")?;
         let Some(Message::Assignment(assignment)) = offer.message.message else {
@@ -810,10 +810,16 @@ async fn a_server_without_a_github_app_fails_every_job_that_uses_an_action() {
         other => panic!("no job was claimed: {other:?}"),
     };
     assert!(
-        queue::assignment(world.db(), claimed, &site(), &keys(), world.actions())
-            .await
-            .expect("a failed assignment")
-            .is_none()
+        queue::assignment(
+            world.db(),
+            claimed,
+            &site(),
+            world.tokens(),
+            world.actions()
+        )
+        .await
+        .expect("a failed assignment")
+        .is_none()
     );
     let notices = world.run(run).await.notices;
     assert_eq!(

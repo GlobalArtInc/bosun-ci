@@ -1,6 +1,6 @@
 use bosun_db::entity::{
     action_ref, agent, annotation, api_token, api_token_scope, attempt, concurrency_member,
-    control_message, execution, forge_check_run, forge_installation, forge_repository,
+    control_message, execution, forge_check_run, forge_installation, forge_repository, forge_token,
     idempotency_key, job, label_alias, log_chunk, log_object, oidc_state, organisation, outbox,
     pool_access, project, registration_token, role, role_binding, run, run_event, schedule, secret,
     session, sign_in_failure, step, step_summary, stream_event, team, team_member, tool_object,
@@ -45,6 +45,7 @@ pub const ACTION: u8 = 0x1c;
 pub const TOOL: u8 = 0x1d;
 pub const IDENTITY: u8 = 0x1e;
 pub const SCHEDULE: u8 = 0x1f;
+pub const FORGE_TOKEN: u8 = 0x20;
 
 pub const OUTBOX: i64 = 41;
 pub const MEMBER: i64 = 17;
@@ -107,6 +108,7 @@ pub struct Rows {
     pub outbox: outbox::Model,
     pub forge_check_run: forge_check_run::Model,
     pub concurrency_member: concurrency_member::Model,
+    pub forge_token: forge_token::Model,
     pub action_ref: action_ref::Model,
     pub tool_object: tool_object::Model,
     pub user_identity: user_identity::Model,
@@ -685,6 +687,21 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a member of a concurrency group");
 
+    let forge_token = forge_token::ActiveModel {
+        id: ActiveValue::Set(id(FORGE_TOKEN)),
+        execution_id: ActiveValue::Set(id(EXECUTION)),
+        repository_id: ActiveValue::Set(REPOSITORY),
+        permissions: ActiveValue::Set(json!({ "contents": "read", "issues": "write" })),
+        ciphertext: ActiveValue::Set(format!("sealed {label}").into_bytes()),
+        data_key: ActiveValue::Set(vec![0x66; 60]),
+        kek_id: ActiveValue::Set("0123456789abcdef".to_owned()),
+        expires_at: ActiveValue::Set(at("2026-10-24T19:34:51Z")),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:51Z")),
+    }
+    .insert(db)
+    .await
+    .expect("a forge token");
+
     let action_ref = action_ref::ActiveModel {
         id: ActiveValue::Set(id(ACTION)),
         owner: ActiveValue::Set("actions".to_owned()),
@@ -770,6 +787,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         outbox,
         forge_check_run,
         concurrency_member,
+        forge_token,
         action_ref,
         tool_object,
         user_identity,
@@ -856,6 +874,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         outbox: one::<_, outbox::Entity>(db, OUTBOX).await,
         forge_check_run: one::<_, forge_check_run::Entity>(db, id(BUILD)).await,
         concurrency_member: one::<_, concurrency_member::Entity>(db, MEMBER).await,
+        forge_token: one::<_, forge_token::Entity>(db, id(FORGE_TOKEN)).await,
         action_ref: one::<_, action_ref::Entity>(db, id(ACTION)).await,
         tool_object: one::<_, tool_object::Entity>(db, id(TOOL)).await,
         user_identity: one::<_, user_identity::Entity>(db, id(IDENTITY)).await,

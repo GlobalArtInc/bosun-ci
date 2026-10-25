@@ -522,7 +522,9 @@ async fn an_assignment_carries_the_slugs_the_job_of_the_ir_and_the_values_the_se
             &Default::default(),
             &Default::default(),
             &Default::default(),
-            &Default::default(),
+            json!({ "GITHUB_TOKEN": "" })
+                .as_object()
+                .expect("an object"),
             &json!({ "fail-fast": true, "job-index": 0, "job-total": 1, "max-parallel": 1 }),
             &Value::Null
         )

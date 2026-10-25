@@ -439,8 +439,9 @@ Step 29 of M1 ([../plan.md](../plan.md)) settled how the policy applies:
 - **The untrusted run** goes to untrusted pools only
   ([05-execution.md](05-execution.md#pools-and-label-aliases)). Its assignment holds no secret of
   the organisation or the project, whatever the job references, so an expression that reads one
-  gives an empty string; `vars` holds every variable as for any run. The read-only forge token,
-  `secrets.GITHUB_TOKEN`, arrives with step 34.
+  gives an empty string; `vars` holds every variable as for any run. Its forge token,
+  `secrets.GITHUB_TOKEN`, is read-only whatever the workflow asks, as step 34 settled
+  ([06-runtime-services.md](06-runtime-services.md#the-forge-token)).
 
 The organisations of this installation keep agents in internal networks, so the default fork
 policy is `disabled`, and a project that wants fork builds needs an untrusted pool first.

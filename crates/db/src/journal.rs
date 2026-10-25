@@ -64,7 +64,14 @@ pub async fn append<C: ConnectionTrait>(db: &C, event: NewEvent) -> Result<RunEv
     {
         stream::queue_changed(db, job).await?;
     }
-    outbox::record(db, event.run_id, event.job_id, &event.event).await?;
+    outbox::record(
+        db,
+        event.run_id,
+        event.job_id,
+        event.execution_id,
+        &event.event,
+    )
+    .await?;
     decode(stored)
 }
 

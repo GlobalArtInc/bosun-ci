@@ -213,3 +213,64 @@ async fn an_installation_token_close_to_expiry_is_replaced() {
     }
     assert_eq!(setup.forge.tokens().len(), 2);
 }
+
+#[tokio::test]
+async fn an_installation_holds_what_the_forge_says_and_a_second_read_is_conditional() {
+    let setup = setup().await;
+    let held = setup
+        .app
+        .installation_permissions(setup.installation)
+        .await
+        .unwrap_or_else(|error| panic!("the permissions are not read: {error}"));
+    assert_eq!(
+        held,
+        scope(&[
+            ("checks", Access::Write),
+            ("contents", Access::Write),
+            ("issues", Access::Write),
+            ("metadata", Access::Read),
+            ("pull_requests", Access::Write),
+            ("statuses", Access::Write),
+        ])
+    );
+    let again = setup
+        .app
+        .installation_permissions(setup.installation)
+        .await
+        .unwrap_or_else(|error| panic!("the permissions are not read again: {error}"));
+    assert_eq!(again, held);
+    let path = format!("/api/v3/app/installations/{}", setup.installation);
+    let statuses: Vec<u16> = setup
+        .forge
+        .requests()
+        .into_iter()
+        .filter(|request| request.path == path)
+        .map(|request| request.status)
+        .collect();
+    assert_eq!(statuses, [200, 304]);
+    assert!(setup.forge.tokens().is_empty());
+
+    let administering = setup.forge.install(
+        "other",
+        &[("administration", "admin"), ("metadata", "read")],
+    );
+    assert_eq!(
+        setup
+            .app
+            .installation_permissions(administering)
+            .await
+            .unwrap_or_else(|error| panic!("the permissions are not read: {error}")),
+        scope(&[
+            ("administration", Access::Write),
+            ("metadata", Access::Read)
+        ])
+    );
+    let missing = setup
+        .app
+        .installation_permissions(administering + 1000)
+        .await;
+    assert!(
+        matches!(missing, Err(Error::Status { status: 404, .. })),
+        "{missing:?}"
+    );
+}

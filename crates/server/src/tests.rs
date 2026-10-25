@@ -7,6 +7,7 @@ mod dispatch;
 mod evaluation;
 mod events;
 mod forge_events;
+mod forge_tokens;
 mod identity;
 mod journal;
 mod lint;
@@ -62,6 +63,7 @@ use crate::actions::Actions;
 use crate::agents::progress::{self, JobEnd, Progress, Reporter};
 use crate::clock::Clock;
 use crate::commands::{self, Applied};
+use crate::forge_token::Tokens;
 use crate::keys::{Kek, Keyring};
 use crate::site::Site;
 use crate::store::Backend;
@@ -135,6 +137,7 @@ struct World {
     workflow: Workflow,
     agent: Reporter,
     actions: Arc<Actions>,
+    tokens: Arc<Tokens>,
     store: Arc<Backend>,
     _store: tempfile::TempDir,
 }
@@ -201,6 +204,7 @@ impl World {
             None,
             runtimes(),
         ));
+        let tokens = Arc::new(Tokens::new(db.clone(), None, Arc::new(keys())));
         World {
             database,
             workflow,
@@ -209,6 +213,7 @@ impl World {
                 name: agent.name,
             },
             actions,
+            tokens,
             store: backend,
             _store: store,
         }
@@ -220,6 +225,10 @@ impl World {
 
     fn actions(&self) -> &Arc<Actions> {
         &self.actions
+    }
+
+    fn tokens(&self) -> &Arc<Tokens> {
+        &self.tokens
     }
 
     fn agent(&self) -> &Reporter {

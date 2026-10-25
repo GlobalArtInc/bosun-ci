@@ -380,7 +380,22 @@ async fn under_approval_a_fork_waits_for_admission_and_then_runs_on_an_untrusted
 
     let (assignment, documents) = outside.job().await;
     assert_eq!(assignment.job_id, text(&jobs[0]["id"]));
-    assert_eq!(documents.contexts.secrets, serde_json::Map::new());
+    let token = text(&documents.contexts.github["token"]).to_owned();
+    assert_eq!(
+        Value::Object(documents.contexts.secrets.clone()),
+        json!({ "GITHUB_TOKEN": token })
+    );
+    let minted = scene
+        .forge
+        .tokens()
+        .into_iter()
+        .find(|minted| minted.token == token)
+        .expect("the run from a fork has a forge token");
+    assert!(
+        minted.permissions.values().all(|level| level == "read"),
+        "{:?}",
+        minted.permissions
+    );
     assert_eq!(documents.contexts.vars["GREETING"], "hello");
     assert_eq!(documents.evaluated.env["TOKEN"], "");
     assert_eq!(

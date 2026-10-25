@@ -16,6 +16,7 @@ mod error;
 mod events;
 mod forge;
 mod forge_events;
+mod forge_token;
 mod grpc;
 mod health;
 mod hooks;
@@ -162,12 +163,17 @@ pub async fn serve(
         forge.clone(),
         config.tools.runtimes.clone(),
     ));
+    let tokens = Arc::new(forge_token::Tokens::new(
+        db.clone(),
+        forge.clone(),
+        Arc::clone(&keys),
+    ));
     let dispatcher = queue::Dispatcher::new(
         db.clone(),
         Arc::clone(&replica),
         config.queue,
         config.site.clone(),
-        Arc::clone(&keys),
+        tokens,
         actions,
     );
     let followers = Arc::new(logs::Followers::default());
@@ -202,6 +208,7 @@ pub async fn serve(
                 db: db.clone(),
                 store: Arc::clone(&store),
                 forge: Arc::clone(forge),
+                keys: Arc::clone(&keys),
                 site: config.site.clone(),
                 clock: clock.clone(),
             },

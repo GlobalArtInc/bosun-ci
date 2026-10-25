@@ -131,6 +131,10 @@ pub(super) fn router(shared: Arc<Shared>) -> Router {
     Router::new()
         .route("/api/v3/app", get(app))
         .route(
+            "/api/v3/app/installations/{installation}",
+            get(installation),
+        )
+        .route(
             "/api/v3/app/installations/{installation}/access_tokens",
             post(access_token),
         )
@@ -200,6 +204,32 @@ async fn app(State(shared): Fake, headers: HeaderMap) -> Response {
         &json!({ "id": APP_ID, "slug": APP_SLUG, "name": "Bosun (fake)" }),
     )
     .into_response()
+}
+
+async fn installation(
+    State(shared): Fake,
+    Path(installation): Path<u64>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(refused) = as_app(&shared, &headers) {
+        return refused.into_response();
+    }
+    let mut model = shared.lock();
+    let Some(found) = model.installations.get(&installation) else {
+        return Answer::not_found().into_response();
+    };
+    let answer = Answer::json(
+        StatusCode::OK,
+        &json!({
+            "id": installation,
+            "account": { "login": found.account, "id": found.account_id },
+            "app_id": APP_ID,
+            "app_slug": APP_SLUG,
+            "repository_selection": "all",
+            "permissions": found.permissions,
+        }),
+    );
+    conditional(&mut model, &headers, None, answer)
 }
 
 #[derive(Default, Deserialize)]

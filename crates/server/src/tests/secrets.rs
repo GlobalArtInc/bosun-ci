@@ -364,6 +364,7 @@ jobs:
         named.contexts.secrets,
         strings(&[
             ("A", "a of the project"),
+            ("GITHUB_TOKEN", ""),
             ("SETTINGS", r#"{"region": "eu"}"#)
         ])
     );
@@ -388,6 +389,7 @@ jobs:
         strings(&[
             ("A", "a of the project"),
             ("B", "b of the organisation"),
+            ("GITHUB_TOKEN", ""),
             ("SETTINGS", r#"{"region": "eu"}"#),
         ])
     );
@@ -428,10 +430,16 @@ jobs:
         .await
         .expect("a claim");
     assert!(
-        queue::assignment(world.db(), claimed, &site(), &keys(), world.actions())
-            .await
-            .expect("a failed assignment")
-            .is_none(),
+        queue::assignment(
+            world.db(),
+            claimed,
+            &site(),
+            world.tokens(),
+            world.actions()
+        )
+        .await
+        .expect("a failed assignment")
+        .is_none(),
         "a job whose secret does not decrypt was offered"
     );
     let projection = world.project(run).await;

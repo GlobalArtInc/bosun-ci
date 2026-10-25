@@ -19,7 +19,7 @@ use tower::ServiceExt;
 
 use super::access::{Credentials, Site, owner_credentials, request};
 use super::queue::{connected, runs_on};
-use super::{World, keys, run_cancel, template, workflow};
+use super::{World, run_cancel, template, workflow};
 use crate::agents::{self, Replica, Tasks};
 use crate::api;
 use crate::config::{Agents, Queue};
@@ -52,7 +52,7 @@ async fn forward(world: &World, events: Arc<Hub>, followers: Arc<Followers>) -> 
             max_queue_time: HOUR,
         },
         Public::default(),
-        Arc::new(keys()),
+        Arc::clone(world.tokens()),
         Arc::clone(world.actions()),
     );
     agents::start(

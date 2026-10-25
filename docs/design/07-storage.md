@@ -64,7 +64,7 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 | identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `api_token_scope`, `session`, `sign_in_failure`, `oidc_state` |
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `forge_repository`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
 | workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
-| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `concurrency_member`, `approval`, `annotation`, `step_summary`, `terminal_session` |
+| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `concurrency_member`, `approval`, `annotation`, `step_summary`, `forge_token`, `terminal_session` |
 | agents | `pool`, `pool_access`, `agent`, `registration_token`, `control_message`, `label_alias` |
 | logs | `log_chunk`, `log_object` |
 | artifacts and caches | `artifact`, `artifact_block`, `cache_entry` |
@@ -97,6 +97,8 @@ log_object   step_id, execution_id, key, size, lines, frames bigint[], created_a
 annotation   step_id, ordinal, kind, message, title, file, line, end_line, start_column,
              end_column
 step_summary step_id, key, size, created_at
+forge_token  id, execution_id, repository_id, permissions jsonb, ciphertext, data_key, kek_id,
+             expires_at, created_at
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
              actor jsonb, data jsonb, at, xact
 stream_event seq bigserial, xact, subject, project_id, run_id, kind, data jsonb, at
@@ -224,6 +226,17 @@ execution's `stages` are the stages of its assignment, a list of `{"phase", "ste
 that sends the assignment when an action of the job has a pre or a post step and `null` otherwise;
 the agent's `Accept` creates one step per stage ([04-runs.md](04-runs.md#parts-of-a-run)). They
 arrived with Node actions (step 33).
+
+A `forge_token` is one forge token minted for an execution
+([06-runtime-services.md](06-runtime-services.md#the-forge-token)), owned by its execution:
+`repository_id` the forge's id of the repository it covers, `permissions` the App permissions it
+holds as `token_permissions` names them, `expires_at` the expiry the forge gave it, and
+`ciphertext`, `data_key` and `kek_id` the token sealed as a secret is, under labels of its own
+([Secrets at rest](#secrets-at-rest)). The transaction that sends an assignment writes the first,
+and each renewal one more; the delivery of the execution's `token_revocation` deletes them, so a
+row outlives its execution's end only until that delivery. The index on `(execution_id,
+expires_at)` finds the newest token of an execution. The table arrived with step 34 of
+[../plan.md](../plan.md).
 `action_ref` holds `id, owner, repository, sha, key, size, sha256, metadata jsonb, created_at`, one
 row per commit of an action repository, unique by owner, repository and commit, where `key` is the
 tarball's object, `sha256` its digest and `metadata` maps the path of every `action.yml` and
@@ -499,12 +512,12 @@ with its latest state.
 
 Step 28 of M1 ([../plan.md](../plan.md)) settled how. In M1 every row a run causes is a report to
 the forge ([06-runtime-services.md](06-runtime-services.md#reporting-to-the-forge)), of kind
-`check_run` or `commit_status`, and `journal::append` writes it right after the event that causes
-it, so no code path that changes a run can forget it. The collapse key is the kind and the subject
-of the report, `check_run/job/<job>` or `commit_status/run/<run>`; since the rows of one job are
-written under its run's lock, the order of their ids, drawn from a sequence, is the order of their
-commits, as for the journal ([The journal](#the-journal)). Each row inserts with a notification on
-`bosun_outbox`.
+`check_run` or `commit_status`, or, from step 34, the revocation of an execution's forge tokens, and
+`journal::append` writes it right after the event that causes it, so no code path that changes a run
+can forget it. The collapse key is the kind and the subject of the report, `check_run/job/<job>` or
+`commit_status/run/<run>`; since the rows of one job are written under its run's lock, the order of
+their ids, drawn from a sequence, is the order of their commits, as for the journal ([The
+journal](#the-journal)). Each row inserts with a notification on `bosun_outbox`.
 
 Step 29 of M1 added the kind `fork_status`, the one kind that comes from a webhook delivery rather
 than from a run: the commit status that tells a pull request from a fork why the fork policy
@@ -513,6 +526,16 @@ and no journal event causes it, so the processing of its webhook delivery writes
 transaction that marks the delivery processed: a delivery that is tried again writes it once. Its
 collapse key is `fork_status/<repository>/<commit>`, with the forge's id of the repository and the
 head commit of the pull request, which its payload holds.
+
+Step 34 of M1 added the kind `token_revocation`
+([06-runtime-services.md](06-runtime-services.md#the-forge-token)). The event that completes an
+execution writes it when the execution has a row in `forge_token`, with the payload
+`{"execution_id"}` and the collapse key `token_revocation/execution/<execution>`. Its delivery
+revokes every token of the execution that has not expired, counting the forge's `401` as revoked and
+another `4xx` as final, with a warning, and deletes each row as soon as it is revoked, refused or
+found expired, so a delivery that fails halfway and is tried again revokes only the rest. Since
+every token expires within the hour, a row that keeps failing finds nothing left to revoke within
+the hour and is delivered, long before it would be marked dead.
 
 Every replica with a GitHub App runs one outbox worker, woken by `bosun_outbox` and otherwise every
 second, which is the resolution of the backoff. One delivery is two short transactions, the claim
@@ -788,6 +811,13 @@ remove the old KEK from the configuration.
 
 Further key material:
 
+- the forge tokens of executions are sealed as secrets are, each under a data key of its own, with
+  the labels `bosun forge token value` and `bosun forge token data key` in place of the secret's,
+  followed by the 16 bytes of the row's id and the 16 bytes of its execution's id, so a token never
+  opens as a secret, nor a secret as a token, nor one row's token as another's. `bosun-server
+  secrets rewrap` leaves them, since each lives an hour at most; a token under a KEK that the
+  configuration no longer holds is not revoked and expires
+  ([06-runtime-services.md](06-runtime-services.md#the-forge-token));
 - the private key of the GitHub App comes from the configuration;
 - the Ed25519 key that signs job tokens is generated by the server, stored encrypted under the
   KEK, and rotated; earlier public keys are kept until the last token they signed has expired;

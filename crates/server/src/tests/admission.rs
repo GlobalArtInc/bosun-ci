@@ -271,7 +271,13 @@ jobs:
         .await
         .expect("the job of the run from a fork");
     let (_, documents) = assigned(&world, claimed).await;
-    assert_eq!(documents.contexts.secrets, serde_json::Map::new());
+    assert_eq!(
+        documents.contexts.secrets,
+        json!({ "GITHUB_TOKEN": "" })
+            .as_object()
+            .cloned()
+            .expect("an object")
+    );
     assert_eq!(
         documents.contexts.vars,
         json!({ "REGION": "eu-central-1" })

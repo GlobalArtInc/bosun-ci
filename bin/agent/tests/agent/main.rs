@@ -2,6 +2,7 @@ mod actions;
 mod cancel;
 mod commands;
 mod drain;
+mod forge_token;
 mod jobs;
 mod masking;
 mod reconnect;

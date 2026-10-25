@@ -135,6 +135,7 @@ async fn no_answer_log_line_or_table_holds_the_value_of_a_secret() {
         secrets(&documents),
         BTreeMap::from([
             ("DEPLOY_TOKEN".to_owned(), VALUE.to_owned()),
+            ("GITHUB_TOKEN".to_owned(), String::new()),
             ("ORGANISATION_TOKEN".to_owned(), OTHER.to_owned()),
         ])
     );
@@ -287,6 +288,7 @@ async fn after_secrets_rewrap_with_a_new_kek_every_secret_decrypts_with_the_new_
         secrets(&documents),
         BTreeMap::from([
             ("DEPLOY_TOKEN".to_owned(), VALUE.to_owned()),
+            ("GITHUB_TOKEN".to_owned(), String::new()),
             ("ORGANISATION_TOKEN".to_owned(), OTHER.to_owned()),
         ])
     );

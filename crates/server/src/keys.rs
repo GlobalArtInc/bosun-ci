@@ -22,9 +22,20 @@ const ID_DIGITS: usize = 16;
 
 const ID_LABEL: &[u8] = b"bosun kek id\0";
 
-const VALUE_LABEL: &[u8] = b"bosun secret value\0";
+pub(crate) struct Labels {
+    value: &'static [u8],
+    data_key: &'static [u8],
+}
 
-const DATA_KEY_LABEL: &[u8] = b"bosun secret data key\0";
+const SECRET: Labels = Labels {
+    value: b"bosun secret value\0",
+    data_key: b"bosun secret data key\0",
+};
+
+pub(crate) const FORGE_TOKEN: Labels = Labels {
+    value: b"bosun forge token value\0",
+    data_key: b"bosun forge token data key\0",
+};
 
 const SIGNING_LABEL: &[u8] = b"bosun signing key\0";
 
@@ -125,26 +136,44 @@ impl Keyring {
     }
 
     pub(crate) fn seal(&self, binding: &[u8], value: &[u8]) -> Result<Sealed, Error> {
+        self.seal_as(&SECRET, binding, value)
+    }
+
+    pub(crate) fn seal_as(
+        &self,
+        labels: &Labels,
+        binding: &[u8],
+        value: &[u8],
+    ) -> Result<Sealed, Error> {
         let mut data_key = [0; KEY_BYTES];
         getrandom::fill(&mut data_key).map_err(Error::Random)?;
         let cipher = cipher(&data_key).ok_or(Error::Seal)?;
         Ok(Sealed {
-            ciphertext: encrypt(&cipher, &aad(VALUE_LABEL, binding), value)?,
-            data_key: encrypt(&self.current.key, &aad(DATA_KEY_LABEL, binding), &data_key)?,
+            ciphertext: encrypt(&cipher, &aad(labels.value, binding), value)?,
+            data_key: encrypt(&self.current.key, &aad(labels.data_key, binding), &data_key)?,
             kek_id: self.current.id.clone(),
         })
     }
 
     pub(crate) fn open(&self, binding: &[u8], sealed: &Sealed) -> Result<Vec<u8>, Unreadable> {
-        let data_key = self.data_key(binding, sealed)?;
+        self.open_as(&SECRET, binding, sealed)
+    }
+
+    pub(crate) fn open_as(
+        &self,
+        labels: &Labels,
+        binding: &[u8],
+        sealed: &Sealed,
+    ) -> Result<Vec<u8>, Unreadable> {
+        let data_key = self.data_key(labels, binding, sealed)?;
         let refused = || Unreadable::Refused(sealed.kek_id.clone());
         let cipher = cipher(&data_key).ok_or_else(refused)?;
-        decrypt(&cipher, &aad(VALUE_LABEL, binding), &sealed.ciphertext).ok_or_else(refused)
+        decrypt(&cipher, &aad(labels.value, binding), &sealed.ciphertext).ok_or_else(refused)
     }
 
     pub(crate) fn rewrap(&self, binding: &[u8], sealed: &Sealed) -> Result<Vec<u8>, Unreadable> {
-        let data_key = self.data_key(binding, sealed)?;
-        encrypt(&self.current.key, &aad(DATA_KEY_LABEL, binding), &data_key)
+        let data_key = self.data_key(&SECRET, binding, sealed)?;
+        encrypt(&self.current.key, &aad(SECRET.data_key, binding), &data_key)
             .map_err(|_| Unreadable::Refused(sealed.kek_id.clone()))
     }
 
@@ -161,12 +190,17 @@ impl Keyring {
             .any(|kek| hmac::verify(&kek.signing, &signed, tag).is_ok())
     }
 
-    fn data_key(&self, binding: &[u8], sealed: &Sealed) -> Result<Vec<u8>, Unreadable> {
+    fn data_key(
+        &self,
+        labels: &Labels,
+        binding: &[u8],
+        sealed: &Sealed,
+    ) -> Result<Vec<u8>, Unreadable> {
         let kek = std::iter::once(&self.current)
             .chain(&self.previous)
             .find(|kek| kek.id == sealed.kek_id)
             .ok_or_else(|| Unreadable::UnknownKek(sealed.kek_id.clone()))?;
-        decrypt(&kek.key, &aad(DATA_KEY_LABEL, binding), &sealed.data_key)
+        decrypt(&kek.key, &aad(labels.data_key, binding), &sealed.data_key)
             .filter(|key| key.len() == KEY_BYTES)
             .ok_or_else(|| Unreadable::Refused(sealed.kek_id.clone()))
     }
@@ -286,7 +320,7 @@ fn checked(read: io::Result<String>, path: &Path) -> Result<Kek, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Kek, Keyring, Unreadable};
+    use super::{FORGE_TOKEN, Kek, Keyring, Unreadable};
 
     const FIRST: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
@@ -354,6 +388,21 @@ mod tests {
         let last = tampered.ciphertext.len() - 1;
         tampered.ciphertext[last] ^= 1;
         assert!(keys.open(b"globalart/keel/A", &tampered).is_err());
+    }
+
+    #[test]
+    fn a_secret_and_a_forge_token_never_open_as_each_other() {
+        let keys = Keyring::new(kek(FIRST), Vec::new());
+        let secret = keys.seal(b"binding", b"value").expect("a sealed secret");
+        let token = keys
+            .seal_as(&FORGE_TOKEN, b"binding", b"ghs_value")
+            .expect("a sealed token");
+        assert_eq!(
+            keys.open_as(&FORGE_TOKEN, b"binding", &token),
+            Ok(b"ghs_value".to_vec())
+        );
+        assert!(keys.open_as(&FORGE_TOKEN, b"binding", &secret).is_err());
+        assert!(keys.open(b"binding", &token).is_err());
     }
 
     #[test]

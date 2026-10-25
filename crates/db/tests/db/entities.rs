@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use bosun_db::entity::{
     action_ref, agent, annotation, api_token, api_token_scope, attempt, concurrency_member,
-    control_message, execution, forge_check_run, forge_installation, forge_repository,
+    control_message, execution, forge_check_run, forge_installation, forge_repository, forge_token,
     idempotency_key, job, label_alias, log_chunk, log_object, oidc_state, organisation, outbox,
     pool, pool_access, project, registration_token, role, role_binding, run, run_event, schedule,
     schema_version, secret, session, sign_in_failure, step, step_summary, stream_event, team,
@@ -37,6 +37,7 @@ async fn every_table_has_an_entity() {
         forge_check_run::Entity.table_name(),
         forge_installation::Entity.table_name(),
         forge_repository::Entity.table_name(),
+        forge_token::Entity.table_name(),
         idempotency_key::Entity.table_name(),
         job::Entity.table_name(),
         label_alias::Entity.table_name(),

@@ -391,11 +391,62 @@ pub enum ForgePermission {
     Statuses,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+impl ForgePermission {
+    pub const ALL: [ForgePermission; 15] = [
+        ForgePermission::Actions,
+        ForgePermission::Attestations,
+        ForgePermission::Checks,
+        ForgePermission::Contents,
+        ForgePermission::Deployments,
+        ForgePermission::Discussions,
+        ForgePermission::Issues,
+        ForgePermission::Metadata,
+        ForgePermission::Models,
+        ForgePermission::Packages,
+        ForgePermission::Pages,
+        ForgePermission::PullRequests,
+        ForgePermission::RepositoryProjects,
+        ForgePermission::SecurityEvents,
+        ForgePermission::Statuses,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ForgePermission::Actions => "actions",
+            ForgePermission::Attestations => "attestations",
+            ForgePermission::Checks => "checks",
+            ForgePermission::Contents => "contents",
+            ForgePermission::Deployments => "deployments",
+            ForgePermission::Discussions => "discussions",
+            ForgePermission::Issues => "issues",
+            ForgePermission::Metadata => "metadata",
+            ForgePermission::Models => "models",
+            ForgePermission::Packages => "packages",
+            ForgePermission::Pages => "pages",
+            ForgePermission::PullRequests => "pull_requests",
+            ForgePermission::RepositoryProjects => "repository_projects",
+            ForgePermission::SecurityEvents => "security_events",
+            ForgePermission::Statuses => "statuses",
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ForgeAccess {
     Read,
     Write,
+}
+
+impl ForgeAccess {
+    pub fn name(self) -> &'static str {
+        match self {
+            ForgeAccess::Read => "read",
+            ForgeAccess::Write => "write",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

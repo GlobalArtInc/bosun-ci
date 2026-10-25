@@ -220,10 +220,11 @@ pub enum StatusReason {
     AgentRemoved,
     ActionUnavailable,
     Concurrency,
+    TokenUnavailable,
 }
 
 impl StatusReason {
-    pub const ALL: [StatusReason; 11] = [
+    pub const ALL: [StatusReason; 12] = [
         StatusReason::IfFalse,
         StatusReason::EvaluationFailed,
         StatusReason::Command,
@@ -235,5 +236,6 @@ impl StatusReason {
         StatusReason::AgentRemoved,
         StatusReason::ActionUnavailable,
         StatusReason::Concurrency,
+        StatusReason::TokenUnavailable,
     ];
 }
