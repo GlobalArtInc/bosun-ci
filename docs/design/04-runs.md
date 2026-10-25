@@ -13,9 +13,12 @@ who may give which command is in [08-access.md](08-access.md).
   a number that counts runs of the workflow, and the global number exposed as `github.run_id`.
 - An **attempt** is one pass of the run. Attempt 1 is created with the run; every re-run adds the
   next one ([Re-runs and attempts](#re-runs-and-attempts)).
-- A **job** belongs to one attempt. It is created from a job template; a template with a strategy
-  becomes a **job group** whose member jobs are created when the matrix is expanded. A call of a
-  reusable workflow becomes a group whose members are the callee's jobs, keyed `caller/callee`.
+- A **job** belongs to one attempt. It is created from a job template; a template with a matrix
+  becomes a **job group** whose member jobs are created when the matrix is expanded. The job of the
+  template is the group: it stays `pending` while its members run, completes when all of them have,
+  and is what `needs` and `needs.<job>` of other jobs name. Each member has the template's key, the
+  group in `group_id` and its combination of the matrix in `matrix`. A call of a reusable workflow
+  becomes a group whose members are the callee's jobs, keyed `caller/callee`.
 - An **execution** is one placement of a job on an agent. A job has more than one execution only
   when job-level `retry` re-queued it.
 - A **step** belongs to an execution. Steps of composite actions are nested under the step that
@@ -71,7 +74,7 @@ The transitions of a job, exhaustively:
 |------|----|-------|
 | `pending` | `waiting` | `needs` complete, `if` true, an admission rule holds the job back |
 | `pending` | `queued` | `needs` complete, `if` true, nothing holds the job back |
-| `pending` | `completed` | `if` false (`skipped`), `job.skip`, `job.mark-success`, cancellation |
+| `pending` | `completed` | `if` false (`skipped`), `job.skip`, `job.mark-success`, cancellation, the members of its group completed |
 | `waiting` | `queued` | every admission rule is satisfied |
 | `waiting` | `completed` | rejection, gate timeout, branch policy, policy denial, `job.skip`, `job.mark-success`, cancellation |
 | `queued` | `waiting` | `job.pause`, `run.pause` |
@@ -165,10 +168,14 @@ in this order:
    false when any of its ancestors did not succeed ([03-expressions.md](03-expressions.md)), so a
    job after a failed, skipped or cancelled one is skipped unless its `if` says otherwise. A job
    that failed or timed out under `continue-on-error` counts as succeeded here, in the status
-   functions and in `needs.<job>.result` of its dependents, while its own conclusion stays.
+   functions and in `needs.<job>.result` of its dependents, while its own conclusion stays. An
+   ancestor that is not complete yet, which happens when `job.cancel` completed a pending job
+   between them, counts as neither succeeded nor failed.
 2. `strategy`. A matrix expands into member jobs here, in status `pending` with their `needs`
-   already met, and each member continues from step 3. An empty matrix completes the group as
-   `failure` with an error that names the empty vector, as the target does.
+   already met, and each member continues from step 3 ([Matrices](#matrices)). An empty vector
+   or matrix completes the group as `failure` with an error that names it, as the target does. A
+   strategy without a matrix makes no group: the job continues from step 3 with its `fail-fast`
+   and `max-parallel` in the `strategy` context.
 3. `name`, `runs-on`, `environment`, `concurrency`, `timeout-minutes`, `continue-on-error`, the
    job's `env` and `defaults`, `container` and `services` (image and credentials). `runs-on` gives
    the job its labels, stored lowercased, and the pools it may run in
@@ -195,9 +202,62 @@ workflow's `env` is evaluated later, when an agent claims the job
 execution and the job the same way, before the agent is sent anything.
 
 A job group completes when all its members are complete. Its conclusion is `failure` when a member
-failed without `continue-on-error`, `cancelled` when a member was cancelled, and `success`
-otherwise. `fail-fast`, true by default, cancels the remaining members of a group when one fails.
-`max-parallel` keeps the members beyond the limit in `waiting` with reason `max_parallel`.
+failed or timed out without `continue-on-error`, `cancelled` when a member was cancelled, and
+`success` otherwise. `fail-fast`, true by default, cancels the remaining members of a group when one
+fails. `max-parallel` keeps the members beyond the limit in `waiting` with reason `max_parallel`.
+
+### Matrices
+
+A matrix is expanded as the target expands it ([02-workflows.md](02-workflows.md)), with the
+contexts of `jobs.<job_id>.strategy`: `github`, `needs`, `vars`, `inputs` and `bosun`. A key or a
+value that is one `${{ }}` takes the type of its value and any other text is a string, as in
+step 3, so `matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}` and a vector computed the same way
+expand like written ones. The cases of `contracts/fixtures/matrix/` pin the rules:
+
+- The vectors combine in their order, the first varying slowest, so `os: [linux, macos]` and
+  `node: [20, 22]` give `(linux, 20)`, `(linux, 22)`, `(macos, 20)` and `(macos, 22)`.
+- An `exclude` entry removes every combination it matches, and it matches when each of its values
+  equals the combination's value of that vector, so an entry may name only some of the vectors.
+  An entry that names something that is no vector fails the group.
+- `include` applies after `exclude`, entry by entry. An entry extends every combination left by
+  `exclude` whose values it matches in the vectors it names, adding its other values and
+  overwriting only values an earlier entry added; an entry that matches none of them is a
+  combination of its own, which later entries do not extend. A matrix of `include` alone has one
+  combination per entry.
+- Values compare as JSON values: strings exactly, mappings regardless of the order of their keys.
+- The group fails when a vector has no value, when the matrix has neither a vector nor an
+  `include`, when `exclude` leaves no combination and nothing is included, and when the matrix
+  expands to more than 256 jobs, the installation's limit of [02-workflows.md](02-workflows.md),
+  which the message names. Vectors whose combinations exceed 65 536 before `exclude` fail the
+  group with the same code without being combined.
+
+Each combination becomes a member, created in the order of the combinations. A member is named
+like its template, its `name` or else its key, followed by its values in parentheses, joined by
+`, ` in the order of the combination, the values of a mapping or a list in their order, so
+`test (linux, 20)`; a `name` with an expression is rendered at step 3 with the member's contexts
+and gets no parentheses, so `Build on ${{ matrix.os }}` names the member `Build on linux`. A member
+sees its combination as `matrix` and `strategy` as `{"fail-fast", "job-index", "job-total",
+"max-parallel"}`, where `job-index` counts from 0 in the order of creation and `max-parallel` is the
+number of members when the strategy sets none. A job without a strategy sees `strategy` as
+`{"fail-fast": true, "job-index": 0, "job-total": 1, "max-parallel": 1}` and `matrix` as `null`.
+Each member's `continue-on-error` is its own, so `continue-on-error: ${{ matrix.experimental }}`
+lets the experimental members fail without failing the group.
+
+The planner keeps the group going in every transaction it runs in:
+
+- When `fail-fast` holds and a member failed or timed out without `continue-on-error`, including a
+  member whose evaluation failed, every member that is not complete is cancelled with the reason
+  `fail_fast`, as a cancel command cancels it ([Operator commands](#operator-commands)): at once
+  when it is not on an agent, through a `cancel` control message when it is. Waiting members are
+  not released after that.
+- Otherwise, when fewer members than `max-parallel` are `queued`, `assigned`, `in_progress`,
+  `paused` or `held`, the waiting members are released to `queued` in the order of creation until
+  the limit is reached again. A member that becomes ready while the limit is reached goes to
+  `waiting` with the reason `max_parallel` after step 3.
+- When every member is complete, the group completes with the conclusion above, from `pending`,
+  and with the outputs of its members: the members are taken in the order they completed, and a
+  value that is not empty replaces what an earlier member gave for that name, so the last member
+  that set an output wins, as in the target.
 
 The run completes when every job of the attempt is complete. Its conclusion is the first of these
 that holds: `failure` when a job failed or timed out without `continue-on-error`, `cancelled` when
@@ -287,7 +347,7 @@ The kinds of M0, and those M1 adds:
 |------|------|
 | `run.created` | workflow, revision, run number, global number, event name |
 | `attempt.created` | attempt number |
-| `job.created` | job key, display name, `needs` |
+| `job.created` | job key, display name, `needs`, and for a member of a job group the group's job as `group_id` and its combination as `matrix`, both `null` otherwise |
 | `execution.created` | execution number, agent |
 | `step.created` | step index, display name |
 | `run.status` | `from`, `to`, `conclusion` |
@@ -306,8 +366,9 @@ that is not self-explanatory:
 | Reason | Meaning |
 |--------|---------|
 | `if_false` | the `if` evaluated to false, including the implicit `success()` after a failed dependency |
-| `evaluation_failed` | an expression the server evaluated for the job failed, or gave a value its key cannot use; the run's notices hold the error |
+| `evaluation_failed` | an expression the server evaluated for the job failed, or gave a value its key cannot use, such as a matrix that cannot be expanded; the run's notices hold the error |
 | `command` | an operator command caused it; the preceding `command.accepted` says which |
+| `fail_fast` | another member of the job group failed under `fail-fast` ([Matrices](#matrices)) |
 | `lease_expired` | the agent did not confirm the start within the lease |
 | `rejected_by_agent` | the agent answered the assignment with a rejection |
 | `no_agent` | the job stayed queued longer than `max_queue_time` |
@@ -334,7 +395,8 @@ The codes of runtime notices:
 |------|----------|---------|
 | `function_failed` | error | a function failed while the server evaluated an expression, as [03-expressions.md](03-expressions.md) lists |
 | `invalid_type` | error | the value of an expression has a type its key cannot use, such as a string for `timeout-minutes` |
-| `invalid_value` | error | the value has the right type but the key cannot use it, such as `timeout-minutes: 1.5`, an empty label or a shell that does not exist |
+| `invalid_value` | error | the value has the right type but the key cannot use it, such as `timeout-minutes: 1.5`, an empty label, a shell that does not exist or an empty vector of a matrix |
+| `limit_exceeded` | error | a matrix expands to more jobs than the installation's limit ([Matrices](#matrices)) |
 
 The journal is the source for:
 
@@ -368,12 +430,13 @@ that give them their effects.
 A cancellation completes a job that is not on an agent at once, and an assigned one together with
 its execution, as `cancelled` with the reason `command`; a job running on an agent is cancelled
 there through a `cancel` control message, also sent for an assigned one in case its agent starts it,
-and completes when the agent reports it or is lost. `run.cancel` records the request on the run and
-cancels every job that is not complete, except a pending job whose `if` calls a status function,
-since only such an `if` can admit a cancelled run. That job is decided when its `needs` are
-complete, with `cancelled()` true and `success()` and `failure()` false: it runs when its `if`
-holds, as `if: always()` and `if: cancelled()` do, and is cancelled otherwise. Nothing else of the
-run is queued or started after the cancel.
+and completes when the agent reports it or is lost. An execution is sent one `cancel`, however many
+causes ask for it. A job group is cancelled through its members, and completes when they do.
+`run.cancel` records the request on the run and cancels every job that is not complete, except a
+pending job whose `if` calls a status function, since only such an `if` can admit a cancelled run.
+That job is decided when its `needs` are complete, with `cancelled()` true and `success()` and
+`failure()` false: it runs when its `if` holds, as `if: always()` and `if: cancelled()` do, and is
+cancelled otherwise. Nothing else of the run is queued or started after the cancel.
 
 | Command | Valid when | Effect | Permission |
 |---------|-----------|--------|------------|
@@ -384,7 +447,7 @@ run is queued or started after the cancel.
 | `run.admit` | run from a fork waiting for admission | lets its jobs proceed ([08-access.md](08-access.md)) | `run.override` |
 | `run.rerun` | run completed | new attempt re-running every job; `debug` switches on debug logging and hold-on-failure | `run.rerun`, and `job.debug` for `debug` |
 | `run.rerun-failed` | run completed | new attempt re-running failed and cancelled jobs and their dependents; `debug` as above | `run.rerun`, and `job.debug` for `debug` |
-| `job.cancel` | job not completed | cancels this job only; dependents see `cancelled` | `run.cancel` |
+| `job.cancel` | job not completed | cancels this job only, or every member of a job group; dependents see `cancelled` | `run.cancel` |
 | `job.pause` | job not completed | before start: held back from dispatch; running: stops at the next step boundary | `run.control` |
 | `job.resume` | job `paused`, or `waiting` with reason `paused` | continues | `run.control` |
 | `job.skip` | job not started | completes it as `skipped`, source `operator`; dependents follow their `if` | `run.control` |

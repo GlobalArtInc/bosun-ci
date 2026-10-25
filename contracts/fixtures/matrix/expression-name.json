@@ -1,0 +1,38 @@
+{
+  "description": "a name with an expression is rendered with the member's matrix and gets no values in parentheses",
+  "name": "Build on ${{ matrix.os }} ${{ strategy.job-index }}/${{ strategy.job-total }}",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux",
+        "macos"
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "Build on linux 0/2",
+      "matrix": {
+        "os": "linux"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "Build on macos 1/2",
+      "matrix": {
+        "os": "macos"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    }
+  ]
+}

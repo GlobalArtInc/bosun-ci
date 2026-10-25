@@ -1,0 +1,52 @@
+{
+  "description": "a value that is one expression takes the type of its value, and any other text is a string",
+  "strategy": {
+    "matrix": {
+      "kind": [
+        "${{ github.event_name }}",
+        "x-${{ 'y' }}",
+        "${{ fromJSON('{\"a\": 1}') }}"
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (workflow_dispatch)",
+      "matrix": {
+        "kind": "workflow_dispatch"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 3,
+        "max-parallel": 3
+      }
+    },
+    {
+      "name": "test (x-y)",
+      "matrix": {
+        "kind": "x-y"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 3,
+        "max-parallel": 3
+      }
+    },
+    {
+      "name": "test (1)",
+      "matrix": {
+        "kind": {
+          "a": 1
+        }
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 2,
+        "job-total": 3,
+        "max-parallel": 3
+      }
+    }
+  ]
+}

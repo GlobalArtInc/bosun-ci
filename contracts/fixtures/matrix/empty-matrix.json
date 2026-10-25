@@ -1,0 +1,16 @@
+{
+  "description": "a matrix without a vector and without include fails the group",
+  "strategy": {
+    "matrix": {}
+  },
+  "error": {
+    "code": "invalid_value",
+    "message": "`strategy.matrix` of job `test` is empty, and a matrix needs a vector or an `include`",
+    "path": [
+      "jobs",
+      "test",
+      "strategy",
+      "matrix"
+    ]
+  }
+}

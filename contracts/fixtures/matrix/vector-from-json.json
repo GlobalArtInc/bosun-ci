@@ -1,0 +1,42 @@
+{
+  "description": "a vector computed by an expression takes the list the expression gives",
+  "outputs": {
+    "versions": "[\"3.12\", \"3.13\"]"
+  },
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux"
+      ],
+      "python": "${{ fromJSON(needs.setup.outputs.versions) }}"
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (linux, 3.12)",
+      "matrix": {
+        "os": "linux",
+        "python": "3.12"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "test (linux, 3.13)",
+      "matrix": {
+        "os": "linux",
+        "python": "3.13"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    }
+  ]
+}

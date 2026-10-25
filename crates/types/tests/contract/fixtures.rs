@@ -29,7 +29,7 @@ struct ActionCase {
     diagnostics: Vec<Diagnostic>,
 }
 
-const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github", "triggers"];
+const RUN_BY_OTHER_SUITES: &[&str] = &["expr", "github", "matrix", "triggers"];
 
 fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, String> {
     let typed: T = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
@@ -284,6 +284,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/execution-created.json", round_trip::<RunEvent>),
         ("events/execution-status.json", round_trip::<RunEvent>),
         ("events/job-created.json", round_trip::<RunEvent>),
+        ("events/job-created-member.json", round_trip::<RunEvent>),
         ("events/job-status.json", round_trip::<RunEvent>),
         ("events/run-created.json", round_trip::<RunEvent>),
         ("events/run-notice.json", round_trip::<RunEvent>),

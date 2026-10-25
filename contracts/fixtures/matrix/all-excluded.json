@@ -1,0 +1,25 @@
+{
+  "description": "a matrix whose every combination is excluded fails the group",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux"
+      ],
+      "exclude": [
+        {
+          "os": "linux"
+        }
+      ]
+    }
+  },
+  "error": {
+    "code": "invalid_value",
+    "message": "`strategy.matrix` of job `test` leaves no combination once `exclude` is applied",
+    "path": [
+      "jobs",
+      "test",
+      "strategy",
+      "matrix"
+    ]
+  }
+}

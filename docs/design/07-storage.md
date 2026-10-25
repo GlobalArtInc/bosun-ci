@@ -81,7 +81,7 @@ run          id, project_id, workflow_id, revision_id, ir jsonb, number, global_
              display_name, event, trigger jsonb, ref, sha, inputs jsonb, draft_id, derived_from,
              status, conclusion, cancel_requested_at, created_at, started_at, completed_at
 attempt      id, run_id, number, reason, actor jsonb, created_at
-job          id, attempt_id, key, name, group_id, matrix jsonb, needs text[], kind,
+job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, needs text[], kind,
              status, waiting_reason, conclusion, conclusion_source, continue_on_error,
              evaluated jsonb, outputs jsonb, priority, labels text[], pool_ids uuid[],
              pinned_agent_id, carried_from,
@@ -109,16 +109,26 @@ its rendered `name`, its `continue-on-error`, which the conclusion of the run re
 `defaults.run` does not set them. `labels` are lowercased; `pool_ids` are the pools the job may run
 in: the pool `runs-on.group` names, none when no pool has that name, and without a group every pool
 open to the project, which until pool access lists arrive in M1 is every pool. A job's `outputs` are
-the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then.
+the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then; a
+job group's are those of its members combined when it completes ([04-runs.md](04-runs.md#matrices)).
 A step's `outputs` are the outputs its agent reported in `StepFinished`, `{}` until then.
 
+A member of a job group is a row of its own with the template's key: `group_id` is the job of its
+group, which carries no foreign key since it is a reference inside one run, and `matrix` its
+combination as a JSON object. `strategy` is the `strategy` context of the job,
+`{"fail-fast", "job-index", "job-total", "max-parallel"}`, written when the member is created or,
+for a job whose strategy has no matrix, when the job is evaluated; it is `null` for a job without a
+strategy, which sees the context of a single job. Postgres keeps the keys of a `jsonb` object in an
+order of its own, so a member's `matrix` keeps its values but not their order, which named the
+member when it was created ([04-runs.md](04-runs.md#matrices)).
+
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
-`derived_from` of runs, `reason` of attempts, `group_id`, `matrix`, `kind`, `pinned_agent_id` and
-`carried_from` of jobs, `parent_step_id` of steps) arrive with their milestones as additive
-migrations; the display name of runs and the evaluated values and outputs of jobs arrived with the
-planner's expressions (step 15 of [../plan.md](../plan.md)), and the outputs of steps with the
-assignment of M1 (step 20). The indexes of the queue arrived with the claim (step 11
-of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
+`derived_from` of runs, `reason` of attempts, `kind`, `pinned_agent_id` and `carried_from` of jobs,
+`parent_step_id` of steps) arrive with their milestones as additive migrations; the display name of
+runs and the evaluated values and outputs of jobs arrived with the planner's expressions (step 15 of
+[../plan.md](../plan.md)), `group_id`, `matrix` and `strategy` of jobs with matrices (step 16), and
+the outputs of steps with the assignment of M1 (step 20). The indexes of the queue arrived with the
+claim (step 11 of [../plan.md](../plan.md)), as did the partial index on `execution (lease_until) where status =
 'assigned'` that the lease expiry reads. The partial index on `execution (completed_at) where status =
 'completed' and log_compacted_at is null` that the compaction of logs reads arrived with the logs
 (step 13).

@@ -1,0 +1,58 @@
+{
+  "description": "a matrix that expands to more than 256 jobs fails the group with the limit in the message",
+  "strategy": {
+    "matrix": {
+      "a": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "b": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "include": [
+        {
+          "a": 99
+        }
+      ]
+    }
+  },
+  "error": {
+    "code": "limit_exceeded",
+    "message": "`strategy.matrix` of job `test` expands to 257 jobs, and a matrix expands to at most 256",
+    "path": [
+      "jobs",
+      "test",
+      "strategy",
+      "matrix"
+    ]
+  }
+}

@@ -206,12 +206,17 @@ The planner evaluates the server's keys with these contexts:
 - `needs`, one property per job the job needs directly, each `{ result, outputs }`: `result` is
   `success`, `failure`, `cancelled` or `skipped`, where a job that failed or timed out under
   `continue-on-error` is `success` and one that timed out otherwise is `failure`, and `outputs` are
-  the outputs its agent reported for the names the job declares.
+  the outputs its agent reported for the names the job declares. A job group's result is the
+  conclusion of the group and its outputs those of its members combined
+  ([04-runs.md](04-runs.md#matrices)).
 - `bosun`, as above.
 - `env` in `defaults.run`, the job's `env` as the planner rendered it; the workflow's `env` joins
   it from step 20, which evaluates it.
-- `strategy` and `matrix` are `null` until matrices arrive (step 16). Every other context is `null`
-  on the server.
+- `strategy` and `matrix` of the job: for a member of a job group its combination and
+  `{"fail-fast", "job-index", "job-total", "max-parallel"}`, for a job without a matrix `null` and
+  the strategy of a single job ([04-runs.md](04-runs.md#matrices)). The properties of `matrix` are
+  in the order of their names, not in the order of the workflow. Every other context is `null` on the
+  server.
 
 ## Where each expression is evaluated
 

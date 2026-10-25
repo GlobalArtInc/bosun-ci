@@ -210,11 +210,15 @@ async fn a_dispatch_creates_the_run_its_first_attempt_its_pending_jobs_and_their
                 key: "build".parse().expect("a job key"),
                 name: "Build".to_owned(),
                 needs: Vec::new(),
+                group_id: None,
+                matrix: None,
             }),
             Event::JobCreated(JobCreated {
                 key: "test".parse().expect("a job key"),
                 name: "test".to_owned(),
                 needs: vec!["build".parse().expect("a job key")],
+                group_id: None,
+                matrix: None,
             }),
         ]
     );

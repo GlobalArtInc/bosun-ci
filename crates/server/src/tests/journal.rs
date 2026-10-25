@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::Duration;
 
 use bosun_types::command::Command;
-use bosun_types::event::Event;
+use bosun_types::event::{Event, JobStatusChanged};
 use bosun_types::id::{ExecutionId, JobId, RunId};
 use bosun_types::ir::{Evaluable, JobTemplate};
 use bosun_types::status::{
@@ -110,7 +110,7 @@ fn conditions() -> impl Strategy<Value = Condition> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Action {
+pub(super) enum Action {
     Assign(JobId),
     Accept(ExecutionId),
     StartStep(ExecutionId, u32),
@@ -331,7 +331,7 @@ async fn drive(world: &World, case: &Case) -> Result<(), TestCaseError> {
     Ok(())
 }
 
-async fn consistent(world: &World, run: RunId) -> Result<Projection, TestCaseError> {
+pub(super) async fn consistent(world: &World, run: RunId) -> Result<Projection, TestCaseError> {
     let projection = world.project(run).await;
     let replayed = replay(&world.journal(run).await).map_err(TestCaseError::fail)?;
     if replayed != projection {
@@ -378,7 +378,11 @@ fn actions(
     (progress, extra)
 }
 
-fn next_report(projection: &Projection, execution: ExecutionId, results: &[bool]) -> Action {
+pub(super) fn next_report(
+    projection: &Projection,
+    execution: ExecutionId,
+    results: &[bool],
+) -> Action {
     let steps = projection.steps_of(execution);
     if steps
         .iter()
@@ -409,7 +413,11 @@ fn index_of(key: &str) -> usize {
         .unwrap_or_else(|_| panic!("`{key}` is not a key of the case"))
 }
 
-async fn perform(world: &World, run: RunId, action: Action) -> Result<bool, TestCaseError> {
+pub(super) async fn perform(
+    world: &World,
+    run: RunId,
+    action: Action,
+) -> Result<bool, TestCaseError> {
     let db = world.db();
     let agent = world.agent();
     let reported = match action {
@@ -598,14 +606,7 @@ async fn conditions_decided(
     projection: &Projection,
     cancelled_at: Option<u64>,
 ) -> Result<(), TestCaseError> {
-    let concluded: HashMap<usize, Option<Conclusion>> = projection
-        .jobs
-        .values()
-        .map(|job| {
-            let index = index_of(&job.key);
-            (index, effective(case, &job.key, job.conclusion))
-        })
-        .collect();
+    let mut concluded: HashMap<usize, Conclusion> = HashMap::new();
     let mut targeted = HashSet::new();
     let mut decided = HashSet::new();
     for event in world.journal(run).await {
@@ -613,44 +614,71 @@ async fn conditions_decided(
             Event::CommandAccepted(accepted) if accepted.command.command == Command::JobCancel => {
                 targeted.extend(accepted.command.target.job);
             }
-            Event::JobStatusChanged(changed) if changed.from == JobStatus::Pending => {
+            Event::JobStatusChanged(changed) => {
                 let job = event
                     .job_id
                     .ok_or_else(|| TestCaseError::fail("a job.status without a job"))?;
-                if !decided.insert(job) {
-                    continue;
+                let key = &projection.jobs[&job].key;
+                let index = index_of(key);
+                if changed.from == JobStatus::Pending && decided.insert(job) {
+                    let decision = Decision {
+                        key,
+                        index,
+                        targeted: targeted.contains(&job),
+                        cancelling: cancelled_at.is_some_and(|cancelled| cancelled < event.seq),
+                    };
+                    decision.check(case, &concluded, changed)?;
                 }
-                let row = &projection.jobs[&job];
-                let index = index_of(&row.key);
-                let planned = &case.jobs[index];
-                let lineage = ancestors(case, index);
-                let succeeded = lineage
-                    .iter()
-                    .all(|ancestor| concluded[ancestor] == Some(Conclusion::Success));
-                let failed = lineage
-                    .iter()
-                    .any(|ancestor| concluded[ancestor] == Some(Conclusion::Failure));
-                let cancelling = cancelled_at.is_some_and(|cancelled| cancelled < event.seq);
-                let expected = planned.condition.holds(succeeded, failed, cancelling);
-                let cancelled = cancelling && (!planned.condition.calls_status() || !expected);
-                match (changed.to, changed.reason) {
-                    (JobStatus::Queued, None) if expected => {}
-                    (JobStatus::Completed, Some(StatusReason::IfFalse))
-                        if !expected && !cancelling => {}
-                    (JobStatus::Completed, Some(StatusReason::Command))
-                        if targeted.contains(&job) || cancelled => {}
-                    (to, reason) => {
-                        return Err(TestCaseError::fail(format!(
-                            "job `{}` with {:?} after ancestors that succeeded: {succeeded}, \
-                             failed: {failed}, while cancelling: {cancelling}, went to {to:?} \
-                             with {reason:?}",
-                            row.key, planned.condition
-                        )));
-                    }
+                if changed.to == JobStatus::Completed
+                    && let Some(conclusion) = effective(case, key, changed.conclusion)
+                {
+                    concluded.insert(index, conclusion);
                 }
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+struct Decision<'a> {
+    key: &'a str,
+    index: usize,
+    targeted: bool,
+    cancelling: bool,
+}
+
+impl Decision<'_> {
+    fn check(
+        &self,
+        case: &Case,
+        concluded: &HashMap<usize, Conclusion>,
+        changed: &JobStatusChanged,
+    ) -> Result<(), TestCaseError> {
+        let planned = &case.jobs[self.index];
+        let lineage = ancestors(case, self.index);
+        let succeeded = lineage
+            .iter()
+            .all(|ancestor| concluded.get(ancestor) == Some(&Conclusion::Success));
+        let failed = lineage
+            .iter()
+            .any(|ancestor| concluded.get(ancestor) == Some(&Conclusion::Failure));
+        let cancelling = self.cancelling;
+        let expected = planned.condition.holds(succeeded, failed, cancelling);
+        let cancelled = cancelling && (!planned.condition.calls_status() || !expected);
+        match (changed.to, changed.reason) {
+            (JobStatus::Queued, None) if expected => Ok(()),
+            (JobStatus::Completed, Some(StatusReason::IfFalse)) if !expected && !cancelling => {
+                Ok(())
+            }
+            (JobStatus::Completed, Some(StatusReason::Command)) if self.targeted || cancelled => {
+                Ok(())
+            }
+            (to, reason) => Err(TestCaseError::fail(format!(
+                "job `{}` with {:?} after ancestors that succeeded: {succeeded}, failed: \
+                 {failed}, while cancelling: {cancelling}, went to {to:?} with {reason:?}",
+                self.key, planned.condition
+            ))),
+        }
+    }
 }

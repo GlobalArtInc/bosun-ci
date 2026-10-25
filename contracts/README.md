@@ -36,6 +36,13 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
 - `fixtures/triggers/`: event matching, from step 5 of M1. Each file is a list of cases, each with a
   `description`, an `on` block written as JSON, an `event` (`name`, `action`, `ref`, `base_ref` and
   `changed_files`, each optional but the name) and whether it `matches`. `bosun-workflow` runs them.
+- `fixtures/matrix/`: the expansion of matrices, from step 16 of M1. Each case has a
+  `description`, the `strategy` of a job `test` written as JSON in the order of the workflow, and
+  maybe the job's `name` and the `outputs` of a job `setup` that `test` then needs. It expects
+  either the `jobs` the strategy expands to, in order, each with its display `name`, its `matrix`
+  and its `strategy` context, or the `error` that fails the group: its `code`, `message` and
+  `path`. A strategy without a matrix expects the job itself with `matrix` `null`. The server's
+  tests dispatch each case and compare the stored jobs.
 - `schema/workflow.json`: the JSON Schema of workflows with Bosun's extensions, from step 6 of M1.
   Every key of the tables of arrivals and of extensions in `docs/design/02-workflows.md` carries
   its milestone as `x-bosun-from`, and every extension `x-bosun-extension: true`.

@@ -178,9 +178,9 @@ The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-s
   `inputs.<name>`. A disabled workflow, and a current revision that this server's parser refuses,
   are `409 invalid_state`, the latter with its diagnostics. So is, until the planner applies it, a
   revision that uses a key the planner would otherwise ignore, so that a run never quietly differs
-  from its workflow: `strategy` until step 16 of [../plan.md](../plan.md), `concurrency` until step
-  17 and a step that uses an action until step 33, because the assignment carries no such step
-  before. The message names the key and the step that brings it.
+  from its workflow: `concurrency` until step 17 of [../plan.md](../plan.md) and a step that uses an
+  action until step 33, because the assignment carries no such step before. The message names the
+  key and the step that brings it.
 
 ### Commands
 
@@ -206,7 +206,10 @@ The mechanisms behind these endpoints are in [08-access.md](08-access.md#local-s
 - `GET /runs/{run}/attempts/{n}/jobs` lists the jobs of attempt `n` in the order they were
   created, as a cursor page without filters. A job carries `execution_id`, the id of its latest
   execution, or `null` while no agent has claimed it, and `outputs`, the outputs its agent reported
-  for the names the job declares, `{}` until then.
+  for the names the job declares, `{}` until then. A member of a job group carries the group's id
+  in `group_id` and its combination of the matrix in `matrix`; both are `null` for every other job,
+  and a group is the job that members name ([04-runs.md](04-runs.md#parts-of-a-run)), listed before
+  them.
 - `GET /jobs/{job}` answers with one job in the same shape, and `GET /executions/{execution}` with
   one execution and its `steps`, ordered by `index`, empty until the agent starts the job.
 - `{run}`, `{job}` and `{execution}` are ids. Any other segment, and an id of nothing, are

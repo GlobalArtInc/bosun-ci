@@ -1,0 +1,28 @@
+{
+  "description": "an exclude entry that names no vector fails the group",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux"
+      ],
+      "exclude": [
+        {
+          "os": "linux"
+        },
+        {
+          "arch": "arm64"
+        }
+      ]
+    }
+  },
+  "error": {
+    "code": "invalid_value",
+    "message": "`strategy.matrix` of job `test` names `arch` in entry 2 of `exclude`, which is no vector of the matrix",
+    "path": [
+      "jobs",
+      "test",
+      "strategy",
+      "matrix"
+    ]
+  }
+}

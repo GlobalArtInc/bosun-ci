@@ -1,0 +1,19 @@
+{
+  "description": "a strategy without a matrix leaves a single job that sees the strategy",
+  "strategy": {
+    "fail-fast": false,
+    "max-parallel": 3
+  },
+  "jobs": [
+    {
+      "name": "test",
+      "matrix": null,
+      "strategy": {
+        "fail-fast": false,
+        "job-index": 0,
+        "job-total": 1,
+        "max-parallel": 3
+      }
+    }
+  ]
+}

@@ -210,8 +210,9 @@ documents beside it, which the agent reads with every field it does not know ref
 - `contexts`, an object with the server's contexts `github`, `needs`, `strategy`, `matrix`,
   `inputs`, `vars`, `secrets` and `bosun`, built for the job as
   [03-expressions.md](03-expressions.md#the-contexts-the-server-supplies) describes. `github.workspace`
-  is empty there, and the agent fills it in with the job's workspace; `strategy` and `matrix` are
-  `null` until matrices arrive (step 16 of [../plan.md](../plan.md));
+  is empty there, and the agent fills it in with the job's workspace; `strategy` and `matrix` are the
+  job's as the server evaluated them ([04-runs.md](04-runs.md#matrices)): the strategy of a single
+  job and `null` for a job without a matrix;
 - `evaluated`, the values the server evaluated: `env`, `shell` and `working_directory` of
   `defaults.run`, `timeout_minutes` and `continue_on_error`. `env` is the workflow's `env`,
   evaluated when the job is assigned with the contexts that key sees

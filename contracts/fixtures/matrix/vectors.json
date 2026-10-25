@@ -1,0 +1,69 @@
+{
+  "description": "the vectors combine in their order, the first varying slowest, and each member is named with its values",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "node": [
+        20,
+        22.5
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (linux, 20)",
+      "matrix": {
+        "os": "linux",
+        "node": 20
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    },
+    {
+      "name": "test (linux, 22.5)",
+      "matrix": {
+        "os": "linux",
+        "node": 22.5
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    },
+    {
+      "name": "test (macos, 20)",
+      "matrix": {
+        "os": "macos",
+        "node": 20
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 2,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    },
+    {
+      "name": "test (macos, 22.5)",
+      "matrix": {
+        "os": "macos",
+        "node": 22.5
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 3,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    }
+  ]
+}

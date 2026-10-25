@@ -578,6 +578,21 @@ async fn every_runtime_notice_code_is_in_the_table_of_the_design() {
             "invalid_value",
         ),
         (job("    runs-on: ${{ fromJSON('[1]') }}\n"), "invalid_type"),
+        (
+            job(&format!(
+                "    runs-on: self-hosted\n    strategy:\n      matrix:\n        a: [{}]\n        \
+                 b: [{}]\n",
+                (0..16)
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                (0..17)
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            "limit_exceeded",
+        ),
         (job("    runs-on: ${{ '' }}\n"), "invalid_value"),
         (
             job(

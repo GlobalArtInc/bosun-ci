@@ -257,7 +257,7 @@ pub(crate) async fn assignment(
     if state.status != ExecutionStatus::Assigned {
         return Ok(None);
     }
-    let assigned = planner::assign(&mut run, site, execution, &claimed.key, &claimed.env).await?;
+    let assigned = planner::assign(&mut run, site, execution, claimed.job_id, &claimed.env).await?;
     transaction.commit().await?;
     match assigned {
         Some(assigned) => offer(claimed, assigned).map(Some),

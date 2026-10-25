@@ -1,13 +1,12 @@
 use axum::Extension;
 use axum::extract::State;
-use bosun_db::control::{self, Kind};
 use bosun_db::runs::{JobState, Locked};
 use bosun_types::actor::Actor;
 use bosun_types::command::{Command, CommandRequest};
 use bosun_types::error::ErrorCode;
 use bosun_types::event::{CommandAccepted, CommandRefused, Event, RunEvent};
 use bosun_types::id::RunId;
-use bosun_types::status::{Conclusion, JobStatus, RunStatus, StatusReason};
+use bosun_types::status::{JobStatus, RunStatus, StatusReason};
 use sea_orm::TransactionTrait;
 
 use crate::auth::Principal;
@@ -93,9 +92,11 @@ pub(crate) async fn apply(
             let accepted = accept(run, None, actor, request).await?;
             run.request_cancel().await.map_err(database)?;
             let workflow = run.ir().await.map_err(database)?;
+            let expanded = planner::expanded(&jobs);
             for job in &jobs {
                 if job.status == JobStatus::Pending
-                    && planner::admits_cancellation(&workflow, &job.key)
+                    && (expanded.contains(&job.id)
+                        || planner::admits_cancellation(&workflow, &job.key))
                 {
                     continue;
                 }
@@ -120,7 +121,16 @@ pub(crate) async fn apply(
                 .await;
             }
             let accepted = accept(run, Some(job), actor, request).await?;
-            cancel(run, job, actor).await.map_err(database)?;
+            let members: Vec<&JobState> = jobs
+                .iter()
+                .filter(|member| member.group == Some(job.id))
+                .collect();
+            if members.is_empty() {
+                cancel(run, job, actor).await.map_err(database)?;
+            }
+            for member in members {
+                cancel(run, member, actor).await.map_err(database)?;
+            }
             planner::plan(run, site).await.map_err(database)?;
             Ok(Applied::Accepted(Box::new(accepted)))
         }
@@ -223,35 +233,9 @@ async fn refuse(
 }
 
 async fn cancel(run: &Locked<'_>, job: &JobState, actor: &Actor) -> Result<(), bosun_db::Error> {
-    match job.status {
-        JobStatus::Completed => Ok(()),
-        JobStatus::Pending | JobStatus::Waiting | JobStatus::Queued => {
-            run.complete_job(
-                job.id,
-                Conclusion::Cancelled,
-                Some(StatusReason::Command),
-                actor,
-            )
-            .await
-        }
-        JobStatus::Assigned | JobStatus::InProgress | JobStatus::Paused | JobStatus::Held => {
-            let execution = job.execution.as_ref().ok_or_else(|| bosun_db::Error::Row {
-                table: "job",
-                message: format!("job {} is on an agent without an execution", job.id),
-            })?;
-            if job.status == JobStatus::Assigned {
-                run.finish_execution(
-                    execution.id,
-                    Conclusion::Cancelled,
-                    Some(StatusReason::Command),
-                    actor,
-                )
-                .await?;
-            }
-            control::publish(run.transaction(), execution.id, Kind::Cancel).await?;
-            Ok(())
-        }
-    }
+    planner::stop(run, job, StatusReason::Command, actor)
+        .await
+        .map(|_| ())
 }
 
 fn name(command: &Command) -> &'static str {

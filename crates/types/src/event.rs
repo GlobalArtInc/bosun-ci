@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::actor::Actor;
 use crate::command::CommandRequest;
@@ -94,6 +97,8 @@ pub struct JobCreated {
     pub key: JobKey,
     pub name: String,
     pub needs: Vec<JobKey>,
+    pub group_id: Option<JobId>,
+    pub matrix: Option<BTreeMap<String, Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

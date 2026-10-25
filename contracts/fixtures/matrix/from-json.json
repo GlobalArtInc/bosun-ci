@@ -1,0 +1,36 @@
+{
+  "description": "a matrix computed from the output of a job it needs expands when that job is complete",
+  "outputs": {
+    "matrix": "{\"os\": [\"linux\", \"macos\"], \"include\": [{\"os\": \"linux\", \"shard\": 1}]}"
+  },
+  "strategy": {
+    "matrix": "${{ fromJSON(needs.setup.outputs.matrix) }}"
+  },
+  "jobs": [
+    {
+      "name": "test (linux, 1)",
+      "matrix": {
+        "os": "linux",
+        "shard": 1
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "test (macos)",
+      "matrix": {
+        "os": "macos"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    }
+  ]
+}

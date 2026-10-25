@@ -1,0 +1,19 @@
+{
+  "description": "a vector computed by an expression that gives no list fails the group",
+  "strategy": {
+    "matrix": {
+      "os": "${{ github.event_name }}"
+    }
+  },
+  "error": {
+    "code": "invalid_type",
+    "message": "`strategy.matrix.os` of job `test` must be a list, and its expression gives a string",
+    "path": [
+      "jobs",
+      "test",
+      "strategy",
+      "matrix",
+      "os"
+    ]
+  }
+}

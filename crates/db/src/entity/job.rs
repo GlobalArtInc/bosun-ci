@@ -8,6 +8,11 @@ pub struct Model {
     pub attempt_id: Uuid,
     pub key: String,
     pub name: String,
+    pub group_id: Option<Uuid>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub matrix: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub strategy: Option<Json>,
     pub needs: Vec<String>,
     pub status: String,
     pub waiting_reason: Option<String>,

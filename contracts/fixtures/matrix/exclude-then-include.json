@@ -1,0 +1,83 @@
+{
+  "description": "include applies after exclude, so it can add back a combination that exclude removed",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "node": [
+        20,
+        22
+      ],
+      "exclude": [
+        {
+          "os": "macos",
+          "node": 20
+        }
+      ],
+      "include": [
+        {
+          "os": "macos",
+          "node": 20,
+          "legacy": true
+        }
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (linux, 20)",
+      "matrix": {
+        "os": "linux",
+        "node": 20
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    },
+    {
+      "name": "test (linux, 22)",
+      "matrix": {
+        "os": "linux",
+        "node": 22
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    },
+    {
+      "name": "test (macos, 22)",
+      "matrix": {
+        "os": "macos",
+        "node": 22
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 2,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    },
+    {
+      "name": "test (macos, 20, true)",
+      "matrix": {
+        "os": "macos",
+        "node": 20,
+        "legacy": true
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 3,
+        "job-total": 4,
+        "max-parallel": 4
+      }
+    }
+  ]
+}

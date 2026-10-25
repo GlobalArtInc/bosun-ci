@@ -178,6 +178,11 @@ fn decode_job(job: job::Model, run: RunId, execution: Option<ExecutionId>) -> Re
         attempt_id: row::id("job", job.attempt_id)?,
         key: row::name("job", job.key)?,
         name: job.name,
+        group_id: row::optional_id("job", job.group_id)?,
+        matrix: job
+            .matrix
+            .map(|matrix| row::json("job", matrix))
+            .transpose()?,
         needs: job
             .needs
             .into_iter()

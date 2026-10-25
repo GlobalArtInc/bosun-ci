@@ -1,0 +1,120 @@
+{
+  "description": "an include entry extends every combination it matches without overwriting an original value, a later entry overwrites a value an earlier one added, and an entry that matches none adds a combination",
+  "strategy": {
+    "matrix": {
+      "fruit": [
+        "apple",
+        "pear"
+      ],
+      "animal": [
+        "cat",
+        "dog"
+      ],
+      "include": [
+        {
+          "color": "green"
+        },
+        {
+          "color": "pink",
+          "animal": "cat"
+        },
+        {
+          "fruit": "apple",
+          "shape": "circle"
+        },
+        {
+          "fruit": "banana"
+        },
+        {
+          "fruit": "banana",
+          "animal": "cat"
+        }
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (apple, cat, pink, circle)",
+      "matrix": {
+        "fruit": "apple",
+        "animal": "cat",
+        "color": "pink",
+        "shape": "circle"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 6,
+        "max-parallel": 6
+      }
+    },
+    {
+      "name": "test (apple, dog, green, circle)",
+      "matrix": {
+        "fruit": "apple",
+        "animal": "dog",
+        "color": "green",
+        "shape": "circle"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 6,
+        "max-parallel": 6
+      }
+    },
+    {
+      "name": "test (pear, cat, pink)",
+      "matrix": {
+        "fruit": "pear",
+        "animal": "cat",
+        "color": "pink"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 2,
+        "job-total": 6,
+        "max-parallel": 6
+      }
+    },
+    {
+      "name": "test (pear, dog, green)",
+      "matrix": {
+        "fruit": "pear",
+        "animal": "dog",
+        "color": "green"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 3,
+        "job-total": 6,
+        "max-parallel": 6
+      }
+    },
+    {
+      "name": "test (banana)",
+      "matrix": {
+        "fruit": "banana"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 4,
+        "job-total": 6,
+        "max-parallel": 6
+      }
+    },
+    {
+      "name": "test (banana, cat)",
+      "matrix": {
+        "fruit": "banana",
+        "animal": "cat"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 5,
+        "job-total": 6,
+        "max-parallel": 6
+      }
+    }
+  ]
+}

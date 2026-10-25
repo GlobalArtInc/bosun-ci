@@ -201,6 +201,7 @@ pub enum StatusReason {
     IfFalse,
     EvaluationFailed,
     Command,
+    FailFast,
     LeaseExpired,
     RejectedByAgent,
     NoAgent,
@@ -209,10 +210,11 @@ pub enum StatusReason {
 }
 
 impl StatusReason {
-    pub const ALL: [StatusReason; 8] = [
+    pub const ALL: [StatusReason; 9] = [
         StatusReason::IfFalse,
         StatusReason::EvaluationFailed,
         StatusReason::Command,
+        StatusReason::FailFast,
         StatusReason::LeaseExpired,
         StatusReason::RejectedByAgent,
         StatusReason::NoAgent,

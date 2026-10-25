@@ -1,0 +1,43 @@
+{
+  "description": "a matrix of include entries alone has one combination per entry",
+  "strategy": {
+    "matrix": {
+      "include": [
+        {
+          "os": "linux",
+          "arch": "x64"
+        },
+        {
+          "os": "macos"
+        }
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (linux, x64)",
+      "matrix": {
+        "os": "linux",
+        "arch": "x64"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "test (macos)",
+      "matrix": {
+        "os": "macos"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    }
+  ]
+}

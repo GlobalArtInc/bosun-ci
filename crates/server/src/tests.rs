@@ -2,6 +2,7 @@ mod cancel;
 mod evaluation;
 mod journal;
 mod logs;
+mod matrix;
 mod openapi;
 mod planning;
 mod queue;
@@ -159,15 +160,32 @@ impl World {
 
     async fn finish(&self, run: RunId, key: &str, end: JobEnd) {
         let (job, _) = self.project(run).await.job(key);
+        self.finish_job(run, job, end).await;
+    }
+
+    async fn start(&self, run: RunId, job: JobId) -> ExecutionId {
         let execution = self.assign(run, job).await;
         let accepted = progress::accepted(self.db(), &self.agent, execution, &site())
             .await
             .expect("an acceptance");
-        assert_eq!(accepted, Progress::Applied, "{key} was not accepted");
+        assert_eq!(accepted, Progress::Applied, "job {job} was not accepted");
+        execution
+    }
+
+    async fn end(&self, execution: ExecutionId, end: JobEnd) {
         let finished = progress::job_finished(self.db(), &self.agent, execution, end, &site())
             .await
             .expect("a finished job");
-        assert_eq!(finished, Progress::Applied, "{key} did not finish");
+        assert_eq!(
+            finished,
+            Progress::Applied,
+            "execution {execution} did not finish"
+        );
+    }
+
+    async fn finish_job(&self, run: RunId, job: JobId, end: JobEnd) {
+        let execution = self.start(run, job).await;
+        self.end(execution, end).await;
     }
 
     async fn run(&self, run: RunId) -> Run {
@@ -263,6 +281,7 @@ impl World {
                         id(job.id),
                         JobRow {
                             key: job.key,
+                            group: job.group_id.map(id),
                             status: name(&job.status),
                             waiting_reason: job.waiting_reason.as_deref().map(name),
                             conclusion: job.conclusion.as_deref().map(name),
@@ -335,6 +354,7 @@ struct RunRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct JobRow {
     key: String,
+    group: Option<JobId>,
     status: JobStatus,
     waiting_reason: Option<WaitingReason>,
     conclusion: Option<Conclusion>,
@@ -430,6 +450,7 @@ fn apply(projection: &mut Projection, event: &RunEvent) -> Result<(), String> {
             let job = event.job_id.ok_or("job.created without a job")?;
             let fresh = JobRow {
                 key: created.key.to_string(),
+                group: created.group_id,
                 status: JobStatus::Pending,
                 waiting_reason: None,
                 conclusion: None,

@@ -1,0 +1,52 @@
+{
+  "description": "fail-fast and max-parallel are the same in the strategy context of every member",
+  "strategy": {
+    "fail-fast": false,
+    "max-parallel": 2,
+    "matrix": {
+      "shard": [
+        1,
+        2,
+        3
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (1)",
+      "matrix": {
+        "shard": 1
+      },
+      "strategy": {
+        "fail-fast": false,
+        "job-index": 0,
+        "job-total": 3,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "test (2)",
+      "matrix": {
+        "shard": 2
+      },
+      "strategy": {
+        "fail-fast": false,
+        "job-index": 1,
+        "job-total": 3,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "test (3)",
+      "matrix": {
+        "shard": 3
+      },
+      "strategy": {
+        "fail-fast": false,
+        "job-index": 2,
+        "job-total": 3,
+        "max-parallel": 2
+      }
+    }
+  ]
+}

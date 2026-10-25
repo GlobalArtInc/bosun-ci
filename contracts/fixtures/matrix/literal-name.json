@@ -1,0 +1,38 @@
+{
+  "description": "a name without an expression is followed by the values of the member in parentheses",
+  "name": "Build",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux",
+        "macos"
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "Build (linux)",
+      "matrix": {
+        "os": "linux"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "Build (macos)",
+      "matrix": {
+        "os": "macos"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    }
+  ]
+}

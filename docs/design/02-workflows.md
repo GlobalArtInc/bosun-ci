@@ -424,6 +424,10 @@ the first two.
 - `timeout-minutes` and `max-parallel` take whole numbers. The target truncates a fraction such as
   `0.5` to `0`, which for a step means no timeout at all; Bosun refuses it with `invalid_value`
   instead.
+- The `matrix` context lists the properties of a member in the order of their names, since the
+  member's combination is stored as a JSON object ([07-storage.md](07-storage.md)), rather than in
+  the order of the workflow; it shows only in `toJSON(matrix)` and `matrix.*`, and the member's
+  name keeps the order of the workflow.
 
 ## Extensions
 

@@ -1,0 +1,56 @@
+{
+  "description": "an include entry that would change an original value of every combination adds a combination of its own",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "include": [
+        {
+          "os": "windows",
+          "experimental": true
+        }
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (linux)",
+      "matrix": {
+        "os": "linux"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 3,
+        "max-parallel": 3
+      }
+    },
+    {
+      "name": "test (macos)",
+      "matrix": {
+        "os": "macos"
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 3,
+        "max-parallel": 3
+      }
+    },
+    {
+      "name": "test (windows, true)",
+      "matrix": {
+        "os": "windows",
+        "experimental": true
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 2,
+        "job-total": 3,
+        "max-parallel": 3
+      }
+    }
+  ]
+}

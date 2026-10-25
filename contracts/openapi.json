@@ -660,6 +660,13 @@
               "null"
             ]
           },
+          "group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -673,6 +680,13 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "matrix": {
+            "additionalProperties": true,
+            "type": [
+              "object",
+              "null"
+            ]
           },
           "name": {
             "type": "string"
@@ -728,6 +742,8 @@
           "attempt_id",
           "key",
           "name",
+          "group_id",
+          "matrix",
           "needs",
           "labels",
           "status",
@@ -744,9 +760,23 @@
       },
       "JobCreated": {
         "properties": {
+          "group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "key": {
             "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
             "type": "string"
+          },
+          "matrix": {
+            "additionalProperties": true,
+            "type": [
+              "object",
+              "null"
+            ]
           },
           "name": {
             "type": "string"
@@ -762,7 +792,9 @@
         "required": [
           "key",
           "name",
-          "needs"
+          "needs",
+          "group_id",
+          "matrix"
         ],
         "type": "object"
       },
@@ -1675,6 +1707,7 @@
           "if_false",
           "evaluation_failed",
           "command",
+          "fail_fast",
           "lease_expired",
           "rejected_by_agent",
           "no_agent",

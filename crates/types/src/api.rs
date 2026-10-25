@@ -217,6 +217,8 @@ pub struct Job {
     pub attempt_id: AttemptId,
     pub key: JobKey,
     pub name: String,
+    pub group_id: Option<JobId>,
+    pub matrix: Option<BTreeMap<String, Value>>,
     pub needs: Vec<JobKey>,
     pub labels: Vec<String>,
     pub status: JobStatus,

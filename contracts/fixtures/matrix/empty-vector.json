@@ -1,0 +1,22 @@
+{
+  "description": "an empty vector fails the group and names the vector",
+  "strategy": {
+    "matrix": {
+      "os": [
+        "linux"
+      ],
+      "node": []
+    }
+  },
+  "error": {
+    "code": "invalid_value",
+    "message": "`strategy.matrix.node` of job `test` is an empty vector, and every vector of a matrix needs a value",
+    "path": [
+      "jobs",
+      "test",
+      "strategy",
+      "matrix",
+      "node"
+    ]
+  }
+}

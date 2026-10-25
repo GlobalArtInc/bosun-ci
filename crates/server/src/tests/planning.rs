@@ -298,18 +298,11 @@ fn keys_the_planner_does_not_apply_yet_are_named_with_the_step_that_brings_them(
             .workflow;
         planner::unapplied(&ir)
     };
-    let cases = [
-        (
-            "    strategy:\n      matrix:\n        os: [linux]\n",
-            "`strategy` of job `build`",
-            16,
-        ),
-        (
-            "    concurrency: deploy\n",
-            "`concurrency` of job `build`",
-            17,
-        ),
-    ];
+    let cases = [(
+        "    concurrency: deploy\n",
+        "`concurrency` of job `build`",
+        17,
+    )];
     for (keys, what, step) in cases {
         assert_eq!(
             job(keys),
@@ -322,7 +315,8 @@ fn keys_the_planner_does_not_apply_yet_are_named_with_the_step_that_brings_them(
     assert_eq!(
         job(
             "    if: github.ref == 'refs/heads/main'\n    continue-on-error: ${{ true }}\n    \
-             timeout-minutes: 10\n    env:\n      A: ${{ github.sha }}\n"
+             timeout-minutes: 10\n    env:\n      A: ${{ github.sha }}\n    strategy:\n      \
+             matrix:\n        os: [linux]\n"
         ),
         None
     );

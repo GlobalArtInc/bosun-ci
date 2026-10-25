@@ -97,6 +97,24 @@ pub async fn publish<C: TransactionTrait>(
     })
 }
 
+pub async fn sent<C: ConnectionTrait>(
+    db: &C,
+    execution: ExecutionId,
+    kind: Kind,
+) -> Result<bool, Error> {
+    let found = db
+        .query_one(statement(
+            "SELECT EXISTS (SELECT 1 FROM control_message WHERE execution_id = $1 AND kind = $2) \
+             AS sent",
+            [Uuid::from(execution).into(), kind.name().into()],
+        ))
+        .await?;
+    Ok(found
+        .map(|found| found.try_get::<bool>("", "sent"))
+        .transpose()?
+        .unwrap_or(false))
+}
+
 pub async fn find_pending<C: ConnectionTrait>(db: &C, id: Uuid) -> Result<Option<Control>, Error> {
     db.query_one(statement(
         "SELECT c.id, e.agent_id, c.execution_id, c.kind FROM control_message c \

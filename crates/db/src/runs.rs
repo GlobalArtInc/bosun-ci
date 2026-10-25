@@ -10,7 +10,9 @@ use bosun_types::event::{
 use bosun_types::id::{AgentId, AttemptId, ExecutionId, JobId, RevisionId, RunId, StepId};
 use bosun_types::ir::{self, Shell, Template};
 use bosun_types::key::JobKey;
-use bosun_types::status::{Conclusion, ExecutionStatus, JobStatus, RunConclusion, RunStatus};
+use bosun_types::status::{
+    Conclusion, ExecutionStatus, JobStatus, RunConclusion, RunStatus, WaitingReason,
+};
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
@@ -50,13 +52,35 @@ pub struct RunState {
 pub struct JobState {
     pub id: JobId,
     pub key: JobKey,
+    pub name: String,
     pub needs: Vec<JobKey>,
+    pub group: Option<JobId>,
+    pub matrix: Option<BTreeMap<String, Value>>,
+    pub strategy: Option<Strategy>,
     pub status: JobStatus,
+    pub waiting_reason: Option<WaitingReason>,
     pub conclusion: Option<Conclusion>,
     pub continue_on_error: bool,
     pub outputs: BTreeMap<String, String>,
     pub started: bool,
+    pub completed_at: Option<DateTimeUtc>,
     pub execution: Option<ExecutionState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct Strategy {
+    pub fail_fast: bool,
+    pub job_index: u32,
+    pub job_total: u32,
+    pub max_parallel: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewMember {
+    pub name: String,
+    pub matrix: BTreeMap<String, Value>,
+    pub strategy: Strategy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -204,8 +228,9 @@ impl<'a> Locked<'a> {
     pub async fn jobs(&self) -> Result<Vec<JobState>, Error> {
         self.transaction
             .query_all(statement(
-                "SELECT j.id, j.key, j.needs, j.status, j.conclusion, j.continue_on_error, \
-                 j.outputs, j.started_at IS NOT NULL AS started, e.id AS execution_id, e.agent_id, \
+                "SELECT j.id, j.key, j.name, j.needs, j.group_id, j.matrix, j.strategy, j.status, \
+                 j.waiting_reason, j.conclusion, j.continue_on_error, j.outputs, \
+                 j.started_at IS NOT NULL AS started, j.completed_at, e.id AS execution_id, e.agent_id, \
                  e.status AS execution_status, e.online AS agent_online FROM job j \
                  LEFT JOIN LATERAL (SELECT x.id, x.agent_id, x.status, g.online \
                  FROM execution x JOIN agent g ON g.id = x.agent_id WHERE x.job_id = j.id \
@@ -419,12 +444,26 @@ fn decode_job(found: &QueryResult) -> Result<JobState, Error> {
     Ok(JobState {
         id,
         key: row::name("job", found.try_get("", "key")?)?,
+        name: found.try_get("", "name")?,
         needs: found
             .try_get::<Vec<String>>("", "needs")?
             .into_iter()
             .map(|need| row::name("job", need))
             .collect::<Result<Vec<JobKey>, Error>>()?,
+        group: row::optional_id("job", found.try_get("", "group_id")?)?,
+        matrix: found
+            .try_get::<Option<Value>>("", "matrix")?
+            .map(|matrix| row::json("job", matrix))
+            .transpose()?,
+        strategy: found
+            .try_get::<Option<Value>>("", "strategy")?
+            .map(|strategy| row::json("job", strategy))
+            .transpose()?,
         status: row::name("job", found.try_get("", "status")?)?,
+        waiting_reason: found
+            .try_get::<Option<String>>("", "waiting_reason")?
+            .map(|reason| row::name("job", reason))
+            .transpose()?,
         conclusion: found
             .try_get::<Option<String>>("", "conclusion")?
             .map(|conclusion| row::name("job", conclusion))
@@ -432,6 +471,7 @@ fn decode_job(found: &QueryResult) -> Result<JobState, Error> {
         continue_on_error: found.try_get("", "continue_on_error")?,
         outputs: row::json("job", found.try_get::<Value>("", "outputs")?)?,
         started: found.try_get("", "started")?,
+        completed_at: found.try_get("", "completed_at")?,
         execution,
     })
 }
@@ -554,6 +594,8 @@ pub async fn dispatch<C: ConnectionTrait>(db: &C, new: NewRun<'_>) -> Result<Run
                 key: template.key.clone(),
                 name,
                 needs: template.needs.clone(),
+                group_id: None,
+                matrix: None,
             }),
         )
         .await?;

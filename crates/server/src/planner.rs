@@ -1,27 +1,40 @@
+mod matrix;
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bosun_db::Error;
-use bosun_db::runs::{Evaluated, JobState, Locked, NewRun, RunFacts};
+use bosun_db::control::{self, Kind};
+use bosun_db::runs::{Evaluated, JobState, Locked, NewRun, RunFacts, Strategy};
 use bosun_expr::{Context, Scope, Status, Value};
 use bosun_proto::assignment;
 use bosun_types::actor::Actor;
 use bosun_types::api::Run;
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
-use bosun_types::id::ExecutionId;
+use bosun_types::id::{ExecutionId, JobId};
 use bosun_types::ir::{self, Evaluable, JobTemplate, Segment, Shell, Span, Template};
 use bosun_types::key::JobKey;
-use bosun_types::status::{Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason};
+use bosun_types::status::{
+    Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason, WaitingReason,
+};
 use bosun_workflow::github::{self, Account, Facts, WorkflowFile};
 use sea_orm::DatabaseTransaction;
 use serde_json::{Map, json};
 
 use crate::site::Site;
+use matrix::Expansion;
 
 const LOG_RETENTION_DAYS: u32 = 90;
 
 const INVALID_TYPE: &str = "invalid_type";
 
 const INVALID_VALUE: &str = "invalid_value";
+
+const SINGLE: Strategy = Strategy {
+    fail_fast: true,
+    job_index: 0,
+    job_total: 1,
+    max_parallel: 1,
+};
 
 pub(crate) async fn dispatch(
     transaction: &DatabaseTransaction,
@@ -57,18 +70,177 @@ pub(crate) async fn plan(run: &mut Locked<'_>, site: &Site) -> Result<(), Error>
 
 async fn planned(run: &mut Locked<'_>, site: &Site, mut world: Option<World>) -> Result<(), Error> {
     let mut jobs = run.jobs().await?;
-    while let Some(index) = ready(&jobs) {
+    loop {
+        if advance(run, &jobs).await? {
+            jobs = run.jobs().await?;
+            continue;
+        }
+        let Some(index) = ready(&jobs) else {
+            break;
+        };
         let world = match &world {
             Some(world) => world,
             None => world.insert(World::load(run, site).await?),
         };
-        let decided = decide(run, world, &jobs, index).await?;
-        let job = &mut jobs[index];
-        job.status = decided.status;
-        job.conclusion = decided.conclusion;
-        job.continue_on_error = decided.continue_on_error;
+        match decide(run, world, &jobs, index).await? {
+            Some(decided) => {
+                let job = &mut jobs[index];
+                job.status = decided.status;
+                job.waiting_reason = decided.waiting_reason;
+                job.conclusion = decided.conclusion;
+                job.continue_on_error = decided.continue_on_error;
+            }
+            None => jobs = run.jobs().await?,
+        }
     }
     settle(run, &jobs).await
+}
+
+pub(crate) fn expanded(jobs: &[JobState]) -> HashSet<JobId> {
+    jobs.iter().filter_map(|job| job.group).collect()
+}
+
+pub(crate) async fn stop(
+    run: &Locked<'_>,
+    job: &JobState,
+    reason: StatusReason,
+    actor: &Actor,
+) -> Result<bool, Error> {
+    match job.status {
+        JobStatus::Completed => Ok(false),
+        JobStatus::Pending | JobStatus::Waiting | JobStatus::Queued => {
+            run.complete_job(job.id, Conclusion::Cancelled, Some(reason), actor)
+                .await?;
+            Ok(true)
+        }
+        JobStatus::Assigned | JobStatus::InProgress | JobStatus::Paused | JobStatus::Held => {
+            let execution = job.execution.as_ref().ok_or_else(|| Error::Row {
+                table: "job",
+                message: format!("job {} is on an agent without an execution", job.id),
+            })?;
+            let mut stopped = false;
+            if job.status == JobStatus::Assigned {
+                run.finish_execution(execution.id, Conclusion::Cancelled, Some(reason), actor)
+                    .await?;
+                stopped = true;
+            }
+            if !control::sent(run.transaction(), execution.id, Kind::Cancel).await? {
+                control::publish(run.transaction(), execution.id, Kind::Cancel).await?;
+                stopped = true;
+            }
+            Ok(stopped)
+        }
+    }
+}
+
+async fn advance(run: &Locked<'_>, jobs: &[JobState]) -> Result<bool, Error> {
+    let mut groups: BTreeMap<JobId, Vec<&JobState>> = BTreeMap::new();
+    for job in jobs {
+        if let Some(group) = job.group {
+            groups.entry(group).or_default().push(job);
+        }
+    }
+    for (group, mut members) in groups {
+        if jobs
+            .iter()
+            .any(|job| job.id == group && job.status == JobStatus::Completed)
+        {
+            continue;
+        }
+        members.sort_by_key(|member| member.strategy.map(|strategy| strategy.job_index));
+        if members
+            .iter()
+            .all(|member| member.status == JobStatus::Completed)
+        {
+            let (conclusion, outputs) = concluded(&members);
+            run.complete_group(group, conclusion, &outputs).await?;
+            return Ok(true);
+        }
+        let Some(strategy) = members.iter().find_map(|member| member.strategy) else {
+            continue;
+        };
+        if strategy.fail_fast && members.iter().any(|member| failed(member)) {
+            let mut stopped = false;
+            for member in &members {
+                stopped |= stop(run, member, StatusReason::FailFast, &Actor::System).await?;
+            }
+            if stopped {
+                return Ok(true);
+            }
+            continue;
+        }
+        let room = usize::try_from(strategy.max_parallel)
+            .unwrap_or(usize::MAX)
+            .saturating_sub(active(&members));
+        let held: Vec<JobId> = members
+            .iter()
+            .filter(|member| {
+                member.status == JobStatus::Waiting
+                    && member.waiting_reason == Some(WaitingReason::MaxParallel)
+            })
+            .take(room)
+            .map(|member| member.id)
+            .collect();
+        for member in &held {
+            run.release_job(*member).await?;
+        }
+        if !held.is_empty() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn active(members: &[&JobState]) -> usize {
+    members
+        .iter()
+        .filter(|member| {
+            matches!(
+                member.status,
+                JobStatus::Queued
+                    | JobStatus::Assigned
+                    | JobStatus::InProgress
+                    | JobStatus::Paused
+                    | JobStatus::Held
+            )
+        })
+        .count()
+}
+
+fn failed(job: &JobState) -> bool {
+    matches!(
+        job.conclusion,
+        Some(Conclusion::Failure | Conclusion::TimedOut)
+    ) && !job.continue_on_error
+}
+
+fn concluded(members: &[&JobState]) -> (Conclusion, BTreeMap<String, String>) {
+    let conclusion = if members.iter().any(|member| failed(member)) {
+        Conclusion::Failure
+    } else if members
+        .iter()
+        .any(|member| member.conclusion == Some(Conclusion::Cancelled))
+    {
+        Conclusion::Cancelled
+    } else {
+        Conclusion::Success
+    };
+    let mut finished = members.to_vec();
+    finished.sort_by_key(|member| {
+        (
+            member.completed_at,
+            member.strategy.map(|strategy| strategy.job_index),
+        )
+    });
+    let mut outputs = BTreeMap::new();
+    for member in finished {
+        for (name, value) in &member.outputs {
+            if !value.is_empty() {
+                outputs.insert(name.clone(), value.clone());
+            }
+        }
+    }
+    (conclusion, outputs)
 }
 
 pub(crate) fn admits_cancellation(workflow: &ir::Workflow, key: &JobKey) -> bool {
@@ -85,7 +257,6 @@ pub(crate) fn unapplied(workflow: &ir::Workflow) -> Option<String> {
         Some(_) => ("`concurrency` of the workflow".to_owned(), 17),
         None => workflow.jobs.iter().find_map(|job| {
             [
-                (job.strategy.is_some(), "`strategy`", 16),
                 (job.concurrency.is_some(), "`concurrency`", 17),
                 (uses_an_action(job), "a `uses` step", 33),
             ]
@@ -115,25 +286,27 @@ pub(crate) async fn assign(
     run: &mut Locked<'_>,
     site: &Site,
     execution: ExecutionId,
-    job_key: &JobKey,
+    job_id: JobId,
     workflow_env: &BTreeMap<String, Template>,
 ) -> Result<Option<Assigned>, Error> {
     let world = World::load(run, site).await?;
     let jobs = run.jobs().await?;
     let job = jobs
         .iter()
-        .find(|job| &job.key == job_key)
+        .find(|job| job.id == job_id)
         .ok_or_else(|| Error::Row {
             table: "run",
-            message: format!("the current attempt of the run has no job `{job_key}`"),
+            message: format!("the current attempt of the run has no job `{job_id}`"),
         })?;
-    let github = world.github_context(job_key.as_str());
+    let github = world.github_context(job.key.as_str());
     let contexts = Contexts {
         github: value(serde_json::Value::Object(github.clone()))?,
         needs: Value::Null,
         inputs: world.inputs.clone(),
         bosun: world.bosun.clone(),
         env: Value::Null,
+        strategy: Value::Null,
+        matrix: Value::Null,
         statuses: None,
     };
     let mut env = BTreeMap::new();
@@ -162,8 +335,11 @@ pub(crate) async fn assign(
         contexts: assignment::Contexts {
             github,
             needs: needs_context(&jobs, job),
-            strategy: serde_json::Value::Null,
-            matrix: serde_json::Value::Null,
+            strategy: serde_json::to_value(job.strategy.unwrap_or(SINGLE))?,
+            matrix: match &job.matrix {
+                Some(matrix) => serde_json::to_value(matrix)?,
+                None => serde_json::Value::Null,
+            },
             inputs: serde_json::from_value(world.facts.inputs.clone())?,
             vars: Map::new(),
             secrets: Map::new(),
@@ -300,6 +476,8 @@ struct Contexts {
     inputs: Value,
     bosun: Value,
     env: Value,
+    strategy: Value,
+    matrix: Value,
     statuses: Option<Statuses>,
 }
 
@@ -318,13 +496,10 @@ impl Scope for Contexts {
             Context::Inputs => self.inputs.clone(),
             Context::Bosun => self.bosun.clone(),
             Context::Env => self.env.clone(),
+            Context::Strategy => self.strategy.clone(),
+            Context::Matrix => self.matrix.clone(),
             Context::Vars | Context::Secrets => Value::Object(Vec::new().into()),
-            Context::Job
-            | Context::Jobs
-            | Context::Steps
-            | Context::Runner
-            | Context::Strategy
-            | Context::Matrix => Value::Null,
+            Context::Job | Context::Jobs | Context::Steps | Context::Runner => Value::Null,
         }
     }
 
@@ -345,6 +520,8 @@ async fn name(run: &Locked<'_>, world: &World, template: &Template) -> Result<()
         inputs: world.inputs.clone(),
         bosun: world.bosun.clone(),
         env: Value::Null,
+        strategy: Value::Null,
+        matrix: Value::Null,
         statuses: None,
     };
     match bosun_expr::render(template, &contexts) {
@@ -360,8 +537,20 @@ async fn name(run: &Locked<'_>, world: &World, template: &Template) -> Result<()
 
 struct Decided {
     status: JobStatus,
+    waiting_reason: Option<WaitingReason>,
     conclusion: Option<Conclusion>,
     continue_on_error: bool,
+}
+
+impl Decided {
+    fn completed(conclusion: Conclusion) -> Decided {
+        Decided {
+            status: JobStatus::Completed,
+            waiting_reason: None,
+            conclusion: Some(conclusion),
+            continue_on_error: false,
+        }
+    }
 }
 
 async fn decide(
@@ -369,52 +558,69 @@ async fn decide(
     world: &World,
     jobs: &[JobState],
     index: usize,
-) -> Result<Decided, Error> {
+) -> Result<Option<Decided>, Error> {
     let job = &jobs[index];
     let template = world.template(&job.key)?;
-    let (succeeded, failed) = ancestry(jobs, index);
-    let cancelling = run.state().cancel_requested;
     let mut contexts = Contexts {
         github: world.github(job.key.as_str())?,
         needs: value(serde_json::Value::Object(needs_context(jobs, job)))?,
         inputs: world.inputs.clone(),
         bosun: world.bosun.clone(),
         env: Value::Null,
-        statuses: Some(Statuses {
+        strategy: Value::Null,
+        matrix: match &job.matrix {
+            Some(matrix) => matrix::context(matrix)?,
+            None => Value::Null,
+        },
+        statuses: None,
+    };
+    let mut single = None;
+    if job.group.is_none() {
+        let (succeeded, failed) = ancestry(jobs, index);
+        let cancelling = run.state().cancel_requested;
+        contexts.statuses = Some(Statuses {
             succeeded,
             failed,
             cancelling,
-        }),
-    };
-    let admitted = match &template.r#if {
-        None => contexts.status(Status::Success).unwrap_or(false),
-        Some(condition) => match bosun_expr::holds(condition, &contexts) {
-            Ok(holds) => holds,
-            Err(error) => {
-                let what = format!("`if` of job `{}`", job.key);
-                let fault = Fault::expression(error, &what, at(&job.key, &["if"]));
-                return fail(run, world, job, fault).await;
-            }
-        },
-    };
-    if !admitted {
-        let (conclusion, reason) = if cancelling {
-            (Conclusion::Cancelled, StatusReason::Command)
-        } else {
-            (Conclusion::Skipped, StatusReason::IfFalse)
-        };
-        run.complete_job(job.id, conclusion, Some(reason), &Actor::System)
-            .await?;
-        return Ok(Decided {
-            status: JobStatus::Completed,
-            conclusion: Some(conclusion),
-            continue_on_error: false,
         });
+        let admitted = match &template.r#if {
+            None => contexts.status(Status::Success).unwrap_or(false),
+            Some(condition) => match bosun_expr::holds(condition, &contexts) {
+                Ok(holds) => holds,
+                Err(error) => {
+                    let what = format!("`if` of job `{}`", job.key);
+                    let fault = Fault::expression(error, &what, at(&job.key, &["if"]));
+                    return fail(run, world, job, fault).await.map(Some);
+                }
+            },
+        };
+        if !admitted {
+            let (conclusion, reason) = if cancelling {
+                (Conclusion::Cancelled, StatusReason::Command)
+            } else {
+                (Conclusion::Skipped, StatusReason::IfFalse)
+            };
+            run.complete_job(job.id, conclusion, Some(reason), &Actor::System)
+                .await?;
+            return Ok(Some(Decided::completed(conclusion)));
+        }
+        contexts.statuses = None;
+        if let Some(strategy) = &template.strategy {
+            match matrix::expand(template, strategy, &contexts) {
+                Ok(Expansion::Members(members)) => {
+                    run.expand(job, &members).await?;
+                    return Ok(None);
+                }
+                Ok(Expansion::Single(strategy)) => single = Some(strategy),
+                Err(fault) => return fail(run, world, job, fault).await.map(Some),
+            }
+        }
     }
-    contexts.statuses = None;
-    let prepared = match prepare(template, &mut contexts) {
+    let strategy = job.strategy.or(single).unwrap_or(SINGLE);
+    contexts.strategy = serde_json::from_value(serde_json::to_value(strategy)?)?;
+    let prepared = match prepare(template, &mut contexts, job) {
         Ok(prepared) => prepared,
-        Err(fault) => return fail(run, world, job, fault).await,
+        Err(fault) => return fail(run, world, job, fault).await.map(Some),
     };
     let pools = bosun_db::pools::eligible(run.transaction(), prepared.group.as_deref()).await?;
     run.prepare_job(
@@ -422,14 +628,34 @@ async fn decide(
         &prepared.name,
         prepared.continue_on_error,
         &prepared.evaluated,
+        single.as_ref(),
     )
     .await?;
-    run.queue_job(job.id, &prepared.labels, &pools).await?;
-    Ok(Decided {
-        status: JobStatus::Queued,
+    let full = job.group.is_some_and(|group| {
+        let members: Vec<&JobState> = jobs
+            .iter()
+            .filter(|member| member.group == Some(group))
+            .collect();
+        active(&members) >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
+    });
+    let waiting_reason = if full {
+        run.hold_job(job.id, &prepared.labels, &pools, WaitingReason::MaxParallel)
+            .await?;
+        Some(WaitingReason::MaxParallel)
+    } else {
+        run.queue_job(job.id, &prepared.labels, &pools).await?;
+        None
+    };
+    Ok(Some(Decided {
+        status: if full {
+            JobStatus::Waiting
+        } else {
+            JobStatus::Queued
+        },
+        waiting_reason,
         conclusion: None,
         continue_on_error: prepared.continue_on_error,
-    })
+    }))
 }
 
 async fn fail(
@@ -446,22 +672,28 @@ async fn fail(
         &Actor::System,
     )
     .await?;
-    Ok(Decided {
-        status: JobStatus::Completed,
-        conclusion: Some(Conclusion::Failure),
-        continue_on_error: false,
-    })
+    Ok(Decided::completed(Conclusion::Failure))
 }
 
 fn ready(jobs: &[JobState]) -> Option<usize> {
     let completed: HashSet<&JobKey> = jobs
         .iter()
-        .filter(|job| job.status == JobStatus::Completed)
+        .filter(|job| job.group.is_none() && job.status == JobStatus::Completed)
         .map(|job| &job.key)
         .collect();
+    let expanded = expanded(jobs);
     jobs.iter().position(|job| {
-        job.status == JobStatus::Pending && job.needs.iter().all(|need| completed.contains(need))
+        job.status == JobStatus::Pending
+            && !expanded.contains(&job.id)
+            && job.needs.iter().all(|need| completed.contains(need))
     })
+}
+
+fn templates(jobs: &[JobState]) -> HashMap<&JobKey, &JobState> {
+    jobs.iter()
+        .filter(|job| job.group.is_none())
+        .map(|job| (&job.key, job))
+        .collect()
 }
 
 fn effective(job: &JobState) -> Option<Conclusion> {
@@ -474,7 +706,7 @@ fn effective(job: &JobState) -> Option<Conclusion> {
 }
 
 fn ancestry(jobs: &[JobState], index: usize) -> (bool, bool) {
-    let by_key: HashMap<&JobKey, &JobState> = jobs.iter().map(|job| (&job.key, job)).collect();
+    let by_key = templates(jobs);
     let mut seen = HashSet::new();
     let mut open: Vec<&JobKey> = jobs[index].needs.iter().collect();
     let (mut succeeded, mut failed) = (true, false);
@@ -500,7 +732,7 @@ fn ancestry(jobs: &[JobState], index: usize) -> (bool, bool) {
 }
 
 fn needs_context(jobs: &[JobState], job: &JobState) -> Map<String, serde_json::Value> {
-    let by_key: HashMap<&JobKey, &JobState> = jobs.iter().map(|job| (&job.key, job)).collect();
+    let by_key = templates(jobs);
     let mut needs = Map::new();
     for key in &job.needs {
         let Some(need) = by_key.get(key) else {
@@ -539,6 +771,7 @@ impl Fault {
     }
 }
 
+#[derive(Clone)]
 struct Place {
     what: String,
     path: Vec<PathSegment>,
@@ -592,15 +825,23 @@ struct Prepared {
     evaluated: Evaluated,
 }
 
-fn prepare(job: &JobTemplate, contexts: &mut Contexts) -> Result<Prepared, Fault> {
-    let name = match &job.name {
-        Some(name) => Place::of(job, "name", &["name"], name).text(name, contexts)?,
-        None => String::new(),
+fn prepare(
+    job: &JobTemplate,
+    contexts: &mut Contexts,
+    state: &JobState,
+) -> Result<Prepared, Fault> {
+    let rendered = match &job.name {
+        Some(name) if name.as_literal().is_none() => {
+            Place::of(job, "name", &["name"], name).text(name, contexts)?
+        }
+        _ => String::new(),
     };
-    let name = if name.trim().is_empty() {
-        job.key.to_string()
+    let name = if !rendered.trim().is_empty() {
+        rendered
+    } else if !state.name.trim().is_empty() {
+        state.name.clone()
     } else {
-        name
+        job.key.to_string()
     };
     let (labels, group) = placement(job, contexts)?;
     let timeout_minutes = match &job.timeout_minutes {

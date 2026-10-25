@@ -1,0 +1,21 @@
+{
+  "description": "a computed max-parallel below 1 fails the group",
+  "strategy": {
+    "max-parallel": "${{ fromJSON('0') }}",
+    "matrix": {
+      "os": [
+        "linux"
+      ]
+    }
+  },
+  "error": {
+    "code": "invalid_value",
+    "message": "`strategy.max-parallel` of job `test` must be a whole number of at least 1, and its expression gives 0",
+    "path": [
+      "jobs",
+      "test",
+      "strategy",
+      "max-parallel"
+    ]
+  }
+}

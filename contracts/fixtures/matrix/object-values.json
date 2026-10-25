@@ -1,0 +1,55 @@
+{
+  "description": "a value that is a mapping or a list names the member with the values it holds",
+  "strategy": {
+    "matrix": {
+      "config": [
+        {
+          "os": "ubuntu",
+          "cc": "gcc"
+        },
+        {
+          "os": "macos",
+          "cc": [
+            "clang",
+            17
+          ]
+        }
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "test (ubuntu, gcc)",
+      "matrix": {
+        "config": {
+          "os": "ubuntu",
+          "cc": "gcc"
+        }
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 0,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    },
+    {
+      "name": "test (macos, clang, 17)",
+      "matrix": {
+        "config": {
+          "os": "macos",
+          "cc": [
+            "clang",
+            17
+          ]
+        }
+      },
+      "strategy": {
+        "fail-fast": true,
+        "job-index": 1,
+        "job-total": 2,
+        "max-parallel": 2
+      }
+    }
+  ]
+}

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use bosun_types::actor::Actor;
 use bosun_types::event::{
-    Event, ExecutionCreated, ExecutionStatusChanged, JobStatusChanged, StepCreated,
+    Event, ExecutionCreated, ExecutionStatusChanged, JobCreated, JobStatusChanged, StepCreated,
     StepStatusChanged,
 };
 use bosun_types::id::{AgentId, ExecutionId, JobId, PoolId, StepId};
@@ -11,12 +11,14 @@ use bosun_types::ir::{self, Action, JobKind, Segment, Template};
 use bosun_types::key::JobKey;
 use bosun_types::status::{
     Conclusion, ConclusionSource, ExecutionStatus, JobStatus, StatusReason, StepStatus,
+    WaitingReason,
 };
-use sea_orm::ConnectionTrait;
 use sea_orm::prelude::{DateTimeUtc, Uuid};
+use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait};
 
+use crate::entity::job as entity;
 use crate::row::statement;
-use crate::runs::{Evaluated, Locked, StepEnd, refuse};
+use crate::runs::{Evaluated, JobState, Locked, NewMember, StepEnd, Strategy, refuse};
 use crate::{Error, queue, row};
 
 const JOBS: &str = "job";
@@ -32,6 +34,7 @@ impl Locked<'_> {
         name: &str,
         continue_on_error: bool,
         evaluated: &Evaluated,
+        strategy: Option<&Strategy>,
     ) -> Result<(), Error> {
         let (from, _) = self.job(job).await?;
         if from != JobStatus::Pending {
@@ -39,15 +42,62 @@ impl Locked<'_> {
         }
         self.transaction()
             .execute(statement(
-                "UPDATE job SET name = $2, continue_on_error = $3, evaluated = $4 WHERE id = $1",
+                "UPDATE job SET name = $2, continue_on_error = $3, evaluated = $4, \
+                 strategy = coalesce($5, strategy) WHERE id = $1",
                 [
                     Uuid::from(job).into(),
                     name.into(),
                     continue_on_error.into(),
                     serde_json::to_value(evaluated)?.into(),
+                    strategy.map(serde_json::to_value).transpose()?.into(),
                 ],
             ))
             .await?;
+        Ok(())
+    }
+
+    pub async fn expand(&self, group: &JobState, members: &[NewMember]) -> Result<(), Error> {
+        let (from, _) = self.job(group.id).await?;
+        if from != JobStatus::Pending {
+            return Err(Error::Transition {
+                entity: "job",
+                id: group.id.to_string(),
+                from: row::text(JOBS, from)?,
+                to: "expanded".to_owned(),
+            });
+        }
+        let pending = row::text(JOBS, JobStatus::Pending)?;
+        for member in members {
+            let matrix = serde_json::to_value(&member.matrix)?;
+            let created = entity::ActiveModel {
+                id: ActiveValue::Set(Uuid::now_v7()),
+                attempt_id: ActiveValue::Set(self.state().attempt_id.into()),
+                key: ActiveValue::Set(group.key.to_string()),
+                name: ActiveValue::Set(member.name.clone()),
+                group_id: ActiveValue::Set(Some(group.id.into())),
+                matrix: ActiveValue::Set(Some(matrix)),
+                strategy: ActiveValue::Set(Some(serde_json::to_value(member.strategy)?)),
+                needs: ActiveValue::Set(group.needs.iter().map(ToString::to_string).collect()),
+                status: ActiveValue::Set(pending.clone()),
+                ..Default::default()
+            }
+            .insert(self.transaction())
+            .await?;
+            self.append(
+                Some(row::id(JOBS, created.id)?),
+                None,
+                None,
+                &Actor::System,
+                Event::JobCreated(JobCreated {
+                    key: group.key.clone(),
+                    name: member.name.clone(),
+                    needs: group.needs.clone(),
+                    group_id: Some(group.id),
+                    matrix: Some(member.matrix.clone()),
+                }),
+            )
+            .await?;
+        }
         Ok(())
     }
 
@@ -75,9 +125,83 @@ impl Locked<'_> {
         labels: &[String],
         pools: &[PoolId],
     ) -> Result<(), Error> {
+        self.place(job, labels, pools, None).await?;
+        queue::announce(self.transaction(), job).await
+    }
+
+    pub async fn hold_job(
+        &self,
+        job: JobId,
+        labels: &[String],
+        pools: &[PoolId],
+        reason: WaitingReason,
+    ) -> Result<(), Error> {
+        self.place(job, labels, pools, Some(reason)).await
+    }
+
+    pub async fn release_job(&self, job: JobId) -> Result<(), Error> {
         let (from, _) = self.job(job).await?;
-        if !from.can_transition(JobStatus::Queued) {
+        if from != JobStatus::Waiting {
             return Err(refuse("job", job, from, JobStatus::Queued));
+        }
+        self.transaction()
+            .execute(statement(
+                "UPDATE job SET status = $2, waiting_reason = NULL, queued_at = now() \
+                 WHERE id = $1",
+                [
+                    Uuid::from(job).into(),
+                    row::text(JOBS, JobStatus::Queued)?.into(),
+                ],
+            ))
+            .await?;
+        self.append(
+            Some(job),
+            None,
+            None,
+            &Actor::System,
+            job_moved(from, JobStatus::Queued),
+        )
+        .await?;
+        queue::announce(self.transaction(), job).await
+    }
+
+    pub async fn complete_group(
+        &self,
+        group: JobId,
+        conclusion: Conclusion,
+        outputs: &BTreeMap<String, String>,
+    ) -> Result<(), Error> {
+        let (from, _) = self.job(group).await?;
+        if from != JobStatus::Pending {
+            return Err(refuse("job", group, from, JobStatus::Completed));
+        }
+        self.transaction()
+            .execute(statement(
+                "UPDATE job SET outputs = $2 WHERE id = $1",
+                [
+                    Uuid::from(group).into(),
+                    serde_json::to_value(outputs)?.into(),
+                ],
+            ))
+            .await?;
+        self.close_job(group, from, conclusion, None, &Actor::System)
+            .await
+    }
+
+    async fn place(
+        &self,
+        job: JobId,
+        labels: &[String],
+        pools: &[PoolId],
+        waiting: Option<WaitingReason>,
+    ) -> Result<(), Error> {
+        let to = match waiting {
+            Some(_) => JobStatus::Waiting,
+            None => JobStatus::Queued,
+        };
+        let (from, _) = self.job(job).await?;
+        if !from.can_transition(to) {
+            return Err(refuse("job", job, from, to));
         }
         let mut lowered: Vec<String> = Vec::with_capacity(labels.len());
         for label in labels {
@@ -89,11 +213,15 @@ impl Locked<'_> {
         let pools: Vec<Uuid> = pools.iter().copied().map(Uuid::from).collect();
         self.transaction()
             .execute(statement(
-                "UPDATE job SET status = $2, waiting_reason = NULL, labels = $3, pool_ids = $4, \
-                 queued_at = now() WHERE id = $1",
+                "UPDATE job SET status = $2, waiting_reason = $3, labels = $4, pool_ids = $5, \
+                 queued_at = CASE WHEN $3 IS NULL THEN now() END WHERE id = $1",
                 [
                     Uuid::from(job).into(),
-                    row::text(JOBS, JobStatus::Queued)?.into(),
+                    row::text(JOBS, to)?.into(),
+                    waiting
+                        .map(|reason| row::text(JOBS, reason))
+                        .transpose()?
+                        .into(),
                     lowered.into(),
                     pools.into(),
                 ],
@@ -106,15 +234,15 @@ impl Locked<'_> {
             &Actor::System,
             Event::JobStatusChanged(JobStatusChanged {
                 from,
-                to: JobStatus::Queued,
-                waiting_reason: None,
+                to,
+                waiting_reason: waiting,
                 conclusion: None,
                 conclusion_source: None,
                 reason: None,
             }),
         )
         .await?;
-        queue::announce(self.transaction(), job).await
+        Ok(())
     }
 
     pub async fn complete_job(

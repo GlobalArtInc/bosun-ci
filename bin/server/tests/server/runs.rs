@@ -456,3 +456,119 @@ async fn an_expression_that_fails_on_the_server_fails_its_job_with_an_error_noti
     assert_eq!(shown["notices"], json!([expected]));
     assert_eq!(run["notices"], shown["notices"]);
 }
+
+const MATRIX: &str = "name: ci\non: workflow_dispatch\njobs:\n  setup:\n    runs-on: [self-hosted]\n    \
+                      outputs:\n      matrix: ${{ steps.list.outputs.matrix }}\n    steps:\n      \
+                      - id: list\n        run: make\n  test:\n    needs: setup\n    \
+                      runs-on: [self-hosted]\n    strategy:\n      max-parallel: 1\n      \
+                      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}\n    steps:\n      \
+                      - run: make test\n";
+
+fn members_of(page: &Value, group: &Value) -> Vec<Value> {
+    page["items"]
+        .as_array()
+        .expect("a list of jobs")
+        .iter()
+        .filter(|job| job["group_id"] == group["id"])
+        .map(|job| {
+            json!([
+                job["name"],
+                job["matrix"],
+                job["status"],
+                job["waiting_reason"],
+                job["conclusion"]
+            ])
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_members_of_a_computed_matrix_are_listed_with_their_group_and_run_one_at_a_time() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::start(&database).await;
+    let run = dispatch_source(&api, "ci", MATRIX).await;
+    let id = text(&run["id"]);
+    let jobs_path = format!("/api/v1/runs/{id}/attempts/1/jobs");
+    let (status, token) = api
+        .post(
+            "/api/v1/registration-tokens",
+            &json!({ "pool": "default", "reusable": false, "expires_at": null }),
+        )
+        .await;
+    assert_eq!(status, 201, "{token}");
+    let agent = FakeAgent::register(api.address, text(&token["token"]), "runner1", &[]).await;
+    let mut connection = agent.connect(api.address).await;
+    connection.idle();
+    let assignment = connection.assignment().await;
+    assert_eq!(assignment.job_key, "setup");
+    connection.send(Report::Accept(Accept {
+        execution_id: assignment.execution_id.clone(),
+    }));
+    connection.finish_job(
+        &assignment.execution_id,
+        Conclusion::Success,
+        &[("matrix", r#"{"os":["linux","macos"]}"#)],
+    );
+
+    let page = until(&api, &jobs_path, |page| {
+        page["items"]
+            .as_array()
+            .is_some_and(|items| items.len() == 4)
+    })
+    .await;
+    let group = job_named(&page, "test").clone();
+    assert_eq!(
+        (&group["group_id"], &group["matrix"], &group["status"]),
+        (&Value::Null, &Value::Null, &json!("pending"))
+    );
+    assert_eq!(
+        members_of(&page, &group),
+        [
+            json!(["test (linux)", { "os": "linux" }, "queued", null, null]),
+            json!(["test (macos)", { "os": "macos" }, "waiting", "max_parallel", null]),
+        ]
+    );
+
+    for (index, os) in ["linux", "macos"].into_iter().enumerate() {
+        connection.idle();
+        let (assignment, documents) = connection.job().await;
+        assert_eq!(
+            (assignment.job_key.as_str(), assignment.job_name.as_str()),
+            ("test", format!("test ({os})").as_str())
+        );
+        assert_eq!(
+            (&documents.contexts.matrix, &documents.contexts.strategy),
+            (
+                &json!({ "os": os }),
+                &json!({
+                    "fail-fast": true,
+                    "job-index": index,
+                    "job-total": 2,
+                    "max-parallel": 1
+                })
+            )
+        );
+        connection.send(Report::Accept(Accept {
+            execution_id: assignment.execution_id.clone(),
+        }));
+        connection.finish_job(&assignment.execution_id, Conclusion::Success, &[]);
+    }
+    let finished = until(&api, &format!("/api/v1/runs/{id}"), |run| {
+        run["status"] == "completed"
+    })
+    .await;
+    assert_eq!(finished["conclusion"], "success");
+    let page = read(&api, &jobs_path).await;
+    let group = job_named(&page, "test").clone();
+    assert_eq!(
+        (&group["status"], &group["conclusion"]),
+        (&json!("completed"), &json!("success"))
+    );
+    assert_eq!(
+        members_of(&page, &group),
+        [
+            json!(["test (linux)", { "os": "linux" }, "completed", null, "success"]),
+            json!(["test (macos)", { "os": "macos" }, "completed", null, "success"]),
+        ]
+    );
+}
