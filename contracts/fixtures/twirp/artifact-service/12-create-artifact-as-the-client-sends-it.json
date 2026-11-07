@@ -1,0 +1,17 @@
+{
+  "method": "CreateArtifact",
+  "request": {
+    "workflow_run_backend_id": "0192f3a4-5b6c-7d8e-9f01-0000000000a1",
+    "workflow_job_run_backend_id": "0192f3a4-5b6c-7d8e-9f01-0000000000b1",
+    "name": "empty",
+    "expires_at": "2026-11-14T10:00:00.123Z",
+    "version": 7,
+    "mime_type": "application/zip"
+  },
+  "status": 200,
+  "response": {
+    "ok": true,
+    "signed_upload_url": "http://127.0.0.1:8080/_runtime/blob/artifacts/3?expires=1794049200&sig=KWsxPXhQofDrRywJZT7pIOTcsZQxZiZ4FsAeGD0fv0o"
+  },
+  "then_upload": []
+}

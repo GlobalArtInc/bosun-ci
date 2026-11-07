@@ -556,6 +556,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bosun-services"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bosun-blob",
+ "bosun-types",
+ "chrono",
+ "quick-xml",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "bosun-testkit"
 version = "0.1.0"
 dependencies = [

@@ -20,6 +20,7 @@ bosun-forge = { path = "crates/forge" }
 bosun-proto = { path = "crates/proto" }
 bosun-runner = { path = "crates/runner" }
 bosun-server = { path = "crates/server" }
+bosun-services = { path = "crates/services" }
 bosun-testkit = { path = "crates/testkit" }
 bosun-types = { path = "crates/types" }
 bosun-workflow = { path = "crates/workflow" }

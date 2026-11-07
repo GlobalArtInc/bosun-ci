@@ -1,0 +1,15 @@
+{
+  "method": "FinalizeArtifact",
+  "request": {
+    "workflow_run_backend_id": "0192f3a4-5b6c-7d8e-9f01-0000000000a1",
+    "workflow_job_run_backend_id": "0192f3a4-5b6c-7d8e-9f01-0000000000b1",
+    "name": "my-artifact",
+    "size": "11",
+    "hash": "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+  },
+  "status": 200,
+  "response": {
+    "ok": true,
+    "artifact_id": "1"
+  }
+}

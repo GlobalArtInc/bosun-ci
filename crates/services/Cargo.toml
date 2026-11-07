@@ -1,0 +1,28 @@
+[package]
+name = "bosun-services"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum.workspace = true
+base64.workspace = true
+bosun-blob.workspace = true
+bosun-types.workspace = true
+chrono = { workspace = true, features = ["now"] }
+quick-xml = { workspace = true, features = ["serialize"] }
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "sync"] }
+tokio-stream.workspace = true
+tokio-util = { workspace = true, features = ["io"] }
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "time"] }
+tower = { workspace = true, features = ["util"] }

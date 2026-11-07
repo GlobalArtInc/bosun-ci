@@ -146,6 +146,17 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   server's tests send the request, whose source is `fixtures/workflows/unknown-key.yml` at the path
   of `fixtures/diagnostics/unknown-key.json`, to `POST /api/v1/lint` and compare the answer with the
   response, which holds that diagnostic.
+- `fixtures/twirp/artifact-service/`: from step 3 of M2, requests to the artifact service and the
+  answers it gives, run in file-name order against one service, so that a case depends on those
+  before it. A case has the `method`, the `request`, the `status` and the `response`. Every request
+  but that of case `07` is shaped as the toolkit's client sends it: proto field names, a 64-bit
+  integer as a string and left out when it is zero (`13` has no `size`), timestamps in both forms
+  protobuf-ts writes, `Z` and `.mmmZ`, and the `version` and `mime_type` members (`12`). The keys `then_upload` and `then_download` are not part of the protocol
+  but of the test: `then_upload` is a list of texts that the test stages as blocks at the
+  `signed_upload_url` the answer gave and commits in that order (an empty list commits an empty
+  object), and `then_download` is the text the test expects from a `GET` of the `signed_url`. Case
+  `07` writes the members in lower camel case, which the toolkit never sends; it pins that the
+  service tolerates that form, not a request of the client.
 - `openapi.json`: the description of the REST API generated from the handlers, from step 1 of M1.
   `hack/openapi.sh` writes it, a test fails when it differs from the generated document, and it is
   never edited or merged by hand

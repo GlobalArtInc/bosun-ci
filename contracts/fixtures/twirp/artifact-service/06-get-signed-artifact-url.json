@@ -1,0 +1,13 @@
+{
+  "method": "GetSignedArtifactURL",
+  "request": {
+    "workflow_run_backend_id": "0192f3a4-5b6c-7d8e-9f01-0000000000a1",
+    "workflow_job_run_backend_id": "0192f3a4-5b6c-7d8e-9f01-0000000000b1",
+    "name": "my-artifact"
+  },
+  "status": 200,
+  "response": {
+    "signed_url": "http://127.0.0.1:8080/_runtime/blob/artifacts/1?expires=1794049200&sig=V4JElVBjJq2cLveQ6k8U7VhYauNfbV1xGyPmcU1WtmA"
+  },
+  "then_download": "hello world"
+}

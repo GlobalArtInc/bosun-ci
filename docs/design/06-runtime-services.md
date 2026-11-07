@@ -521,6 +521,25 @@ holds stretch a job beyond its timeout, the token's expiry is generous (the job'
 `max_pause`, the hold cap and one hour), and the services also refuse a token whose execution has
 completed. The token grants nothing outside the runtime services.
 
+Step 3 of M2 ([../plan.md](../plan.md)) settled the shape of the token in `bosun-services`:
+
+- The header is `{"alg":"EdDSA","typ":"JWT","kid":"<key id>"}`. The key id is the base64url of the
+  first 12 bytes of the SHA-256 of the public key, so it is derived from the key and stored nowhere.
+- The claims are `iss` (`bosun`), `aud` (`bosun-runtime`), `iat`, `exp` in seconds, and `scp`. There
+  is no `nbf`, so replicas whose clocks differ by seconds never refuse a token that was just minted.
+- A token is verified against a set of public keys, the current and the retired ones. It is refused
+  when its algorithm is not `EdDSA`, when no key of the set has its key id, when the signature does
+  not verify, which is checked before any claim is read, when `exp` is not after the time of the
+  check, and when the issuer or the audience is not Bosun's. The `scp` must hold each of the three
+  scopes above exactly once, with the same run in all three and the same job in the two that name
+  one; scopes it holds besides these are ignored, since a token grants only what the services
+  understand. A token of more than 4096 bytes is refused unread.
+- Authenticating a request is the host's: `bosun-services` serves its Twirp routes for a request
+  that carries a verified token among its extensions, and answers `unauthenticated` (`401`) to one
+  that does not. The server's layer (step 5) verifies the signature against the current and the
+  retired keys and checks that the execution has not completed before it puts the token there;
+  `bosun exec` verifies against its own key.
+
 | Variable | Value |
 |----------|-------|
 | `ACTIONS_RUNTIME_URL` | `<bosun>/_runtime/` |
@@ -559,6 +578,134 @@ retention is `retention-days` when the step gives it, capped by the project's ma
 project's default otherwise ([07-storage.md](07-storage.md)). The run page lists them for download.
 Downloading an artifact of another run by its run id goes through the forge's API in the current
 actions and is therefore not supported.
+
+Step 3 of M2 ([../plan.md](../plan.md)) settled how `bosun-services` serves them.
+
+**The address.** A signed address has the form
+
+```
+<public_url>/_runtime/blob/artifacts/<artifact>?expires=<unix seconds>&sig=<base64url>
+```
+
+where `<artifact>` is the artifact's numeric id and `sig` is the base64url, without padding, of an
+HMAC-SHA256 under the server's key over the label `bosun signed address v1`, the use (`upload` or
+`download`), the expiry in decimal and the object `artifacts/<artifact>`, each followed by a zero
+byte but the last. The expiry is the time of signing plus one hour. The toolkit's storage client
+reads a container and a blob name out of the path it is given, and it reads them differently by
+host: for a host name the first segment is the container and the rest the blob, while for an IP
+address, `localhost` or a host with a port from the storage emulator's list the first segment is the
+account, the second the container and the rest the blob. The path `/_runtime/blob/artifacts/<id>`
+gives a non-empty container and blob either way, so the same address works against a host name and
+against `127.0.0.1:<port>`, as in the tests. The signature travels in the query because the client
+keeps the query of the address when it appends `comp` and `blockid`, and masks a query parameter
+named `sig` when it logs an address.
+
+- **What is refused.** The use is the request's: `PUT` is an upload, `GET` and `HEAD` are downloads,
+  and any other method gets `405`. The signature is checked, in constant time, before anything
+  else is looked at, so an address that is expired, altered, missing a part, repeating a part, for
+  another artifact or for the other use gets the same `403`, and a path that is not an artifact's
+  gets `404` only with a valid signature. An artifact that does not exist gets `404`. An upload
+  address of a finalised artifact gets `409`: a finalised artifact takes no more content, whatever
+  time its address has left. A download of an artifact that is not finalised gets `404`.
+- **The requests.** A `PUT` with `comp=block` and a `blockid` stages a block; with `comp=blocklist`
+  it commits the list in its body; with no `comp` and `x-ms-blob-type: BlockBlob` it stores the body
+  as the object. Every other request, such as another `comp`, another blob type or a `comp` on a
+  download, gets `400`, and so does a query parameter that is given twice. A block id is 1 to 88
+  characters of the base64 alphabet with `=`, the length of the encoding of the 64 bytes Azure
+  allows; a staged block is the object `blocks/<artifact>/<hex of the block id>`, hex because a
+  block id may hold `/`, which a key cannot. Staging the same id again replaces the block. An
+  artifact stages at most 50,000 distinct block ids, the number a committed list may hold: the
+  50,001st distinct id is refused with `409` and the code `BlockCountExceedsLimit`, as Azure does,
+  and staging an id again, as a retry does, does not count. The count is the index's
+  (`register_block`, below), so that replicas agree on it; `Store::list` returns every key of a
+  prefix and offers no bound, so what keeps a listing of staged blocks small is this count, which
+  makes it at most 50,000 keys. The count includes an id whose block then failed to be stored. The
+  crate enforces no limit on bytes, per artifact, per run or per project: those quotas belong to
+  step 6 or to the host that serves the routes.
+- **The block list.** It is the document Azure defines: `BlockList` with `Latest` and `Uncommitted`
+  entries, which both name a staged block. `Committed` entries are refused, since a new artifact has
+  no committed block to keep; so are a block named twice, which would let one block fill the store
+  by being listed again and again, more than 50,000 entries, the number Azure allows, and a block
+  that was never staged, all with `400` and the code `InvalidBlockList`, and the document is read at
+  most up to the size that 50,000 entries of 88 characters take, beyond which it gets `413`. The
+  object is assembled by streaming the blocks, in the order of the list, into one `put` of the
+  store, so a block list that fails halfway leaves the earlier object or none, and answers `500`, as
+  does one whose block vanishes between the check and the assembly: `404` is for a `GET`, `HEAD` or
+  `PUT` of an object that does not exist. A block list may be committed again until the artifact is
+  finalised. The design names no limit on the size of a block or of an object; the endpoint
+  enforces none.
+- **The download.** `GET` and `HEAD` answer with `Content-Length`, `Accept-Ranges: bytes` and the
+  content type the artifact was created with, `application/zip` unless `CreateArtifact` carried a
+  `mime_type`. A range is one `bytes=` range in `x-ms-range`, which wins, or in `Range`: `a-b`, `a-`
+  or `-n`, answered with `206` and `Content-Range`; a range that lies outside the object gets `416`
+  with `Content-Range: bytes */<size>`, and one that is not a single well-formed range gets `400`.
+  The answer carries `Content-Disposition: attachment; filename="<ascii>"; filename*=UTF-8''<name>`,
+  built from the last component of the artifact's name (split at `/` and `\`; `artifact` when that
+  is empty, `.` or `..`) so that the toolkit, which names the file of an artifact uploaded with
+  `archive: false` after this header and applies `path.basename`, never gets a path: the quoted
+  form escapes `"` and `\` and writes `_` for every character that is not ASCII, and the second
+  form is the UTF-8 name percent-encoded. It carries `X-Content-Type-Options: nosniff`, a
+  `Content-Security-Policy` of `default-src 'none'; sandbox` and `Cache-Control: no-store`, since
+  the content is the job's and the address is on Bosun's origin.
+
+**The Twirp service.** The requests are the JSON of the toolkit's protocol: the members are the
+proto field names, such as `workflow_run_backend_id`, the lower camel case names are accepted too, a
+64-bit integer is a string or a number, a timestamp is RFC 3339, a wrapped string is a plain string
+and unknown members are ignored. The responses use the proto field names, 64-bit integers as
+strings, timestamps with as many fractional digits as they need (none, 3, 6 or 9), and leave a
+member out when it has no value. An error is `{"code": …, "msg": …}` with the HTTP status of the
+Twirp code: `malformed` and `invalid_argument` `400`, `unauthenticated` `401`, `permission_denied`
+`403`, `not_found` and `bad_route` `404`, `already_exists` `409`, `failed_precondition` `412` and
+`internal` `500`, whose message never carries the cause, which is logged. A request that is not a
+`POST` of `application/json`, or names no method of the service, is a `bad_route`; the body is read
+up to 1 MiB.
+
+- **Whose request.** `CreateArtifact`, `FinalizeArtifact` and `ListArtifacts` carry the run and the
+  job of the token in `workflow_run_backend_id` and `workflow_job_run_backend_id` and are refused
+  with `permission_denied` when either differs, so a token of another run lists and creates
+  nothing here. `GetSignedArtifactURL` and `DeleteArtifact` carry the run and the job of the
+  artifact, which the toolkit takes from a listing, so they are looked up by name among the
+  artifacts visible to the token's attempt and answered with `not_found` when none of them has
+  that run and job. Any job of the attempt may delete any visible artifact, since an overwrite
+  deletes the artifact of the same name, which another job may have uploaded.
+- **The calls.** `CreateArtifact` makes a pending artifact and returns its upload address; the name
+  is 1 to 255 bytes without control characters, and `mime_type`, when it is given, a media type
+  without parameters. When the same execution (the same job token) already has a pending artifact
+  of that name, which is what a retry after a failed upload or a lost response finds, the call
+  replaces it: the new artifact has a new id, and the old one's staged blocks, object and record
+  are removed, so its signed address stops working. It answers `already_exists` only when the
+  attempt has a finalised artifact of that name, or a pending one of another execution; the latter
+  keeps its name until the periodic task that step 6 of M2 adds removes uploads not finalised
+  within 24 hours. `FinalizeArtifact`
+  takes the artifact of the token's job and name, and refuses with `failed_precondition` one whose
+  object was never stored and one whose stored object is not as long as the declared size, removes
+  the staged blocks, and records the size and the digest, `sha256:` and 64 lower case hex digits or
+  none. The size is a non-negative integer, and a request without one declares 0, because the
+  toolkit's JSON leaves out a zero 64-bit integer, so an empty upload arrives that way; a negative
+  or non-integer size is `invalid_argument`. Finalising again with the same values is answered the
+  same way and with other values is a `failed_precondition`. `ListArtifacts` returns the finalised
+  artifacts visible to the attempt
+  that match `name_filter` and `id_filter`, with `digest` only when one was reported.
+  `DeleteArtifact` removes the object and the staged blocks of the artifact, then its record. A
+  `PUT` that is already in flight when `FinalizeArtifact`, `DeleteArtifact` or a replacing
+  `CreateArtifact` runs can still land its block or object, which only the holder of the signed
+  address can cause. The upload address lives one hour from `CreateArtifact` and is not renewed.
+- **The ids.** The toolkit reads the artifact id as a JavaScript number, so an artifact id is a
+  positive integer of at most 2^53 - 1, and an index hands out no other.
+
+**The index.** The crate keeps no state of its own. It asks an index, a trait that the server
+implements over Postgres and `bosun exec` over memory, to `create_artifact` (which assigns the id
+and the key of the object, `artifacts/<project>/<artifact>` on the server and
+`artifacts/local/<artifact>` in memory, and refuses a name the attempt already has), to return an
+`artifact` by id without a scope, to list the artifacts visible to an attempt by name and id, to
+`finalize_artifact` (idempotent for the same size and digest, `Finalized` for others), to
+`delete_artifact` visible to an attempt, and to `register_block` for the artifact, an atomic step
+that adds a block id to the artifact's set of staged ids and answers whether the block is
+accepted: `true` for an id the set already holds and for a new one while the set has fewer than the
+limit, `false` for a new one beyond it. The memory index keeps the sets in memory; the Postgres
+index of step 6 implements it as one conditional insert, so that replicas agree. The signed address is the authority for the unscoped
+lookup, the token for the scoped ones. Which attempts an attempt sees, its own and the ones whose
+results it carries, is the index's to decide.
 
 ## Caches
 
