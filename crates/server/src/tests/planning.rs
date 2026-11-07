@@ -463,6 +463,7 @@ fn a_job_needs_podman_for_a_container_services_or_an_aliased_image_and_shell_oth
         labels: vec!["self-hosted".to_owned(), "shell".to_owned()],
         pools: Vec::new(),
         capabilities: vec![Capability::Shell],
+        image: None,
     };
     require(&mut placement, Capability::Shell);
     assert_eq!(placement.labels, ["self-hosted", "shell"]);

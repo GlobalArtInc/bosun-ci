@@ -169,7 +169,8 @@ async fn a_change_needs_the_etag_of_the_current_version() {
         "token_permissions": { "contents": "write", "pull_requests": "read" },
         "report": "statuses",
         "log_retention": 30,
-        "run_retention": 365
+        "run_retention": 365,
+        "workspace": "clean"
     });
     let whole = change(&site, path, &owner, Some(&listed), everything.clone()).await;
     assert_eq!(whole.status, StatusCode::OK, "{whole:?}");
@@ -196,6 +197,8 @@ async fn an_unknown_setting_and_a_value_outside_its_set_are_invalid_input_naming
             vec!["github_workflows"],
         ),
         (json!({ "report": "comments" }), vec!["report"]),
+        (json!({ "workspace": "dirty" }), vec!["workspace"]),
+        (json!({ "workspace": true }), vec!["workspace"]),
         (
             json!({ "token_permissions": { "administration": "write" } }),
             vec!["token_permissions"],
@@ -217,7 +220,7 @@ async fn an_unknown_setting_and_a_value_outside_its_set_are_invalid_input_naming
     assert_eq!(
         unknown.body["error"]["fields"][0]["message"],
         "there is no setting `retention`; the settings are `fork_policy`, `github_workflows`, \
-         `log_retention`, `report`, `run_retention`, `token_permissions`"
+         `log_retention`, `report`, `run_retention`, `token_permissions`, `workspace`"
     );
     let outside = change(
         &site,

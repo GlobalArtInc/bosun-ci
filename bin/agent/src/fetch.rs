@@ -1,8 +1,9 @@
-use std::fs::{self, File};
+use std::fs;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use bosun_runner::safe;
 use bosun_types::error::ErrorEnvelope;
 use flate2::read::GzDecoder;
 use lzma_rust2::XzReader;
@@ -32,6 +33,7 @@ pub(crate) struct Archive {
 pub(crate) struct Fetches {
     pub(crate) url: String,
     pub(crate) credential: String,
+    pub(crate) root: PathBuf,
     pub(crate) archives: Vec<Archive>,
 }
 
@@ -40,7 +42,7 @@ impl Fetches {
         let pending: Vec<Archive> = self
             .archives
             .into_iter()
-            .filter(|archive| !archive.present())
+            .filter(|archive| !archive.present(&self.root))
             .collect();
         if pending.is_empty() {
             return Ok(());
@@ -56,11 +58,12 @@ impl Fetches {
         for archive in pending {
             let address = format!("{base}{}", archive.path);
             let download = sibling(&archive.into, "download");
-            download_to(&client, &address, &self.credential, &download).await?;
+            download_to(&client, &address, &self.credential, &self.root, &download).await?;
             let unpacked = tokio::task::spawn_blocking({
                 let archive = archive.clone();
+                let root = self.root.clone();
                 let download = download.clone();
-                move || archive.install(&download)
+                move || archive.install(&root, &download)
             })
             .await
             .map_err(|error| format!("the archive {address} could not be unpacked: {error}"))?;
@@ -73,17 +76,20 @@ impl Fetches {
 }
 
 impl Archive {
-    fn present(&self) -> bool {
-        self.into.is_dir()
+    fn present(&self, root: &Path) -> bool {
+        self.into
+            .strip_prefix(root)
+            .ok()
+            .is_some_and(|relative| safe::is_directory_below(root, relative).unwrap_or(false))
             && self.marker.as_ref().is_none_or(|(file, content)| {
-                fs::read_to_string(file).is_ok_and(|found| found == *content)
+                safe::read(file, safe::FILE_LIMIT).is_ok_and(|found| found == content.as_bytes())
             })
     }
 
-    fn install(&self, download: &Path) -> Result<(), String> {
+    fn install(&self, root: &Path, download: &Path) -> Result<(), String> {
         let partial = sibling(&self.into, "partial");
         remove(&partial).map_err(|error| format!("left {}: {error}", partial.display()))?;
-        let unpacked = self.unpack(download, &partial).and_then(|top| {
+        let unpacked = self.unpack(root, download, &partial).and_then(|top| {
             if let Some((file, _)) = &self.marker {
                 remove(file).map_err(|error| format!("left {}: {error}", file.display()))?;
             }
@@ -92,7 +98,7 @@ impl Archive {
                 format!("could not be moved to {}: {error}", self.into.display())
             })?;
             match &self.marker {
-                Some((file, content)) => fs::write(file, content)
+                Some((file, content)) => safe::create(file, 0o644, content.as_bytes())
                     .map_err(|error| format!("left {} unwritten: {error}", file.display())),
                 None => Ok(()),
             }
@@ -101,13 +107,14 @@ impl Archive {
         unpacked
     }
 
-    fn unpack(&self, download: &Path, partial: &Path) -> Result<PathBuf, String> {
-        let file = File::open(download).map_err(|error| format!("cannot be read: {error}"))?;
+    fn unpack(&self, root: &Path, download: &Path, partial: &Path) -> Result<PathBuf, String> {
+        let file = safe::open(download).map_err(|error| format!("cannot be read: {error}"))?;
         let reader: Box<dyn Read> = match self.compression {
             Compression::Gzip => Box::new(GzDecoder::new(BufReader::new(file))),
             Compression::Xz => Box::new(XzReader::new(BufReader::new(file), true)),
         };
-        fs::create_dir_all(partial)
+        within(root, partial)
+            .and_then(|relative| safe::directory_below(root, relative))
             .map_err(|error| format!("has no directory {}: {error}", partial.display()))?;
         tar::Archive::new(reader)
             .unpack(partial)
@@ -117,10 +124,30 @@ impl Archive {
             .flatten()
             .map(|entry| entry.path());
         match (tops.next(), tops.next()) {
-            (Some(top), None) if top.is_dir() => Ok(top),
+            (Some(top), None)
+                if fs::symlink_metadata(&top).is_ok_and(|metadata| metadata.is_dir()) =>
+            {
+                Ok(top)
+            }
             _ => Err("does not hold exactly one directory at its top".to_owned()),
         }
     }
+}
+
+fn within<'a>(root: &Path, path: &'a Path) -> std::io::Result<&'a Path> {
+    path.strip_prefix(root).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("it lies outside {}", root.display()),
+        )
+    })
+}
+
+fn prepare(root: &Path, download: &Path) -> Result<(), String> {
+    let parent = download.parent().unwrap_or(root);
+    within(root, parent)
+        .and_then(|relative| safe::directory_below(root, relative))
+        .map_err(|error| format!("{} cannot be created: {error}", parent.display()))
 }
 
 fn sibling(directory: &Path, suffix: &str) -> PathBuf {
@@ -144,6 +171,7 @@ async fn download_to(
     client: &reqwest::Client,
     address: &str,
     credential: &str,
+    root: &Path,
     file: &Path,
 ) -> Result<(), String> {
     let unreachable = |error: reqwest::Error| format!("{address} could not be fetched: {error}");
@@ -161,18 +189,14 @@ async fn download_to(
             .unwrap_or(text);
         return Err(format!("{address} answered {status}: {message}"));
     }
-    if let Some(parent) = file.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|error| format!("{} cannot be created: {error}", parent.display()))?;
-    }
+    prepare(root, file)?;
     let written = |error: std::io::Error| {
         format!(
             "{address} could not be written to {}: {error}",
             file.display()
         )
     };
-    let mut output = tokio::fs::File::create(file).await.map_err(written)?;
+    let mut output = tokio::fs::File::from_std(safe::create_file(file, 0o600).map_err(written)?);
     while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
         output.write_all(&chunk).await.map_err(written)?;
     }
@@ -183,12 +207,13 @@ async fn download_to(
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::os::unix::fs::symlink;
     use std::path::Path;
 
     use flate2::Compression as Level;
     use flate2::write::GzEncoder;
 
-    use super::{Archive, Compression};
+    use super::{Archive, Compression, Fetches};
 
     fn tarball(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Level::fast()));
@@ -229,12 +254,13 @@ mod tests {
         )
         .expect("an archive");
         let node = archive(&into, Some((&marker, "24.21.0 linux-x64")));
-        assert!(!node.present());
-        node.install(&download).expect("an installed archive");
+        assert!(!node.present(root.path()));
+        node.install(root.path(), &download)
+            .expect("an installed archive");
         assert_eq!(fs::read(into.join("bin/node")).expect("node"), b"node");
         assert!(!into.join("old").exists());
-        assert!(node.present());
-        assert!(!archive(&into, Some((&marker, "24.22.1 linux-x64"))).present());
+        assert!(node.present(root.path()));
+        assert!(!archive(&into, Some((&marker, "24.22.1 linux-x64"))).present(root.path()));
         let left: Vec<String> = fs::read_dir(root.path().join("externals"))
             .expect("the externals")
             .flatten()
@@ -250,7 +276,7 @@ mod tests {
         let into = root.path().join("_actions/a/b/c");
         fs::write(&download, tarball(&[("one/a", b"a"), ("two/b", b"b")])).expect("an archive");
         let refused = archive(&into, None)
-            .install(&download)
+            .install(root.path(), &download)
             .expect_err("a refusal");
         assert_eq!(refused, "does not hold exactly one directory at its top");
         assert!(!into.exists());
@@ -262,11 +288,99 @@ mod tests {
         );
         fs::write(&download, b"not a tarball").expect("a file");
         let refused = archive(&into, None)
-            .install(&download)
+            .install(root.path(), &download)
             .expect_err("a refusal");
         assert!(
             refused.starts_with("is not a readable tar archive"),
             "{refused}"
         );
+    }
+
+    async fn served(body: Vec<u8>) -> String {
+        let app = axum::Router::new().route(
+            "/_runtime/actions/a/b/c.tar.gz",
+            axum::routing::get(move || {
+                let body = body.clone();
+                async move { body }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a listener");
+        let address = listener.local_addr().expect("an address");
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        format!("http://{address}")
+    }
+
+    fn fetches(url: String, root: &Path, into: &Path) -> Fetches {
+        Fetches {
+            url,
+            credential: "credential".to_owned(),
+            root: root.to_path_buf(),
+            archives: vec![archive(into, None)],
+        }
+    }
+
+    #[tokio::test]
+    async fn a_link_planted_where_the_download_goes_or_above_it_is_never_written_through() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let root = fs::canonicalize(directory.path()).expect("a path");
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).expect("a directory");
+        let configuration = root.join("agent.toml");
+        fs::write(&configuration, "credential = \"kept\"\n").expect("a file");
+        let actions = root.join("work/_actions");
+        fs::create_dir_all(actions.join("acme/actions")).expect("directories");
+        let into = actions.join("acme/actions/0123456");
+        symlink(
+            &configuration,
+            actions.join("acme/actions/.0123456.download"),
+        )
+        .expect("a link");
+        let url = served(tarball(&[("top/action.yml", b"name: x")])).await;
+        fetches(url.clone(), &root, &into)
+            .run()
+            .await
+            .expect("fetched");
+        assert_eq!(
+            fs::read_to_string(&configuration).expect("read"),
+            "credential = \"kept\"\n"
+        );
+        assert_eq!(fs::read(into.join("action.yml")).expect("read"), b"name: x");
+        assert!(!actions.join("acme/actions/.0123456.download").exists());
+
+        fs::remove_dir_all(actions.join("acme")).expect("removed");
+        symlink(&outside, actions.join("acme")).expect("a link");
+        fetches(url, &root, &into).run().await.expect("fetched");
+        assert_eq!(fs::read_dir(&outside).expect("listed").count(), 0);
+        assert!(
+            fs::symlink_metadata(actions.join("acme"))
+                .expect("metadata")
+                .is_dir()
+        );
+        assert_eq!(fs::read(into.join("action.yml")).expect("read"), b"name: x");
+    }
+
+    #[tokio::test]
+    async fn a_link_in_the_place_of_the_directory_is_not_taken_for_it_and_its_target_is_left_alone()
+    {
+        let directory = tempfile::tempdir().expect("a directory");
+        let root = fs::canonicalize(directory.path()).expect("a path");
+        let foreign = root.join("foreign");
+        fs::create_dir_all(&foreign).expect("a directory");
+        fs::write(foreign.join("action.yml"), "foreign").expect("a file");
+        let into = root.join("work/_actions/acme/actions/0123456");
+        fs::create_dir_all(into.parent().expect("a parent")).expect("directories");
+        symlink(&foreign, &into).expect("a link");
+        assert!(!archive(&into, None).present(&root));
+        let url = served(tarball(&[("top/action.yml", b"name: x")])).await;
+        fetches(url, &root, &into).run().await.expect("fetched");
+        assert_eq!(fs::read(into.join("action.yml")).expect("read"), b"name: x");
+        assert!(fs::symlink_metadata(&into).expect("metadata").is_dir());
+        assert_eq!(
+            fs::read_to_string(foreign.join("action.yml")).expect("read"),
+            "foreign"
+        );
+        assert!(archive(&into, None).present(&root));
     }
 }

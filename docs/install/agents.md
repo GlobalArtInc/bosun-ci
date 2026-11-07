@@ -46,13 +46,24 @@ On a Debian or Ubuntu host with systemd, as root, the script:
   `/etc/bosun/agent-<n>.toml` readable only by that user; and enables and starts
   `bosun-agent@<n>.service`;
 - says which prerequisites of the `podman` capability (podman 4.4 or newer, cgroups v2,
-  netavark, and a podman that is local) the host lacks. An agent advertises `podman` next to `shell`
-  when it finds a usable podman, and runs without it otherwise. The agents of this version run jobs
-  on the host, with the `shell` capability; the container executor arrives with step 10 of M2, and
-  until then no agent runs a job in a container.
+  netavark, and a podman that is local) the host lacks. An agent advertises `podman` next to
+  `shell` when it finds a usable podman, which also has to run as the agent's user and not as
+  root, and runs without it otherwise. A job that declares `container`, or whose label alias
+  names an image, runs in a container of the agent's rootless podman, and any other job runs on the
+  host, with the `shell` capability. An agent of an untrusted pool runs only jobs in containers,
+  and carries no authentication file of its own for registries.
 
 `journalctl -u bosun-agent@1` shows the log of instance 1, and `bosun agent list` shows the agents
 the server knows, with whether they are online.
+
+An agent that holds `podman` and cannot remove a container of an earlier job, at start or after a
+job, writes the file `podman/dirty` in its directory and takes no job until it can: it logs at
+`error` ("takes no job until it can", then each failed retry with what podman said), keeps its
+connection and its heartbeat, and asks the server for no job, so the other agents take them. It
+retries after 5 seconds, then at twice the wait up to 5 minutes, and asks for jobs again after the
+first retry that works. To fix it, make podman work for the user of the instance (as that user,
+`podman ps --all` and `podman rm --force <container>` show the cause), then wait for a retry or
+restart `bosun-agent@<n>`: the start-up sweep checks again. Do not delete `podman/dirty` by hand.
 
 ## Upgrading and changing agents
 

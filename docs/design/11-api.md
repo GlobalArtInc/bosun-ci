@@ -515,6 +515,7 @@ projects returns, or the requests that create one.
   | `report` | `checks` or `statuses`: how runs are reported to the forge ([06-runtime-services.md](06-runtime-services.md)) | `checks` |
   | `log_retention` | a whole number of days from 1 to 65535: how long the logs and step summaries of an execution are kept after it completes, at most the installation's `limits.max_log_retention` ([07-storage.md](07-storage.md#retention)) | `90` |
   | `run_retention` | a whole number of days from 1 to 65535, or `null`: how long a run is kept after it completes, with everything it owns; `null` keeps runs, for at most `limits.max_run_retention` when the installation sets it ([07-storage.md](07-storage.md#retention)) | `null` |
+  | `workspace` | `persist` or `clean`: whether the workspace of the project stays on the agent between jobs, or is emptied before each job, on `shell` and in a job container ([05-execution.md](05-execution.md#workspace)) | `persist` |
 
   The names of `token_permissions` are the forge's names of App permissions, with `_`, not the
   scopes of a workflow's `permissions`, with `-`, because `metadata` is not a scope.
@@ -533,7 +534,8 @@ projects returns, or the requests that create one.
 - Each later step that adds a setting adds it to the document with a default, which a project that
   existed before takes. Applying the settings belongs to the steps that use them: `github_workflows`
   to step 27, `report` to step 28, `fork_policy` to step 29 and `token_permissions` to step 34.
-  Step 36 added `log_retention` and `run_retention`, and applies them.
+  Step 36 added `log_retention` and `run_retention`, and applies them; step 10 of M2 added
+  `workspace`, which the assignment carries to the agent as `workspace_clean`.
 
 ### Commands
 

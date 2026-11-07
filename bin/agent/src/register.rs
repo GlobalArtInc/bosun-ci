@@ -69,6 +69,7 @@ pub(crate) async fn register(registration: Registration) -> Result<Config, Strin
         https_proxy: None,
         no_proxy: None,
         spool_max_bytes: None,
+        pull_policy: None,
     };
     config.create(Path::new(&file))?;
     Ok(config)

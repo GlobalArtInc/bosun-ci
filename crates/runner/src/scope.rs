@@ -6,8 +6,45 @@ use bosun_proto::assignment::Contexts;
 use bosun_types::ir::{Evaluable, Segment, Template};
 use bosun_types::status::Conclusion;
 use bosun_workflow::github::RunnerFacts;
+use tokio::runtime::{Handle, RuntimeFlavor};
+use tokio::sync::watch;
+use tokio::time::Instant;
 
 use crate::hash;
+
+#[derive(Clone)]
+pub(crate) struct Hashing {
+    workspace: PathBuf,
+    cancel: watch::Receiver<bool>,
+    deadline: Option<Instant>,
+}
+
+impl Hashing {
+    pub(crate) fn new(
+        workspace: PathBuf,
+        cancel: watch::Receiver<bool>,
+        deadline: Option<Instant>,
+    ) -> Hashing {
+        Hashing {
+            workspace,
+            cancel,
+            deadline,
+        }
+    }
+
+    fn reason(&self) -> Option<&'static str> {
+        if *self.cancel.borrow() {
+            Some("the job was cancelled")
+        } else if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            Some("the job ran beyond its `timeout-minutes`")
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct Fixed {
@@ -34,16 +71,12 @@ impl Fixed {
             vars: map(&contexts.vars),
             secrets: map(&contexts.secrets),
             bosun: map(&contexts.bosun),
-            runner: object([
-                ("os", runner.os.clone()),
-                ("arch", runner.arch.clone()),
-                ("name", runner.name.clone()),
-                ("environment", "self-hosted".to_owned()),
-                ("tool_cache", runner.tool_cache.clone()),
-                ("temp", runner.temp.clone()),
-                ("workspace", runner.workspace.clone()),
-            ]),
+            runner: runner_object(runner),
         }
+    }
+
+    pub(crate) fn set_runner(&mut self, runner: &RunnerFacts) {
+        self.runner = runner_object(runner);
     }
 
     pub(crate) fn set_secret(&mut self, name: &str, secret: &str) {
@@ -58,6 +91,18 @@ impl Fixed {
         entries.push((name.to_owned(), Value::String(secret.to_owned())));
         self.secrets = Value::Object(entries.into());
     }
+}
+
+fn runner_object(runner: &RunnerFacts) -> Value {
+    object([
+        ("os", runner.os.clone()),
+        ("arch", runner.arch.clone()),
+        ("name", runner.name.clone()),
+        ("environment", "self-hosted".to_owned()),
+        ("tool_cache", runner.tool_cache.clone()),
+        ("temp", runner.temp.clone()),
+        ("workspace", runner.workspace.clone()),
+    ])
 }
 
 pub(crate) fn value(json: serde_json::Value) -> Value {
@@ -151,7 +196,7 @@ pub(crate) struct StepScope {
     job: Value,
     steps: Value,
     standing: Standing,
-    workspace: PathBuf,
+    hashing: Hashing,
 }
 
 impl StepScope {
@@ -161,16 +206,30 @@ impl StepScope {
         env: Value,
         records: &[Record],
         standing: Standing,
-        workspace: PathBuf,
+        container: Option<(&str, &str)>,
+        hashing: Hashing,
     ) -> StepScope {
+        let container = match container {
+            Some((id, network)) => object([("id", id.to_owned()), ("network", network.to_owned())]),
+            None => Value::Null,
+        };
         StepScope {
             fixed: fixed.clone(),
             github,
             env,
-            job: object([("status", standing.name().to_owned())]),
+            job: Value::Object(
+                vec![
+                    (
+                        "status".to_owned(),
+                        Value::String(standing.name().to_owned()),
+                    ),
+                    ("container".to_owned(), container),
+                ]
+                .into(),
+            ),
             steps: steps(records),
             standing,
-            workspace,
+            hashing,
         }
     }
 }
@@ -204,7 +263,20 @@ impl Scope for StepScope {
     }
 
     fn hash_files(&self, patterns: &[String]) -> Option<Result<String, String>> {
-        Some(hash::files(&self.workspace, patterns))
+        let hash = || {
+            hash::files(&self.hashing.workspace, patterns, &hash::LIMITS, &|| {
+                self.hashing.reason()
+            })
+        };
+        Some(
+            if Handle::try_current()
+                .is_ok_and(|handle| matches!(handle.runtime_flavor(), RuntimeFlavor::MultiThread))
+            {
+                tokio::task::block_in_place(hash)
+            } else {
+                hash()
+            },
+        )
     }
 }
 
@@ -277,4 +349,36 @@ pub(crate) fn minutes(
 
 pub(crate) fn text(what: &str, template: &Template, scope: &dyn Scope) -> Result<String, String> {
     bosun_expr::render(template, scope).map_err(|error| fault(what, &error))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use tokio::sync::watch;
+    use tokio::time::Instant;
+
+    use super::Hashing;
+
+    #[test]
+    fn a_hash_halts_when_the_job_is_cancelled_or_its_deadline_has_passed() {
+        let (cancel, cancelled) = watch::channel(false);
+        let halt = Hashing::new(
+            PathBuf::new(),
+            cancelled.clone(),
+            Some(Instant::now() + std::time::Duration::from_secs(3600)),
+        );
+        assert_eq!(halt.reason(), None);
+        cancel.send_replace(true);
+        assert_eq!(halt.reason(), Some("the job was cancelled"));
+        let late = Hashing::new(
+            PathBuf::new(),
+            watch::channel(false).1,
+            Some(Instant::now()),
+        );
+        assert_eq!(
+            late.reason(),
+            Some("the job ran beyond its `timeout-minutes`")
+        );
+    }
 }

@@ -428,10 +428,10 @@ async fn a_call_runs_the_jobs_of_its_callee_as_members_with_typed_inputs_and_han
     );
     assert_eq!(status(explicit), JobStatus::Pending);
     let build = one(&stored, "explicit/build");
-    assert_eq!(labels(build), ["self-hosted", "mac", "fast", "n5"]);
+    assert_eq!(labels(build), ["self-hosted", "mac", "fast", "n5", "shell"]);
     assert_eq!(
         labels(one(&stored, "plain/build")),
-        ["self-hosted", "linux", "slow", "n3"]
+        ["self-hosted", "linux", "slow", "n3", "shell"]
     );
     assert_eq!(status(one(&stored, "explicit/test")), JobStatus::Pending);
     assert_eq!(status(one(&stored, "after")), JobStatus::Pending);
@@ -460,7 +460,7 @@ async fn a_call_runs_the_jobs_of_its_callee_as_members_with_typed_inputs_and_han
     let after = one(&stored, "after");
     assert_eq!(
         (status(after), labels(after)),
-        (JobStatus::Queued, vec!["x"])
+        (JobStatus::Queued, vec!["x", "shell"])
     );
 }
 
@@ -1703,10 +1703,14 @@ async fn the_jobs_of_a_callee_in_a_run_from_a_fork_read_no_secrets() {
         &[Access::AllProjects],
     )
     .await;
+    let contained = SECRETS_YML.replace(
+        "    runs-on: [self-hosted, linux]\n",
+        "    runs-on: [self-hosted, linux]\n    container: alpine:3.24\n",
+    );
     scene
         .start_as(
             SECRETS_CALLER,
-            &[(".github/workflows/secrets.yml", SECRETS_YML)],
+            &[(".github/workflows/secrets.yml", &contained)],
             Trust::Untrusted { admitted: true },
         )
         .await;
@@ -1714,8 +1718,8 @@ async fn the_jobs_of_a_callee_in_a_run_from_a_fork_read_no_secrets() {
         &scene.world,
         forks,
         "runner2-1",
-        &LABELS,
-        &[Capability::Shell],
+        &["self-hosted", "linux", "x64", "shell", "podman"],
+        &[Capability::Podman],
         scene.replica,
     )
     .await;

@@ -179,6 +179,23 @@ On a Debian or Ubuntu host with systemd, run as root, the script:
 Everything the script does is in functions that run after the whole script has arrived, so a
 download cut short runs nothing.
 
+An agent that holds `podman` removes at every start the containers, volumes and networks labelled
+`bosun.execution` and `bosun.agent` with its own owner, a hash of the path of its podman state
+directory, and the authentication files of earlier executions, which a `SIGKILL`, a crash
+or a power loss left behind, before it takes its first job
+([05-execution.md](05-execution.md#podman)). A removal that fails is a `warn` line in the agent's
+log and the agent starts anyway, so an operator who finds one removes the object by hand.
+
+A removal that fails, at start or when a job's container cannot be removed, leaves the file
+`podman/dirty` in the agent's directory. While it exists the agent takes no job at all, in a
+container or on the host: it sends no `Idle`, so the server offers it nothing and the other agents
+of the pool take the jobs, and it logs at `error` that it asks for no job. It retries the removal
+in the background, after 5 seconds and then at twice the wait up to 5 minutes, logs every failure
+at `error` with what podman said, and asks for jobs again once a retry succeeds and the file is
+gone. The operator fixes podman for the agent's user (`podman ps --all` as that user shows whether
+it works), then either waits for the next retry or restarts the unit, whose start-up sweep checks
+again; deleting the file by hand is not the way, since the containers it records may still run.
+
 Upgrading an agent is running the same command again, which replaces the binary with the server's
 version and restarts the instances. A restart cancels a running job as `SIGTERM` does
 ([05-execution.md](05-execution.md#registration-and-identity)), so the agents of the host are
@@ -417,7 +434,7 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   `agent.status` events of the event stream 7 days, which no setting changes.
 
 `agent-<n>.toml` holds the server address, the agent's directory, the agent id and credential,
-labels, `allow_terminal`, proxy settings, the log spool limit and `cache_max_bytes`:
+labels, `allow_terminal`, proxy settings, the log spool limit, `pull_policy` and `cache_max_bytes`:
 
 ```toml
 url = "https://ci.example.org"
@@ -429,13 +446,28 @@ http_proxy = "http://proxy.example.org:3128"
 https_proxy = "http://proxy.example.org:3128"
 no_proxy = "localhost,.example.org"
 spool_max_bytes = 268435456
+pull_policy = "missing"
 ```
 
 `bosun-agent register` writes the first five keys ([05-execution.md](05-execution.md)); the others
 are optional and set by hand, and `dir` is an absolute path. The proxy keys reach every step and
-`spool_max_bytes` defaults to 256 MiB. `allow_terminal` and `cache_max_bytes` arrive with the debug
+`spool_max_bytes` defaults to 256 MiB. `pull_policy` is `missing`, the default, or `never`
+(step 10 of M2, [../plan.md](../plan.md)): with `missing` the agent pulls the image of a job
+container when the host does not hold it, and with `never` it pulls nothing and fails a job whose
+image is not on the host, naming the image ([05-execution.md](05-execution.md#podman)). `never`
+serves hosts in a closed network, whose images an operator loads by hand, and the end-to-end tests,
+whose images CI pulled before them. `allow_terminal` and `cache_max_bytes` arrive with the debug
 terminal and cache volumes; until then, as any key the agent does not know, they are refused with
 the file's name, the line and the column.
+
+An agent holds `podman` only under rootless podman: the agent decides it from `podman info` at its
+start, and a podman that reports `host.security.rootless` false, or does not report it, leaves the
+capability out. An agent run as root (`bosun-agent run` by a unit with `User=root`, or by hand)
+gets a rootful podman, in which root in a container is root on the host, so it never holds
+`podman` and runs no job in a container; the agents the install script creates run as
+`bosun-agent-<n>` and are not affected. Two agents of one host are told apart by the label
+`bosun.agent` on what they create, so the start-up sweep of one never removes a container of the
+job that another runs ([05-execution.md](05-execution.md#podman)).
 
 ## Scaling
 
@@ -667,3 +699,16 @@ also needs an X64 host, since the workflows of `.bosun/workflows/` run on
 
 The secret printed raw, as JSON and as base64 is the scenario `secrets`, against a project without
 a repository.
+
+**The scenarios of the podman capability** run when `BOSUN_TEST_PODMAN=1` and are skipped with a
+notice otherwise. Every agent of the harness then runs with `pull_policy = "never"`, so the images of
+`compat/images.lock`, which CI pulled before the tests, are the only ones a job can use. `podman`
+runs an agent with `shell` and `podman` and the agent of an untrusted pool. The case `job-container`
+of `compat/cases/` runs `actions/checkout@v4` and run steps in `node:24-alpine`. `job-containers`
+checks, through the CLI and the API, that each option that weakens isolation fails its job before its
+first step naming the option and starts in a pool that sets `allow_privileged`, that an image missing
+from the host fails its job naming the image and is not pulled, that the registry password is not in
+the log, that no container, network or volume of an execution and no file of another user is left
+after a job, that the project setting `workspace` empties the workspace of the next job on `shell`
+and in a container, and that the agent of an untrusted pool holds no workspace, tool cache or action
+after a job that came from a fork.

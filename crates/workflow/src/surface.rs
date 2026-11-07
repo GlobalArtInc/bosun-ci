@@ -39,7 +39,6 @@ type Form = (&'static str, &'static str);
 const LOWERED: &[Form] = &[
     ("workflow", "cache-mode"),
     ("workflow", "priority"),
-    ("job", "container"),
     ("job", "services"),
     ("job", "cache-mode"),
     ("job", "cache-volumes"),

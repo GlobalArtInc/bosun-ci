@@ -10,12 +10,14 @@ use bosun_proto::agent::v1::{
     ASSIGNMENT_REVISION, Accept, Assignment, Capability, Control, ControlAck, ControlKind, Hello,
     Idle, Log, LogAck, PROTOCOL, Reject, RenewForgeToken, RenewedForgeToken, RunningExecution,
 };
+use bosun_runner::container::{self, Recovery};
 use bosun_runner::{Renewed, Tracking};
 use bosun_types::id::ExecutionId;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
-use tokio::time::{self, MissedTickBehavior, sleep};
-use tracing::{info, warn};
+use tokio::task::{JoinError, JoinHandle};
+use tokio::time::{self, Instant, MissedTickBehavior, sleep, sleep_until};
+use tracing::{error, info, warn};
 
 use crate::backoff;
 use crate::config::Config;
@@ -32,6 +34,10 @@ const CLOSING: Duration = Duration::from_secs(5);
 
 const REMEMBERED_CONTROLS: usize = 1024;
 
+const RECOVERY_FIRST: Duration = Duration::from_secs(5);
+
+const RECOVERY_LAST: Duration = Duration::from_secs(300);
+
 type Stop = Pin<Box<dyn Future<Output = String> + Send>>;
 
 pub(crate) struct Agent {
@@ -46,6 +52,39 @@ pub(crate) struct Agent {
     controls: Controls,
     renewing: Option<(ExecutionId, oneshot::Sender<Renewed>)>,
     stopping: bool,
+    recovery: Option<Recovery>,
+    recovering: Option<Recovering>,
+}
+
+enum Recovering {
+    Waiting {
+        due: Instant,
+        delay: Duration,
+    },
+    Running {
+        attempt: JoinHandle<Result<(), String>>,
+        delay: Duration,
+    },
+}
+
+enum Recovered {
+    Due,
+    Done(Result<Result<(), String>, JoinError>),
+}
+
+fn next_delay(delay: Duration) -> Duration {
+    delay.saturating_mul(2).min(RECOVERY_LAST)
+}
+
+async fn recovery_event(recovering: &mut Option<Recovering>) -> Recovered {
+    match recovering {
+        None => std::future::pending().await,
+        Some(Recovering::Waiting { due, .. }) => {
+            sleep_until(*due).await;
+            Recovered::Due
+        }
+        Some(Recovering::Running { attempt, .. }) => Recovered::Done(attempt.await),
+    }
 }
 
 enum Ended {
@@ -61,6 +100,9 @@ impl Agent {
         tracking: Tracking,
     ) -> Agent {
         let (out, results) = mpsc::unbounded_channel();
+        let recovery = capabilities
+            .contains(&Capability::Podman)
+            .then(|| job::recovery(&config.dir));
         Agent {
             config,
             capabilities,
@@ -73,7 +115,85 @@ impl Agent {
             controls: Controls::default(),
             renewing: None,
             stopping: false,
+            recovery,
+            recovering: None,
         }
+    }
+
+    fn marked(&self) -> bool {
+        self.recovery
+            .as_ref()
+            .is_some_and(|recovery| container::is_marked(&recovery.state))
+    }
+
+    async fn offer(&mut self, connection: &Connection) -> Result<(), String> {
+        if self.job.is_some() || self.stopping {
+            return Ok(());
+        }
+        if self.marked() {
+            if self.recovering.is_none() {
+                error!(
+                    retry_in_seconds = RECOVERY_FIRST.as_secs(),
+                    "a container of an earlier job could not be removed, so the agent takes no \
+                     job until it can: it asks for no job and retries the removal"
+                );
+                self.recovering = Some(Recovering::Waiting {
+                    due: Instant::now() + RECOVERY_FIRST,
+                    delay: RECOVERY_FIRST,
+                });
+            }
+            return Ok(());
+        }
+        self.recovering = None;
+        connection.send(Message::Idle(Idle {})).await
+    }
+
+    fn recover(&mut self) {
+        let (Some(recovery), Some(Recovering::Waiting { delay, .. })) =
+            (&self.recovery, &self.recovering)
+        else {
+            return;
+        };
+        let (engine, state, delay) = (Arc::clone(&recovery.engine), recovery.state.clone(), *delay);
+        let attempt = tokio::spawn(async move { container::recover(&engine, &state).await });
+        self.recovering = Some(Recovering::Running { attempt, delay });
+    }
+
+    async fn recovered(
+        &mut self,
+        connection: &Connection,
+        result: Result<Result<(), String>, JoinError>,
+    ) -> Result<(), String> {
+        let delay = match self.recovering.take() {
+            Some(Recovering::Running { delay, .. }) => delay,
+            other => {
+                self.recovering = other;
+                return Ok(());
+            }
+        };
+        let fault = match result {
+            Ok(Ok(())) => {
+                info!(
+                    "the agent removed what an earlier job left, and offers itself for jobs again"
+                );
+                return self.offer(connection).await;
+            }
+            Ok(Err(fault)) => fault,
+            Err(error) => {
+                format!("the removal of what an earlier job left did not finish: {error}")
+            }
+        };
+        let delay = next_delay(delay);
+        error!(
+            %fault,
+            retry_in_seconds = delay.as_secs(),
+            "the agent still takes no job"
+        );
+        self.recovering = Some(Recovering::Waiting {
+            due: Instant::now() + delay,
+            delay,
+        });
+        Ok(())
     }
 
     pub(crate) async fn run(mut self, mut stop: Stop) {
@@ -252,9 +372,7 @@ impl Agent {
         if self.stopped() {
             return Ok(());
         }
-        if self.job.is_none() && !self.stopping {
-            connection.send(Message::Idle(Idle {})).await?;
-        }
+        self.offer(connection).await?;
         let mut heartbeats = time::interval(interval);
         heartbeats.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
@@ -286,10 +404,12 @@ impl Agent {
                         if self.stopped() {
                             return Ok(());
                         }
-                        if self.job.is_none() && !self.stopping {
-                            connection.send(Message::Idle(Idle {})).await?;
-                        }
+                        self.offer(connection).await?;
                     }
+                },
+                recovered = recovery_event(&mut self.recovering), if !self.stopping => match recovered {
+                    Recovered::Due => self.recover(),
+                    Recovered::Done(result) => self.recovered(connection, result).await?,
                 },
                 _ = heartbeats.tick() => {
                     connection
@@ -418,8 +538,19 @@ impl Agent {
                 "the agent is running the execution {}",
                 job.execution
             ))
+        } else if self.marked() {
+            Err(
+                "this agent could not remove a container of an earlier job, so it takes no job \
+                 until it can"
+                    .to_owned(),
+            )
         } else {
-            job::prepare(assignment, &self.config, &connection.welcome.agent_name)
+            job::prepare(
+                assignment,
+                &self.config,
+                &connection.welcome.agent_name,
+                self.capabilities.contains(&Capability::Podman),
+            )
         };
         let prepared = match prepared {
             Ok(prepared) => prepared,
@@ -431,9 +562,7 @@ impl Agent {
                         reason,
                     }))
                     .await?;
-                if self.job.is_none() && !self.stopping {
-                    connection.send(Message::Idle(Idle {})).await?;
-                }
+                self.offer(connection).await?;
                 return Ok(());
             }
         };
@@ -499,7 +628,20 @@ impl Controls {
 
 #[cfg(test)]
 mod tests {
-    use super::{Controls, REMEMBERED_CONTROLS};
+    use std::time::Duration;
+
+    use super::{Controls, REMEMBERED_CONTROLS, next_delay};
+
+    #[test]
+    fn the_wait_between_two_attempts_to_recover_doubles_from_five_seconds_to_five_minutes() {
+        let mut delay = Duration::from_secs(5);
+        let mut seen = Vec::new();
+        for _ in 0..8 {
+            seen.push(delay.as_secs());
+            delay = next_delay(delay);
+        }
+        assert_eq!(seen, [5, 10, 20, 40, 80, 160, 300, 300]);
+    }
 
     #[test]
     fn a_control_seen_before_gets_its_first_answer_until_it_is_one_of_the_oldest() {

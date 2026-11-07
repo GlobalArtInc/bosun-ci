@@ -1955,6 +1955,7 @@
             "$ref": "#/components/schemas/PoolAccess"
           },
           "allow_privileged": {
+            "default": false,
             "type": "boolean"
           },
           "created_at": {
@@ -2174,6 +2175,9 @@
               }
             },
             "type": "object"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/WorkspacePolicy"
           }
         },
         "required": [
@@ -2182,7 +2186,8 @@
           "token_permissions",
           "report",
           "log_retention",
-          "run_retention"
+          "run_retention",
+          "workspace"
         ],
         "type": "object"
       },
@@ -3748,6 +3753,13 @@
             "type": "object"
           }
         ]
+      },
+      "WorkspacePolicy": {
+        "enum": [
+          "persist",
+          "clean"
+        ],
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -5581,6 +5593,9 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "workspace": {
+                    "$ref": "#/components/schemas/WorkspacePolicy"
                   }
                 },
                 "type": "object"

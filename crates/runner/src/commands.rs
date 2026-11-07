@@ -1,10 +1,10 @@
-use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
 use crate::mask::Masker;
+use crate::safe;
 
 pub(crate) const SUMMARY_LIMIT: usize = 1024 * 1024;
 
@@ -57,9 +57,9 @@ impl Commands {
             &commands.summary,
         ] {
             if let Some(directory) = path.parent() {
-                fs::create_dir_all(directory)?;
+                safe::directory(directory)?;
             }
-            fs::write(path, b"")?;
+            safe::create(path, 0o666, b"")?;
         }
         Ok(commands)
     }
@@ -103,7 +103,7 @@ impl Commands {
 
     pub(crate) fn summary(&self, masker: &Masker) -> Result<Option<Summary>, String> {
         let mut raw = Vec::new();
-        let read = match File::open(&self.summary) {
+        let read = match safe::open(&self.summary) {
             Ok(file) => file
                 .take((SUMMARY_LIMIT + masker.longest()) as u64 + 1)
                 .read_to_end(&mut raw),
@@ -138,8 +138,8 @@ fn summary(raw: &[u8], masker: &Masker) -> Option<Summary> {
     Some(Summary { text, cut })
 }
 
-fn read(path: &PathBuf) -> io::Result<String> {
-    match fs::read(path) {
+fn read(path: &Path) -> io::Result<String> {
+    match safe::read(path, safe::FILE_LIMIT) {
         Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(String::new()),
         Err(error) => Err(error),

@@ -113,14 +113,14 @@ fn every_ir_and_diagnostic_fixture_comes_from_a_workflow_fixture() {
 #[test]
 fn a_fixture_that_uses_a_pending_key_is_refused_with_not_implemented_naming_m2() {
     let root = fixtures();
-    let mut refused = 0;
+    let mut refused = Vec::new();
     for case in cases(&root.join("ir"), "json") {
         let source = read(&root.join("workflows").join(format!("{case}.yml")));
         let file = FILE.to_string();
         let Err(diagnostics) = bosun_workflow::parse(&file, &source) else {
             continue;
         };
-        refused += 1;
+        refused.push(case.clone());
         for diagnostic in diagnostics {
             assert_eq!(
                 (
@@ -132,5 +132,15 @@ fn a_fixture_that_uses_a_pending_key_is_refused_with_not_implemented_naming_m2()
             );
         }
     }
-    assert!(refused >= 6, "only {refused} fixtures use a pending key");
+    assert_eq!(
+        refused,
+        [
+            "cache-mode",
+            "cache-volumes",
+            "services",
+            "uses-docker",
+            "uses-local-action",
+        ],
+        "the fixtures that use a pending key changed"
+    );
 }

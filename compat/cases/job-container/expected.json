@@ -1,0 +1,31 @@
+{
+  "description": "a job in a warmed Alpine image checks out on the musl Node, runs its steps in /__w/<org>.<project>/<repository>, and passes the environment, the outputs and the path from step to step",
+  "podman": true,
+  "runs": [
+    {
+      "name": "job-container",
+      "conclusion": "success",
+      "checks": ["build"],
+      "jobs": [
+        {
+          "name": "build",
+          "conclusion": "success",
+          "outputs": {
+            "greeting": "checked out in the container",
+            "note": "written to the outputs"
+          },
+          "logs": [
+            "^[^ ]+ pwd /__w/globalartinc\\.job-container/job-container$",
+            "^[^ ]+ workspace /__w/globalartinc\\.job-container/job-container$",
+            "^[^ ]+ temp /__w/_temp$",
+            "^[^ ]+ container true network true$",
+            "^[^ ]+ env written to the environment$",
+            "^[^ ]+ written to the path$",
+            "^[^ ]+ image alpine$",
+            "^[^ ]+ user 0$"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -210,6 +210,7 @@ async fn a_placement_without_aliases_keeps_the_labels_and_names_the_pools_open_t
             labels: vec!["self-hosted".to_owned(), "x64".to_owned()],
             pools: vec![tenancy.default, tenancy.linux, tenancy.keel_only],
             capabilities: Vec::new(),
+            image: None,
         }
     );
     assert_eq!(
@@ -249,6 +250,7 @@ async fn an_alias_replaces_its_label_by_its_pool_and_capability_and_the_organisa
             labels: Vec::new(),
             pools: vec![tenancy.default],
             capabilities: Vec::new(),
+            image: None,
         }
     );
     assert!(
@@ -269,6 +271,7 @@ async fn an_alias_replaces_its_label_by_its_pool_and_capability_and_the_organisa
             labels: vec!["x64".to_owned()],
             pools: vec![tenancy.linux],
             capabilities: vec![Capability::Shell],
+            image: None,
         }
     );
     assert!(
@@ -283,6 +286,7 @@ async fn an_alias_replaces_its_label_by_its_pool_and_capability_and_the_organisa
             labels: Vec::new(),
             pools: Vec::new(),
             capabilities: Vec::new(),
+            image: None,
         },
         "an alias to a pool closed to the project places the job nowhere"
     );
@@ -331,6 +335,7 @@ async fn several_aliases_meet_in_one_pool_and_need_every_capability_they_name() 
             labels: vec!["gpu".to_owned()],
             pools: vec![tenancy.linux],
             capabilities: vec![Capability::Podman],
+            image: None,
         }
     );
     tenancy
@@ -349,6 +354,7 @@ async fn several_aliases_meet_in_one_pool_and_need_every_capability_they_name() 
             labels: Vec::new(),
             pools: Vec::new(),
             capabilities: vec![Capability::Shell],
+            image: None,
         }
     );
     assert_eq!(
@@ -357,6 +363,84 @@ async fn several_aliases_meet_in_one_pool_and_need_every_capability_they_name() 
             .await
             .pools,
         [tenancy.linux]
+    );
+}
+
+#[tokio::test]
+async fn a_placement_carries_the_image_of_its_aliases_and_two_different_images_leave_no_pool() {
+    let tenancy = Tenancy::new().await;
+    for (label, image) in [
+        ("boxed", "alpine:3"),
+        ("also-boxed", "alpine:3"),
+        ("other", "debian:12"),
+    ] {
+        aliases::set(
+            tenancy.db(),
+            NewAlias {
+                organisation: None,
+                label,
+                pool: None,
+                capability: Some(Capability::Podman),
+                image: Some(image),
+            },
+        )
+        .await
+        .expect("an alias with an image");
+    }
+    let one = tenancy.place(&tenancy.keel, None, &["boxed", "gpu"]).await;
+    assert_eq!(one.image.as_deref(), Some("alpine:3"));
+    assert_eq!(one.labels, ["gpu"]);
+    assert!(!one.pools.is_empty());
+    let same = tenancy
+        .place(&tenancy.keel, None, &["boxed", "also-boxed"])
+        .await;
+    assert_eq!(same.image.as_deref(), Some("alpine:3"));
+    assert!(!same.pools.is_empty());
+    let conflicting = tenancy
+        .place(&tenancy.keel, None, &["boxed", "other"])
+        .await;
+    assert!(conflicting.pools.is_empty());
+    assert_eq!(
+        tenancy.place(&tenancy.keel, None, &["gpu"]).await.image,
+        None
+    );
+}
+
+#[tokio::test]
+async fn an_alias_with_an_image_needs_podman_and_never_shell_whatever_its_capability_says() {
+    let tenancy = Tenancy::new().await;
+    for (label, capability, image) in [
+        ("boxed-shell", Some(Capability::Shell), Some("alpine:3")),
+        ("boxed-none", None, Some("alpine:3")),
+        ("plain-shell", Some(Capability::Shell), None),
+    ] {
+        aliases::set(
+            tenancy.db(),
+            NewAlias {
+                organisation: None,
+                label,
+                pool: None,
+                capability,
+                image,
+            },
+        )
+        .await
+        .expect("an alias");
+    }
+    for labels in [
+        &["boxed-shell"][..],
+        &["boxed-none"],
+        &["plain-shell", "boxed-none"],
+    ] {
+        let placed = tenancy.place(&tenancy.keel, None, labels).await;
+        assert_eq!(placed.capabilities, [Capability::Podman], "{labels:?}");
+    }
+    assert_eq!(
+        tenancy
+            .place(&tenancy.keel, None, &["plain-shell"])
+            .await
+            .capabilities,
+        [Capability::Shell]
     );
 }
 

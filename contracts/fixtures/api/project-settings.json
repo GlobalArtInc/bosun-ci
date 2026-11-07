@@ -7,5 +7,6 @@
   },
   "report": "checks",
   "log_retention": 90,
-  "run_retention": null
+  "run_retention": null,
+  "workspace": "persist"
 }

@@ -3191,7 +3191,10 @@ pending list), `contracts/fixtures/api/`, `hack/e2e.sh`, `docs/design/05-executi
 
 - In CI, a job with `container` set to a warmed Alpine image runs its `run` steps inside it, in the
   workspace `/__w/<org>.<project>/<repository>`, and `actions/checkout@v4` runs in it on the musl
-  Node from the harness's upstream.
+  Node from the harness's upstream. The case `job-container` that runs `actions/checkout@v4` uses
+  the warmed `node:24-alpine` and not plain Alpine, since the musl build of Node needs `libstdc++`
+  and `libatomic`, which that image installs and plain Alpine does not
+  ([compat/README.md](../compat/README.md#images)).
 - A step in the container that writes to `$GITHUB_ENV`, `$GITHUB_OUTPUT` and `$GITHUB_PATH` affects
   the next step and the job's outputs as on the host.
 - After the job no container, network or volume labelled with the execution remains, and the agent's

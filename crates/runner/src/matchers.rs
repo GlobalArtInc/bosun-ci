@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -7,6 +7,7 @@ use fancy_regex::{Captures, Regex};
 use serde::Deserialize;
 
 use crate::annotation::{Annotation, AnnotationKind};
+use crate::safe;
 
 const GITHUB: &str = "https://github.com";
 
@@ -96,9 +97,10 @@ pub(crate) struct Matcher {
 }
 
 pub(crate) fn load(file: &str, place: &Place) -> Result<Vec<Matcher>, String> {
-    let text = fs::read_to_string(place.rooted(file))
+    let bytes = place
+        .read(file)
         .map_err(|error| format!("`{file}` could not be read: {error}"))?;
-    let document: Document = serde_json::from_str(&text)
+    let document: Document = serde_json::from_slice(&bytes)
         .map_err(|error| format!("`{file}` is not a document of problem matchers: {error}"))?;
     let mut matchers: Vec<Matcher> = Vec::new();
     for written in document.problem_matcher {
@@ -372,6 +374,7 @@ impl Matcher {
 #[derive(Default)]
 pub(crate) struct Place {
     pub(crate) workspace: PathBuf,
+    pub(crate) inside: Option<String>,
     pub(crate) repository: String,
     pub(crate) server_url: String,
 }
@@ -386,13 +389,30 @@ impl Place {
         }
     }
 
-    fn rooted(&self, file: &str) -> PathBuf {
+    fn read(&self, file: &str) -> io::Result<Vec<u8>> {
         let path = Path::new(file);
-        if path.is_absolute() {
-            path.to_path_buf()
+        let Some(inside) = &self.inside else {
+            let rooted = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                self.workspace.join(path)
+            };
+            return safe::read(&rooted, safe::FILE_LIMIT);
+        };
+        let relative = if path.is_absolute() {
+            path.strip_prefix(inside)
+                .or_else(|_| path.strip_prefix(&self.workspace))
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "it is outside the workspace, which is all that a job in a container may \
+                         read a problem matcher from",
+                    )
+                })?
         } else {
-            self.workspace.join(path)
-        }
+            path
+        };
+        safe::read_below(&self.workspace, relative, safe::FILE_LIMIT)
     }
 
     fn file(&self, file: &str, from: Option<&str>) -> Option<String> {
@@ -423,20 +443,30 @@ impl Place {
     fn repository_of(&self, file: &Path) -> Option<PathBuf> {
         let mut directory = file.parent()?;
         loop {
-            let config = directory.join(".git").join("config");
-            if config.is_file() {
-                return self
-                    .names_the_repository(&config)
-                    .then(|| directory.to_path_buf());
+            let relative = directory.strip_prefix(&self.workspace).ok()?;
+            match safe::read_below(
+                &self.workspace,
+                &relative.join(".git").join("config"),
+                safe::FILE_LIMIT,
+            ) {
+                Ok(bytes) => {
+                    return self
+                        .names_the_repository(&bytes)
+                        .then(|| directory.to_path_buf());
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::InvalidInput
+                    ) => {}
+                Err(_) => return None,
             }
             directory = directory.parent()?;
         }
     }
 
-    fn names_the_repository(&self, config: &Path) -> bool {
-        let Ok(text) = fs::read_to_string(config) else {
-            return false;
-        };
+    fn names_the_repository(&self, bytes: &[u8]) -> bool {
+        let text = String::from_utf8_lossy(bytes);
         let server = if self.server_url.is_empty() {
             GITHUB
         } else {
@@ -616,6 +646,7 @@ mod tests {
 
     use super::{Matching, Place, Registry, Scanned, host, load, without_colours};
     use crate::annotation::AnnotationKind;
+    use crate::safe;
 
     fn place(directory: &tempfile::TempDir) -> Place {
         Place {
@@ -644,6 +675,59 @@ mod tests {
                 annotation.map(|annotation| (annotation.kind, annotation.message))
             })
             .collect()
+    }
+
+    #[test]
+    fn the_repository_of_a_file_is_named_by_a_config_below_the_workspace_that_no_link_leads_to() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let workspace = fs::canonicalize(directory.path()).expect("a path");
+        let place = Place {
+            workspace: workspace.clone(),
+            repository: "acme/repo".to_owned(),
+            server_url: "https://github.com".to_owned(),
+            ..Place::default()
+        };
+        fs::create_dir_all(workspace.join("src")).expect("directories");
+        fs::write(workspace.join("src/a.rs"), "x").expect("a file");
+        let config = "[remote \"origin\"]\n\turl = https://github.com/acme/repo\n";
+        fs::create_dir_all(workspace.join(".git")).expect("directories");
+        fs::write(workspace.join(".git/config"), config).expect("a file");
+        assert_eq!(place.file("src/a.rs", None).as_deref(), Some("src/a.rs"));
+
+        fs::remove_dir_all(workspace.join(".git")).expect("removed");
+        let elsewhere = tempfile::tempdir().expect("a directory");
+        fs::write(elsewhere.path().join("config"), config).expect("a file");
+        std::os::unix::fs::symlink(elsewhere.path(), workspace.join(".git")).expect("a link");
+        assert_eq!(place.file("src/a.rs", None), None);
+    }
+
+    #[test]
+    fn a_dot_git_that_is_a_file_does_not_stop_the_search_for_the_repository_above_it() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let workspace = fs::canonicalize(directory.path()).expect("a path");
+        let place = Place {
+            workspace: workspace.clone(),
+            repository: "acme/repo".to_owned(),
+            server_url: "https://github.com".to_owned(),
+            ..Place::default()
+        };
+        fs::create_dir_all(workspace.join(".git")).expect("directories");
+        fs::write(
+            workspace.join(".git/config"),
+            "[remote \"origin\"]\n\turl = https://github.com/acme/repo\n",
+        )
+        .expect("a file");
+        fs::create_dir_all(workspace.join("module/src")).expect("directories");
+        fs::write(
+            workspace.join("module/.git"),
+            "gitdir: ../.git/modules/module\n",
+        )
+        .expect("a file");
+        fs::write(workspace.join("module/src/a.rs"), "x").expect("a file");
+        assert_eq!(
+            place.file("module/src/a.rs", None).as_deref(),
+            Some("module/src/a.rs")
+        );
     }
 
     #[test]
@@ -803,5 +887,75 @@ mod tests {
             host("https://user@git.example.org:8443/path"),
             "git.example.org"
         );
+    }
+
+    #[test]
+    fn a_matcher_file_is_a_regular_file_and_in_a_container_one_inside_the_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("a directory");
+        let workspace = fs::canonicalize(directory.path()).expect("a path");
+        let outside = tempfile::tempdir().expect("a directory");
+        fs::write(outside.path().join("m.json"), r#"{"problemMatcher": []}"#).expect("written");
+        fs::write(workspace.join("ok.json"), r#"{"problemMatcher": []}"#).expect("written");
+        symlink("/dev/zero", workspace.join("zero.json")).expect("a link");
+        symlink(outside.path(), workspace.join("linked")).expect("a link");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(workspace.join("pipe.json"))
+                .status()
+                .expect("mkfifo")
+                .success()
+        );
+        let host = Place {
+            workspace: workspace.clone(),
+            ..Place::default()
+        };
+        let contained = Place {
+            workspace: workspace.clone(),
+            inside: Some("/__w/globalart.keel/keel".to_owned()),
+            ..Place::default()
+        };
+        let outside_file = outside.path().join("m.json").display().to_string();
+        let inside_file = format!("{}/ok.json", workspace.display());
+        for (place, file, refusal) in [
+            (&host, "zero.json", Some("symbolic link")),
+            (&host, "pipe.json", Some("not a regular file")),
+            (&host, "ok.json", None),
+            (&host, outside_file.as_str(), None),
+            (&contained, "zero.json", Some("symbolic link")),
+            (&contained, "pipe.json", Some("not a regular file")),
+            (
+                &contained,
+                "linked/m.json",
+                Some("symbolic link or not a directory"),
+            ),
+            (
+                &contained,
+                outside_file.as_str(),
+                Some("outside the workspace"),
+            ),
+            (&contained, "../ok.json", Some("leaves the directory")),
+            (&contained, "ok.json", None),
+            (&contained, "/__w/globalart.keel/keel/ok.json", None),
+            (&contained, inside_file.as_str(), None),
+        ] {
+            let (place, name) = (
+                Place {
+                    workspace: place.workspace.clone(),
+                    inside: place.inside.clone(),
+                    ..Place::default()
+                },
+                file.to_owned(),
+            );
+            let loaded = safe::promptly(move || load(&name, &place).map(|_| ()));
+            match refusal {
+                Some(message) => {
+                    let error = loaded.expect_err(file);
+                    assert!(error.contains(message), "{file}: {error}");
+                }
+                None => assert_eq!(loaded, Ok(()), "{file}"),
+            }
+        }
     }
 }

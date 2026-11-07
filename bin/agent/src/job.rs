@@ -1,5 +1,5 @@
 use std::io;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -9,9 +9,12 @@ use bosun_proto::agent::v1::{
     ForgeToken as Sent, JobFinished, StepFinished, StepStarted,
 };
 use bosun_proto::assignment::{self, Documents, Runtime as Provided};
+use bosun_runner::container::{
+    self, ContainerJob, Credentials, Libc, Mounts, Pending, Podman, Provision, Recovery,
+};
 use bosun_runner::{
-    Annotation, AnnotationKind, BosunFacts, Completed, Event, ForgeToken, Job, NodeAction, Renewal,
-    Renewed, Runner, Runtime, Tracking,
+    Annotation, AnnotationKind, BosunFacts, Cleanup, Completed, Event, ForgeToken, Job, NodeAction,
+    Renewal, Renewed, Runner, Runtime, Tracking,
 };
 use bosun_types::id::ExecutionId;
 use bosun_types::ir::{self, Action, JobKind, Shell};
@@ -23,7 +26,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::{oneshot, watch};
 use tokio::task;
 use tokio::time::{Instant, sleep_until};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::fetch::{Archive, Compression, Fetches};
@@ -73,10 +76,18 @@ impl Prepared {
     }
 }
 
+pub(crate) fn recovery(dir: &Path) -> Recovery {
+    Recovery {
+        engine: Arc::new(Podman::new()),
+        state: dir.join("podman"),
+    }
+}
+
 pub(crate) fn prepare(
     assignment: Assignment,
     config: &Config,
     name: &str,
+    podman: bool,
 ) -> Result<Prepared, String> {
     let execution: ExecutionId = assignment.execution_id.parse().map_err(|_| {
         format!(
@@ -106,7 +117,7 @@ pub(crate) fn prepare(
     for (index, step) in (0..).zip(steps) {
         runnable(index, step, &actions)?;
     }
-    let (actions, archives) = local(&actions, &config.dir, &host::platform())?;
+    let (local_actions, mut archives) = local(&actions, &config.dir, &host::platform())?;
     let bosun = BosunFacts {
         url: property(&contexts.bosun, "url"),
         run_id: property(&contexts.bosun, "run_id"),
@@ -120,16 +131,69 @@ pub(crate) fn prepare(
     let forge_token = assignment.forge_token.map(|token| received(*token));
     let runtime = evaluated.runtime.take().map(provided).transpose()?;
     let work = config.dir.join("work");
+    let workspace = work
+        .join(format!(
+            "{}.{}",
+            assignment.organisation, assignment.project
+        ))
+        .join(repository);
+    let recovery = podman.then(|| recovery(&config.dir));
+    let container = match evaluated.container.take() {
+        None if job.container.is_some() => {
+            return Err(
+                "the job declares `container`, and the assignment carries none, so its steps \
+                 would run on the host of this agent"
+                    .to_owned(),
+            );
+        }
+        None => None,
+        Some(container) => {
+            let Some(recovery) = &recovery else {
+                return Err(
+                    "the job runs in a container, and this agent holds no podman".to_owned(),
+                );
+            };
+            archives.retain(|archive| archive.marker.is_none());
+            let versions: Vec<String> = actions.iter().map(|action| action.node.clone()).collect();
+            Some(ContainerJob {
+                image: container.image,
+                credentials: container.credentials.map(|credentials| Credentials {
+                    username: credentials.username.unwrap_or_default(),
+                    password: credentials.password.unwrap_or_default(),
+                }),
+                allow_privileged: evaluated.allow_privileged && !evaluated.untrusted,
+                untrusted: evaluated.untrusted,
+                pull_policy: config.pull_policy(),
+                engine: Arc::clone(&recovery.engine),
+                mounts: Mounts {
+                    work: work.clone(),
+                    externals: config.dir.join("externals"),
+                    tools: config.dir.join("tools"),
+                },
+                state: recovery.state.clone(),
+                provision: (!versions.is_empty()).then(|| {
+                    Arc::new(Nodes {
+                        url: config.url.clone(),
+                        credential: config.credential.clone(),
+                        dir: config.dir.clone(),
+                        versions,
+                    }) as Arc<dyn Provision>
+                }),
+            })
+        }
+    };
+    let cleanup = cleanup(
+        &config.dir,
+        &workspace,
+        evaluated.untrusted,
+        evaluated.workspace_clean,
+    );
+    let actions = local_actions;
     Ok(Prepared {
         execution,
         job: Job {
             id: execution.to_string(),
-            workspace: work
-                .join(format!(
-                    "{}.{}",
-                    assignment.organisation, assignment.project
-                ))
-                .join(repository),
+            workspace,
             temp: work.join("_temp"),
             tool_cache: config.dir.join("tools"),
             runner: Runner {
@@ -147,10 +211,14 @@ pub(crate) fn prepare(
             runtime,
             fetched: Ok(()),
             minute: MINUTE,
+            container,
+            recovery,
+            cleanup,
         },
         fetches: Fetches {
             url: config.url.clone(),
             credential: config.credential.clone(),
+            root: config.dir.clone(),
             archives,
         },
         forge_token,
@@ -280,6 +348,98 @@ fn local(
     Ok((local, archives))
 }
 
+fn cleanup(dir: &Path, workspace: &Path, untrusted: bool, clean: bool) -> Cleanup {
+    let work = dir.join("work");
+    let tools = dir.join("tools");
+    let temp = work.join("_temp");
+    let roots = vec![work.clone(), tools.clone()];
+    if untrusted {
+        Cleanup {
+            roots,
+            before_download: vec![work.clone(), tools.clone()],
+            before: Vec::new(),
+            after: vec![work, tools],
+        }
+    } else {
+        Cleanup {
+            roots,
+            before_download: vec![temp],
+            before: if clean {
+                vec![workspace.to_path_buf()]
+            } else {
+                Vec::new()
+            },
+            after: Vec::new(),
+        }
+    }
+}
+
+struct Nodes {
+    url: String,
+    credential: String,
+    dir: PathBuf,
+    versions: Vec<String>,
+}
+
+impl std::fmt::Debug for Nodes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Nodes")
+            .field("url", &self.url)
+            .field("versions", &self.versions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Nodes {
+    fn plan(&self, libc: Libc, host: &str) -> Result<(Vec<Archive>, Vec<PathBuf>), String> {
+        let platform = host::container_platform(libc);
+        let shared = platform == host;
+        let externals = self.dir.join("externals");
+        let mut archives: Vec<Archive> = Vec::new();
+        let mut paths = Vec::new();
+        for version in &self.versions {
+            let major = node_major(version)
+                .ok_or_else(|| format!("`{version}` is not a version of Node"))?;
+            let name = match (shared, libc) {
+                (true, _) => format!("node{major}"),
+                (false, Libc::Musl) => format!("node{major}-musl"),
+                (false, Libc::Glibc) => format!("node{major}-glibc"),
+            };
+            let into = externals.join(&name);
+            if !archives.iter().any(|archive| archive.into == into) {
+                archives.push(Archive {
+                    path: format!("/_runtime/tools/node/{version}/{platform}.tar.xz"),
+                    compression: Compression::Xz,
+                    into: into.clone(),
+                    marker: Some((
+                        externals.join(format!("{name}.version")),
+                        format!("{version} {platform}\n"),
+                    )),
+                });
+            }
+            paths.push(into.join("bin/node"));
+        }
+        Ok((archives, paths))
+    }
+}
+
+impl Provision for Nodes {
+    fn nodes(&self, libc: Libc) -> Pending<'_, Result<Vec<PathBuf>, String>> {
+        Box::pin(async move {
+            let (archives, paths) = self.plan(libc, &host::platform())?;
+            Fetches {
+                url: self.url.clone(),
+                credential: self.credential.clone(),
+                root: self.dir.clone(),
+                archives,
+            }
+            .run()
+            .await?;
+            Ok(paths)
+        })
+    }
+}
+
 fn segment(part: &str) -> bool {
     !matches!(part, "" | "." | "..") && !part.contains(['/', '\\', '\0'])
 }
@@ -373,7 +533,7 @@ pub(crate) fn start(
     let (cancel, cancelled) = watch::channel(false);
     let (events, received) = mpsc::unbounded_channel();
     let runner = async move {
-        job.fetched = fetches.run().await;
+        job.fetched = download(&job.cleanup, job.recovery.as_ref(), fetches).await;
         bosun_runner::run(job, &tracking, events, cancelled).await
     };
     let pump = Pump {
@@ -387,6 +547,28 @@ pub(crate) fn start(
     };
     tokio::spawn(pump.run(received, runner));
     Running { execution, cancel }
+}
+
+async fn download(
+    cleanup: &Cleanup,
+    recovery: Option<&Recovery>,
+    fetches: Fetches,
+) -> Result<(), String> {
+    if let Some(recovery) = recovery {
+        container::recover(&recovery.engine, &recovery.state)
+            .await
+            .map_err(|fault| {
+                error!("{fault}");
+                fault
+            })?;
+    }
+    cleanup
+        .empty_before_download(recovery.map(|recovery| &recovery.engine))
+        .await
+        .map_err(|fault| {
+            format!("the directories of the agent could not be emptied before the job: {fault}")
+        })?;
+    fetches.run().await
 }
 
 struct Pump {
@@ -571,13 +753,15 @@ fn concluded(conclusion: Conclusion) -> Concluded {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::ffi::OsString;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
 
     use bosun_proto::agent::v1::Assignment;
     use bosun_proto::assignment::{self, Contexts, Documents, Evaluated, Runtime as Provided};
-    use bosun_runner::{Event, Runtime};
+    use bosun_runner::container::{Call, Engine, Outcome, Pending, PullPolicy, Recovery};
+    use bosun_runner::{Cleanup, Event, Runtime};
     use bosun_types::id::ExecutionId;
     use bosun_types::ir::{
         Action, ActionMetadata, ActionReference, Defaults, Evaluable, JobKind, JobTemplate,
@@ -586,9 +770,12 @@ mod tests {
     use serde_json::{Map, Value, json};
     use tokio::sync::mpsc;
 
-    use super::{Out, Pump, local, prepare};
+    use bosun_runner::container::Libc;
+
+    use super::{Nodes, Out, Pump, cleanup, download, local, prepare};
     use crate::config::Config;
-    use crate::fetch::{Archive, Compression};
+    use crate::fetch::{Archive, Compression, Fetches};
+    use crate::host;
     use crate::spool::Spool;
 
     const EXECUTION: &str = "0199a5f2-2c6f-7a3e-8a3b-5f0d4c1e2b3a";
@@ -611,6 +798,7 @@ mod tests {
             https_proxy: None,
             no_proxy: None,
             spool_max_bytes: None,
+            pull_policy: None,
         }
     }
 
@@ -668,6 +856,11 @@ mod tests {
                 timeout_minutes: 360,
                 continue_on_error: false,
                 runtime: None,
+                container: None,
+                allow_privileged: false,
+                workspace_clean: false,
+                untrusted: false,
+                needs_podman: false,
             },
             actions: Vec::new(),
         }
@@ -707,7 +900,7 @@ mod tests {
     fn an_assignment_becomes_a_job_in_the_workspace_of_its_project() {
         let documents = documents(step());
         let assignment = assignment(&documents);
-        let prepared = prepare(assignment, &config(), "runner1-1").expect("a job");
+        let prepared = prepare(assignment, &config(), "runner1-1", true).expect("a job");
         assert_eq!(
             prepared.execution(),
             EXECUTION.parse::<ExecutionId>().expect("an id")
@@ -769,7 +962,8 @@ mod tests {
         };
         let mut documents = documents(step());
         documents.evaluated.runtime = Some(provided.clone());
-        let prepared = prepare(assignment(&documents), &config(), "runner1-1").expect("a job");
+        let prepared =
+            prepare(assignment(&documents), &config(), "runner1-1", true).expect("a job");
         assert_eq!(
             prepared.job.runtime,
             Some(Runtime {
@@ -792,7 +986,7 @@ mod tests {
             },
         ] {
             documents.evaluated.runtime = Some(emptied);
-            let Err(reason) = prepare(assignment(&documents), &config(), "runner1-1") else {
+            let Err(reason) = prepare(assignment(&documents), &config(), "runner1-1", true) else {
                 panic!("an assignment with an incomplete runtime was prepared");
             };
             assert!(
@@ -802,7 +996,8 @@ mod tests {
             assert!(!reason.contains(&provided.token), "{reason}");
         }
         documents.evaluated.runtime = None;
-        let prepared = prepare(assignment(&documents), &config(), "runner1-1").expect("a job");
+        let prepared =
+            prepare(assignment(&documents), &config(), "runner1-1", true).expect("a job");
         assert_eq!(prepared.job.runtime, None);
     }
 
@@ -813,7 +1008,8 @@ mod tests {
             .contexts
             .github
             .insert("repository".to_owned(), json!("GlobalArtInc/keel-ci"));
-        let prepared = prepare(assignment(&documents), &config(), "runner1-1").expect("a job");
+        let prepared =
+            prepare(assignment(&documents), &config(), "runner1-1", true).expect("a job");
         assert_eq!(
             prepared.job.workspace,
             PathBuf::from("/var/lib/bosun/agents/1/work/globalart.keel/keel-ci")
@@ -823,7 +1019,7 @@ mod tests {
                 .contexts
                 .github
                 .insert("repository".to_owned(), json!(repository));
-            let refused = prepare(assignment(&documents), &config(), "runner1-1")
+            let refused = prepare(assignment(&documents), &config(), "runner1-1", true)
                 .err()
                 .unwrap_or_else(|| panic!("`{repository}` named a workspace"));
             assert_eq!(
@@ -834,6 +1030,409 @@ mod tests {
                 )
             );
         }
+    }
+
+    fn contained(documents: &mut Documents) {
+        documents.evaluated.container = Some(assignment::Container {
+            image: "ghcr.io/acme/builder:1".to_owned(),
+            credentials: Some(assignment::Credentials {
+                username: Some("ci".to_owned()),
+                password: Some("hunter2".to_owned()),
+            }),
+        });
+    }
+
+    #[test]
+    fn a_job_with_a_container_gets_the_podman_of_its_agent_and_the_flags_of_its_pool() {
+        let mut documents = documents(step());
+        contained(&mut documents);
+        documents.evaluated.allow_privileged = true;
+        let prepared =
+            prepare(assignment(&documents), &config(), "runner1-1", true).expect("a job");
+        let container = prepared.job.container.expect("a container");
+        assert_eq!(container.image, "ghcr.io/acme/builder:1");
+        assert!(container.allow_privileged && !container.untrusted);
+        assert_eq!(container.pull_policy, PullPolicy::Missing);
+        assert!(!format!("{container:?}").contains("hunter2"));
+        assert_eq!(
+            (
+                &container.mounts.work,
+                &container.mounts.externals,
+                &container.mounts.tools,
+                &container.state
+            ),
+            (
+                &PathBuf::from("/var/lib/bosun/agents/1/work"),
+                &PathBuf::from("/var/lib/bosun/agents/1/externals"),
+                &PathBuf::from("/var/lib/bosun/agents/1/tools"),
+                &PathBuf::from("/var/lib/bosun/agents/1/podman"),
+            )
+        );
+        assert_eq!(prepared.job.evaluated.container, None);
+        let mut never = config();
+        never.pull_policy = Some(PullPolicy::Never);
+        let prepared = prepare(assignment(&documents), &never, "runner1-1", true).expect("a job");
+        assert_eq!(
+            prepared.job.container.expect("a container").pull_policy,
+            PullPolicy::Never
+        );
+    }
+
+    #[test]
+    fn privileged_options_never_reach_a_job_of_an_untrusted_pool_whatever_the_assignment_says() {
+        let mut documents = documents(step());
+        contained(&mut documents);
+        documents.evaluated.allow_privileged = true;
+        documents.evaluated.untrusted = true;
+        let prepared =
+            prepare(assignment(&documents), &config(), "runner1-1", true).expect("a job");
+        let container = prepared.job.container.expect("a container");
+        assert!(!container.allow_privileged && container.untrusted);
+    }
+
+    #[test]
+    fn a_job_that_declares_a_container_is_rejected_when_the_assignment_carries_none() {
+        let mut documents = documents(step());
+        documents.job.container = Some(bosun_types::ir::Container {
+            image: Template::text("alpine:3"),
+            credentials: None,
+            env: Default::default(),
+            ports: Vec::new(),
+            volumes: Vec::new(),
+            options: None,
+        });
+        let Err(reason) = prepare(assignment(&documents), &config(), "runner1-1", true) else {
+            panic!("a job that declares a container was taken without one");
+        };
+        assert_eq!(
+            reason,
+            "the job declares `container`, and the assignment carries none, so its steps would \
+             run on the host of this agent"
+        );
+        contained(&mut documents);
+        assert!(prepare(assignment(&documents), &config(), "runner1-1", true).is_ok());
+    }
+
+    #[test]
+    fn an_agent_without_podman_rejects_a_job_that_runs_in_a_container() {
+        let mut inside = documents(step());
+        contained(&mut inside);
+        let Err(reason) = prepare(assignment(&inside), &config(), "runner1-1", false) else {
+            panic!("an agent without podman took a job in a container");
+        };
+        assert_eq!(
+            reason,
+            "the job runs in a container, and this agent holds no podman"
+        );
+        let plain = documents(step());
+        assert!(prepare(assignment(&plain), &config(), "runner1-1", false).is_ok());
+    }
+
+    #[test]
+    fn the_node_runtimes_of_a_job_in_a_container_wait_for_the_container_to_say_its_libc() {
+        let mut documents = documents(step());
+        contained(&mut documents);
+        documents.actions = vec![resolved("acme", None, "24.21.0")];
+        let mut uses = step();
+        uses.action = Action::Uses(documents.actions[0].uses.clone());
+        documents.job.kind = JobKind::Steps(vec![uses]);
+        let prepared =
+            prepare(assignment(&documents), &config(), "runner1-1", true).expect("a job");
+        assert!(
+            prepared
+                .job
+                .container
+                .expect("a container")
+                .provision
+                .is_some()
+        );
+        assert!(
+            prepared
+                .fetches
+                .archives
+                .iter()
+                .all(|archive| archive.marker.is_none()),
+            "{:?}",
+            prepared.fetches.archives
+        );
+        assert_eq!(prepared.fetches.archives.len(), 1);
+        documents.evaluated.container = None;
+        let host = prepare(assignment(&documents), &config(), "runner1-1", true).expect("a job");
+        assert_eq!(host.fetches.archives.len(), 2);
+        assert!(host.job.container.is_none());
+    }
+
+    #[test]
+    fn a_container_gets_the_node_build_of_its_libc_in_the_directory_of_the_host_when_they_agree() {
+        let nodes = Nodes {
+            url: "https://ci.example.org".to_owned(),
+            credential: "bat_x".to_owned(),
+            dir: PathBuf::from("/var/lib/bosun/agents/1"),
+            versions: vec!["24.21.0".to_owned(), "24.21.0".to_owned()],
+        };
+        assert!(!format!("{nodes:?}").contains("bat_x"));
+        let glibc = host::container_platform(Libc::Glibc);
+        let musl = host::container_platform(Libc::Musl);
+        let (archives, paths) = nodes.plan(Libc::Glibc, &glibc).expect("a plan");
+        assert_eq!(archives.len(), 1);
+        assert_eq!(
+            archives[0].into,
+            PathBuf::from("/var/lib/bosun/agents/1/externals/node24")
+        );
+        assert_eq!(
+            archives[0].path,
+            format!("/_runtime/tools/node/24.21.0/{glibc}.tar.xz")
+        );
+        assert_eq!(
+            archives[0].marker,
+            Some((
+                PathBuf::from("/var/lib/bosun/agents/1/externals/node24.version"),
+                format!("24.21.0 {glibc}\n")
+            ))
+        );
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("/var/lib/bosun/agents/1/externals/node24/bin/node"); 2]
+        );
+        let (archives, paths) = nodes.plan(Libc::Musl, &glibc).expect("a plan");
+        assert_eq!(
+            archives[0].into,
+            PathBuf::from("/var/lib/bosun/agents/1/externals/node24-musl")
+        );
+        assert_eq!(
+            archives[0].path,
+            format!("/_runtime/tools/node/24.21.0/{musl}.tar.xz")
+        );
+        assert_eq!(
+            paths[0],
+            PathBuf::from("/var/lib/bosun/agents/1/externals/node24-musl/bin/node")
+        );
+        let (archives, _) = nodes.plan(Libc::Glibc, &musl).expect("a plan");
+        assert_eq!(
+            archives[0].into,
+            PathBuf::from("/var/lib/bosun/agents/1/externals/node24-glibc")
+        );
+    }
+
+    #[test]
+    fn what_a_job_may_leave_behind_depends_on_its_pool_and_on_the_project_setting() {
+        let dir = PathBuf::from("/var/lib/bosun/agents/1");
+        let workspace = dir.join("work/globalart.keel/keel");
+        let work = dir.join("work");
+        let tools = dir.join("tools");
+        let roots = vec![work.clone(), tools.clone()];
+        let temp = work.join("_temp");
+        assert_eq!(
+            cleanup(&dir, &workspace, false, false),
+            Cleanup {
+                roots: roots.clone(),
+                before_download: vec![temp.clone()],
+                before: Vec::new(),
+                after: Vec::new()
+            }
+        );
+        assert_eq!(
+            cleanup(&dir, &workspace, false, true),
+            Cleanup {
+                roots: roots.clone(),
+                before_download: vec![temp],
+                before: vec![workspace.clone()],
+                after: Vec::new()
+            }
+        );
+        let expected = Cleanup {
+            roots,
+            before_download: vec![work.clone(), tools.clone()],
+            before: Vec::new(),
+            after: vec![work, tools],
+        };
+        assert_eq!(cleanup(&dir, &workspace, true, false), expected);
+        assert_eq!(cleanup(&dir, &workspace, true, true), expected);
+        let mut cleaning = documents(step());
+        cleaning.evaluated.workspace_clean = true;
+        let prepared = prepare(assignment(&cleaning), &config(), "runner1-1", true).expect("a job");
+        assert_eq!(
+            prepared.job.cleanup.before,
+            vec![PathBuf::from(
+                "/var/lib/bosun/agents/1/work/globalart.keel/keel"
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_untrusted_job_finds_nothing_of_an_earlier_one_before_anything_is_downloaded() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let dir = std::fs::canonicalize(directory.path()).expect("a path");
+        let planted = dir.join("work/_actions/acme/actions/0123456");
+        std::fs::create_dir_all(&planted).expect("directories");
+        std::fs::write(planted.join("action.yml"), "a substituted action").expect("a file");
+        std::fs::write(dir.join("work/junk"), "x").expect("a file");
+        std::fs::create_dir_all(dir.join("tools/node")).expect("directories");
+        let workspace = dir.join("work/globalart.keel/keel");
+        let untrusted = cleanup(&dir, &workspace, true, false);
+        let fetches = |into: &PathBuf| Fetches {
+            url: String::new(),
+            credential: String::new(),
+            root: dir.clone(),
+            archives: vec![Archive {
+                path: "/actions.tar.gz".to_owned(),
+                compression: Compression::Gzip,
+                into: into.clone(),
+                marker: None,
+            }],
+        };
+        let fetched = download(&untrusted, None, fetches(&planted))
+            .await
+            .expect_err("an address that cannot be fetched from");
+        assert!(!fetched.contains("emptied"), "{fetched}");
+        for emptied in [dir.join("work"), dir.join("tools")] {
+            assert_eq!(std::fs::read_dir(&emptied).expect("listed").count(), 0);
+        }
+        let mut refusing = untrusted.clone();
+        refusing.before_download = vec![PathBuf::from("/")];
+        let refused = download(&refusing, None, fetches(&planted))
+            .await
+            .expect_err("a directory outside the roots");
+        assert!(
+            refused.starts_with("the directories of the agent could not be emptied before the job"),
+            "{refused}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_job_of_a_trusted_pool_finds_no_temp_directory_of_an_earlier_job_but_keeps_the_rest()
+    {
+        let directory = tempfile::tempdir().expect("a directory");
+        let dir = std::fs::canonicalize(directory.path()).expect("a path");
+        let workspace = dir.join("work/globalart.keel/keel");
+        std::fs::create_dir_all(&workspace).expect("directories");
+        std::fs::write(workspace.join("kept"), "x").expect("a file");
+        std::fs::create_dir_all(dir.join("work/_temp/_github_home")).expect("directories");
+        std::fs::write(dir.join("work/_temp/step-0.sh"), "echo $TOKEN").expect("a file");
+        std::fs::write(dir.join("work/_temp/_github_home/.netrc"), "x").expect("a file");
+        let fetches = Fetches {
+            url: String::new(),
+            credential: String::new(),
+            root: dir.clone(),
+            archives: Vec::new(),
+        };
+        for clean in [false, true] {
+            let persisting = cleanup(&dir, &workspace, false, clean);
+            download(&persisting, None, fetches.clone())
+                .await
+                .expect("a download");
+            assert_eq!(
+                std::fs::read_dir(dir.join("work/_temp"))
+                    .expect("listed")
+                    .count(),
+                0
+            );
+            assert!(workspace.join("kept").exists());
+            std::fs::write(dir.join("work/_temp/event.json"), "{}").expect("a file");
+        }
+    }
+
+    #[test]
+    fn every_job_of_an_agent_with_podman_gets_its_engine_for_the_cleanup_and_one_without_gets_none()
+    {
+        let shell = documents(step());
+        let held = prepare(assignment(&shell), &config(), "runner1-1", true).expect("a job");
+        let recovery = held.job.recovery.expect("an engine for the cleanup");
+        assert_eq!(
+            recovery.state,
+            PathBuf::from("/var/lib/bosun/agents/1/podman")
+        );
+        assert!(held.job.container.is_none());
+        let lacking = prepare(assignment(&shell), &config(), "runner1-1", false).expect("a job");
+        assert!(lacking.job.recovery.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_shell_job_on_an_agent_with_podman_cleans_nothing_while_the_mark_is_set() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let dir = std::fs::canonicalize(directory.path()).expect("a path");
+        std::fs::create_dir_all(dir.join("work/_temp")).expect("directories");
+        std::fs::write(dir.join("work/_temp/event.json"), "{}").expect("a file");
+        std::fs::create_dir_all(dir.join("podman")).expect("a directory");
+        std::fs::write(dir.join("podman/dirty"), "x").expect("a record");
+        let workspace = dir.join("work/globalart.keel/keel");
+        let fetches = Fetches {
+            url: String::new(),
+            credential: String::new(),
+            root: dir.clone(),
+            archives: Vec::new(),
+        };
+        let recovery = Recovery {
+            engine: Arc::new(Answering(1)),
+            state: dir.join("podman"),
+        };
+        let persisting = cleanup(&dir, &workspace, false, true);
+        let refused = download(&persisting, Some(&recovery), fetches)
+            .await
+            .expect_err("a mark that cannot be cleared");
+        assert!(
+            refused.starts_with("a container of an earlier job could not be removed"),
+            "{refused}"
+        );
+        assert!(dir.join("work/_temp/event.json").exists());
+    }
+
+    #[derive(Debug)]
+    struct Answering(i32);
+
+    impl Engine for Answering {
+        fn run(&self, _call: Call) -> Pending<'_, std::io::Result<Outcome>> {
+            let code = self.0;
+            Box::pin(async move {
+                Ok(Outcome {
+                    code: Some(code),
+                    stdout: String::new(),
+                    stderr: "Error: container is busy".to_owned(),
+                })
+            })
+        }
+
+        fn exec(&self, _container: &str, _launcher: &str) -> (OsString, Vec<OsString>) {
+            unreachable!("a download never executes a step")
+        }
+    }
+
+    #[tokio::test]
+    async fn a_job_in_a_container_empties_nothing_while_a_container_of_an_earlier_job_cannot_be_removed()
+     {
+        let directory = tempfile::tempdir().expect("a directory");
+        let dir = std::fs::canonicalize(directory.path()).expect("a path");
+        std::fs::create_dir_all(dir.join("work/junk")).expect("directories");
+        std::fs::create_dir_all(dir.join("podman")).expect("a directory");
+        std::fs::write(dir.join("podman/dirty"), "x").expect("a record");
+        let workspace = dir.join("work/globalart.keel/keel");
+        let untrusted = cleanup(&dir, &workspace, true, false);
+        let fetches = Fetches {
+            url: String::new(),
+            credential: String::new(),
+            root: dir.clone(),
+            archives: Vec::new(),
+        };
+        let recovery = |code: i32| Recovery {
+            engine: Arc::new(Answering(code)),
+            state: dir.join("podman"),
+        };
+        let refused = download(&untrusted, Some(&recovery(1)), fetches.clone())
+            .await
+            .expect_err("a container that cannot be removed");
+        assert!(
+            refused.starts_with("a container of an earlier job could not be removed")
+                && refused.contains("container is busy")
+                && refused.ends_with("so the agent takes no job until it can"),
+            "{refused}"
+        );
+        assert!(dir.join("work/junk").exists());
+        assert!(dir.join("podman/dirty").exists());
+        download(&untrusted, Some(&recovery(0)), fetches)
+            .await
+            .expect("a sweep that succeeds");
+        assert!(!dir.join("work/junk").exists());
+        assert!(!dir.join("podman/dirty").exists());
     }
 
     const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";

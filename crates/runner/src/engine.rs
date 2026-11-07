@@ -4,6 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use bosun_expr::Scope;
@@ -23,16 +24,23 @@ use tokio::time::{Instant, sleep_until, timeout};
 use uuid::Uuid;
 
 use crate::annotation::{Annotation, AnnotationKind};
+use crate::cleanup::{self, Cleanup};
 use crate::commands::Commands;
+use crate::container::{self, Container, ContainerJob, Recovery};
 use crate::mask::{Masker, Sink};
 use crate::matchers::{Place, Registry};
 use crate::output::Output;
 use crate::runtime::Runtime;
-use crate::scope::{self, Fixed, Record, Standing, StepScope};
+use crate::safe;
+use crate::scope::{self, Fixed, Hashing, Record, Standing, StepScope};
 use crate::shell::Invocation;
 use crate::token::{Renewal, SECRET};
 use crate::tracking::{self, Processes, Tracking};
 use crate::workflow_commands::{Processor, Reports, Settings};
+
+mod contained;
+
+use contained::Stop;
 
 const INTERRUPT_GRACE: Duration = Duration::from_millis(7500);
 
@@ -63,6 +71,9 @@ pub struct Job {
     pub runtime: Option<Runtime>,
     pub fetched: Result<(), String>,
     pub minute: Duration,
+    pub container: Option<ContainerJob>,
+    pub recovery: Option<Recovery>,
+    pub cleanup: Cleanup,
 }
 
 #[derive(Debug, Clone)]
@@ -147,7 +158,14 @@ pub async fn run(
         runtime,
         fetched,
         minute,
+        container,
+        recovery,
+        cleanup,
     } = job;
+    let registry_password = container
+        .as_ref()
+        .and_then(|container| container.credentials.as_ref())
+        .map(|credentials| credentials.password.clone());
     let events = Sink::new(
         events,
         Masker::new(
@@ -155,7 +173,8 @@ pub async fn run(
                 .secrets
                 .values()
                 .filter_map(Value::as_str)
-                .chain(runtime.as_ref().map(|runtime| runtime.token.as_str())),
+                .chain(runtime.as_ref().map(|runtime| runtime.token.as_str()))
+                .chain(registry_password.as_deref()),
         ),
     );
     let JobKind::Steps(steps) = template.kind else {
@@ -164,23 +183,60 @@ pub async fn run(
             outputs: BTreeMap::new(),
         };
     };
-    let prepared = fetched
-        .map_err(io::Error::other)
-        .and_then(|()| prepare(&workspace, &temp, &tool_cache, &contexts.github))
-        .and_then(|directories| {
-            tracking
-                .start(&id)
-                .map(|processes| (directories, processes))
-        });
+    let (fallback, podman) = match (&container, recovery) {
+        (Some(container), _) => (
+            Some(Arc::clone(&container.engine)),
+            Some(container.state.clone()),
+        ),
+        (None, Some(recovery)) => (Some(recovery.engine), Some(recovery.state)),
+        (None, None) => (None, None),
+    };
+    let hosted = evaluated.needs_podman && container.is_none();
+    let bare = evaluated.untrusted && container.is_none();
+    let prepared = async {
+        if bare {
+            return Err(io::Error::other(
+                "a job of an untrusted run runs only in a container, and this one carries none, \
+                 so it would run on the host of the agent",
+            ));
+        }
+        if hosted {
+            return Err(io::Error::other(
+                "the job needs podman and carries no container to run in, so it would run on the \
+                 host of the agent, which a job that needs podman never does",
+            ));
+        }
+        fetched.map_err(io::Error::other)?;
+        if let (Some(engine), Some(state)) = (&fallback, &podman) {
+            container::recover(engine, state)
+                .await
+                .map_err(io::Error::other)?;
+        }
+        cleanup::empty_all(&cleanup.roots, &cleanup.before, fallback.as_ref())
+            .await
+            .map_err(io::Error::other)?;
+        let directories = prepare(&workspace, &temp, &tool_cache, &contexts.github)?;
+        let processes = tracking.start(&id)?;
+        Ok::<_, io::Error>((directories, processes))
+    }
+    .await;
     let (directories, processes) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
+            let left = if podman.as_deref().is_some_and(container::is_marked) {
+                Ok(())
+            } else {
+                cleanup::empty_all(&cleanup.roots, &cleanup.after, fallback.as_ref()).await
+            };
             if !steps.is_empty() {
                 events.started(0);
                 events.line(
                     0,
                     &format!("the job could not be prepared on this agent: {error}"),
                 );
+                if let Err(fault) = left {
+                    events.line(0, &format!("the job left files behind: {fault}"));
+                }
                 events.finished(
                     0,
                     Conclusion::Failure,
@@ -255,7 +311,70 @@ pub async fn run(
         outputs: Vec::new(),
         events,
         cancel,
+        container: None,
+        cleanup_roots: cleanup.roots,
+        cleanup: cleanup.after,
+        fallback,
+        podman,
     };
+    if let Some(spec) = container {
+        let failed = match execution
+            .contain(spec, &id, template.container.as_ref())
+            .await
+        {
+            Ok(()) => None,
+            Err(Stop::Cancelled(lines)) => {
+                execution.standing.cancelled = true;
+                Some(lines)
+            }
+            Err(Stop::TimedOut(lines)) => {
+                execution.timed_out = true;
+                Some(lines)
+            }
+            Err(Stop::Failed(lines)) => Some(lines),
+        };
+        if let Some(lines) = failed {
+            let events = execution.events.clone();
+            let cancelled = execution.standing.cancelled;
+            let timed_out = execution.timed_out;
+            let reported = !steps.is_empty() && (!cancelled || !lines.is_empty());
+            if reported {
+                events.started(0);
+                for (position, line) in lines.iter().enumerate() {
+                    if position == 0 && !cancelled {
+                        events.line(
+                            0,
+                            &format!("the job could not be prepared on this agent: {line}"),
+                        );
+                    } else {
+                        events.line(0, line);
+                    }
+                }
+            }
+            execution.last = Some(0);
+            execution.teardown().await;
+            if reported {
+                let ended = if cancelled {
+                    Conclusion::Cancelled
+                } else if timed_out {
+                    Conclusion::TimedOut
+                } else {
+                    Conclusion::Failure
+                };
+                events.finished(0, ended, ended, Results::default());
+            }
+            return Completed {
+                conclusion: if cancelled {
+                    Conclusion::Cancelled
+                } else if timed_out {
+                    Conclusion::TimedOut
+                } else {
+                    Conclusion::Failure
+                },
+                outputs: BTreeMap::new(),
+            };
+        }
+    }
     execution.steps(&steps).await;
     let outputs = execution.job_outputs(&template.outputs);
     let conclusion = execution.conclusion();
@@ -295,11 +414,12 @@ fn prepare(
         tool_cache: fs::canonicalize(tool_cache)?,
     };
     let events = directories.temp.join("_github_workflow");
-    fs::create_dir_all(&events)?;
+    safe::directory(&events)?;
     let payload = github.get("event").unwrap_or(&Value::Null);
-    fs::write(
-        events.join("event.json"),
-        serde_json::to_vec_pretty(payload)?,
+    safe::create(
+        &events.join("event.json"),
+        0o666,
+        &serde_json::to_vec_pretty(payload)?,
     )?;
     Ok(directories)
 }
@@ -452,6 +572,11 @@ struct Execution {
     outputs: Vec<Output>,
     events: Sink,
     cancel: watch::Receiver<bool>,
+    container: Option<Container>,
+    cleanup_roots: Vec<PathBuf>,
+    cleanup: Vec<PathBuf>,
+    fallback: Option<Arc<dyn container::Engine>>,
+    podman: Option<PathBuf>,
 }
 
 struct Ran {
@@ -575,7 +700,10 @@ impl Execution {
             scope::strings(env),
             &self.records,
             self.standing,
-            self.workspace.clone(),
+            self.container
+                .as_ref()
+                .map(|container| (container.id(), container.network())),
+            Hashing::new(self.workspace.clone(), self.cancel.clone(), self.deadline),
         )
     }
 
@@ -607,9 +735,21 @@ impl Execution {
             id: Uuid::now_v7().to_string(),
         };
         let mut github = github::step_context(&self.github, &self.runner, &facts);
+        if self.container.is_some() {
+            github.insert(
+                "event_path".to_owned(),
+                Value::String(format!("{}/event.json", container::WORKFLOW)),
+            );
+        }
         if let (Action::Uses(reference), Some(action)) = (&step.action, self.action(step)) {
+            let directory = match &self.container {
+                Some(container) => container
+                    .translate(&action.directory)
+                    .unwrap_or_else(|| text(&action.directory)),
+                None => text(&action.directory),
+            };
             for (property, value) in [
-                ("action_path", text(&action.directory)),
+                ("action_path", directory),
                 (
                     "action_repository",
                     format!("{}/{}", reference.owner, reference.repository),
@@ -750,7 +890,7 @@ impl Execution {
             self.events.line(index, &fault);
             Ran::failed()
         };
-        let commands = match Commands::create(github) {
+        let commands = match Commands::create(&self.host_files(github)) {
             Ok(commands) => commands,
             Err(error) => {
                 return failed(format!(
@@ -932,6 +1072,7 @@ impl Execution {
             unsecure_stop_tokens: enabled(&variable("ACTIONS_ALLOW_UNSECURE_STOPCOMMAND_TOKENS")),
             place: Place {
                 workspace: self.workspace.clone(),
+                inside: self.container.as_ref().map(|_| property("workspace")),
                 repository: property("repository"),
                 server_url: property("server_url"),
             },
@@ -943,7 +1084,11 @@ impl Execution {
         github: &Map<String, Value>,
         variables: &BTreeMap<String, String>,
     ) -> BTreeMap<OsString, OsString> {
-        let mut env = self.base.clone();
+        let mut env = if self.container.is_some() {
+            BTreeMap::new()
+        } else {
+            self.base.clone()
+        };
         for (name, value) in github::environment(github, &self.runner, &self.bosun)
             .iter()
             .chain(&self.proxies)
@@ -953,7 +1098,7 @@ impl Execution {
         {
             env.insert(name.into(), value.into());
         }
-        if !self.paths.is_empty() {
+        if self.container.is_none() && !self.paths.is_empty() {
             let mut path = OsString::new();
             for (position, entry) in self.paths.iter().rev().enumerate() {
                 if position > 0 {
@@ -992,41 +1137,57 @@ impl Execution {
             );
             return (Conclusion::Failure, None);
         }
-        let (command, arguments) = match program {
-            Program::Script { script, shell } => {
-                let invocation = match Invocation::resolve(
-                    shell.as_ref(),
-                    env.get(OsStr::new("PATH")).map(OsString::as_os_str),
-                ) {
-                    Ok(invocation) => invocation,
-                    Err(reason) => {
-                        self.events.line(index, &reason);
-                        return (Conclusion::Failure, None);
-                    }
-                };
-                let file = self
-                    .temp
-                    .join(format!("step-{index}{}", invocation.extension()));
-                if let Err(error) = fs::write(&file, script) {
-                    self.events.line(
-                        index,
-                        &format!(
-                            "the script could not be written to {}: {error}",
-                            file.display()
-                        ),
-                    );
+        let settings = self.settings(&env);
+        let (command, arguments, env, launcher) = if self.container.is_some() {
+            match self.contained(index, program, directory, &env) {
+                Ok((command, arguments, launcher)) => {
+                    (command, arguments, self.base.clone(), Some(launcher))
+                }
+                Err(reason) => {
+                    self.events.line(index, &reason);
                     return (Conclusion::Failure, None);
                 }
-                (
-                    OsString::from(invocation.program(&file)),
-                    invocation
-                        .arguments(&file)
-                        .into_iter()
-                        .map(OsString::from)
-                        .collect(),
-                )
             }
-            Program::Node { node, entry } => (node.into_os_string(), vec![entry.into_os_string()]),
+        } else {
+            let (command, arguments) = match program {
+                Program::Script { script, shell } => {
+                    let invocation = match Invocation::resolve(
+                        shell.as_ref(),
+                        env.get(OsStr::new("PATH")).map(OsString::as_os_str),
+                    ) {
+                        Ok(invocation) => invocation,
+                        Err(reason) => {
+                            self.events.line(index, &reason);
+                            return (Conclusion::Failure, None);
+                        }
+                    };
+                    let file = self
+                        .temp
+                        .join(format!("step-{index}{}", invocation.extension()));
+                    if let Err(error) = safe::create(&file, 0o666, script.as_bytes()) {
+                        self.events.line(
+                            index,
+                            &format!(
+                                "the script could not be written to {}: {error}",
+                                file.display()
+                            ),
+                        );
+                        return (Conclusion::Failure, None);
+                    }
+                    (
+                        OsString::from(invocation.program(&file)),
+                        invocation
+                            .arguments(&file)
+                            .into_iter()
+                            .map(OsString::from)
+                            .collect(),
+                    )
+                }
+                Program::Node { node, entry } => {
+                    (node.into_os_string(), vec![entry.into_os_string()])
+                }
+            };
+            (command, arguments, env, None)
         };
         let deadline = minutes
             .and_then(|minutes| Instant::now().checked_add(minutes))
@@ -1035,7 +1196,7 @@ impl Execution {
                 _ => (step, Limit::Step),
             })
             .or(self.deadline.map(|job| (job, Limit::Job)));
-        let processor = Processor::new(reports, self.settings(&env), self.matchers.clone());
+        let processor = Processor::new(reports, settings, self.matchers.clone());
         let launch = Launch {
             program: &command,
             arguments,
@@ -1059,6 +1220,9 @@ impl Execution {
         let (status, ended) = self.wait(child, cancellable, deadline).await;
         output.flush().await;
         self.outputs.push(output);
+        if let Some(launcher) = launcher {
+            let _ = fs::remove_file(launcher);
+        }
         match ended {
             Ended::TimedOut(limit) => {
                 self.events.line(
@@ -1124,16 +1288,28 @@ impl Execution {
                 Ended::TimedOut(deadline.map_or(Limit::Job, |(_, limit)| limit))
             }
         };
-        tracking::signal(group, Signal::INT);
+        self.signal(group, Stage::Interrupt).await;
         if let Ok(status) = timeout(INTERRUPT_GRACE, child.wait()).await {
             return (status, ended);
         }
-        tracking::signal(group, Signal::TERM);
+        self.signal(group, Stage::Terminate).await;
         if let Ok(status) = timeout(TERMINATE_GRACE, child.wait()).await {
             return (status, ended);
         }
-        tracking::signal(group, Signal::KILL);
+        self.signal(group, Stage::Kill).await;
         (child.wait().await, ended)
+    }
+
+    async fn signal(&self, group: Pid, stage: Stage) {
+        match &self.container {
+            Some(container) => {
+                container.signal(stage.name()).await;
+                if stage == Stage::Kill {
+                    tracking::signal(group, stage.signal());
+                }
+            }
+            None => tracking::signal(group, stage.signal()),
+        }
     }
 
     fn job_outputs(&mut self, templates: &BTreeMap<String, Template>) -> BTreeMap<String, String> {
@@ -1181,15 +1357,61 @@ impl Execution {
     async fn teardown(mut self) {
         self.processes.kill().await;
         Output::finish(std::mem::take(&mut self.outputs), OUTPUT_AFTER_TEARDOWN).await;
-        if let Ok(entries) = fs::read_dir(&self.temp) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let _ = if path.is_dir() && !path.is_symlink() {
-                    fs::remove_dir_all(&path)
-                } else {
-                    fs::remove_file(&path)
-                };
+        let index = self.last.unwrap_or(0);
+        if let Some(mut container) = self.container.take() {
+            for fault in container.teardown().await {
+                self.events.line(index, &fault);
             }
+        }
+        if self.podman.as_deref().is_some_and(container::is_marked) {
+            self.events.line(
+                index,
+                "the job container could not be removed, so the agent does not empty the \
+                 directories of the job now: before its next job it removes what is left and \
+                 empties them, and it takes no job until it can",
+            );
+            return;
+        }
+        let temp_root: Vec<PathBuf> = self
+            .temp
+            .parent()
+            .map(Path::to_path_buf)
+            .into_iter()
+            .collect();
+        if let Err(fault) = cleanup::empty(&temp_root, &self.temp, self.fallback.as_ref()).await {
+            self.events
+                .line(index, &format!("RUNNER_TEMP could not be emptied: {fault}"));
+        }
+        if let Err(fault) =
+            cleanup::empty_all(&self.cleanup_roots, &self.cleanup, self.fallback.as_ref()).await
+        {
+            self.events
+                .line(index, &format!("the job left files behind: {fault}"));
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Interrupt,
+    Terminate,
+    Kill,
+}
+
+impl Stage {
+    fn signal(self) -> Signal {
+        match self {
+            Stage::Interrupt => Signal::INT,
+            Stage::Terminate => Signal::TERM,
+            Stage::Kill => Signal::KILL,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Stage::Interrupt => "INT",
+            Stage::Terminate => "TERM",
+            Stage::Kill => "KILL",
         }
     }
 }

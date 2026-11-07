@@ -124,6 +124,15 @@ pub fn assess(info: &str) -> Detection {
                 .to_owned(),
         );
     }
+    match info.host.security.rootless {
+        Some(true) => {}
+        Some(false) => lacks.push(
+            "rootless podman, where podman runs as root, so root in a container would be root on \
+             the host"
+                .to_owned(),
+        ),
+        None => lacks.push("rootless podman, which podman does not report".to_owned()),
+    }
     let network = info.host.network_backend.unwrap_or_default();
     if network != "netavark" {
         lacks.push(if network.is_empty() {
@@ -179,6 +188,14 @@ struct Host {
     network_backend: Option<String>,
     #[serde(default, rename = "serviceIsRemote")]
     service_is_remote: bool,
+    #[serde(default)]
+    security: Security,
+}
+
+#[derive(Default, Deserialize)]
+struct Security {
+    #[serde(default)]
+    rootless: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -237,6 +254,7 @@ mod tests {
             Detection::Lacking(vec![
                 "podman 4.4 or newer, where it finds the version ''".to_owned(),
                 "cgroups v2, which podman does not report".to_owned(),
+                "rootless podman, which podman does not report".to_owned(),
                 "netavark, which podman does not report as its network backend".to_owned(),
             ])
         );
@@ -262,6 +280,21 @@ mod tests {
             Detection::Lacking(vec![
                 "a local podman, where podman reports serviceIsRemote: its paths are those of \
                  another machine"
+                    .to_owned()
+            ])
+        );
+    }
+
+    #[test]
+    fn a_podman_that_runs_as_root_is_not_usable_since_root_in_a_container_would_be_root_on_the_host()
+     {
+        let rootful =
+            info("5.2.0", "v2", "netavark").replace(r#""rootless": true"#, r#""rootless": false"#);
+        assert_eq!(
+            assess(&rootful),
+            Detection::Lacking(vec![
+                "rootless podman, where podman runs as root, so root in a container would be \
+                 root on the host"
                     .to_owned()
             ])
         );

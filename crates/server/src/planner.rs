@@ -554,6 +554,7 @@ pub(crate) struct Assigned {
     pub(crate) env: BTreeMap<String, String>,
     pub(crate) shell: Option<Shell>,
     pub(crate) working_directory: Option<String>,
+    pub(crate) container: Option<assignment::Container>,
     pub(crate) forge_token: Option<forge_token::Issued>,
 }
 
@@ -733,6 +734,42 @@ pub(crate) async fn assign(
         }
     };
     env.extend(job_values.env);
+    let container = match &template.container {
+        Some(container) => {
+            let contexts = Contexts {
+                github: value(serde_json::Value::Object(github.clone()))?,
+                needs: value(serde_json::Value::Object(needs.clone()))?,
+                inputs: calls::inputs(&world, &jobs, job)?,
+                bosun: world.bosun.clone(),
+                env: Value::Object(
+                    env.iter()
+                        .map(|(variable, text)| (variable.clone(), Value::String(text.clone())))
+                        .collect(),
+                ),
+                strategy: value(strategy.clone())?,
+                matrix: match &job.matrix {
+                    Some(matrix) => matrix::context(matrix)?,
+                    None => Value::Null,
+                },
+                vars: world.vars.clone(),
+                secrets: secrets.clone(),
+                secrets_read: Cell::new(false),
+                statuses: None,
+                jobs: Value::Null,
+            };
+            match evaluated_container(template, container, &contexts) {
+                Ok(container) => Some(container),
+                Err(fault) => return refuse(run, site, world, job, execution, fault).await,
+            }
+        }
+        None => claimed
+            .alias_image
+            .as_ref()
+            .map(|image| assignment::Container {
+                image: image.clone(),
+                credentials: None,
+            }),
+    };
     if let actions::Prepared::Ready { actions, notices } = prepared {
         for notice in notices {
             run.notice(Some(job.id), &notice.diagnostic(&world.file_of(&job.key)))
@@ -776,8 +813,47 @@ pub(crate) async fn assign(
         env,
         shell: job_values.shell,
         working_directory: job_values.working_directory,
+        container,
         forge_token,
     })))
+}
+
+fn evaluated_container(
+    job: &JobTemplate,
+    container: &ir::Container,
+    contexts: &Contexts,
+) -> Result<assignment::Container, Fault> {
+    let image = Place::of(
+        job,
+        "container.image",
+        &["container", "image"],
+        &container.image,
+    )
+    .text(&container.image, contexts)?;
+    let credentials = match &container.credentials {
+        Some(credentials) => {
+            let text = |name: &str, template: &Option<Template>| {
+                template
+                    .as_ref()
+                    .map(|template| {
+                        Place::of(
+                            job,
+                            &format!("container.credentials.{name}"),
+                            &["container", "credentials", name],
+                            template,
+                        )
+                        .text(template, contexts)
+                    })
+                    .transpose()
+            };
+            Some(assignment::Credentials {
+                username: text("username", &credentials.username)?,
+                password: text("password", &credentials.password)?,
+            })
+        }
+        None => None,
+    };
+    Ok(assignment::Container { image, credentials })
 }
 
 async fn fail_assigned(

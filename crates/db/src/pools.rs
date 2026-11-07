@@ -36,6 +36,7 @@ pub struct Placement {
     pub labels: Vec<String>,
     pub pools: Vec<PoolId>,
     pub capabilities: Vec<Capability>,
+    pub image: Option<String>,
 }
 
 pub(crate) fn admits(pool: &str, project: &str, organisation: &str) -> String {
@@ -153,6 +154,8 @@ pub async fn place<C: ConnectionTrait>(
     let mut kept = Vec::new();
     let mut named: Vec<Uuid> = Vec::new();
     let mut capabilities = Vec::new();
+    let mut image: Option<String> = None;
+    let mut conflicting = false;
     for label in lowered {
         let Some(alias) = aliases.get(&label) else {
             kept.push(label);
@@ -163,11 +166,22 @@ pub async fn place<C: ConnectionTrait>(
         {
             named.push(pool);
         }
-        if let Some(capability) = alias.capability
-            && !capabilities.contains(&capability)
-        {
-            capabilities.push(capability);
+        let implied = alias.image.as_ref().map(|_| Capability::Podman);
+        for capability in alias.capability.into_iter().chain(implied) {
+            if !capabilities.contains(&capability) {
+                capabilities.push(capability);
+            }
         }
+        if let Some(named) = &alias.image {
+            match &image {
+                Some(held) if held != named => conflicting = true,
+                Some(_) => {}
+                None => image = Some(named.clone()),
+            }
+        }
+    }
+    if image.is_some() {
+        capabilities.retain(|capability| *capability != Capability::Shell);
     }
     let open = db
         .query_all(statement(
@@ -182,7 +196,10 @@ pub async fn place<C: ConnectionTrait>(
     for found in open {
         let id: Uuid = found.try_get("", "id")?;
         let name: String = found.try_get("", "name")?;
-        if group.is_none_or(|group| group == name) && named.iter().all(|pool| *pool == id) {
+        if !conflicting
+            && group.is_none_or(|group| group == name)
+            && named.iter().all(|pool| *pool == id)
+        {
             pools.push(row::id(TABLE, id)?);
         }
     }
@@ -190,6 +207,7 @@ pub async fn place<C: ConnectionTrait>(
         labels: kept,
         pools,
         capabilities,
+        image,
     })
 }
 

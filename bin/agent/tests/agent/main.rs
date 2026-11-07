@@ -291,6 +291,11 @@ pub fn documents(steps: Vec<Step>) -> Documents {
             timeout_minutes: 360,
             continue_on_error: false,
             runtime: None,
+            container: None,
+            allow_privileged: false,
+            workspace_clean: false,
+            untrusted: false,
+            needs_podman: false,
         },
         actions: Vec::new(),
     }

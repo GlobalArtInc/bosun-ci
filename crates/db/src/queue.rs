@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use bosun_types::api::TrustLevel;
+use bosun_types::api::{Capability, TrustLevel, WorkspacePolicy};
 use bosun_types::id::{AgentId, AttemptId, ExecutionId, JobId, PoolId, RunId};
 use bosun_types::ir::{self, JobTemplate, Template};
 use bosun_types::key::JobKey;
@@ -51,6 +51,10 @@ pub struct ClaimedJob {
     pub pins: Option<Vec<Pin>>,
     pub first_execution: bool,
     pub trusted: bool,
+    pub alias_image: Option<String>,
+    pub needs_podman: bool,
+    pub allow_privileged: bool,
+    pub workspace: WorkspacePolicy,
     pub permissions: Option<ir::Permissions>,
     pub ceilings: Vec<Ceiling>,
     pub token_permissions: Grant,
@@ -96,10 +100,11 @@ pub struct ClaimedRepository {
 const CANDIDATES: &str = "FROM job j JOIN attempt a ON a.id = j.attempt_id \
      JOIN run r ON r.id = a.run_id JOIN project pr ON pr.id = r.project_id";
 
-fn claimable() -> String {
+fn claimable(podman: &str) -> String {
     format!(
         "j.status = $1 AND j.labels <@ $2 AND $3 = ANY (j.pool_ids) AND NOT (j.id = ANY ($4)) \
-         AND j.capabilities <@ $5 AND r.trusted = $6 AND {}",
+         AND j.capabilities <@ $5 AND r.trusted = $6 AND ($6 OR '{podman}' = ANY (j.capabilities)) \
+         AND {}",
         pools::admits("$3", "r.project_id", "pr.organisation_id")
     )
 }
@@ -108,8 +113,9 @@ pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Clai
     let transaction = db.begin().await?;
     let Some(agent) = transaction
         .query_one(statement(
-            "SELECT a.pool_id, a.labels, a.capabilities, p.trust FROM agent a \
-             JOIN pool p ON p.id = a.pool_id WHERE a.id = $1 AND a.replica_id = $2 \
+            "SELECT a.pool_id, a.labels, a.capabilities, p.trust, p.allow_privileged \
+             FROM agent a JOIN pool p ON p.id = a.pool_id \
+             WHERE a.id = $1 AND a.replica_id = $2 \
              AND NOT a.drain AND a.deleted_at IS NULL FOR NO KEY UPDATE OF a",
             [Uuid::from(claim.agent).into(), claim.replica_id.into()],
         ))
@@ -122,6 +128,7 @@ pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Clai
         return Ok(Claimed::Nothing);
     }
     let trust: TrustLevel = row::name("pool", agent.try_get("", "trust")?)?;
+    let allow_privileged: bool = agent.try_get("", "allow_privileged")?;
     let busy = transaction
         .query_one(statement(
             "SELECT EXISTS (SELECT 1 FROM execution WHERE agent_id = $1 AND status <> $2) \
@@ -149,7 +156,7 @@ pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Clai
         capabilities.into(),
         (trust == TrustLevel::Trusted).into(),
     ];
-    let claimable = claimable();
+    let claimable = claimable(&row::text("job", Capability::Podman)?);
     let Some(candidate) = transaction
         .query_one(statement(
             &format!(
@@ -176,7 +183,14 @@ pub async fn claim<C: TransactionTrait>(db: &C, claim: Claim<'_>) -> Result<Clai
             Claimed::Nothing
         });
     };
-    let claimed = assign(&transaction, &candidate, claim.agent, claim.lease).await?;
+    let claimed = assign(
+        &transaction,
+        &candidate,
+        claim.agent,
+        claim.lease,
+        allow_privileged,
+    )
+    .await?;
     transaction.commit().await?;
     Ok(Claimed::Job(Box::new(claimed)))
 }
@@ -186,6 +200,7 @@ async fn assign(
     candidate: &QueryResult,
     agent: AgentId,
     lease: Duration,
+    allow_privileged: bool,
 ) -> Result<ClaimedJob, Error> {
     let run_id: RunId = row::id("run", candidate.try_get::<Uuid>("", "run_id")?)?;
     let job_id: JobId = row::id("job", candidate.try_get::<Uuid>("", "job_id")?)?;
@@ -195,8 +210,8 @@ async fn assign(
     let found = transaction
         .query_one(statement(
             "SELECT r.ir, o.slug AS organisation, p.slug AS project, j.evaluated, \
-             j.continue_on_error, j.actions, fi.id AS installation, \
-             p.token_permissions, e.number AS execution_number, f.id AS repository_id, \
+             j.continue_on_error, j.actions, j.alias_image, j.capabilities, fi.id AS installation, \
+             p.token_permissions, p.workspace, e.number AS execution_number, f.id AS repository_id, \
              f.installation_id AS repository_installation, f.owner AS repository_owner, \
              f.name AS repository_name FROM run r \
              JOIN project p ON p.id = r.project_id \
@@ -253,11 +268,24 @@ async fn assign(
             .transpose()?,
         first_execution: found.try_get::<i32>("", "execution_number")? == 1,
         trusted: run.state().trusted,
+        alias_image: found.try_get("", "alias_image")?,
+        needs_podman: needs_podman(&found)?,
+        allow_privileged,
+        workspace: row::name("project", found.try_get("", "workspace")?)?,
         permissions,
         ceilings,
         token_permissions: row::json("project", found.try_get("", "token_permissions")?)?,
         repository: claimed_repository(&found)?,
     })
+}
+
+fn needs_podman(found: &QueryResult) -> Result<bool, Error> {
+    let mut needed = false;
+    for capability in found.try_get::<Vec<String>>("", "capabilities")? {
+        let capability: Capability = row::name("job", capability)?;
+        needed |= capability == Capability::Podman;
+    }
+    Ok(needed)
 }
 
 fn claimed_repository(found: &QueryResult) -> Result<Option<ClaimedRepository>, Error> {

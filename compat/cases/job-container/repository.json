@@ -1,0 +1,6 @@
+{
+  "commits": [
+    {"message": "a greeting"},
+    {"message": "a job in a container"}
+  ]
+}

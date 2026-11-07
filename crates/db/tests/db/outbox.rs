@@ -138,6 +138,7 @@ fn placement() -> Placement {
         labels: vec!["self-hosted".to_owned()],
         pools: Vec::new(),
         capabilities: Vec::new(),
+        image: None,
     }
 }
 

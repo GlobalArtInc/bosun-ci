@@ -77,14 +77,20 @@ on the fake forge through the agents of the harness:
   where `N` counts the commits of `repository.json` from 1, and refuses any other event.
 - `secrets.json` and `variables.json`, optional: objects of the project's secrets and variables.
 - `home/`, optional: a tree copied into the directory of each agent before the case runs.
-- `expected.json`: `description`, and `runs`, each with the `name` of its workflow (the run's display
+- `expected.json`: `description`, optionally `podman`, true for a case whose jobs run in containers,
+  and `runs`, each with the `name` of its workflow (the run's display
   name), its `conclusion`, `checks`, the names of the check runs of its head commit, which must all be
   completed, and `jobs`. A job has its display `name`, its `conclusion`, the `outputs` it must hold,
   and `logs`, extended regular expressions that one of its log lines must match.
 
-A case whose workflows use an action runs only on Linux, where the server hands Node to agents. On
-other systems the harness prints that it skipped the case, and a run in which every case is skipped
-ends with `scenario cases: skipped`. After each case, and when the harness exits, it removes what a
+A case whose workflows use an action runs only on Linux, where the server hands Node to agents. A
+case with `"podman": true` runs only when `BOSUN_TEST_PODMAN=1`, with the pool `default` allowing
+privileged options while it runs, so that its containers can use `--network=host` and reach the
+servers on the loopback address of the host; when it has run, the harness checks that no container,
+network or volume labelled `bosun.execution` is left and that the agents' directories hold no file
+that the agent's user does not own. On other systems, and without `BOSUN_TEST_PODMAN`, the harness
+prints that it skipped the case, and a run in which every case is skipped ends with
+`scenario cases: skipped`. After each case, and when the harness exits, it removes what a
 case wrote under the runner cache, `/opt/actions-runner/cache/*/e2e-*` (a workflow such as Keel's
 writes `/opt/actions-runner/cache/<project>/$RUNNER_NAME`, and the harness's agents are named `e2e-*`);
 `BOSUN_E2E_RUNNER_CACHE` overrides the cache root.
@@ -107,6 +113,15 @@ into one `SHASUMS256.txt`. Both builds then come from `file://<the harness's Nod
 version the glibc build has. Two such directories make the harness fail, naming them. Without the
 directory, as on a machine without podman, the harness uses the host's version and sets no musl
 upstream.
+
+The images of the job containers are two of the lock. `alpine` is the plain Alpine image of the
+scenario `job-containers`; its line is the digest of the index of `alpine:3.24` that the registry
+answers for the tag, read without pulling (`HEAD /v2/library/alpine/manifests/3.24` with an
+`Accept` of `application/vnd.oci.image.index.v1+json` and a pull token), the base that
+`node:24-alpine` is built on. The case `job-container` runs in `node:24-alpine` itself instead:
+Node of the musl build needs `libstdc++` and `libatomic`, which that image installs and plain Alpine
+does not. The harness's agents run with `pull_policy = "never"` when `BOSUN_TEST_PODMAN=1`, so a
+reference that the lock does not list fails its job, naming the image, rather than pulling it.
 
 ## Workflows and their inventory
 

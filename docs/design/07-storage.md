@@ -140,10 +140,14 @@ values and the other two are `null` when `defaults.run` does not set them. A job
 `labels` are lowercased, without the labels a label alias replaced. `pool_ids` are the pools the job
 may run in, among those whose access list admits its project: the pool `runs-on.group` names, none
 when no such pool has that name, and without a group every one of them, each narrowed to the pool
-its label aliases name. `capabilities` are those its label aliases name and the one the planner adds,
-`podman` or `shell` ([05-execution.md](05-execution.md#pools-and-label-aliases)), empty only for a
-job queued before step 9 of M2, for which either capability will do, and `labels` hold that
-capability's name: the planner appends it, unless `runs-on` already names it. A job's `outputs`
+its label aliases name. `capabilities` are those its label aliases name, except `shell`, which is
+dropped when an alias names an image, and the one the planner adds, `podman` or `shell` ([05-execution.md](05-execution.md#pools-and-label-aliases)), empty only for a
+job queued before step 9 of M2, which the claim gives to an agent of a trusted pool that holds
+either capability and never to an agent of an untrusted pool, and `labels` hold that
+capability's name: the planner appends it, unless `runs-on` already names it. `alias_image` is the
+image that its label aliases name, null when none does and for a job queued before step 10 of M2;
+the claim returns it and the assignment makes it the job's container when the workflow declares
+none. A job's `outputs`
 are the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then;
 a job group's are those of its members combined when it completes
 ([04-runs.md](04-runs.md#matrices)). A step's `outputs` are the outputs its agent reported in
@@ -205,7 +209,9 @@ and grows by one with each change, which is an `UPDATE` conditioned on the versi
 made from. They arrived with step 25 of [../plan.md](../plan.md); a later setting arrives as a
 column with its default, so a project that existed before takes the default. The periods of
 retention, `log_retention` and `run_retention`, arrived that way with step 36 as `integer` numbers of
-days, 90 and `null`, the `null` of `run_retention` keeping runs ([Retention](#retention)).
+days, 90 and `null`, the `null` of `run_retention` keeping runs ([Retention](#retention)). The
+setting `workspace` of step 10 of M2 is a name, `persist` by default, and a check keeps the column to
+`persist` and `clean`.
 
 Secrets and variables are rows of `secret` and `variable`, each owned by an organisation and, for
 one of a project, by that project as well: `organisation_id` and a nullable `project_id`, the pair
@@ -486,7 +492,9 @@ where status in ('queued', 'waiting')`, which step 37 of M1 added.
 An idle agent claims a job in one transaction: select the candidates whose labels are contained
 in the agent's labels, whose pools include the agent's pool, whose project the access list of the
 agent's pool admits, whose capabilities the agent holds, and whose trust matches the pool's
-(jobs of untrusted runs only in untrusted pools, jobs of trusted runs only in trusted pools),
+(jobs of untrusted runs only in untrusted pools, jobs of trusted runs only in trusted pools), and,
+for an agent of an untrusted pool, whose `capabilities` contain `podman`, so that a row queued
+before capabilities existed never reaches a pool that runs the code of forks,
 order them by priority, by the
 project's ratio of running jobs to its weight, and by `queued_at`, take the first with
 `FOR UPDATE SKIP LOCKED`, together with the lock of its run ([The journal](#the-journal)), create

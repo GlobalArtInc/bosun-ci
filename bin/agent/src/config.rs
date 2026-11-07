@@ -3,6 +3,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+use bosun_runner::container::PullPolicy;
 use bosun_types::id::AgentId;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,8 @@ pub(crate) struct Config {
     pub(crate) no_proxy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) spool_max_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pull_policy: Option<PullPolicy>,
 }
 
 impl Config {
@@ -64,6 +67,10 @@ impl Config {
         self.spool_max_bytes.unwrap_or(SPOOL_LIMIT)
     }
 
+    pub(crate) fn pull_policy(&self) -> PullPolicy {
+        self.pull_policy.unwrap_or_default()
+    }
+
     pub(crate) fn proxies(&self) -> Vec<(String, String)> {
         let mut variables = Vec::new();
         for (name, value) in [
@@ -96,6 +103,8 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
+    use bosun_runner::container::PullPolicy;
+
     use super::Config;
 
     const ID: &str = "0199a5f2-2c6f-7a3e-8a3b-5f0d4c1e2b3a";
@@ -111,6 +120,7 @@ mod tests {
             https_proxy: None,
             no_proxy: Some("localhost".to_owned()),
             spool_max_bytes: None,
+            pull_policy: None,
         }
     }
 
@@ -129,6 +139,34 @@ mod tests {
             "an existing file was overwritten"
         );
         assert_eq!(config().spool_limit(), 256 * 1024 * 1024);
+    }
+
+    #[test]
+    fn the_pull_policy_is_missing_unless_the_configuration_says_never_and_refuses_other_words() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let file = directory.path().join("agent.toml");
+        let base = format!(
+            "agent_id = \"{ID}\"\ncredential = \"bat_x\"\nurl = \"https://ci\"\ndir = \"/a\"\n"
+        );
+        assert_eq!(config().pull_policy(), PullPolicy::Missing);
+        for (line, expected) in [
+            ("", PullPolicy::Missing),
+            ("pull_policy = \"missing\"\n", PullPolicy::Missing),
+            ("pull_policy = \"never\"\n", PullPolicy::Never),
+        ] {
+            fs::write(&file, format!("{base}{line}")).expect("a file");
+            assert_eq!(
+                Config::load(&file).expect("a configuration").pull_policy(),
+                expected,
+                "{line}"
+            );
+        }
+        fs::write(&file, format!("{base}pull_policy = \"always\"\n")).expect("a file");
+        let error = Config::load(&file).expect_err("a refusal");
+        assert!(
+            error.contains("pull_policy") && error.contains("always"),
+            "{error}"
+        );
     }
 
     #[test]

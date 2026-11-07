@@ -331,7 +331,8 @@ impl Locked<'_> {
         self.transaction()
             .execute(statement(
                 "UPDATE job SET status = $2, waiting_reason = $3, labels = $4, pool_ids = $5, \
-                 capabilities = $6, queued_at = CASE WHEN $3 IS NULL THEN now() END, \
+                 capabilities = $6, alias_image = $8, \
+                 queued_at = CASE WHEN $3 IS NULL THEN now() END, \
                  resolving_since = CASE WHEN $3 = $7 THEN now() ELSE resolving_since END \
                  WHERE id = $1",
                 [
@@ -345,6 +346,7 @@ impl Locked<'_> {
                     pools.into(),
                     capabilities.into(),
                     row::text(JOBS, WaitingReason::Resolving)?.into(),
+                    placement.image.clone().into(),
                 ],
             ))
             .await?;

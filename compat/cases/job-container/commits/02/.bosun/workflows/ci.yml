@@ -1,0 +1,35 @@
+name: job-container
+on: push
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    container:
+      image: node:24-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8
+      options: --network=host
+    outputs:
+      greeting: ${{ steps.read.outputs.greeting }}
+      note: ${{ steps.files.outputs.note }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          echo "pwd $(pwd)"
+          echo "workspace $GITHUB_WORKSPACE"
+          echo "temp $RUNNER_TEMP"
+          echo "greeting=$(cat greeting.txt)" >> "$GITHUB_OUTPUT"
+      - id: files
+        run: |
+          echo "FROM_STEP=written to the environment" >> "$GITHUB_ENV"
+          echo "note=written to the outputs" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\necho written to the path\n' > "$RUNNER_TEMP/bin/bosun-tool"
+          chmod +x "$RUNNER_TEMP/bin/bosun-tool"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "container ${{ job.container.id != '' }} network ${{ startsWith(job.container.network, 'bosun-') }}"
+      - run: |
+          echo "env $FROM_STEP"
+          bosun-tool
+          . /etc/os-release
+          echo "image $ID"
+          echo "user $(id -u)"
+          touch "$GITHUB_WORKSPACE/written-in-the-container"

@@ -9,6 +9,7 @@ use bosun_db::queue::{Claim, Claimed, ClaimedJob};
 use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::agent::v1::{Assignment, ServerMessage};
 use bosun_proto::assignment::{self as document, Documents, Evaluated, Runtime};
+use bosun_types::api::WorkspacePolicy;
 use bosun_types::id::{AgentId, ExecutionId, JobId};
 use bosun_types::status::ExecutionStatus;
 use chrono::Utc;
@@ -367,6 +368,11 @@ fn offer(
             timeout_minutes: claimed.evaluated.timeout_minutes,
             continue_on_error: claimed.continue_on_error,
             runtime,
+            allow_privileged: claimed.allow_privileged && assigned.container.is_some(),
+            container: assigned.container,
+            workspace_clean: claimed.workspace == WorkspacePolicy::Clean,
+            untrusted: !claimed.trusted,
+            needs_podman: claimed.needs_podman,
         },
         actions,
     };

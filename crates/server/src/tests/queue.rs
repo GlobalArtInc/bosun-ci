@@ -409,6 +409,11 @@ jobs:
             timeout_minutes: 20,
             continue_on_error: true,
             runtime: None,
+            container: None,
+            allow_privileged: false,
+            workspace_clean: false,
+            untrusted: false,
+            needs_podman: false,
         }
     );
     assert_eq!(documents.contexts.github["job"], "build");
@@ -1293,4 +1298,78 @@ async fn the_claim_keeps_the_jobs_of_trusted_and_untrusted_runs_to_pools_of_thei
         None,
         "a trusted pool took the job of an untrusted run"
     );
+}
+
+#[tokio::test]
+async fn the_claim_never_hands_a_job_without_the_podman_capability_to_an_untrusted_pool() {
+    let world = World::new().await;
+    let db = world.db();
+    let replica = Uuid::now_v7();
+    let forks = pool(
+        &world,
+        "forks",
+        TrustLevel::Untrusted,
+        &[Access::AllProjects],
+    )
+    .await;
+    let untrusted_run = world
+        .dispatch(&workflow(vec![contained(template("build", &[], 1))]))
+        .await;
+    let trusted_run = world
+        .dispatch(&workflow(vec![contained(template("build", &[], 1))]))
+        .await;
+    execute(
+        db,
+        &format!("UPDATE bosun.run SET trusted = false WHERE id = '{untrusted_run}'"),
+    )
+    .await;
+    let (untrusted_job, _) = world.project(untrusted_run).await.job("build");
+    let (trusted_job, _) = world.project(trusted_run).await.job("build");
+    execute(
+        db,
+        &format!(
+            "UPDATE bosun.job SET pool_ids = pool_ids || '{forks}'::uuid, capabilities = '{{}}'"
+        ),
+    )
+    .await;
+    let outside = connected_in(
+        &world,
+        forks,
+        "runner2-1",
+        &["self-hosted", "linux", "x64", "podman"],
+        &[Capability::Podman],
+        replica,
+    )
+    .await;
+    assert_eq!(
+        claim(db, outside.id, replica, LEASE, &[]).await,
+        None,
+        "an untrusted pool took a job queued without capabilities"
+    );
+    let default = bosun_db::pools::default_pool(db)
+        .await
+        .expect("the default pool");
+    let held = ["self-hosted", "linux", "x64", "shell", "podman"];
+    let inside = connected_in(
+        &world,
+        default.id,
+        "runner1-1",
+        &held,
+        &[Capability::Shell, Capability::Podman],
+        replica,
+    )
+    .await;
+    let taken = claim(db, inside.id, replica, LEASE, &[])
+        .await
+        .expect("the job of the trusted run without capabilities");
+    assert_eq!(taken.job_id, trusted_job);
+    execute(
+        db,
+        &format!("UPDATE bosun.job SET capabilities = '{{podman}}' WHERE id = '{untrusted_job}'"),
+    )
+    .await;
+    let taken = claim(db, outside.id, replica, LEASE, &[])
+        .await
+        .expect("the job that names podman");
+    assert_eq!(taken.job_id, untrusted_job);
 }

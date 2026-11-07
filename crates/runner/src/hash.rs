@@ -1,29 +1,101 @@
+use std::cell::Cell;
 use std::fs::{self, File};
-use std::io::{self, ErrorKind};
+use std::io::{ErrorKind, Read};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::safe;
+
 const DIRECTORY: u8 = 1;
 
 const FILE: u8 = 2;
 
-pub(crate) fn files(workspace: &Path, arguments: &[String]) -> Result<String, String> {
+const CHUNK: usize = 64 * 1024;
+
+const TEXT_LIMIT: usize = 4096;
+
+const STRIDE: u32 = 16 * 1024;
+
+pub(crate) struct Limits {
+    pub(crate) files: usize,
+    pub(crate) bytes: u64,
+    pub(crate) entries: usize,
+}
+
+pub(crate) const LIMITS: Limits = Limits {
+    files: 100_000,
+    bytes: 1024 * 1024 * 1024,
+    entries: 1_000_000,
+};
+
+pub(crate) type Halt<'a> = &'a dyn Fn() -> Option<&'static str>;
+
+fn interrupted(halt: Halt<'_>) -> Result<(), String> {
+    match halt() {
+        Some(reason) => Err(format!("{reason}, so the files were not hashed")),
+        None => Ok(()),
+    }
+}
+
+struct Meter<'a> {
+    halt: Halt<'a>,
+    steps: Cell<u32>,
+}
+
+impl<'a> Meter<'a> {
+    fn new(halt: Halt<'a>) -> Meter<'a> {
+        Meter {
+            halt,
+            steps: Cell::new(0),
+        }
+    }
+
+    fn spend(&self, steps: usize) -> Result<(), String> {
+        let total = self
+            .steps
+            .get()
+            .saturating_add(u32::try_from(steps).unwrap_or(u32::MAX));
+        if total >= STRIDE {
+            self.steps.set(0);
+            interrupted(self.halt)
+        } else {
+            self.steps.set(total);
+            Ok(())
+        }
+    }
+}
+
+pub(crate) fn files(
+    workspace: &Path,
+    arguments: &[String],
+    limits: &Limits,
+    halt: Halt<'_>,
+) -> Result<String, String> {
     let patterns = patterns(workspace, arguments)?;
+    let meter = Meter::new(halt);
     let mut digest = Sha256::new();
     let mut found = false;
-    for file in walk(&patterns)? {
-        if !file.starts_with(workspace) || file == workspace {
+    let mut read = 0;
+    for file in walk(workspace, &patterns, limits, &meter)? {
+        interrupted(halt)?;
+        let Ok(relative) = file.strip_prefix(workspace) else {
+            continue;
+        };
+        if relative.as_os_str().is_empty() {
             continue;
         }
-        let metadata = fs::metadata(&file)
-            .map_err(|error| format!("`{}` could not be read: {error}", file.display()))?;
-        if metadata.is_dir() {
-            continue;
+        match safe::open_below(workspace, relative) {
+            Ok(opened) => {
+                digest.update(contents(opened, &file, &mut read, limits, halt)?);
+                found = true;
+            }
+            Err(error) if error.kind() == ErrorKind::InvalidInput => {}
+            Err(error) => {
+                return Err(format!("`{}` could not be read: {error}", file.display()));
+            }
         }
-        digest.update(contents(&file)?);
-        found = true;
     }
     Ok(if found {
         hex(&digest.finalize())
@@ -32,37 +104,94 @@ pub(crate) fn files(workspace: &Path, arguments: &[String]) -> Result<String, St
     })
 }
 
-fn contents(file: &Path) -> Result<[u8; 32], String> {
-    let failed = |error: io::Error| format!("`{}` could not be read: {error}", file.display());
-    let mut reader = File::open(file).map_err(failed)?;
+fn contents(
+    mut reader: File,
+    file: &Path,
+    read: &mut u64,
+    limits: &Limits,
+    halt: Halt<'_>,
+) -> Result<[u8; 32], String> {
     let mut digest = Sha256::new();
-    io::copy(&mut reader, &mut digest).map_err(failed)?;
-    Ok(digest.finalize().into())
+    let mut chunk = vec![0; CHUNK];
+    loop {
+        interrupted(halt)?;
+        let count = reader
+            .read(&mut chunk)
+            .map_err(|error| format!("`{}` could not be read: {error}", file.display()))?;
+        if count == 0 {
+            return Ok(digest.finalize().into());
+        }
+        *read += count as u64;
+        if *read > limits.bytes {
+            return Err(format!(
+                "the files the patterns match hold more than {} bytes, which `hashFiles` does \
+                 not read",
+                limits.bytes
+            ));
+        }
+        digest.update(&chunk[..count]);
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn walk(patterns: &[Pattern]) -> Result<Vec<PathBuf>, String> {
+struct Pending {
+    path: PathBuf,
+    matched: u8,
+    partial: bool,
+}
+
+fn judge(
+    patterns: &[Pattern],
+    path: PathBuf,
+    meter: &Meter<'_>,
+) -> Result<Option<Pending>, String> {
+    let text = path.to_string_lossy();
+    let matched = matched(patterns, &text, meter)?;
+    let mut partial = false;
+    for pattern in patterns {
+        if !pattern.negate && pattern.partial(&text, meter)? {
+            partial = true;
+            break;
+        }
+    }
+    drop(text);
+    Ok((matched != 0 || partial).then_some(Pending {
+        path,
+        matched,
+        partial,
+    }))
+}
+
+fn walk(
+    workspace: &Path,
+    patterns: &[Pattern],
+    limits: &Limits,
+    meter: &Meter<'_>,
+) -> Result<Vec<PathBuf>, String> {
     let mut stack = Vec::new();
-    for search in search_paths(patterns) {
+    let mut visited = 0_usize;
+    for search in search_paths(workspace, patterns) {
         match fs::symlink_metadata(&search) {
-            Ok(_) => stack.insert(0, search),
+            Ok(_) => {
+                if let Some(pending) = judge(patterns, search, meter)? {
+                    stack.insert(0, pending);
+                }
+            }
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(format!("`{}` could not be read: {error}", search.display())),
         }
     }
     let mut found = Vec::new();
-    while let Some(item) = stack.pop() {
-        let text = item.to_string_lossy();
-        let matched = matched(patterns, &text);
-        let partial = patterns
-            .iter()
-            .any(|pattern| !pattern.negate && pattern.partial(&text));
-        if matched == 0 && !partial {
-            continue;
-        }
+    while let Some(Pending {
+        path: item,
+        matched,
+        partial,
+    }) = stack.pop()
+    {
+        interrupted(meter.halt)?;
         let metadata = fs::symlink_metadata(&item)
             .map_err(|error| format!("`{}` could not be read: {error}", item.display()))?;
         if metadata.is_dir() {
@@ -76,34 +205,64 @@ fn walk(patterns: &[Pattern]) -> Result<Vec<PathBuf>, String> {
                 let entry = entry.map_err(|error| {
                     format!("`{}` could not be listed: {error}", item.display())
                 })?;
-                children.push(entry.file_name());
+                visited += 1;
+                if visited > limits.entries {
+                    return Err(format!(
+                        "the workspace holds more than {} entries below the paths the patterns \
+                         search, which `hashFiles` does not walk",
+                        limits.entries
+                    ));
+                }
+                meter.spend(1)?;
+                if let Some(child) = judge(patterns, item.join(entry.file_name()), meter)? {
+                    children.push(child);
+                }
             }
-            children.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
-            stack.extend(children.into_iter().rev().map(|name| item.join(name)));
+            children.sort_by(|left, right| {
+                left.path
+                    .as_os_str()
+                    .as_bytes()
+                    .cmp(right.path.as_os_str().as_bytes())
+            });
+            stack.extend(children.into_iter().rev());
         } else if matched & FILE != 0 {
+            if found.len() >= limits.files {
+                return Err(format!(
+                    "the patterns match more than {} files, which `hashFiles` does not hash",
+                    limits.files
+                ));
+            }
             found.push(item);
         }
     }
     Ok(found)
 }
 
-fn matched(patterns: &[Pattern], item: &str) -> u8 {
+fn matched(patterns: &[Pattern], item: &str, meter: &Meter<'_>) -> Result<u8, String> {
     let mut kind = 0;
     for pattern in patterns {
         if pattern.negate {
-            kind &= !pattern.matches(item);
+            kind &= !pattern.matches(item, meter)?;
         } else {
-            kind |= pattern.matches(item);
+            kind |= pattern.matches(item, meter)?;
         }
     }
-    kind
+    Ok(kind)
 }
 
-fn search_paths(patterns: &[Pattern]) -> Vec<PathBuf> {
-    let candidates: Vec<&PathBuf> = patterns
+fn search_paths(workspace: &Path, patterns: &[Pattern]) -> Vec<PathBuf> {
+    let candidates: Vec<PathBuf> = patterns
         .iter()
         .filter(|pattern| !pattern.negate)
-        .map(|pattern| &pattern.search)
+        .filter_map(|pattern| {
+            if pattern.search.starts_with(workspace) {
+                Some(pattern.search.clone())
+            } else if workspace.starts_with(&pattern.search) {
+                Some(workspace.to_path_buf())
+            } else {
+                None
+            }
+        })
         .collect();
     let mut included: Vec<PathBuf> = Vec::new();
     for search in &candidates {
@@ -115,7 +274,7 @@ fn search_paths(patterns: &[Pattern]) -> Vec<PathBuf> {
             .skip(1)
             .any(|ancestor| candidates.iter().any(|other| other.as_path() == ancestor));
         if !nested {
-            included.push((*search).clone());
+            included.push(search.clone());
         }
     }
     included
@@ -154,6 +313,9 @@ fn patterns(workspace: &Path, arguments: &[String]) -> Result<Vec<Pattern>, Stri
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
+        }
+        if line.len() > TEXT_LIMIT {
+            return Err(too_long("a pattern"));
         }
         let pattern = Pattern::new(workspace, line)?;
         let descendants = (pattern.directories_only
@@ -242,82 +404,135 @@ impl Pattern {
         })
     }
 
-    fn matches(&self, item: &str) -> u8 {
+    fn matches(&self, item: &str, meter: &Meter<'_>) -> Result<u8, String> {
+        if item.len() > TEXT_LIMIT {
+            return Err(too_long("a path"));
+        }
         let mut parts: Vec<&str> = item.split('/').collect();
         if matches!(self.segments.last(), Some(Segment::Globstar)) && !self.implicit {
             parts.push("");
         }
-        if !one(&parts, &self.segments, false) {
+        Ok(if !one(&parts, &self.segments, false, meter)? {
             0
         } else if self.directories_only {
             DIRECTORY
         } else {
             DIRECTORY | FILE
-        }
+        })
     }
 
-    fn partial(&self, item: &str) -> bool {
+    fn partial(&self, item: &str, meter: &Meter<'_>) -> Result<bool, String> {
+        if item.len() > TEXT_LIMIT {
+            return Err(too_long("a path"));
+        }
         if item == "/" {
-            return true;
+            return Ok(true);
         }
         let parts: Vec<&str> = item.split('/').collect();
-        one(&parts, &self.segments, true)
+        one(&parts, &self.segments, true, meter)
     }
 }
 
-fn one(parts: &[&str], segments: &[Segment], partial: bool) -> bool {
-    let mut index = 0;
-    while index < parts.len() && index < segments.len() {
-        match &segments[index] {
-            Segment::Globstar => {
-                if index + 1 == segments.len() {
-                    return true;
+fn too_long(what: &str) -> String {
+    format!("{what} is longer than {TEXT_LIMIT} bytes, which `hashFiles` does not match")
+}
+
+fn one(
+    parts: &[&str],
+    segments: &[Segment],
+    partial: bool,
+    meter: &Meter<'_>,
+) -> Result<bool, String> {
+    let last = parts.len();
+    let mut now = vec![false; last + 1];
+    let mut next = vec![false; last + 1];
+    now[0] = true;
+    for (at, segment) in segments.iter().enumerate() {
+        next.fill(false);
+        let mut star = None;
+        for (position, reached) in now.iter().enumerate() {
+            if !reached {
+                continue;
+            }
+            meter.spend(1)?;
+            if position == last {
+                if partial {
+                    return Ok(true);
                 }
-                for start in index..parts.len() {
-                    if one(&parts[start..], &segments[index + 1..], partial) {
-                        return true;
+                continue;
+            }
+            match segment {
+                Segment::Globstar => {
+                    if partial || at + 1 == segments.len() {
+                        return Ok(true);
+                    }
+                    star.get_or_insert(position);
+                }
+                Segment::Literal(text) => {
+                    if parts[position] == text {
+                        next[position + 1] = true;
                     }
                 }
-                return partial;
-            }
-            Segment::Literal(text) => {
-                if parts[index] != text {
-                    return false;
-                }
-            }
-            Segment::Glob(tokens) => {
-                let chars: Vec<char> = parts[index].chars().collect();
-                if !glob(&chars, tokens) {
-                    return false;
+                Segment::Glob(tokens) => {
+                    if glob(parts[position], tokens, meter)? {
+                        next[position + 1] = true;
+                    }
                 }
             }
         }
-        index += 1;
+        if let Some(from) = star {
+            next[from..last].fill(true);
+        }
+        std::mem::swap(&mut now, &mut next);
+        if !now.contains(&true) {
+            return Ok(false);
+        }
     }
-    if index == parts.len() && index == segments.len() {
-        true
-    } else if index == parts.len() {
-        partial
-    } else {
-        index == parts.len() - 1 && parts[index].is_empty()
-    }
+    Ok(now[last] || (last > 0 && now[last - 1] && parts[last - 1].is_empty()))
 }
 
-fn glob(chars: &[char], tokens: &[Token]) -> bool {
-    match tokens.split_first() {
-        None => chars.is_empty(),
-        Some((Token::Any, rest)) => (0..=chars.len()).any(|skip| glob(&chars[skip..], rest)),
-        Some((token, rest)) => chars.split_first().is_some_and(|(c, after)| {
+fn glob(name: &str, tokens: &[Token], meter: &Meter<'_>) -> Result<bool, String> {
+    let width = tokens.len() + 1;
+    let mut now = vec![false; width];
+    let mut next = vec![false; width];
+    now[0] = true;
+    close(&mut now, tokens);
+    for c in name.chars() {
+        meter.spend(width)?;
+        next.fill(false);
+        for (index, token) in tokens.iter().enumerate() {
+            if !now[index] {
+                continue;
+            }
             let fits = match token {
-                Token::Char(expected) => c == expected,
+                Token::Any => {
+                    next[index] = true;
+                    false
+                }
+                Token::Char(expected) => c == *expected,
                 Token::One => true,
                 Token::Class { negated, ranges } => {
-                    ranges.iter().any(|(low, high)| low <= c && c <= high) != *negated
+                    ranges.iter().any(|(low, high)| *low <= c && c <= *high) != *negated
                 }
-                Token::Any => unreachable!(),
             };
-            fits && glob(after, rest)
-        }),
+            if fits {
+                next[index + 1] = true;
+            }
+        }
+        close(&mut next, tokens);
+        std::mem::swap(&mut now, &mut next);
+        if !now.contains(&true) {
+            return Ok(false);
+        }
+    }
+    Ok(now[tokens.len()])
+}
+
+fn close(states: &mut [bool], tokens: &[Token]) {
+    for (index, token) in tokens.iter().enumerate() {
+        if matches!(token, Token::Any) && states[index] {
+            states[index + 1] = true;
+        }
     }
 }
 
@@ -441,15 +656,28 @@ fn literal(segment: &str) -> Option<String> {
 mod tests {
     use std::path::Path;
 
-    use super::{Pattern, compile, glob, one, patterns, search_paths};
+    use std::fs;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    use super::{
+        LIMITS, Limits, Meter, Pattern, compile, files, glob, one, patterns, search_paths,
+    };
+    use crate::safe;
 
     fn matches(pattern: &str, name: &str) -> bool {
-        let chars: Vec<char> = name.chars().collect();
         match compile(pattern) {
-            super::Segment::Glob(tokens) => glob(&chars, &tokens),
+            super::Segment::Glob(tokens) => {
+                glob(name, &tokens, &Meter::new(&|| None)).expect("a match")
+            }
             super::Segment::Literal(text) => text == name,
             super::Segment::Globstar => true,
         }
+    }
+
+    fn degree(pattern: &Pattern, item: &str) -> u8 {
+        pattern
+            .matches(item, &Meter::new(&|| None))
+            .expect("a match")
     }
 
     #[test]
@@ -484,7 +712,7 @@ mod tests {
         assert_eq!(found.len(), 4);
         assert_eq!(found[0].search, Path::new("/w/s/src"));
         assert_eq!(
-            search_paths(&found),
+            search_paths(workspace, &found),
             vec![Path::new("/w/s/src").to_path_buf()]
         );
         let absolute = Pattern::new(workspace, "/etc/*.conf").expect("a pattern");
@@ -503,13 +731,238 @@ mod tests {
     fn a_trailing_globstar_written_in_the_pattern_matches_the_directory_before_it() {
         let workspace = Path::new("/w");
         let written = Pattern::new(workspace, "a/**").expect("a pattern");
-        assert_eq!(written.matches("/w/a"), 3);
-        assert_eq!(written.matches("/w/a/b/c"), 3);
-        assert_eq!(written.matches("/w/b"), 0);
+        assert_eq!(degree(&written, "/w/a"), 3);
+        assert_eq!(degree(&written, "/w/a/b/c"), 3);
+        assert_eq!(degree(&written, "/w/b"), 0);
         let implied = &patterns(workspace, &["a".to_owned()]).expect("patterns")[1];
-        assert_eq!(implied.matches("/w/a"), 0);
-        assert_eq!(implied.matches("/w/a/b"), 3);
+        assert_eq!(degree(implied, "/w/a"), 0);
+        assert_eq!(degree(implied, "/w/a/b"), 3);
         let parts: Vec<&str> = "/w".split('/').collect();
-        assert!(one(&parts, &written.segments, true));
+        assert_eq!(
+            one(&parts, &written.segments, true, &Meter::new(&|| None)),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn a_pipe_a_device_a_link_and_what_lies_behind_a_link_are_skipped_instead_of_read() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let base = fs::canonicalize(directory.path()).expect("a path");
+        let outside = base.join("outside");
+        fs::create_dir_all(&outside).expect("a directory");
+        fs::write(outside.join("secret"), "the credential of the agent").expect("a file");
+        let plain = base.join("plain");
+        let planted = base.join("planted");
+        for workspace in [&plain, &planted] {
+            fs::create_dir_all(workspace.join("src")).expect("directories");
+            fs::write(workspace.join("src/lib.rs"), "fn main() {}").expect("a file");
+            fs::write(workspace.join("Cargo.lock"), "lock").expect("a file");
+        }
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(planted.join("src/pipe"))
+                .status()
+                .expect("mkfifo")
+                .success()
+        );
+        symlink("/dev/zero", planted.join("src/zero")).expect("a link");
+        symlink(outside.join("secret"), planted.join("src/secret")).expect("a link");
+        symlink(&outside, planted.join("linked")).expect("a link");
+        let hash = |workspace: std::path::PathBuf, pattern: &'static str| {
+            safe::promptly(move || files(&workspace, &[pattern.to_owned()], &LIMITS, &|| None))
+        };
+        for pattern in ["**", "src/**\nCargo.lock", "linked/secret", "linked/**"] {
+            let expected = hash(plain.clone(), pattern);
+            let found = hash(planted.clone(), pattern);
+            assert_eq!(found, expected, "{pattern}");
+            assert!(
+                pattern.starts_with("linked")
+                    || expected.as_ref().is_ok_and(|hash| !hash.is_empty()),
+                "{pattern}: {expected:?}"
+            );
+        }
+        assert_eq!(hash(planted.clone(), "linked/secret"), Ok(String::new()));
+    }
+
+    fn tree(files: usize) -> (tempfile::TempDir, std::path::PathBuf) {
+        let directory = tempfile::tempdir().expect("a directory");
+        let workspace = fs::canonicalize(directory.path())
+            .expect("a path")
+            .join("workspace");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        for index in 0..files {
+            fs::write(workspace.join(format!("file-{index:03}")), "0123456789").expect("a file");
+        }
+        (directory, workspace)
+    }
+
+    #[test]
+    fn a_pattern_that_cannot_match_below_the_workspace_is_not_walked_and_one_above_it_walks_only_it()
+     {
+        let (directory, workspace) = tree(3);
+        let base = workspace.parent().expect("a parent").to_path_buf();
+        let closed = base.join("closed");
+        fs::create_dir_all(closed.join("inside")).expect("directories");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(closed.join("pipe"))
+                .status()
+                .expect("mkfifo")
+                .success()
+        );
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o000)).expect("permissions");
+        let hash = |pattern: String| {
+            let workspace = workspace.clone();
+            safe::promptly(move || files(&workspace, &[pattern], &LIMITS, &|| None))
+        };
+        let inside = hash("**".to_owned());
+        assert!(inside.as_ref().is_ok_and(|hash| !hash.is_empty()));
+        assert_eq!(hash(format!("{}/**", closed.display())), Ok(String::new()));
+        assert_eq!(hash("/etc/**".to_owned()), Ok(String::new()));
+        assert_eq!(hash(format!("{}/**", base.display())), inside);
+        assert_eq!(hash("/**".to_owned()), inside);
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).expect("permissions");
+        drop(directory);
+    }
+
+    #[test]
+    fn more_files_or_bytes_than_the_limits_allow_fail_the_expression_instead_of_being_read() {
+        let (_directory, workspace) = tree(5);
+        let patterns = ["**".to_owned()];
+        let few = files(
+            &workspace,
+            &patterns,
+            &Limits {
+                files: 4,
+                bytes: 1000,
+                entries: 100,
+            },
+            &|| None,
+        );
+        assert_eq!(
+            few,
+            Err("the patterns match more than 4 files, which `hashFiles` does not hash".to_owned())
+        );
+        let heavy = files(
+            &workspace,
+            &patterns,
+            &Limits {
+                files: 5,
+                bytes: 49,
+                entries: 100,
+            },
+            &|| None,
+        );
+        assert_eq!(
+            heavy,
+            Err(
+                "the files the patterns match hold more than 49 bytes, which `hashFiles` does \
+                 not read"
+                    .to_owned()
+            )
+        );
+        let exact = files(
+            &workspace,
+            &patterns,
+            &Limits {
+                files: 5,
+                bytes: 50,
+                entries: 100,
+            },
+            &|| None,
+        );
+        assert!(exact.is_ok_and(|hash| !hash.is_empty()));
+    }
+
+    #[test]
+    fn a_cancel_or_a_deadline_stops_a_long_hash_between_two_files() {
+        let (_directory, workspace) = tree(200);
+        let checks = std::cell::Cell::new(0_u32);
+        let halt = || {
+            checks.set(checks.get() + 1);
+            (checks.get() > 10).then_some("the job was cancelled")
+        };
+        let stopped = files(&workspace, &["**".to_owned()], &LIMITS, &halt);
+        assert_eq!(
+            stopped,
+            Err("the job was cancelled, so the files were not hashed".to_owned())
+        );
+        assert!(checks.get() < 100, "{}", checks.get());
+    }
+
+    #[test]
+    fn more_entries_than_the_limit_visits_fail_the_expression_instead_of_being_listed() {
+        let (_directory, workspace) = tree(6);
+        let limits = |entries| Limits {
+            files: 100,
+            bytes: 1000,
+            entries,
+        };
+        let refused = files(&workspace, &["**".to_owned()], &limits(5), &|| None);
+        assert_eq!(
+            refused,
+            Err(
+                "the workspace holds more than 5 entries below the paths the patterns search, \
+                 which `hashFiles` does not walk"
+                    .to_owned()
+            )
+        );
+        let accepted = files(&workspace, &["**".to_owned()], &limits(6), &|| None);
+        assert!(accepted.is_ok_and(|hash| !hash.is_empty()));
+    }
+
+    #[test]
+    fn a_pattern_built_to_backtrack_ends_at_once_on_a_long_name() {
+        let (_directory, workspace) = tree(0);
+        fs::write(workspace.join("a".repeat(255)), "x").expect("a file");
+        let nested = workspace.join("a/".repeat(100));
+        fs::create_dir_all(&nested).expect("directories");
+        fs::write(nested.join("a"), "x").expect("a file");
+        let hash = |pattern: &'static str| {
+            let workspace = workspace.clone();
+            safe::promptly(move || files(&workspace, &[pattern.to_owned()], &LIMITS, &|| None))
+        };
+        assert_eq!(hash("*a*a*a*a*a*a*a*a*a*a*a*a*b"), Ok(String::new()));
+        assert_eq!(
+            hash("**/a/**/a/**/a/**/a/**/a/**/a/**/a/**/b"),
+            Ok(String::new())
+        );
+        assert!(hash("*a*a*a*a*a*a*a*a*a*a*a*a*").is_ok_and(|hash| !hash.is_empty()));
+        assert!(hash("**/a/**/a/**/a/**/a/**/a/**/a/**/a/**/a").is_ok_and(|hash| !hash.is_empty()));
+    }
+
+    #[test]
+    fn a_pattern_or_a_path_longer_than_the_limit_is_an_expression_error() {
+        let (_directory, workspace) = tree(1);
+        let pattern = format!("{}*", "a".repeat(4096));
+        assert_eq!(
+            files(&workspace, &[pattern], &LIMITS, &|| None),
+            Err("a pattern is longer than 4096 bytes, which `hashFiles` does not match".to_owned())
+        );
+        let pattern = Pattern::new(&workspace, "**").expect("a pattern");
+        let long = format!("/{}", "a/".repeat(2100));
+        assert_eq!(
+            pattern.matches(&long, &Meter::new(&|| None)),
+            Err("a path is longer than 4096 bytes, which `hashFiles` does not match".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_cancel_is_seen_in_the_middle_of_one_long_match() {
+        let tokens: Vec<super::Token> = (0..2000)
+            .flat_map(|_| [super::Token::Any, super::Token::Char('a')])
+            .collect();
+        let name = "a".repeat(4000);
+        let checks = std::cell::Cell::new(0_u32);
+        let halt = || {
+            checks.set(checks.get() + 1);
+            (checks.get() > 3).then_some("the job was cancelled")
+        };
+        let stopped = glob(&name, &tokens, &Meter::new(&halt));
+        assert_eq!(
+            stopped,
+            Err("the job was cancelled, so the files were not hashed".to_owned())
+        );
+        assert_eq!(checks.get(), 4);
     }
 }

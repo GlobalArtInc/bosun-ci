@@ -257,6 +257,10 @@ pub async fn change_settings<C: ConnectionTrait>(
                 .into(),
         )
         .col_expr(
+            project::Column::Workspace,
+            row::text(TABLE, settings.workspace)?.into(),
+        )
+        .col_expr(
             project::Column::SettingsVersion,
             Expr::col(project::Column::SettingsVersion).add(1),
         )
@@ -388,6 +392,7 @@ fn decode_settings(project: project::Model) -> Result<Settings, Error> {
             report: row::name(TABLE, project.report)?,
             log_retention: days(project.log_retention)?,
             run_retention: project.run_retention.map(days).transpose()?,
+            workspace: row::name(TABLE, project.workspace)?,
         },
     })
 }

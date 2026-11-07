@@ -4,6 +4,7 @@ mod cases;
 #[cfg(target_os = "linux")]
 mod cgroup;
 mod cleanup;
+mod container;
 mod environment;
 mod hash_files;
 mod order;
@@ -16,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use bosun_proto::assignment::{Contexts, Evaluated};
-use bosun_runner::{Annotation, BosunFacts, Event, Job, Runner, Tracking};
+use bosun_runner::{Annotation, BosunFacts, Cleanup, Event, Job, Runner, Tracking};
 use bosun_types::ir::{
     Action, Defaults, Evaluable, JobKind, JobTemplate, RunsOn, SecretReferences, Span, Step,
     Template,
@@ -107,12 +108,20 @@ pub fn job(directory: &Path, steps: Vec<Step>) -> Job {
             timeout_minutes: 360,
             continue_on_error: false,
             runtime: None,
+            container: None,
+            allow_privileged: false,
+            workspace_clean: false,
+            untrusted: false,
+            needs_podman: false,
         },
         actions: Vec::new(),
         forge_token: None,
         runtime: None,
         fetched: Ok(()),
         minute: Duration::from_secs(60),
+        container: None,
+        recovery: None,
+        cleanup: Cleanup::default(),
     }
 }
 

@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use bosun_proto::agent::v1::{Capability, Heartbeat};
+use bosun_runner::container::{self, Engine, Libc, Podman};
 use bosun_runner::podman::{self, Detection};
 use tracing::{info, warn};
 
@@ -15,6 +17,16 @@ pub(crate) async fn capabilities() -> Vec<Capability> {
         lacking @ Detection::Lacking(_) => warn!("{lacking}"),
     }
     held
+}
+
+pub(crate) async fn sweep(capabilities: &[Capability], dir: &Path) {
+    if !capabilities.contains(&Capability::Podman) {
+        return;
+    }
+    let engine: Arc<dyn Engine> = Arc::new(Podman::new());
+    for fault in container::sweep(&engine, &dir.join("podman")).await {
+        warn!("{fault}");
+    }
 }
 
 pub(crate) fn os() -> &'static str {
@@ -50,6 +62,18 @@ pub(crate) fn platform() -> String {
         format!("{os}-{arch}-musl")
     } else {
         format!("{os}-{arch}")
+    }
+}
+
+pub(crate) fn container_platform(libc: Libc) -> String {
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => other,
+    };
+    match libc {
+        Libc::Musl => format!("linux-{arch}-musl"),
+        Libc::Glibc => format!("linux-{arch}"),
     }
 }
 

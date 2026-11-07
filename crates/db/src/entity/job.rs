@@ -35,6 +35,7 @@ pub struct Model {
     pub kind: String,
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub call: Option<Json>,
+    pub alias_image: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

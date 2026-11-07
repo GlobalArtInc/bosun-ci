@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents podman runs"
-scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface cases fork refusals bosun-ci"
+scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface cases job-containers fork refusals bosun-ci"
 
 usage() {
   echo "usage: hack/e2e.sh [--case name]... [scenario...]" >&2
@@ -70,7 +70,7 @@ esac
 checkout=""
 if [ "$(uname -s)" = Linux ]; then
   case " $selected " in
-    *" cases "* | *" bosun-ci "*) checkout=yes tools="$tools node" ;;
+    *" cases "* | *" job-containers "* | *" bosun-ci "*) checkout=yes tools="$tools node" ;;
   esac
 fi
 for tool in $tools; do
@@ -365,6 +365,31 @@ begin() {
 
 passed() {
   echo "scenario $current: passed"
+}
+
+keep_images_on_the_host() {
+  if [ "$podman_requested" = 1 ]; then
+    printf 'pull_policy = "never"\n' >>"$1"
+  fi
+}
+
+needs_podman() {
+  [ "$(jq -r '.podman // false' "$root/compat/cases/$1/expected.json")" = true ]
+}
+
+podman_left() {
+  local kind found
+  for kind in "ps -a" "network ls" "volume ls"; do
+    found="$(podman $kind --quiet --filter label=bosun.execution 2>&1)" ||
+      fail "podman $kind failed: $found"
+    [ -z "$found" ] || fail "podman $kind lists what an execution created, after its job ended: $found"
+  done
+}
+
+files_of_others() {
+  local found
+  found="$(find "$1" ! -user "$(id -u)" -print -quit 2>&1)" || fail "find in $1 failed: $found"
+  [ -z "$found" ] || fail "the agent's user does not own $found, which a job in a container wrote"
 }
 
 scenario_two_job_workflow() {
@@ -1010,6 +1035,7 @@ scenario_podman() {
     --token "$registration" --name e2e-podman --dir "$work/agents/podman" --label podman-e2e \
     >"$work/logs/register-podman.log" 2>&1 ||
     fail "bosun-agent register of podman failed: $(cat "$work/logs/register-podman.log")"
+  keep_images_on_the_host "$work/agents/podman.toml"
   spawn agent-podman "$work/logs/agent-podman.log" "$bin/bosun-agent" run --config "$work/agents/podman.toml"
   deadline=$((SECONDS + 60))
   until [ "$(cli --profile a --json agent list | jq '[.[] | select(.name == "e2e-podman" and .online)] | length')" -eq 1 ]; do
@@ -1046,6 +1072,7 @@ EOF
     --token "$token" --name e2e-forks --dir "$work/agents/forks" --label shell \
     >"$work/logs/register-forks.log" 2>&1 ||
     fail "bosun-agent register of forks failed: $(cat "$work/logs/register-forks.log")"
+  keep_images_on_the_host "$work/agents/forks.toml"
   spawn agent-forks "$work/logs/agent-forks.log" "$bin/bosun-agent" run --config "$work/agents/forks.toml"
   deadline=$((SECONDS + 60))
   until [ "$(cli --profile a --json agent list | jq '[.[] | select(.name == "e2e-forks" and .online)] | length')" -eq 1 ]; do
@@ -1514,7 +1541,7 @@ forge_ready() {
     "contents": "read", "metadata": "read", "pull_requests": "read", "statuses": "write"}}')" ||
     fail "the fake forge did not install the App: $answer"
   forge_installation="$(jq -r .id <<<"$answer")"
-  for repository in e2e-fork bosun-ci $(case_names); do
+  for repository in e2e-fork e2e-untrusted bosun-ci $(case_names); do
     fake POST /repositories --data "$(jq -cn --argjson installation "$forge_installation" \
       --arg name "GlobalArtInc/$repository" '{installation: $installation, full_name: $name}')" >/dev/null ||
       fail "the fake forge did not create GlobalArtInc/$repository"
@@ -1527,7 +1554,7 @@ forge_ready() {
     fail "the fake forge did not take the address of the webhooks"
   deliver "$(jq -cn --argjson installation "$forge_installation" \
     '{event: "installation", installation: $installation, action: "created"}')"
-  for repository in e2e-fork bosun-ci $(case_names); do
+  for repository in e2e-fork e2e-untrusted bosun-ci $(case_names); do
     bind_project "$repository"
   done
 }
@@ -1592,7 +1619,16 @@ run_case() {
   if uses_actions "$directory"; then
     on_linux || { skipped_cases=$((skipped_cases + 1)); return 0; }
   fi
+  if needs_podman "$name" && [ "$podman_requested" != 1 ]; then
+    echo "case $name: skipped, BOSUN_TEST_PODMAN is not set"
+    skipped_cases=$((skipped_cases + 1))
+    return 0
+  fi
   echo "case $name: $(jq -r '.description // ""' "$expected")"
+  if needs_podman "$name"; then
+    api PATCH /api/v1/pools/default --data '{"allow_privileged": true}' >/dev/null ||
+      fail "the pool default did not allow privileged options for the case $name"
+  fi
   mkdir -p "$work/cases/$name"
   repo="$work/cases/$name/repository"
   local_git init --quiet --initial-branch=main "$repo"
@@ -1694,6 +1730,13 @@ run_case() {
       sleep 0.5
     done
   done
+  if needs_podman "$name"; then
+    api PATCH /api/v1/pools/default --data '{"allow_privileged": false}' >/dev/null ||
+      fail "the pool default did not take back privileged options after the case $name"
+    podman_left
+    files_of_others "$work/agents/alpha/work"
+    files_of_others "$work/agents/beta/work"
+  fi
 }
 
 scenario_cases() {
@@ -1724,6 +1767,254 @@ scenario_cases() {
     echo "scenario cases: skipped ($skipped_cases cases skipped on this system)"
     return 0
   fi
+  passed
+}
+
+scenario_job_containers() {
+  begin job-containers \
+    "a job container refuses the options that weaken isolation unless its pool allows them, never shows the registry password, pulls nothing under pull_policy never, leaves nothing behind it, follows the project setting workspace, and an untrusted pool keeps nothing after a job"
+  if [ "$podman_requested" != 1 ]; then
+    echo "scenario job-containers: skipped, BOSUN_TEST_PODMAN is not set"
+    return
+  fi
+  on_linux || return 0
+  forge_ready
+  local alpine node_image absent="registry.example.invalid/e2e/absent:1" password flag number mode k image
+  local flags=("--privileged" "--cap-add=NET_ADMIN" "--device=/dev/null" "--pid=host" "--network=host" "-v /etc:/hostetc:ro")
+  local box repository head patch token run job logs
+  alpine="$(grep -E '^alpine:' "$root/compat/images.lock")"
+  node_image="$(grep -E '^node:24-alpine@' "$root/compat/images.lock")"
+  [ -n "$alpine" ] && [ -n "$node_image" ] ||
+    fail "compat/images.lock holds no alpine image or no node:24-alpine image"
+
+  number=0
+  for flag in "${flags[@]}"; do
+    number=$((number + 1))
+    push "refused-$number" <<EOF
+name: refused-$number
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    container:
+      image: $alpine
+      options: "$flag"
+    steps:
+      - run: echo "the first step ran"
+EOF
+    watch a "refused-$number"
+    watch_ended 120 "refused-$number"
+    [ "$reaped" -eq 3 ] ||
+      fail "the option $flag did not fail its job; bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
+    grep -qF -- "$flag" "$watched" || fail "the failure of the job does not name $flag: $(cat "$watched")"
+    if grep -q 'the first step ran' "$watched"; then
+      fail "a step ran in a job whose option $flag is refused: $(cat "$watched")"
+    fi
+  done
+  api PATCH /api/v1/pools/default --data '{"allow_privileged": true}' >/dev/null ||
+    fail "the pool default did not allow privileged options"
+  number=0
+  for flag in "${flags[@]}"; do
+    number=$((number + 1))
+    push "allowed-$number" <<EOF
+name: allowed-$number
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    container:
+      image: $alpine
+      options: "$flag"
+    steps:
+      - run: echo "the first step ran"
+EOF
+    watch a "allowed-$number"
+    watch_ended 120 "allowed-$number"
+    [ "$reaped" -eq 0 ] ||
+      fail "the option $flag did not start in a pool that allows it: $(cat "$watched")"
+    grep -q 'the first step ran' "$watched" || fail "the job with $flag ran no step: $(cat "$watched")"
+  done
+  api PATCH /api/v1/pools/default --data '{"allow_privileged": false}' >/dev/null ||
+    fail "the pool default did not take back privileged options"
+  podman_left
+
+  push absent <<EOF
+name: absent
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    container:
+      image: $absent
+    steps:
+      - run: echo "the first step ran"
+EOF
+  watch a absent
+  watch_ended 120 absent
+  [ "$reaped" -eq 3 ] || fail "a job whose image is not on the host did not fail: $(cat "$watched")"
+  grep -qF -- "the image \`$absent\` is not on this host" "$watched" ||
+    fail "the failure does not name the image: $(cat "$watched")"
+  if podman image exists "$absent"; then
+    fail "the image $absent is on the host, so the agent pulled it"
+  fi
+  podman_left
+
+  password="registry-$(python3 -c 'import secrets; print(secrets.token_hex(12))')"
+  printf '%s\n' "$password" | cli --profile a secret set E2E_REGISTRY_PASSWORD --project e2e/m0 \
+    >"$work/out/job-containers-secret.txt" 2>&1 ||
+    fail "bosun secret set failed: $(cat "$work/out/job-containers-secret.txt")"
+  k=0
+  for image in "$alpine" "$absent"; do
+    k=$((k + 1))
+    push "credentials-$k" <<EOF
+name: credentials-$k
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    container:
+      image: $image
+      credentials:
+        username: ci
+        password: \${{ secrets.E2E_REGISTRY_PASSWORD }}
+    steps:
+      - run: echo "the password is \${{ secrets.E2E_REGISTRY_PASSWORD }}"
+EOF
+    watch a "credentials-$k"
+    watch_ended 120 "credentials-$k"
+    if grep -qF -- "$password" "$watched"; then
+      fail "the registry password is in the log of credentials-$k: $(cat "$watched")"
+    fi
+  done
+  grep -qF -- "the password is ***" "$work/out/watch-credentials-1.txt" ||
+    fail "the job with credentials did not run or did not mask its password: $(cat "$work/out/watch-credentials-1.txt")"
+  podman_left
+
+  push leftovers <<EOF
+name: leftovers
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    container:
+      image: $alpine
+    steps:
+      - run: |
+          mkdir -p "\$GITHUB_WORKSPACE/deep/er"
+          echo x > "\$GITHUB_WORKSPACE/deep/er/file"
+          chmod 500 "\$GITHUB_WORKSPACE/deep"
+          echo "wrote as \$(id -u)"
+EOF
+  watch a leftovers
+  watch_ended 120 leftovers
+  [ "$reaped" -eq 0 ] || fail "the job that writes files in a container failed: $(cat "$watched")"
+  grep -q 'wrote as 0' "$watched" || fail "the job did not write as the root of its container: $(cat "$watched")"
+  podman_left
+  files_of_others "$work/agents/alpha/work"
+  chmod -R u+rwX "$work/agents/alpha/work"
+
+  for mode in host box; do
+    box=""
+    if [ "$mode" = box ]; then
+      box="    container:
+      image: $alpine"
+    fi
+    push "workspace-$mode" <<EOF
+name: workspace-$mode
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+$box
+    steps:
+      - run: |
+          if [ -e "\$GITHUB_WORKSPACE/marker-$mode" ]; then echo "marker present"; else echo "marker absent"; fi
+          echo left > "\$GITHUB_WORKSPACE/marker-$mode"
+EOF
+    for k in first second; do
+      watch a "workspace-$mode"
+      watch_ended 120 "workspace-$mode"
+      [ "$reaped" -eq 0 ] || fail "the $k job of workspace-$mode failed: $(cat "$watched")"
+    done
+    grep -q 'marker present' "$watched" ||
+      fail "a file left in the workspace of a $mode job is gone without the setting workspace: $(cat "$watched")"
+    cli --profile a project settings e2e/m0 --set workspace=clean >"$work/out/job-containers-settings.txt" 2>&1 ||
+      fail "bosun project settings --set workspace=clean failed: $(cat "$work/out/job-containers-settings.txt")"
+    watch a "workspace-$mode"
+    watch_ended 120 "workspace-$mode"
+    [ "$reaped" -eq 0 ] || fail "the job of workspace-$mode failed with workspace clean: $(cat "$watched")"
+    grep -q 'marker absent' "$watched" ||
+      fail "a file left in the workspace of a $mode job stays with workspace clean: $(cat "$watched")"
+    cli --profile a project settings e2e/m0 --set workspace=persist >"$work/out/job-containers-settings.txt" 2>&1 ||
+      fail "bosun project settings --set workspace=persist failed: $(cat "$work/out/job-containers-settings.txt")"
+  done
+
+  with_public_address public
+  cli --profile a project settings globalartinc/e2e-untrusted --set fork_policy=automatic \
+    >"$work/out/job-containers-settings.txt" 2>&1 ||
+    fail "bosun project settings --set fork_policy=automatic failed: $(cat "$work/out/job-containers-settings.txt")"
+  cli --profile a pool create e2e-untrusted --untrusted --project globalartinc/e2e-untrusted \
+    >"$work/out/job-containers-pool.txt" 2>&1 ||
+    fail "bosun pool create e2e-untrusted failed: $(cat "$work/out/job-containers-pool.txt")"
+  token="$(cli --profile a --json pool token create e2e-untrusted | jq -r .token)" ||
+    fail "bosun pool token create e2e-untrusted failed"
+  "$bin/bosun-agent" register --config "$work/agents/untrusted.toml" --url "http://$address_a" \
+    --token "$token" --name e2e-untrusted --dir "$work/agents/untrusted" --label untrusted-e2e \
+    >"$work/logs/register-untrusted.log" 2>&1 ||
+    fail "bosun-agent register of untrusted failed: $(cat "$work/logs/register-untrusted.log")"
+  keep_images_on_the_host "$work/agents/untrusted.toml"
+  spawn agent-untrusted "$work/logs/agent-untrusted.log" "$bin/bosun-agent" run --config "$work/agents/untrusted.toml"
+  k=$((SECONDS + 60))
+  until [ "$(cli --profile a --json agent list | jq '[.[] | select(.name == "e2e-untrusted" and .online)] | length')" -eq 1 ]; do
+    [ "$SECONDS" -lt "$k" ] || fail "the agent e2e-untrusted did not come online"
+    sleep 0.2
+  done
+  repository="$work/repositories/e2e-untrusted"
+  local_git init --quiet --initial-branch=main "$repository"
+  mkdir -p "$repository/.bosun/workflows"
+  cat >"$repository/.bosun/workflows/ci.yml" <<EOF
+name: untrusted
+on: pull_request
+jobs:
+  build:
+    runs-on: [self-hosted, untrusted-e2e]
+    container:
+      image: $node_image
+    steps:
+      - uses: bosun-fixtures/actions/runtime@v1
+      - run: |
+          test -n "\$(ls -A /__w/_actions)" && echo "actions present during the job"
+          echo left > "\$GITHUB_WORKSPACE/left-behind"
+          echo left > /__w/left-beside-the-projects
+          mkdir -p "\$RUNNER_TOOL_CACHE/left" && echo left > "\$RUNNER_TOOL_CACHE/left/behind"
+EOF
+  commit_all "$repository" "a workflow for pull requests"
+  local_git -C "$repository" checkout --quiet -b patch
+  printf 'from a fork\n' >"$repository/patch.txt"
+  commit_all "$repository" "a change from a fork"
+  forge_push "$repository" GlobalArtInc/e2e-untrusted main patch
+  patch="$(fake POST /pulls --data '{"repository": "GlobalArtInc/e2e-untrusted", "base": "main", "head": "patch",
+    "fork": "mallory"}' | jq -r .number)" || fail "the fake forge did not open the pull request"
+  deliver "$(jq -cn --argjson number "$patch" '{event: "pull_request", repository: "GlobalArtInc/e2e-untrusted",
+    number: $number, action: "opened", sender: {login: "mallory", id: 9002}}')"
+  await_runs globalartinc/e2e-untrusted 1 300
+  run="$(jq -r '.items[0].id' <<<"$runs")"
+  [ "$(jq -r '.items[0].conclusion' <<<"$runs")" = success ] || {
+    explain_runs
+    fail "the run of the pull request from a fork did not succeed: $(jq -c '[.items[] | {display_name, status, conclusion}]' <<<"$runs")"
+  }
+  job="$(api GET "/api/v1/runs/$run/attempts/1/jobs" | jq -r '.items[0].id')"
+  logs="$work/out/job-containers-untrusted.txt"
+  cli --profile a job logs "$job" >"$logs" 2>&1 || fail "bosun job logs of the untrusted job failed: $(cat "$logs")"
+  grep -q 'actions present during the job' "$logs" ||
+    fail "the actions were not on the agent during the untrusted job: $(cat "$logs")"
+  for image in "$work/agents/untrusted/work" "$work/agents/untrusted/tools"; do
+    [ -z "$(ls -A "$image" 2>/dev/null)" ] ||
+      fail "$image is not empty after a job of an untrusted pool: $(ls -A "$image")"
+  done
+  podman_left
+  stop_process agent-untrusted "$(pid_of agent-untrusted)" 30
+  with_public_address ""
   passed
 }
 
@@ -1976,6 +2267,7 @@ for agent in alpha:a beta:b; do
     --token "$registration" --name "e2e-$name" --dir "$work/agents/$name" --label "$name" \
     >"$work/logs/register-$name.log" 2>&1 ||
     fail "bosun-agent register of $name failed: $(cat "$work/logs/register-$name.log")"
+  keep_images_on_the_host "$work/agents/$name.toml"
   if [ -n "$checkout" ]; then
     tool_cache "$work/agents/$name"
   fi

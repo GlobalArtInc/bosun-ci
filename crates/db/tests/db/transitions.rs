@@ -154,6 +154,7 @@ async fn the_transitions_write_their_columns_and_events_and_refuse_what_the_tabl
             ],
             pools: vec![pool],
             capabilities: vec![Capability::Podman],
+            image: None,
         },
     )
     .await

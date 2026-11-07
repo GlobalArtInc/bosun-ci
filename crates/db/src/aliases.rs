@@ -29,6 +29,7 @@ pub struct Set {
 pub(crate) struct Applying {
     pub(crate) pool: Option<Uuid>,
     pub(crate) capability: Option<Capability>,
+    pub(crate) image: Option<String>,
 }
 
 pub async fn set<C: ConnectionTrait>(db: &C, new: NewAlias<'_>) -> Result<Set, Error> {
@@ -91,7 +92,7 @@ pub(crate) async fn applying<C: ConnectionTrait>(
     }
     let found = db
         .query_all(statement(
-            "SELECT label, pool_id, capability FROM label_alias \
+            "SELECT label, pool_id, capability, image FROM label_alias \
              WHERE label = ANY ($1) AND (organisation_id IS NULL OR organisation_id = $2) \
              ORDER BY organisation_id NULLS FIRST",
             [labels.to_vec().into(), Uuid::from(organisation).into()],
@@ -108,6 +109,7 @@ pub(crate) async fn applying<C: ConnectionTrait>(
             Applying {
                 pool: alias.try_get("", "pool_id")?,
                 capability,
+                image: alias.try_get("", "image")?,
             },
         );
     }

@@ -66,8 +66,11 @@ do, so it never reaches an agent that cannot run it on the host. The planner wri
 both as a label of the job, which an agent offers as one of its automatic labels, and into the
 job's `capabilities`, which only the capabilities the server recorded for the agent satisfy, so a
 label that an operator configured on an agent (`--label podman`) lets no agent past the check. Every
-job queued from step 9 on needs a capability; the case of a job that needs none is kept for the jobs
-queued before. Step 14 adds container actions and `docker://` steps to `needed_capability`
+job queued from step 9 on needs a capability. A job queued before it, whose `capabilities` are empty,
+goes to an agent of a trusted pool that holds either capability, and never to an agent of an
+untrusted pool: the claim offers such an agent only the jobs whose `capabilities` contain `podman`,
+so the empty list that would satisfy any agent cannot send the code of a fork to a host without a
+container. Step 14 adds container actions and `docker://` steps to `needed_capability`
 (`crates/server/src/planner/capability.rs`), which stays the one place that decides it.
 
 **The `shell` of an untrusted pool.** An agent of an untrusted pool never holds `shell`. When its
@@ -80,7 +83,7 @@ does the same; the jobs an untrusted pool runs are the ones that need `podman`.
 
 **Label aliases** are rows of `label_alias`: a label, stored lowercased, and either an organisation
 or none for the installation, each pair once, with an optional pool, capability and default image.
-An image makes the capability `podman`. When the planner evaluates `runs-on`
+An image makes the capability `podman` and takes `shell` away. When the planner evaluates `runs-on`
 ([04-runs.md](04-runs.md#planning)), it looks each label up among the aliases of the job's
 organisation and of the installation, and the organisation's alias wins. An aliased label leaves the
 job's labels; the alias's pool, when it names one, restricts the job's pools to that pool, and its
@@ -90,9 +93,24 @@ or a pool that `runs-on.group` does not name or that is not open to the project,
 pool, and it is cancelled with `no_agent` after `max_queue_time` like a label no agent offers. An
 alias that names no pool and no capability only removes its label, so `ubuntu-latest` can mean any
 agent. Aliases are read once, when the job becomes ready; changing an alias does not move jobs that
-are already queued. An alias that names `podman` or an image is stored for M2: its jobs need
-`podman`, so they wait for an agent that holds it, and the image is not used before job containers
-arrive in step 10 of M2.
+are already queued. An alias that names `podman` or an image makes its jobs need `podman`, so they
+wait for an agent that holds it.
+
+**The image of an alias is the job container.** The planner reads the image together with the pools
+and the capabilities, when the job becomes ready, and stores it in the job's `alias_image`
+([07-storage.md](07-storage.md#tables)); the claim returns it, and the assignment turns it into the
+`container` of the `evaluated` document, with the image and no credentials, since an alias holds
+none and no options, so the job container runs with the agent's defaults. When the workflow's job
+declares `container` too, the workflow's wins and the alias's image is not used. An alias with an
+image makes the job need `podman` and not `shell`, whatever the alias's capability says: when any
+aliased label of the job names an image, the planner takes `shell` out of the capabilities of the
+job, since the job runs in the container, so an alias whose capability is `shell` and whose image is
+set gives `{podman}` and not `{shell, podman}`, which an agent of an untrusted pool, never holding
+`shell`, could not take. When several aliased labels name an image, they
+must name the same one; two different images leave the job no pool, like aliases that name two
+pools, and it is cancelled with `no_agent` after `max_queue_time`. The job therefore never runs on
+the host of a podman agent, which may belong to an untrusted pool that runs the code of a fork.
+Changing the image of an alias does not move jobs that are already queued.
 
 ## Registration and identity
 
@@ -366,6 +384,28 @@ documents beside it, which the agent reads with every field it does not know ref
   which the planner evaluated when the job became ready, merged over it, so a name in both takes the
   job's value. When the job's `env` or `defaults.run` read secrets, the assignment evaluates them,
   rather than the planner ([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)).
+  `container`, present only for a job that declares one: its `image` and, when the job gives them,
+  the `username` and `password` of its `credentials`, which the server evaluates at the assignment,
+  where the job's secrets are read, so the password of an untrusted run is empty. The agent evaluates
+  the rest of the job's `container` from the template in `job` when it starts the container, since
+  `volumes` and `options` may name `github.workspace`, which only the agent knows.
+  When the job declares none, the image of its label alias is the `container`, with no
+  credentials ([Pools and label aliases](#pools-and-label-aliases)).
+  `needs_podman` is present when the capabilities of the job include `podman`. The agent fails a
+  job with `needs_podman` and no `container` before its first step, with the message that the job
+  needs podman and carries no container to run in, and runs nothing on the host: a label alias that
+  names the capability `podman` without an image, a job queued by an older server and any future
+  path that loses the container end there instead of reaching the host. A job that needs only
+  `shell` is not affected. The agent fails a job with `untrusted` and no `container` the same way,
+  before its first step, with the message that a job of an untrusted run runs only in a container,
+  whatever its `needs_podman` says, so no row of the queue and no assignment can make an agent run
+  the code of a fork on its host.
+  `allow_privileged` is present when the job has a `container` and its pool sets the option,
+  `workspace_clean` when the project's setting `workspace` is `clean`, and `untrusted` for a job of
+  an untrusted run, which only an untrusted pool receives
+  ([08-access.md](08-access.md#code-from-outside-the-team)). An agent from before job containers
+  refuses a key it does not know, so none of these reaches an agent that would run the job on the
+  host, without its container or without the cleaning.
   `runtime`, present only for a job whose `actions` list is not empty and only when the server has a
   public address: `token`, the job token, and `runtime_url`, `results_url` and `cache_url`, the
   values of `ACTIONS_RUNTIME_URL`, `ACTIONS_RESULTS_URL` and `ACTIONS_CACHE_URL`
@@ -649,7 +689,8 @@ without the proxy its configuration gives steps, as its stream connects:
 - each action's tarball, once per repository and commit, from its `download`, into
   `work/_actions/<owner>/<repo>/<commit>` with the owner and the repository in lower case, the
   tarball's top directory becoming that directory, and an action's `path` below it as its directory.
-  A directory that exists is complete and is used again by later jobs, since its commit pins it;
+  A real directory that exists is complete and is used again by later jobs, since its commit pins
+  it. A link where the directory should be is not taken for it, and neither is a file;
 - each version of Node the actions run on, from
   `/_runtime/tools/node/<version>/<platform>.tar.xz`, into `externals/node<major>`, its top
   directory becoming that directory and `bin/node` its program. `externals/node<major>.version`
@@ -662,7 +703,12 @@ without the proxy its configuration gives steps, as its stream connects:
 glibc may carry musl's loader too. An agent built for macOS, which only developers run, asks for
 `darwin-<arch>`, which the server does not serve. An archive is written to `.<name>.download` beside its directory,
 unpacked into `.<name>.partial` with every entry kept inside it, and only then renamed into place,
-so an interrupted fetch leaves no directory that looks complete. A fetch that fails, an answer other
+so an interrupted fetch leaves no directory that looks complete. The agent reaches these paths from
+its own directory one component at a time without following a link, replaces a link or a file
+where a directory should be by a directory, and creates the file of the download after it removed
+whatever lay there, with `O_EXCL` and `O_NOFOLLOW`, so a job that left a link at
+`.<name>.download`, or in place of a directory above it, finds its target unwritten; the marker of a
+Node runtime is written and read the same way. A fetch that fails, an answer other
 than `200` among them, fails the job in its first stage with ``the job could not be prepared on
 this agent: <address> answered <status>: <message>`` and runs no stage after it.
 
@@ -873,21 +919,89 @@ the log of the last step that started names it, and a dependent job's
 
 The workspace of a project persists between jobs on the same agent instance, so a checkout is
 incremental; the project setting `workspace: clean` empties it before each job. `RUNNER_TEMP` is
-emptied after every job. On agents of an untrusted pool nothing persists: the workspace, the tool
+emptied after every job whose container, if it had one, the agent could remove. On agents of an
+untrusted pool nothing persists: the workspace, the tool
 cache and the downloaded actions are removed after every job, so one job cannot leave hooks,
 toolchains or patched actions for the next.
 
+Step 10 of M2 ([../plan.md](../plan.md)) settled how. The project setting `workspace` is `persist`,
+the default, or `clean` ([11-api.md](11-api.md#project-settings)); the assignment carries `clean` as
+`workspace_clean` and the agent empties the directory of the job's workspace, `github.workspace`,
+before the job's first stage, on `shell` and in a job container alike. For the job of an untrusted
+run the agent empties the whole of `work/` and the tool cache, before it downloads anything for the
+job and again after the job's teardown: everything under `work/`, the projects, `_actions`, `_temp`
+and whatever else a job put there, such as a file beside the projects. The actions are therefore
+fetched into an empty `work/`, so an action directory that a crash or a failed cleaning left behind
+is never taken for the downloaded one, and a job of another pull request cannot find, or run, what
+an earlier one wrote. A directory is emptied, not
+removed. The agent walks a directory through the descriptors it holds open, to a depth of 200
+levels, and makes a directory of the job writable with `fchmod` on the descriptor it opened. Where
+it cannot open a directory for lack of permission, it opens the directory with `O_PATH` and without
+following a link, and on Linux changes its mode through `/proc/self/fd/<n>` of that descriptor, which
+names the inode it holds and not a path a job could swap; on other systems it uses `fchmodat` without
+following a link. What it cannot delete that way, because it belongs to another user of the job container's user
+namespace, because the tree is deeper than the walk or the agent runs out of descriptors, or for any
+other reason but that the file is gone, is removed with `podman unshare rm -rf`, which the agent
+stops after 600 seconds, before it gives up. A directory that cannot be emptied
+fails the job before its first stage, and one that cannot be emptied after the job puts a line in the
+log of its last step, where the next job of the pool fails the same check. A named volume that an
+untrusted job asks for would keep data between jobs, so its options refuse it
+([`podman`](#podman)).
+
+The agent trusts only the directories it made: `work/` and `tools/`, the roots of a cleaning, which
+are the sources of the container's mounts and so cannot be replaced from inside. They can be broken
+from inside, though: the root of the container's user namespace is the agent's user, owns the inode
+of `/__w` and `/__t` and can `chmod 000` or `chown 1` them, which leaves the agent, outside the
+namespace, unable to open or write the directory, so every later job of the pool would fail before
+its first stage. The agent therefore checks the owner and the mode of a root, and of every directory
+it empties, before it uses it. A directory of the agent's own that lacks `u+rwx` is fixed with
+`fchmod`; one that belongs to another user and is closed to the agent, or that the agent cannot
+open at all, is given back with `podman unshare chown 0:0` and `podman unshare chmod u+rwx`, which
+inside the user namespace mean the agent's own user.
+`RUNNER_TEMP`, which lies in `work/`, is emptied and, for an untrusted run, removed with the rest of
+`work/`. Every directory it empties is reached from a root one component at a time, each opened
+without following a link. A
+link or a file where a directory should be, at the end of the path or in the middle of it, is
+removed as a file and never followed, so a job that replaces `work/<org>.<project>` or
+`work/_actions` with a link to a directory the agent's user can write, such as the agent's own
+directory, its home or `/var/lib/bosun/cache`, finds that directory untouched and the link gone. A
+directory outside every root is refused. The cleaning runs when no process of the job is left,
+after the container is removed and the processes on the host have ended, so it does not race one.
+When the removal of the container fails (`podman rm` fails or takes more than its 60 seconds), the
+container, and the processes of the fork in it, may be alive, so the agent does not clean: it puts
+a line in the log of the job's last step, records that its state is dirty, and removes the
+container, and then cleans, before its next job, as the teardown paragraph below says.
+
+The trusted pools keep their behaviour: `persist` empties nothing but `RUNNER_TEMP`, and `clean`
+empties the workspace before the job's first stage, as above. `RUNNER_TEMP` (`work/_temp`) is also
+emptied before the agent downloads anything for the job, in every pool, so the step scripts, the
+`_github_home` and the event payload of an earlier job whose teardown did not empty them, because
+its container could not be removed, never reach the next job, which may belong to another project of
+the pool.
+
+The cleaning rests on three facts that a change must keep. `podman unshare chown` and `podman
+unshare chmod` take a path and follow links, so they are safe only because they run after the
+container is gone and the processes of the job have ended, in the order of the teardown below: no
+process of the job is left to replace a directory with a link between the agent's check and the
+call. The agent gives every job on an agent that holds `podman` the engine for these two calls and
+for `podman unshare rm -rf`, whether the job runs on the host or in a container, because the files
+of other users of a container's namespace that an earlier container job of a trusted pool left in
+`work/` can only be removed that way, and a `shell` job with `workspace: clean` must be able to.
+Cancelling a job, or stopping the agent, is not observed while the agent downloads or removes what
+an earlier job left (`download` and the sweep that clears the record, which can take minutes): the
+job ends when they do, and every call of them is bounded as the teardown says.
 ## Capabilities
 
 An agent has one or both capabilities. **`shell`** means steps may run directly on the host as the
 agent's user. **`podman`** means the agent may run containers through rootless podman. A job's
 steps run in a job container when the job declares `container` or its label alias names an
-image; otherwise they run on the host, and the job needs `shell`
+image, which becomes the container; otherwise they run on the host, and the job needs `shell`
 ([Pools and label aliases](#pools-and-label-aliases)), so an agent without `shell` is never offered
 a job without an image. A job whose label alias names the capability `podman` and no image, and
-that declares no `container`, needs `podman` and not `shell`, and has no container to run in, so its
-steps run on the host of the agent that holds `podman`. Service containers and container actions
-need `podman` in every case.
+that declares no `container`, needs `podman` and not `shell`, and has no container to run in, so the
+agent fails it before its first step instead of running its steps on the host
+([The job assignment](#the-job-assignment) names the `needs_podman` key that tells it). Service
+containers and container actions need `podman` in every case.
 
 ### `shell`
 
@@ -936,12 +1050,17 @@ untrusted pools ([Pools and label aliases](#pools-and-label-aliases)).
 
 At start the agent decides whether it holds the capability, once, with `podman info --format json`
 run as the agent's user. It holds it when podman reports a version of 4.4 or newer, `cgroupVersion`
-`v2` and `networkBackend` `netavark`, and advertises `podman` in its `Hello` next to `shell`, so its
+`v2`, `host.security.rootless` true and `networkBackend` `netavark`, and advertises `podman` in its
+`Hello` next to `shell`, so its
 automatic labels carry both. Otherwise the agent starts without it and logs one warning that names
 every prerequisite that failed, joined by semicolons (podman missing from the `PATH`, `podman info`
 failing or taking more than 60 seconds, a version that is too old, cgroups v1, another network
 backend, a remote podman whose `serviceIsRemote` is true, such as the client of a virtual machine on
-macOS, whose paths do not exist on the host), and an operator who fixes the host restarts the agent.
+macOS, whose paths do not exist on the host, and a podman that runs as root or does not say whether
+it does), and an operator who fixes the host restarts the agent. Root in a container is the user of
+the agent only under rootless podman; a rootful podman, which an agent run as root gets, would make
+it root on the host, so such an agent holds no `podman` and runs no job in a container
+([12-operations.md](12-operations.md#configuration)).
 The decision is one module, `bosun_runner::podman`, whose parsing takes the text of `podman info`
 and runs without podman.
 
@@ -958,6 +1077,7 @@ gets these mounts, so that actions written for the target environment find their
 | Host | Container |
 |------|-----------|
 | `work/` | `/__w` |
+| `work/_temp/` | `/__w/_temp`, a second mount of the same directory |
 | `externals/` (read-only) | `/__e` |
 | `tools/` | `/__t` |
 | the job's home | `/github/home` |
@@ -971,14 +1091,246 @@ creates belong to that user and teardown can remove them.
 isolation (`--privileged`, `--cap-add`, `--device`, `--pid=host`, `--network=host`, and volume mounts
 outside the workspace), which are refused unless the pool sets `allow_privileged`.
 
+**Job containers.** Step 10 of M2 ([../plan.md](../plan.md)) settled the mechanisms below. The code
+is the module `bosun_runner::container`, which runs podman through the trait `Engine`, so that its
+logic runs against a fake in the tests.
+
+- *Names.* The network is `bosun-<execution>` and the container `bosun-job-<execution>`; both carry
+  the label `bosun.execution=<execution>` and the label `bosun.agent=<owner>`, and so does everything
+  else the agent creates for the execution. `<owner>` is the first 16 hexadecimal digits of the
+  SHA-256 of the path of the agent's podman state directory (`podman/` in its directory), which is
+  stable across restarts and differs between the agents of a host, whatever their users.
+  `job.container.id` is the id that `podman create` printed and `job.container.network`
+  the name of the network.
+- *Creation.* After the options are checked, the agent looks for the image with
+  `podman image exists`, and when it is missing and the agent's `pull_policy` is `missing` logs in,
+  if the job gives credentials, and pulls it. It then creates the network, runs `podman create`
+  with the name, the two labels, `--pull=never`, the entrypoint (`--entrypoint '["tail"]'`), the
+  mounts above, `--workdir` at the workspace and the filtered options, and then, after `--`, only
+  the image and the command `-f /dev/null`, and then runs `podman start`. The job network is left out of the command when the options name another, which
+  only a pool with `allow_privileged` can do. The image needs `sh`, `env` and `tail`; a step on an
+  image without them fails with podman's own message.
+- *The image.* The agent takes `[registry[:port]/]path[:tag]` with an optional `@sha256:<digest>`,
+  trimmed of the white space around it, with the lower case and the separators that names of
+  images allow, and uses that one value for the registry of a login, for `podman image exists`, for
+  the pull and for the creation. Everything else is refused before podman is asked, in every pool,
+  and in particular a reference with a transport (`docker-daemon:`, `docker-archive:`, `dir:`,
+  `oci:`, `oci-archive:`, `containers-storage:`, `docker://`, `tarball:`, `sif:` and `ostree:`),
+  which would make `podman pull` read a file or a daemon of the host.
+- *Pulling.* `pull_policy` is a setting of the agent ([12-operations.md](12-operations.md#configuration)):
+  `missing`, the default, pulls an image that is not on the host, and `never` fails the job before
+  its first step with ``the image `<image>` is not on this host, and the agent's `pull_policy` is
+  `never`, so it is not pulled``, and pulls nothing, which closed networks and the tests need.
+- *Credentials.* `container.credentials` with a username and a password, both not empty, make the
+  agent log in for the pull. With both empty, which is what credentials that come from secrets are
+  in a run of a fork, since an untrusted run reads none, the agent logs in to nothing and pulls
+  anonymously, as a runner of the target environment does when it has nothing to log in with. With
+  exactly one of the two empty, the job fails before its first step, with ``
+  `container.credentials` needs a username and a password, and one of them is empty``; the agent
+  checks it whenever the job gives credentials, also when the image is on the host and nothing is
+  pulled. A run of a fork whose username is a plain value or `github.actor` and whose password is a
+  secret therefore fails its job, with that message. The password is in the masker before the agent runs anything,
+  so no line of the job's log shows it; it reaches podman on the standard input of
+  `podman login --password-stdin`, never in an argument, and the login writes to an authentication
+  file of its own, `podman/<execution>/auth.json` in the agent's directory, outside every mount,
+  which the pull reads with `--authfile` and teardown removes. The username is one argument of
+  `podman login`, `--username=<value>`, so a value that starts with `-` is no flag, and it shows in
+  a process list of the host; it is not masked. The credentials
+  protect the download of an image and nothing else: an image that one project pulled with them
+  stays in the agent's image store, its layers cached, and a job of any other project of that agent
+  can run it without credentials, since podman asks for none when the image is on the host. An
+  image that must stay private therefore belongs on an agent of a pool that only the projects
+  allowed to use it can reach. An agent of an untrusted pool must not carry an authentication file
+  of its own (`$XDG_RUNTIME_DIR/containers/auth.json` or `~/.config/containers/auth.json`), since
+  podman would use it for the pulls of every fork.
+- *Options.* The agent reads `options` as words, with single and double quotes and backslashes and
+  no expansion, and passes exactly the flags below, in the forms `--flag value`, `--flag=value` and,
+  for the short ones, `-f value`, `-fvalue` and `-f=value`. Resource limits: `--blkio-weight`,
+  `--cpu-period`, `--cpu-quota`, `--cpu-shares`, `--cpus`, `--cpuset-cpus`, `--cpuset-mems`,
+  `--memory` (`-m`), `--memory-reservation`, `--memory-swap`, `--memory-swappiness`,
+  `--oom-kill-disable`, `--oom-score-adj`, `--pids-limit`, `--shm-size` and `--ulimit`. Health
+  checks: `--health-cmd`, `--health-interval`, `--health-on-failure`, `--health-retries`,
+  `--health-start-period`, `--health-startup-cmd`, `--health-startup-interval`,
+  `--health-startup-retries`, `--health-startup-success`, `--health-startup-timeout`,
+  `--health-timeout` and `--no-healthcheck`. The environment: `--env` (`-e`) with a name and a
+  value, and `--unsetenv` and `--unsetenv-all`. Names and addresses of the network: `--add-host`,
+  `--dns`, `--dns-option`, `--dns-search`, `--expose`, `--hostname` (`-h`), `--no-hostname`,
+  `--no-hosts`, and `--publish` (`-p`) and `--publish-all` (`-P`), which a pool of untrusted code
+  never passes. The rest of the container: `--cap-drop`, `--init`, `--read-only`,
+  `--read-only-tmpfs`, `--stop-signal`, `--stop-timeout`, `--tmpfs`, `--user` (`-u`) and `--workdir`
+  (`-w`); namespaces only in their private form (`--pid` and `--uts` `private`, `--ipc` `private`,
+  `none` or `shareable`, `--cgroupns` `private`, `--userns` `keep-id` or `nomap`);
+  `--security-opt no-new-privileges`; and `--volume` (`-v`) and `--mount` of a named volume, of an
+  anonymous one, of a tmpfs or of a path inside the job's workspace, found after its links are
+  resolved. Nothing else is on the list: `--annotation` is not, since the runtime reads
+  `run.oci.keep_original_groups` and `run.oci.handler` from annotations, nor is `--tz`, whose value
+  can name a file of the host, nor `--umask`, `--platform`, `--arch`, `--os` and `--variant`. The
+  agent refuses, naming the option as written, every other flag, those that weaken isolation among
+  them (`--privileged`, `--cap-add`, `--device`, `--network`, `--pid`, `--ipc`, `--uts`, `--userns`,
+  `--cgroupns` in their host and shared forms, `--security-opt` other than `no-new-privileges`,
+  `--volumes-from`, a path outside the workspace, flags that read a file of the host such as
+  `--env-file` and `--secret`), unless the pool sets `allow_privileged`; a flag that podman does
+  not know is passed then only in the forms `--flag` and `--flag=value`, since the agent cannot
+  tell whether the word after it is its value. Whatever the pool says, the agent refuses what it
+  chooses itself (`--name`, `--entrypoint`, `--label`, `--pull`, `--rm`, `--replace`, `--cidfile`,
+  `--pod`), a word that is not a flag, and options it cannot read, such as an open quote. A named
+  volume is refused in an untrusted pool, which keeps nothing between jobs, and so is every port:
+  `--publish`, `--publish-all` and `container.ports` open a listener on the host's public
+  interfaces, which no code of a fork may do, and `allow_privileged` cannot lift it, since an
+  untrusted pool never has it. Flags are case sensitive, as podman reads them; `container.volumes`
+  follow the rules of `-v`, and `container.ports` become `--publish`.
+
+  The agent reads a value the way podman does or refuses it, whatever the pool says. A word of the
+  options, a volume, a mount and a port that holds a control character (below `U+0020`, `U+007F`,
+  `U+0080` to `U+009F`) or a space that is not ASCII is refused, since a line break or such a space
+  in the value of `--mount` could make podman read fields that the agent never saw. A volume and a
+  mount that hold a quote or a backslash are refused, and so is a `--mount` that names a key twice,
+  by one name or by its aliases (`src` and `source`, `dst`, `destination` and `target`, `ro` and
+  `readonly`), since podman keeps the last value and the agent would have checked another.
+
+  The options are written into the arguments of `podman create`, so a secret that a workflow puts
+  there, as in `--env TOKEN=${{ secrets.TOKEN }}`, is an argument of a process of the host while
+  podman runs and in the output of `podman inspect`, where any process of the agent's user reads it.
+  The agent cannot tell from the evaluated text where a value came from and does not refuse it; the
+  masker keeps it out of the log. A secret belongs in `container.env`, whose values reach the
+  container in the launcher below and never in an argument. `--user` takes the identity of the
+  process inside the container: the launcher of a step is created by the agent, whose user is root of
+  the container, with the mode `0600`, so an image whose `USER` is not root cannot read it and its
+  first step fails, and `--user 0` makes it work.
+- *Environment.* A step does not see the environment of the agent but that of its image, and the
+  agent lays `HOME=/github/home`, then `container.env`, then the step's variables over it, the same
+  variables as on the host. They travel in a launcher that the agent writes to
+  `RUNNER_TEMP/step-<index>.launch` with the mode `0600`, and runs as
+  `podman exec <container> sh <launcher>`; the launcher removes itself first,
+  changes to the step's directory, puts the directories of `GITHUB_PATH` in front of the `PATH` of
+  the container, exports the variables the shell can take, and ends with
+  `exec env -- NAME=value… <program>` for those it cannot, such as `INPUT_NODE-VERSION`, so every
+  value arrives untouched and no secret is an argument of a process of the host; the arguments of
+  `env`, which only a variable with such a name puts there, are visible in the process list of the
+  host for as long as `env` runs before it executes the program. A step without `shell` runs with `bash -e {0}` when `bash` is
+  on the `PATH` of the container, and with `sh -e {0}` otherwise.
+- *Paths.* The expressions and the variables of a step in a container carry the paths of the
+  container: `github.workspace` and `GITHUB_WORKSPACE` are `/__w/<org>.<project>/<repository>`,
+  `RUNNER_TEMP` is `/__w/_temp`, `RUNNER_TOOL_CACHE` is `/__t`, `RUNNER_WORKSPACE` is
+  `/__w/<org>.<project>`, `GITHUB_EVENT_PATH` is `/github/workflow/event.json`, the files of
+  `GITHUB_ENV` and its kin are under `/__w/_temp/_runner_file_commands`, and `github.action_path`
+  is below `/__w/_actions`; the agent reads the file commands at their paths on the host. The
+  `volumes`, `options`, `ports` and `env` of `container` see the paths of the host, since they
+  describe what is mounted. A `working-directory` that is an absolute path of the container is not
+  translated: it is taken for a path of the host, and the step fails with the message that the path
+  is not a directory that the job container mounts, whether or not the image has it; a relative one
+  is taken from the workspace, and so is the way to name a directory in a container job. `hashFiles`
+  resolves its patterns on the host, so a pattern that is an absolute path of the container finds
+  nothing, and it skips what is not a regular file of the workspace: a link, a pipe, a device and
+  anything behind a link. It walks only the workspace, whatever the pattern says: a pattern that
+  cannot match below the workspace (`/etc/**`) is not walked, and one that starts above it (`/**`)
+  walks the workspace and nothing else. A pattern that holds `.` or `..` as a part of its path
+  fails the expression, and a pattern outside the workspace is skipped without a word. It fails the
+  expression with a message that names the limit when the patterns match more than 100,000 files,
+  the files hold more than 1 GiB, the walk visits more than 1,000,000 directory entries, matched or
+  not, or a pattern or a path is longer than 4096 bytes. A directory is read one entry at a time and
+  only the entries a pattern can still match are kept, so a directory of tens of millions of entries
+  cannot fill the agent's memory. Matching a name against a pattern takes time proportional to the
+  product of their lengths, for `*` inside a part and for `**` between parts alike, so no pattern
+  makes it grow faster. The hash stops, failing the expression, between two entries, two files and
+  two blocks of one file, and after every 16,384 steps of one match, when the job is cancelled or
+  its `timeout-minutes` has run out; the check reads the job's cancel flag and its deadline
+  directly, since the expression is evaluated by the job's own task, which cannot wait for anything
+  else while it hashes. Where the runtime has several threads the hash runs under
+  `tokio::task::block_in_place`, so it does not hold up the heartbeat of the agent or the other
+  jobs' tasks. The file of `::add-matcher::` in a container must lie in the workspace, as
+  a path relative to it or an absolute one that starts with `github.workspace` of the container or
+  with that of the host, and is read without a link on its way, as a regular file of at most 8 MiB;
+  a matcher's annotation names its file only when the path it matched is one of the host.
+- *Node.* A Node action runs from `/__e/node<major>/bin/node`. The agent asks the started container
+  which loader it holds, as it asks the host: a container with a loader of musl in `/lib` or
+  `/lib64` and none of glibc is a musl image, and it gets the build of `linux-<arch>-musl` in
+  `externals/node<major>-musl`, so `/__e/node<major>-musl`; a glibc image on a glibc host shares
+  the directory of the host's own build. A runtime the container needs and the agent does not hold
+  is fetched at that moment, from the server, with the checks of
+  [Actions and tools](#actions-and-tools); a job in a container fetches none beforehand.
+- *Ending a step.* Cancelling and the timeouts keep the stages of [`shell`](#shell) in a container:
+  `INT`, `TERM` after 7.5 seconds and `KILL` after 2.5 more, each sent with `kill -<signal> -1` in
+  the container, which reaches every process but its first, and `KILL` also to the `podman exec`
+  process of the step. A process that an earlier step left running in the container ends with the
+  step that is cancelled or timed out, unlike on the host.
+- *Teardown* runs when the job succeeds, fails, is cancelled or times out, when the agent stops,
+  and when the preparation failed halfway: it removes the container by name with its anonymous
+  volumes, then everything labelled with the execution, containers, volumes and networks in that
+  order, then the authentication file, then empties `RUNNER_TEMP` and, for an untrusted run, `work/`
+  and the tool cache. A removal that podman or the file system fails puts a line in the log of the
+  job's last step and does not change the job's conclusion, but it changes what comes after: the
+  container may be alive, so the agent does not empty `RUNNER_TEMP`, `work/` or the tool cache,
+  which a live process of the fork could be writing to and which would carry its files into the
+  next job. It records that its state is dirty, in memory for as long as the agent runs and in the
+  file `podman/dirty` in its directory for a restart, and logs a line to that effect in the job.
+  While the record is set the agent takes no job: it sends no `Idle`, so the server offers it
+  nothing, whatever the pools it serves and whether the jobs run in a container or on the host,
+  and it logs at `error` that it asks for no job and retries. It repeats the removal with the sweep
+  below in the background, after 5 seconds and then after twice as long each time, up to 5 minutes,
+  logs every failure at `error` with what the sweep said, and sends `Idle` again only when a sweep
+  has succeeded, which also removes the record. A job that is offered anyway, such as one that
+  crossed the record on the wire, is rejected with `this agent could not remove a container of an
+  earlier job, so it takes no job until it can`, and the server queues it again. The check of the
+  record is a lookup in memory and a `stat` of `podman/dirty`, made before the agent accepts a job.
+  A job that reaches the agent's preparation with the record set, a race that the check before
+  `Accept` makes rare, repeats the sweep first, on the host as well, before it empties anything, and
+  fails before its first step with ``a container of an earlier job could not be removed (<what the
+  sweep said>), so the agent takes no job until it can`` when the sweep fails. A cancel during the preparation of the container puts the lines of its teardown in the log
+  like any other end. Every call of the agent to podman
+  except the pull is bounded, by 120 seconds while the container is prepared, 60 in teardown, 10
+  for a signal and 600 for the `podman unshare rm -rf` of a cleaning, so a podman that hangs cannot
+  keep the agent from freeing its slot; the preparation of the container as a whole, the pull and
+  the fetching of Node included, ends when the job is cancelled and when the job's
+  `timeout-minutes` runs out, which counts from the start of the job and fails it with a clear line
+  in the log and the conclusion `timed_out`; the teardown runs in both cases. An agent that is killed without a `SIGTERM` leaves its container and network
+  behind, and the next start of the agent removes them (the *start-up sweep* below).
+- *Start-up sweep.* An agent runs one job at a time, so before it takes its first job, and only when
+  it holds `podman`, it removes every container, volume and network that carries the label
+  `bosun.execution`, whatever its value, and the label `bosun.agent` with its own `<owner>`, in that
+  order, and everything under `podman/` in its directory, which holds the authentication files of
+  earlier executions. Nothing without both labels is touched, so the agents of one host, whether
+  they run as one user or as root, never remove the running job of one another. A host where podman
+  is not usable skips the sweep without a line in the log; a removal that fails is logged at `warn`,
+  names what could not be removed and does not stop the agent, and the same bounds as in teardown
+  apply, 60 seconds for a call. A sweep that fails records that the state is dirty, as a failed
+  teardown does, so the agent takes no job and repeats the sweep in the background as the teardown
+  says; a sweep that succeeds removes the record. An agent that does not hold `podman` does not
+  sweep and has no record.
+- *Files.* The container's root is the agent's user (the namespace of rootless podman maps it
+  there), so what a step writes as root belongs to the agent and `RUNNER_TEMP`, the workspace and
+  the cleaning of an untrusted pool remove it. A file of another user of the container's namespace
+  is removed with `podman unshare rm -rf`, and a root or `_temp` that the container closed or gave
+  to another user of the namespace is given back to the agent's user before the agent writes in it
+  ([Workspace](#workspace)). Everything under `work/` is writable by the job's
+  container, so the agent treats what it finds there as input from an attacker: a script, a
+  launcher and a file command are created after anything at their path, link included, is removed,
+  and never written through a link; a file command is opened without following a link and without
+  blocking, and is read only when it is a regular file of at most 8 MiB, so a step cannot make the
+  agent read a file of the host, wait on a pipe or fill its memory; the directories the agent makes
+  in `RUNNER_TEMP` for the job's home and the event payload are made the same way, so a link planted
+  there after a crash never becomes a source of a mount or a place the agent writes through;
+  `RUNNER_TEMP` is mounted a second time, so the container cannot replace the directory with a
+  link. The setting applies on the
+  host too, where it costs nothing. The same holds for the downloads: an action or a runtime that
+  the agent fetches is written and unpacked by a path that follows no link
+  ([Actions and tools](#actions-and-tools)), and an action directory that exists as a real
+  directory is taken for the downloaded one without a check of its content. That cache is therefore
+  only as trustworthy as the writers of `work/`: **a pool that holds both `shell` and `podman` is
+  one trust boundary**, since the job container of one job can write `work/`, the cached actions
+  among it, and a `shell` job later runs what it left there. The pools of untrusted code hold no
+  `shell` and are emptied after every job, so for them nothing persists; a trusted pool that runs
+  jobs of both kinds treats the code of every job as the code of the others.
+
 The agent's podman socket is given to steps as `DOCKER_HOST`, and mounted into the job container as
 `/var/run/docker.sock` when the pool allows it, so `docker build` inside a job works. Because every
 agent instance has its own user, the socket sees only that instance's containers.
 
-Images are pulled by podman itself; registry mirrors are configured in the host's
-`registries.conf`, which is how agents behind a closed network pull through the team's registry
-proxy. Teardown removes the job's containers, network and anonymous volumes; `bosun-agent gc`,
-run by a systemd timer, prunes images and build cache beyond the configured size.
+Images are pulled by podman itself, unless the agent's `pull_policy` is `never`; registry mirrors
+are configured in the host's `registries.conf`, which is how agents behind a closed network pull
+through the team's registry proxy. Teardown removes the job's containers, network and anonymous
+volumes; `bosun-agent gc`, run by a systemd timer, prunes images and build cache beyond the
+configured size.
 
 ## Cache volumes
 

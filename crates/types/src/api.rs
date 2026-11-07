@@ -381,6 +381,14 @@ pub struct ProjectSettings {
     pub report: Reporting,
     pub log_retention: NonZeroU16,
     pub run_retention: Option<NonZeroU16>,
+    pub workspace: WorkspacePolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspacePolicy {
+    Persist,
+    Clean,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

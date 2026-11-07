@@ -18,6 +18,7 @@ pub struct Model {
     pub repository_id: Option<i64>,
     pub log_retention: i32,
     pub run_retention: Option<i32>,
+    pub workspace: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

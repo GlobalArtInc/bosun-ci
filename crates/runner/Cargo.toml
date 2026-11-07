@@ -14,11 +14,11 @@ bosun-proto.workspace = true
 bosun-types.workspace = true
 bosun-workflow.workspace = true
 fancy-regex.workspace = true
-rustix = { workspace = true, features = ["process"] }
+rustix = { workspace = true, features = ["fs", "process"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tokio = { workspace = true, features = ["macros", "net", "process", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"] }
 uuid = { workspace = true, features = ["v7"] }
 
 [dev-dependencies]
