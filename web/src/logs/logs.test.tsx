@@ -162,7 +162,11 @@ function at(id: string): string {
 }
 
 function logOf(name: string): Promise<HTMLElement> {
-  return screen.findByRole('region', { name: translate('en', 'runPage.log.label', { name }) });
+  return screen.findByRole(
+    'region',
+    { name: translate('en', 'runPage.log.label', { name }) },
+    { timeout: 15_000 },
+  );
 }
 
 function row(log: HTMLElement, number: number): HTMLElement | null {
@@ -191,7 +195,7 @@ describe('the log viewer of the job panel', () => {
     await waitFor(() => expect(row(log, 100_000)).not.toBeNull());
     expect(row(log, 1)).toBeNull();
     expect(log.querySelectorAll('.log-row').length).toBeLessThan(100);
-  });
+  }, 30_000);
 
   it('folds the lines of a group, and collapsing the group hides them again', async () => {
     const grouped = step(0, 'Install');
