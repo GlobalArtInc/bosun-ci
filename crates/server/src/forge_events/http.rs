@@ -86,9 +86,15 @@ pub(crate) async fn receive(
         starts_runs: true,
     };
     let runs = match &binding.project.repository {
-        None => server_runs(&transaction, &state.site, &binding, &occurrence)
-            .await
-            .map_err(database)?,
+        None => server_runs(
+            &transaction,
+            &state.site,
+            state.forge.as_deref(),
+            &binding,
+            &occurrence,
+        )
+        .await
+        .map_err(|failure| refused(failure, &binding.project.path))?,
         Some(repository) => {
             let (forge, readable) = readable(state.forge.as_deref(), &binding, repository)?;
             repository_runs(

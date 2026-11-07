@@ -132,5 +132,5 @@ fn a_fixture_that_uses_a_pending_key_is_refused_with_not_implemented_naming_m2()
             );
         }
     }
-    assert!(refused >= 9, "only {refused} fixtures use a pending key");
+    assert!(refused >= 6, "only {refused} fixtures use a pending key");
 }

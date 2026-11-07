@@ -36,6 +36,7 @@ struct ActionCase {
 
 const RUN_BY_OTHER_SUITES: &[&str] = &[
     "action-policy",
+    "calls",
     "concurrency",
     "expr",
     "github",
@@ -512,6 +513,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/execution-created.json", round_trip::<RunEvent>),
         ("events/execution-status.json", round_trip::<RunEvent>),
         ("events/job-created.json", round_trip::<RunEvent>),
+        (
+            "events/job-created-call-member.json",
+            round_trip::<RunEvent>,
+        ),
         ("events/job-created-member.json", round_trip::<RunEvent>),
         ("events/job-status.json", round_trip::<RunEvent>),
         ("events/queue-job.json", round_trip::<StreamEvent>),

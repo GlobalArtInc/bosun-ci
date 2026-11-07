@@ -109,6 +109,14 @@ pub trait Forge: Send + Sync {
         reference: &str,
     ) -> impl Future<Output = Result<Option<String>, Error>> + Send;
 
+    fn public_file(
+        &self,
+        owner: &str,
+        name: &str,
+        commit: &str,
+        path: &str,
+    ) -> impl Future<Output = Result<Option<File>, Error>> + Send;
+
     fn public_tarball(
         &self,
         owner: &str,

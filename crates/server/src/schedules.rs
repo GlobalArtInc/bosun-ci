@@ -1,5 +1,6 @@
 mod instants;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use bosun_db::schedules::{Due, Entry, Origin, Scope};
@@ -12,6 +13,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction, Transact
 use tracing::{info, warn};
 
 use crate::clock::Clock;
+use crate::forge::Forge;
 use crate::forge_events::{self, Scheduled};
 use crate::site::Site;
 
@@ -79,10 +81,15 @@ fn entry<'a>(source: &Source<'_>, schedule: &'a Schedule, now: DateTime<Utc>) ->
     }
 }
 
-pub(crate) async fn work(db: DatabaseConnection, site: Site, clock: Clock) {
+pub(crate) async fn work(
+    db: DatabaseConnection,
+    site: Site,
+    forge: Option<Arc<Forge>>,
+    clock: Clock,
+) {
     loop {
         tokio::time::sleep(until_next_minute(clock.now())).await;
-        if let Err(error) = round(&db, &site, clock.now()).await {
+        if let Err(error) = round(&db, &site, forge.as_deref(), clock.now()).await {
             warn!(%error, "the schedules that came due could not be fired");
         }
     }
@@ -97,6 +104,7 @@ fn until_next_minute(now: DateTime<Utc>) -> Duration {
 pub(crate) async fn round(
     db: &DatabaseConnection,
     site: &Site,
+    forge: Option<&Forge>,
     now: DateTime<Utc>,
 ) -> Result<Vec<Run>, bosun_db::Error> {
     let Some(due) = bosun_db::schedules::due(db, now).await? else {
@@ -104,7 +112,7 @@ pub(crate) async fn round(
     };
     let mut runs = Vec::new();
     for id in due {
-        match fire(db, site, id, now).await {
+        match fire(db, site, forge, id, now).await {
             Ok(Some(run)) => runs.push(run),
             Ok(None) => {}
             Err(error) => warn!(
@@ -120,6 +128,7 @@ pub(crate) async fn round(
 async fn fire(
     db: &DatabaseConnection,
     site: &Site,
+    forge: Option<&Forge>,
     id: ScheduleId,
     now: DateTime<Utc>,
 ) -> Result<Option<Run>, bosun_db::Error> {
@@ -130,7 +139,7 @@ async fn fire(
     let next_at =
         instants::zone(&due.timezone).and_then(|zone| instants::next(&due.cron, zone, now));
     bosun_db::schedules::advance(&transaction, id, next_at).await?;
-    let run = planned(&transaction, site, &due).await?;
+    let run = planned(&transaction, site, forge, &due).await?;
     transaction.commit().await?;
     Ok(run)
 }
@@ -138,6 +147,7 @@ async fn fire(
 async fn planned(
     transaction: &DatabaseTransaction,
     site: &Site,
+    forge: Option<&Forge>,
     due: &Due,
 ) -> Result<Option<Run>, bosun_db::Error> {
     let workflow = bosun_db::workflows::find(transaction, due.workflow_id)
@@ -174,6 +184,7 @@ async fn planned(
     let run = forge_events::scheduled(
         transaction,
         site,
+        forge,
         Scheduled {
             workflow: &workflow,
             revision: &revision,

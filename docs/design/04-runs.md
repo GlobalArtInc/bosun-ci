@@ -18,7 +18,9 @@ who may give which command is in [08-access.md](08-access.md).
   template is the group: it stays `pending` while its members run, completes when all of them have,
   and is what `needs` and `needs.<job>` of other jobs name. Each member has the template's key, the
   group in `group_id` and its combination of the matrix in `matrix`. A call of a reusable workflow
-  becomes a group whose members are the callee's jobs, keyed `caller/callee`.
+  becomes a group whose members are the callee's jobs, keyed `caller/callee` and named
+  `<caller name> / <callee job name>` ([Calls of reusable workflows](#calls-of-reusable-workflows)).
+  A matrix on the call gives one such group per member of the matrix.
 - An **execution** is one placement of a job on an agent. A job has more than one execution only
   when job-level `retry` re-queued it.
 - A **step** belongs to an execution. Steps of composite actions are nested under the step that
@@ -149,8 +151,10 @@ transaction per workflow, creates the run, attempt 1, and one job per template i
 workflow-level `concurrency` at that moment, the `concurrency` before the jobs are created, so a
 group that cannot be evaluated ends the run with `startup_failure` and no jobs, and the run then
 enters its group ([Concurrency groups](#concurrency-groups)). A reusable workflow named by a job
-is fetched and validated now, so a missing or invalid callee ends the run with `startup_failure`
-before anything executes. The planner then runs in the same transaction, so
+is fetched and validated before the run is created, so a missing, invalid or forbidden callee ends
+the run with `startup_failure` and no jobs, before anything executes
+([Calls of reusable workflows](#calls-of-reusable-workflows)). The planner then runs in the same
+transaction, so
 the jobs that need no other job leave it `queued`.
 
 The warnings of the revision become the run's first notices ([Run notices](#run-notices)). The
@@ -295,6 +299,83 @@ otherwise. A run that accepted `run.cancel` ends `cancelled` unless a job failed
 running job then finished well before the cancel reached it. A job failed by an evaluation error
 has no `continue-on-error`, so it fails the run, and so does a job that an action policy fails with
 `action_forbidden` ([Resolving actions](#resolving-actions)).
+
+### Calls of reusable workflows
+
+A job that calls a workflow is a template like any other until it is ready. Its `if` and its
+`strategy` are decided as step 1 and 2 above say, and a matrix gives one **call** per member. Then,
+instead of a placement, the call is **expanded**: its `with` and `secrets` are evaluated, its row
+keeps the result in `call` ([07-storage.md](07-storage.md#tables)), and a member is created in
+`pending` for each job of the callee, in the order of the file, keyed `<call>/<callee job id>` with
+`kind` `steps` or `call`, its `group_id` the call and `needs` the callee's, each with the call's key
+before it. A call stays `pending` while its members run, as the template of a matrix does, and the
+callee's jobs continue from step 1 with the contexts of the callee. The cases of
+`contracts/fixtures/calls/` pin what the planning refuses, and `compat/cases/reusable/` the inputs,
+the secrets and the outputs.
+
+- **Scope.** `needs`, `needs.<job>` and the status functions of a callee's job name jobs of the
+  same call, by their ids in the callee, so a callee's `needs.build.outputs.x` reads the job `build`
+  of the callee even when the caller has a job `build` too. The jobs of different calls never see
+  each other. `inputs` is the call's evaluated `with`, with the defaults; a job of the run's own
+  workflow sees the run's inputs. `github`, `vars` and `bosun` are the run's, and `secrets` is what
+  the call passes ([02-workflows.md](02-workflows.md#reusable-workflows)).
+- **Names.** The call's display name is its `name` rendered, else its key, and a member is named
+  `<call name> / <member name>`, so a matrix member `deploy (eu)` that calls `build` has the member
+  `deploy (eu) / build`. That is the name of the check run of a member and of the member the
+  interface shows. A call is a group and is never reported.
+- **Secrets.** A member is assigned with the secrets of its call, resolved when it is assigned:
+  the call keeps, for each secret it passes, a text that was evaluated when the call was ready or
+  the name of the caller's secret, and the assignment follows that chain outward until the project's
+  own secrets, reading only the names the member's expressions name. An untrusted run reads none, as
+  for any job. A secret that does not decrypt fails the member with `secret_unreadable`, as for any
+  job. No value of a secret is written to the database by the call.
+- **Completion.** When every member of a call has completed, the call completes from `pending` with
+  the conclusion of a group ([Matrices](#matrices)) and with the outputs that `on.workflow_call`
+  defines, evaluated then ([02-workflows.md](02-workflows.md#reusable-workflows)), which
+  `needs.<call>.outputs` of its dependents reads. A call whose `if` is false completes `skipped`
+  and has no members. A call whose members all completed but whose outputs fail to evaluate
+  completes `failure` with an error notice. The members of a matrix of calls complete when their
+  own members do, and the matrix's group completes as any group does, with the outputs of its
+  members merged.
+- **Matrix controls.** `fail-fast` of a matrix of calls cancels the members that are not complete,
+  and the members of their calls with them; `max-parallel` counts a call that has members and has
+  not completed as running, and a member of the matrix that would exceed it stays `pending`
+  without being expanded until a call completes.
+- **Cancelling.** A cancellation of the run or of a job reaches the members of a call, and the call
+  follows them. `job.cancel` of a call cancels every member below it, however deep, and cancels a
+  call that has not been expanded as any pending job.
+- **Reports.** The `permissions` of a call limit the token of every job below it, as
+  [02-workflows.md](02-workflows.md#reusable-workflows) says. The `concurrency` of a call and of the
+  workflow of a callee is not applied in M2, and the run says so in a `not_implemented` warning for
+  each call and each distinct callee that has it, among the notices of the run from the moment it is
+  planned, whether or not the call is ever expanded.
+- **Reading the callees.** The server reads every callee of a run in the transaction that creates
+  the run, and the whole reading has 30 seconds. A webhook delivery that exceeds them fails as a
+  forge failure and is tried again with backoff; the firing of a schedule is rolled back and
+  tried at the next minute; a dispatch answers with an internal error. The forge answers 403 and 451
+  are not told from the other refusals of the forge: for a webhook delivery they close the delivery
+  with the error and start no run, and for a schedule they are tried again at every minute, until the
+  installation can read the callee or the call is removed.
+- **Limit on jobs.** An attempt of a run holds at most 500 jobs that come from calls
+  ([02-workflows.md](02-workflows.md#reusable-workflows)). The planning counts the jobs of the callees
+  without any matrix before the run is created and refuses a run over the limit with
+  `startup_failure`; at run time a call, or a matrix on a call or inside a callee, that would pass
+  it fails with `limit_exceeded` and fails its group and, with it, the run. Planning rereads the jobs
+  of the attempt after every expansion, so it costs time quadratic in their number, and this limit
+  is what keeps that cost bounded.
+
+The codes of the notices about reusable workflows, all with the file that holds the call, its
+`uses` or the entry of `with` or `secrets` at fault, and no job:
+
+| Code | Severity | Meaning |
+|------|----------|---------|
+| `callee_missing` | error | a reusable workflow is not at the commit it is read at, or its ref resolves to no commit in the installation or among public repositories, or the server has no GitHub App to read it with, or the workflow has no repository and the callee is local |
+| `callee_invalid` | error | a reusable workflow does not lower, is larger than a file may be, or is not a file `.yml` or `.yaml` directly in `.github/workflows/` or `.bosun/workflows/`; the diagnostics of the file that does not lower follow in that file |
+| `callee_forbidden` | error | the organisation's action policy forbids a reusable workflow of another repository, or the call passes `secrets: inherit` to a callee of another account than the one of the calling workflow's repository |
+| `limit_exceeded` | error | the call is at the 11th level of nesting, would be the 51st distinct callee, or brings the jobs that come from calls over 500; at run time, a call or a matrix that would pass 500 |
+| `invalid_value`, `invalid_type`, `unknown_key`, `missing_key` | error | `check_call`: the callee has no `workflow_call`, or the call passes an undeclared or ill-typed input or secret or leaves out a required one |
+| `invalid_type`, `invalid_value`, `function_failed` | error | with the job of the call as the job of the notice: an input of `with` or a passed secret fails to evaluate when the call is ready, or an output fails when the call ends |
+| `not_implemented` | warning | a call or the workflow of a callee has a `concurrency`, which M2 does not apply |
 
 ### Resolving actions
 

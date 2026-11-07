@@ -5,6 +5,7 @@ mod push;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use bosun_db::deliveries::Delivery;
 use bosun_db::outbox::ForkStatus;
@@ -26,6 +27,7 @@ use tracing::info;
 pub(crate) use cache::Parses;
 pub(crate) use http::{full_name, readable, receive, refused};
 
+use crate::callees;
 use crate::forge::Forge;
 use crate::planner;
 use crate::schedules::{self, Source};
@@ -64,6 +66,8 @@ const SENT_BY_JOBS: &[&str] = &["workflow_dispatch", "repository_dispatch"];
 
 const MERGE_ATTEMPTS: u32 = 10;
 
+const CALLEES_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub(crate) enum Failed {
     Database(bosun_db::Error),
     Forge(bosun_forge::Error),
@@ -80,6 +84,29 @@ impl From<bosun_db::Error> for Failed {
 impl From<bosun_forge::Error> for Failed {
     fn from(error: bosun_forge::Error) -> Failed {
         Failed::Forge(error)
+    }
+}
+
+impl From<callees::Failure> for Failed {
+    fn from(failure: callees::Failure) -> Failed {
+        match failure {
+            callees::Failure::Database(error) => Failed::Database(error),
+            callees::Failure::Forge(error) => Failed::Forge(error),
+        }
+    }
+}
+
+impl From<Failed> for bosun_db::Error {
+    fn from(failed: Failed) -> bosun_db::Error {
+        match failed {
+            Failed::Database(error) => error,
+            Failed::Forge(error) => bosun_db::Error::Database(sea_orm::DbErr::Custom(format!(
+                "the forge failed while the reusable workflows of a run were read: {error}"
+            ))),
+            Failed::Payload(message) | Failed::Unmerged(message) => {
+                bosun_db::Error::Database(sea_orm::DbErr::Custom(message))
+            }
+        }
     }
 }
 
@@ -426,6 +453,7 @@ async fn repository_runs(
             && let Some(run) = plan(
                 transaction,
                 site,
+                Some(forge),
                 occurrence,
                 Some(&target),
                 trust,
@@ -542,9 +570,10 @@ async fn refuse_fork(
 async fn server_runs(
     transaction: &DatabaseTransaction,
     site: &Site,
+    forge: Option<&Forge>,
     binding: &Binding,
     occurrence: &Occurrence<'_>,
-) -> Result<Vec<Run>, bosun_db::Error> {
+) -> Result<Vec<Run>, Failed> {
     let mut current = Vec::new();
     for workflow in bosun_db::workflows::server_side(transaction, binding.project.id).await? {
         let Some(revision_id) = workflow.revision_id else {
@@ -571,6 +600,7 @@ async fn server_runs(
         if let Some(run) = plan(
             transaction,
             site,
+            forge,
             occurrence,
             None,
             Trust::Trusted,
@@ -620,6 +650,7 @@ pub(crate) struct Followed<'a> {
 pub(crate) async fn followed(
     transaction: &DatabaseTransaction,
     site: &Site,
+    forge: Option<&Forge>,
     followed: Followed<'_>,
 ) -> Result<Run, bosun_db::Error> {
     let lowered = Lowered::new(&followed.workflow.name, &followed.revision.source);
@@ -641,20 +672,22 @@ pub(crate) async fn followed(
         lowered: &lowered,
         touched: false,
     };
-    start(
+    Ok(start(
         transaction,
         site,
+        forge,
         &occurrence,
         target.as_ref(),
         Trust::Trusted,
         candidate,
     )
-    .await
+    .await?)
 }
 
 pub(crate) async fn scheduled(
     transaction: &DatabaseTransaction,
     site: &Site,
+    forge: Option<&Forge>,
     scheduled: Scheduled<'_>,
 ) -> Result<Option<Run>, bosun_db::Error> {
     let lowered = Lowered::new(&scheduled.workflow.name, &scheduled.revision.source);
@@ -676,15 +709,16 @@ pub(crate) async fn scheduled(
         lowered: &lowered,
         touched: false,
     };
-    plan(
+    Ok(plan(
         transaction,
         site,
+        forge,
         &occurrence,
         target.as_ref(),
         Trust::Trusted,
         candidate,
     )
-    .await
+    .await?)
 }
 
 async fn target(
@@ -1002,27 +1036,37 @@ fn matched(
 async fn plan(
     transaction: &DatabaseTransaction,
     site: &Site,
+    forge: Option<&Forge>,
     occurrence: &Occurrence<'_>,
     target: Option<&Target>,
     trust: Trust,
     candidate: Candidate<'_>,
-) -> Result<Option<Run>, bosun_db::Error> {
+) -> Result<Option<Run>, Failed> {
     if !matched(occurrence, target, &candidate) || !candidate.workflow.enabled {
         return Ok(None);
     }
-    start(transaction, site, occurrence, target, trust, candidate)
-        .await
-        .map(Some)
+    start(
+        transaction,
+        site,
+        forge,
+        occurrence,
+        target,
+        trust,
+        candidate,
+    )
+    .await
+    .map(Some)
 }
 
 async fn start(
     transaction: &DatabaseTransaction,
     site: &Site,
+    forge: Option<&Forge>,
     occurrence: &Occurrence<'_>,
     target: Option<&Target>,
     trust: Trust,
     candidate: Candidate<'_>,
-) -> Result<Run, bosun_db::Error> {
+) -> Result<Run, Failed> {
     let lowered = candidate.lowered;
     let inputs = Map::new();
     let new = |ir| NewRun {
@@ -1039,16 +1083,85 @@ async fn start(
     };
     match &lowered.workflow {
         Some(workflow) => {
-            planner::dispatch(transaction, new(workflow), &lowered.warnings(), site).await
+            let loaded = read_callees(
+                transaction,
+                forge,
+                candidate.workflow,
+                target.map(|target| target.sha.as_str()),
+                workflow,
+            )
+            .await?;
+            match loaded {
+                callees::Loaded::Unchanged => {
+                    Ok(
+                        planner::dispatch(transaction, new(workflow), &lowered.warnings(), site)
+                            .await?,
+                    )
+                }
+                callees::Loaded::Ready(ready, warnings) => {
+                    let mut notices = lowered.warnings();
+                    notices.extend(warnings);
+                    Ok(planner::dispatch(transaction, new(&ready), &notices, site).await?)
+                }
+                callees::Loaded::Refused(diagnostics) => {
+                    let failed = bare(Some(&workflow.triggers));
+                    let mut notices = lowered.warnings();
+                    notices.extend(diagnostics);
+                    Ok(planner::fail_startup(transaction, new(&failed), &notices).await?)
+                }
+            }
         }
         None => {
             let failed = bare(lowered.triggers.as_deref());
-            planner::fail_startup(transaction, new(&failed), &lowered.diagnostics).await
+            Ok(planner::fail_startup(transaction, new(&failed), &lowered.diagnostics).await?)
         }
     }
 }
 
-fn bare(triggers: Option<&[Trigger]>) -> ir::Workflow {
+pub(crate) async fn read_callees(
+    db: &DatabaseTransaction,
+    forge: Option<&Forge>,
+    stored: &Workflow,
+    sha: Option<&str>,
+    workflow: &ir::Workflow,
+) -> Result<callees::Loaded, callees::Failure> {
+    if !workflow.has_calls() {
+        return Ok(callees::Loaded::Unchanged);
+    }
+    let binding = bosun_db::projects::binding(db, stored.project_id)
+        .await?
+        .ok_or_else(|| {
+            bosun_db::Error::Vanished(format!("project {} of a workflow", stored.project_id))
+        })?;
+    let home = match (&binding.project.repository, sha) {
+        (Some(bound), Some(sha)) => Some(callees::Home {
+            owner: bound.owner.clone(),
+            name: bound.name.clone(),
+            commit: sha.to_owned(),
+        }),
+        _ => None,
+    };
+    let source = callees::Source {
+        organisation: binding.project.organisation_id,
+        installation: binding.installation,
+        home,
+        file: &stored.name,
+    };
+    tokio::time::timeout(CALLEES_TIMEOUT, callees::load(db, forge, &source, workflow))
+        .await
+        .unwrap_or_else(|_| {
+            Err(callees::Failure::Forge(bosun_forge::Error::Status {
+                status: 504,
+                message: format!(
+                    "reading the reusable workflows of `{}` took longer than {} seconds",
+                    stored.name,
+                    CALLEES_TIMEOUT.as_secs()
+                ),
+            }))
+        })
+}
+
+pub(crate) fn bare(triggers: Option<&[Trigger]>) -> ir::Workflow {
     ir::Workflow {
         name: None,
         run_name: None,
@@ -1060,5 +1173,7 @@ fn bare(triggers: Option<&[Trigger]>) -> ir::Workflow {
         cache_mode: None,
         priority: None,
         jobs: Vec::new(),
+        calls: BTreeMap::new(),
+        callees: Vec::new(),
     }
 }

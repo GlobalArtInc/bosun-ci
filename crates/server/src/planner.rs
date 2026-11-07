@@ -1,3 +1,4 @@
+mod calls;
 mod concurrency;
 mod matrix;
 mod resolution;
@@ -9,7 +10,7 @@ use bosun_db::Error;
 use bosun_db::control::{self, Kind};
 use bosun_db::pools::Placement;
 use bosun_db::queue::ClaimedJob;
-use bosun_db::runs::{Evaluated, Grouped, JobState, Locked, NewRun, RunFacts, Strategy};
+use bosun_db::runs::{Evaluated, Grouped, JobState, Locked, NewRun, RunFacts, Shape, Strategy};
 use bosun_expr::{Context, Scope, Status, Value};
 use bosun_proto::assignment;
 use bosun_types::actor::Actor;
@@ -26,6 +27,7 @@ use sea_orm::DatabaseTransaction;
 use serde_json::{Map, json};
 
 use crate::actions;
+use crate::callees::MOST_CALLED_JOBS;
 use crate::forge_token::{self, Minted};
 use crate::keys::Keyring;
 use crate::secrets;
@@ -40,7 +42,7 @@ const INVALID_TYPE: &str = "invalid_type";
 
 const INVALID_VALUE: &str = "invalid_value";
 
-const START: Span = Span {
+pub(crate) const START: Span = Span {
     line: 1,
     column: 1,
     end_line: 1,
@@ -48,6 +50,8 @@ const START: Span = Span {
 };
 
 const SECRET_UNREADABLE: &str = "secret_unreadable";
+
+const LIMIT_EXCEEDED: &str = "limit_exceeded";
 
 const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
 
@@ -220,6 +224,7 @@ async fn planned(
     later: &mut Later,
 ) -> Result<(), Error> {
     let mut jobs = run.jobs().await?;
+    let mut deferred: HashSet<JobId> = HashSet::new();
     loop {
         if run.state().concurrency {
             match concurrency::reconcile(run, &jobs, later).await? {
@@ -247,19 +252,20 @@ async fn planned(
                 }
             }
         }
-        if advance(run, &jobs, later).await? {
+        if advance(run, site, &mut world, &jobs, later).await? {
             jobs = run.jobs().await?;
+            deferred.clear();
             continue;
         }
-        let Some(index) = ready(&jobs) else {
+        let Some(index) = ready(&jobs, &deferred) else {
             break;
         };
-        let world = match &world {
+        let loaded = match &world {
             Some(world) => world,
             None => world.insert(World::load(run, site).await?),
         };
-        match decide(run, world, &jobs, index, later).await? {
-            Some(decided) if !run.state().concurrency => {
+        match decide(run, loaded, &jobs, index, later).await? {
+            Step::Decided(decided) if !run.state().concurrency => {
                 let job = &mut jobs[index];
                 job.status = decided.status;
                 job.waiting_reason = decided.waiting_reason;
@@ -267,7 +273,13 @@ async fn planned(
                 job.continue_on_error = decided.continue_on_error;
                 job.unresolved = decided.unresolved;
             }
-            _ => jobs = run.jobs().await?,
+            Step::Deferred => {
+                deferred.insert(jobs[index].id);
+            }
+            Step::Decided(_) | Step::Refresh => {
+                jobs = run.jobs().await?;
+                deferred.clear();
+            }
         }
     }
     settle(run, &jobs).await?;
@@ -335,8 +347,31 @@ pub(crate) async fn stop(
     }
 }
 
+pub(crate) async fn stop_tree(
+    run: &Locked<'_>,
+    jobs: &[JobState],
+    job: &JobState,
+    reason: StatusReason,
+    actor: &Actor,
+) -> Result<bool, Error> {
+    let children: Vec<&JobState> = jobs
+        .iter()
+        .filter(|child| child.group == Some(job.id))
+        .collect();
+    if children.is_empty() || job.status != JobStatus::Pending {
+        return stop(run, job, reason, actor).await;
+    }
+    let mut stopped = false;
+    for child in children {
+        stopped |= Box::pin(stop_tree(run, jobs, child, reason, actor)).await?;
+    }
+    Ok(stopped)
+}
+
 async fn advance(
     run: &mut Locked<'_>,
+    site: &Site,
+    world: &mut Option<World>,
     jobs: &[JobState],
     later: &mut Later,
 ) -> Result<bool, Error> {
@@ -346,11 +381,12 @@ async fn advance(
             groups.entry(group).or_default().push(job);
         }
     }
+    let running = expanded(jobs);
     for (group, mut members) in groups {
-        if jobs
-            .iter()
-            .any(|job| job.id == group && job.status == JobStatus::Completed)
-        {
+        let Some(parent) = jobs.iter().find(|job| job.id == group) else {
+            continue;
+        };
+        if parent.status == JobStatus::Completed {
             continue;
         }
         members.sort_by_key(|member| member.strategy.map(|strategy| strategy.job_index));
@@ -358,9 +394,30 @@ async fn advance(
             .iter()
             .all(|member| member.status == JobStatus::Completed)
         {
-            let (conclusion, outputs) = concluded(&members);
+            let (mut conclusion, mut outputs) = concluded(&members);
+            if parent.kind == Shape::Call && members.iter().all(|member| member.matrix.is_none()) {
+                let loaded = match world {
+                    Some(loaded) => loaded,
+                    None => world.insert(World::load(run, site).await?),
+                };
+                let (owner, template) = loaded.template(&parent.key)?;
+                let callee = calls::callee(loaded, owner, template)?;
+                let ended = calls::ended(loaded, parent, &members, callee, conclusion)?;
+                for fault in ended.faults {
+                    let inside = members
+                        .first()
+                        .map_or(parent.key.clone(), |member| member.key.clone());
+                    run.notice(Some(parent.id), &loaded.diagnostic_of(&inside, fault))
+                        .await?;
+                }
+                conclusion = ended.conclusion;
+                outputs = ended.outputs;
+            }
             run.complete_group(group, conclusion, &outputs).await?;
             return Ok(true);
+        }
+        if members.iter().any(|member| member.matrix.is_none()) {
+            continue;
         }
         let Some(strategy) = members.iter().find_map(|member| member.strategy) else {
             continue;
@@ -368,7 +425,8 @@ async fn advance(
         if strategy.fail_fast && members.iter().any(|member| failed(member)) {
             let mut stopped = false;
             for member in &members {
-                stopped |= stop(run, member, StatusReason::FailFast, &Actor::System).await?;
+                stopped |=
+                    stop_tree(run, jobs, member, StatusReason::FailFast, &Actor::System).await?;
             }
             if stopped {
                 return Ok(true);
@@ -380,7 +438,7 @@ async fn advance(
         }
         let room = usize::try_from(strategy.max_parallel)
             .unwrap_or(usize::MAX)
-            .saturating_sub(occupied(&members));
+            .saturating_sub(occupied(&members, &running));
         let held: Vec<&JobState> = members
             .iter()
             .copied()
@@ -425,8 +483,12 @@ fn active(members: &[&JobState]) -> usize {
         .count()
 }
 
-fn occupied(members: &[&JobState]) -> usize {
+fn occupied(members: &[&JobState], running: &HashSet<JobId>) -> usize {
     active(members)
+        + members
+            .iter()
+            .filter(|member| member.status == JobStatus::Pending && running.contains(&member.id))
+            .count()
         + members
             .iter()
             .filter(|member| {
@@ -481,10 +543,8 @@ fn concluded(members: &[&JobState]) -> (Conclusion, BTreeMap<String, String>) {
 
 fn admits_cancellation(workflow: &ir::Workflow, key: &JobKey) -> bool {
     workflow
-        .jobs
-        .iter()
-        .find(|template| &template.key == key)
-        .and_then(|template| template.r#if.as_ref())
+        .job(key)
+        .and_then(|(_, template)| template.r#if.as_ref())
         .is_some_and(bosun_expr::calls_status)
 }
 
@@ -524,28 +584,29 @@ pub(crate) async fn assign(
         })?;
     if let actions::Prepared::Failed(faults) = prepared {
         for fault in faults {
-            run.notice(Some(job.id), &fault.diagnostic(&world.facts.workflow))
+            run.notice(Some(job.id), &fault.diagnostic(&world.file_of(&job.key)))
                 .await?;
         }
         return fail_assigned(run, site, world, execution, StatusReason::ActionUnavailable).await;
     }
-    let template = world.template(&job.key)?;
+    let (home, template) = world.template(&job.key)?;
     let forge_token = match minted {
         Minted::Failed(message) => {
             let fault = Fault {
                 code: forge_token::UNAVAILABLE,
                 message: message.clone(),
                 span: template.span,
-                path: at(&job.key, &[]),
+                path: at(&template.key, &[]),
             };
-            run.notice(Some(job.id), &world.diagnostic(fault)).await?;
+            run.notice(Some(job.id), &world.diagnostic_of(&job.key, fault))
+                .await?;
             return fail_assigned(run, site, world, execution, StatusReason::TokenUnavailable)
                 .await;
         }
         Minted::Token { fresh, lacking } => {
             forge_token::store(run.transaction(), keys, execution, fresh).await?;
             if claimed.first_execution {
-                for notice in forge_token::notices(claimed, lacking, &world.facts.workflow) {
+                for notice in forge_token::notices(claimed, lacking, &world.file_of(&job.key)) {
                     run.notice(Some(job.id), &notice).await?;
                 }
             }
@@ -557,17 +618,30 @@ pub(crate) async fn assign(
         .as_ref()
         .map(|issued| issued.token.clone())
         .unwrap_or_default();
-    let read = if run.state().trusted {
-        secrets::read(
-            run.transaction(),
-            keys,
-            world.facts.organisation_id,
-            world.facts.project_id,
-            &template.secrets,
-        )
-        .await?
+    let callers = calls::callers(&jobs, job);
+    let read = if callers.is_empty() {
+        if run.state().trusted {
+            secrets::read(
+                run.transaction(),
+                keys,
+                world.facts.organisation_id,
+                world.facts.project_id,
+                &template.secrets,
+            )
+            .await?
+        } else {
+            Ok(BTreeMap::new())
+        }
     } else {
-        Ok(BTreeMap::new())
+        match calls::visible(run, keys, &world, &callers, template, &token).await? {
+            Ok(mut visible) => {
+                for name in calls::declared(&world, &job.key)? {
+                    visible.entry(name).or_default();
+                }
+                Ok(visible)
+            }
+            Err(unopened) => Err(unopened),
+        }
     };
     let secrets = match read {
         Ok(secrets) => secrets,
@@ -587,9 +661,9 @@ pub(crate) async fn assign(
                     job.key, unopened.name, unopened.reason
                 ),
                 span: template.span,
-                path: at(&job.key, &[]),
+                path: at(&template.key, &[]),
             };
-            return refuse(run, site, world, job.id, execution, fault).await;
+            return refuse(run, site, world, job, execution, fault).await;
         }
     };
     let mut secrets_context: Map<String, serde_json::Value> = secrets
@@ -601,12 +675,12 @@ pub(crate) async fn assign(
         serde_json::Value::String(token.clone()),
     );
     let secrets = value(serde_json::Value::Object(secrets_context.clone()))?;
-    let mut github = world.github_context(job.key.as_str());
+    let mut github = world.github_context(job.key.local());
     github.insert("token".to_owned(), serde_json::Value::String(token));
     let contexts = Contexts {
         github: value(serde_json::Value::Object(github.clone()))?,
         needs: Value::Null,
-        inputs: world.inputs.clone(),
+        inputs: calls::inputs(&world, &jobs, job)?,
         bosun: world.bosun.clone(),
         env: Value::Null,
         strategy: Value::Null,
@@ -615,6 +689,7 @@ pub(crate) async fn assign(
         secrets: secrets.clone(),
         secrets_read: Cell::new(false),
         statuses: None,
+        jobs: Value::Null,
     };
     let mut env = BTreeMap::new();
     for (variable, template) in workflow_env {
@@ -625,7 +700,7 @@ pub(crate) async fn assign(
             Err(error) => {
                 let what = format!("`env.{variable}` of the workflow");
                 let fault = Fault::expression(error, &what, vec![key("env"), key(variable)]);
-                return refuse(run, site, world, job.id, execution, fault).await;
+                return refuse(run, site, world, job, execution, fault).await;
             }
         }
     }
@@ -645,9 +720,9 @@ pub(crate) async fn assign(
             },
             ..contexts
         };
-        match environment(template, &world.ir.defaults, &mut contexts) {
+        match environment(template, &home.defaults, &mut contexts) {
             Ok(values) => values,
-            Err(fault) => return refuse(run, site, world, job.id, execution, fault).await,
+            Err(fault) => return refuse(run, site, world, job, execution, fault).await,
         }
     } else {
         Environment {
@@ -659,7 +734,7 @@ pub(crate) async fn assign(
     env.extend(job_values.env);
     if let actions::Prepared::Ready { actions, notices } = prepared {
         for notice in notices {
-            run.notice(Some(job.id), &notice.diagnostic(&world.facts.workflow))
+            run.notice(Some(job.id), &notice.diagnostic(&world.file_of(&job.key)))
                 .await?;
         }
         if let ir::JobKind::Steps(steps) = &claimed.job.kind {
@@ -683,7 +758,16 @@ pub(crate) async fn assign(
             needs,
             strategy,
             matrix,
-            inputs: serde_json::from_value(world.facts.inputs.clone())?,
+            inputs: match callers.last() {
+                Some(caller) => {
+                    let called = caller.call.as_ref().ok_or_else(|| Error::Row {
+                        table: "job",
+                        message: format!("job {} calls a workflow and holds no call", caller.id),
+                    })?;
+                    serde_json::from_value(serde_json::to_value(&called.inputs)?)?
+                }
+                None => serde_json::from_value(world.facts.inputs.clone())?,
+            },
             vars: world.vars_context.clone(),
             secrets: secrets_context,
             bosun: world.bosun_context.clone(),
@@ -714,11 +798,12 @@ async fn refuse(
     run: &mut Locked<'_>,
     site: &Site,
     world: World,
-    job: JobId,
+    job: &JobState,
     execution: ExecutionId,
     fault: Fault,
 ) -> Result<Outcome, Error> {
-    run.notice(Some(job), &world.diagnostic(fault)).await?;
+    run.notice(Some(job.id), &world.diagnostic_of(&job.key, fault))
+        .await?;
     fail_assigned(run, site, world, execution, StatusReason::EvaluationFailed).await
 }
 
@@ -834,19 +919,28 @@ impl World {
         github::context(&self.facts.event, &self.facts.payload, &facts)
     }
 
-    fn template(&self, key: &JobKey) -> Result<&JobTemplate, Error> {
-        self.ir
-            .jobs
-            .iter()
-            .find(|template| &template.key == key)
-            .ok_or_else(|| Error::Row {
-                table: "run",
-                message: format!("the IR of the run has no job `{key}`"),
-            })
+    fn template(&self, key: &JobKey) -> Result<(&ir::Workflow, &JobTemplate), Error> {
+        self.ir.job(key).ok_or_else(|| Error::Row {
+            table: "run",
+            message: format!("the IR of the run has no job `{key}`"),
+        })
+    }
+
+    fn file_of(&self, key: &JobKey) -> String {
+        file_of(
+            &self.ir,
+            &self.facts.workflow,
+            self.facts.repository.as_ref(),
+            key,
+        )
     }
 
     fn diagnostic(&self, fault: Fault) -> Diagnostic {
         diagnostic(&self.facts.workflow, fault)
+    }
+
+    fn diagnostic_of(&self, key: &JobKey, fault: Fault) -> Diagnostic {
+        diagnostic(&self.file_of(key), fault)
     }
 
     fn run_contexts(&self) -> Result<Contexts, Error> {
@@ -862,8 +956,43 @@ impl World {
             secrets: Value::Object(Vec::new().into()),
             secrets_read: Cell::new(false),
             statuses: None,
+            jobs: Value::Null,
         })
     }
+}
+
+fn file_of(
+    root: &ir::Workflow,
+    file: &str,
+    repository: Option<&bosun_db::runs::RepositoryFacts>,
+    key: &JobKey,
+) -> String {
+    let mut file = file.to_owned();
+    let mut workflow = root;
+    let segments: Vec<&str> = key.segments().collect();
+    for segment in segments.iter().take(segments.len().saturating_sub(1)) {
+        let Some(callee) = workflow
+            .jobs
+            .iter()
+            .find(|template| template.key.as_str() == *segment)
+            .and_then(|template| workflow.calls.get(&template.key))
+            .and_then(|index| root.callees.get(*index))
+        else {
+            break;
+        };
+        let same = repository.is_some_and(|repository| {
+            callee
+                .repository
+                .eq_ignore_ascii_case(&format!("{}/{}", repository.owner, repository.name))
+        });
+        file = if same {
+            callee.path.clone()
+        } else {
+            format!("{}/{}", callee.repository, callee.path)
+        };
+        workflow = &callee.workflow;
+    }
+    file
 }
 
 fn diagnostic(file: &str, fault: Fault) -> Diagnostic {
@@ -914,6 +1043,7 @@ struct Contexts {
     secrets: Value,
     secrets_read: Cell<bool>,
     statuses: Option<Statuses>,
+    jobs: Value,
 }
 
 #[derive(Clone, Copy)]
@@ -938,7 +1068,8 @@ impl Scope for Contexts {
                 self.secrets_read.set(true);
                 self.secrets.clone()
             }
-            Context::Job | Context::Jobs | Context::Steps | Context::Runner => Value::Null,
+            Context::Jobs => self.jobs.clone(),
+            Context::Job | Context::Steps | Context::Runner => Value::Null,
         }
     }
 
@@ -985,19 +1116,25 @@ impl Decided {
     }
 }
 
+enum Step {
+    Decided(Decided),
+    Refresh,
+    Deferred,
+}
+
 async fn decide(
     run: &mut Locked<'_>,
     world: &World,
     jobs: &[JobState],
     index: usize,
     later: &mut Later,
-) -> Result<Option<Decided>, Error> {
+) -> Result<Step, Error> {
     let job = &jobs[index];
-    let template = world.template(&job.key)?;
+    let (owner, template) = world.template(&job.key)?;
     let mut contexts = Contexts {
-        github: world.github(job.key.as_str())?,
+        github: world.github(job.key.local())?,
         needs: value(serde_json::Value::Object(needs_context(jobs, job)))?,
-        inputs: world.inputs.clone(),
+        inputs: calls::inputs(world, jobs, job)?,
         bosun: world.bosun.clone(),
         env: Value::Null,
         strategy: Value::Null,
@@ -1009,9 +1146,10 @@ async fn decide(
         secrets: Value::Object(Vec::new().into()),
         secrets_read: Cell::new(false),
         statuses: None,
+        jobs: Value::Null,
     };
     let mut single = None;
-    if job.group.is_none() {
+    if job.matrix.is_none() {
         let (succeeded, failed) = ancestry(jobs, index);
         let cancelling = run.state().cancel_requested;
         contexts.statuses = Some(Statuses {
@@ -1024,9 +1162,9 @@ async fn decide(
             Some(condition) => match bosun_expr::holds(condition, &contexts) {
                 Ok(holds) => holds,
                 Err(error) => {
-                    let what = format!("`if` of job `{}`", job.key);
-                    let fault = Fault::expression(error, &what, at(&job.key, &["if"]));
-                    return fail(run, world, job, fault).await.map(Some);
+                    let what = format!("`if` of job `{}`", template.key);
+                    let fault = Fault::expression(error, &what, at(&template.key, &["if"]));
+                    return fail(run, world, job, fault).await.map(Step::Decided);
                 }
             },
         };
@@ -1043,25 +1181,52 @@ async fn decide(
             };
             run.complete_job(job.id, conclusion, Some(reason), &Actor::System)
                 .await?;
-            return Ok(Some(Decided::completed(conclusion)));
+            return Ok(Step::Decided(Decided::completed(conclusion)));
         }
         contexts.statuses = None;
         if let Some(strategy) = &template.strategy {
             match matrix::expand(template, strategy, &contexts) {
-                Ok(Expansion::Members(members)) => {
+                Ok(Expansion::Members(mut members)) => {
+                    if job.kind == Shape::Call || job.key.is_member() {
+                        let fault = calls::crossing(jobs, members.len()).map(|(held, added)| Fault {
+                            code: LIMIT_EXCEEDED,
+                            message: format!(
+                                "the matrix of job `{}` would add {added} jobs to the {held} that \
+                                 already come from reusable workflows, and a run holds at most \
+                                 {MOST_CALLED_JOBS} of them",
+                                template.key
+                            ),
+                            span: template.span,
+                            path: at(&template.key, &["strategy"]),
+                        });
+                        if let Some(fault) = fault {
+                            return fail(run, world, job, fault).await.map(Step::Decided);
+                        }
+                    }
+                    let prefix = calls::prefix(jobs, job);
+                    if !prefix.is_empty() {
+                        for member in &mut members {
+                            member.name = format!("{prefix}{}", member.name);
+                        }
+                    }
                     run.expand(job, &members).await?;
-                    return Ok(None);
+                    return Ok(Step::Refresh);
                 }
                 Ok(Expansion::Single(strategy)) => single = Some(strategy),
-                Err(fault) => return fail(run, world, job, fault).await.map(Some),
+                Err(fault) => return fail(run, world, job, fault).await.map(Step::Decided),
             }
         }
     }
     let strategy = job.strategy.or(single).unwrap_or(SINGLE);
     contexts.strategy = serde_json::from_value(serde_json::to_value(strategy)?)?;
-    let prepared = match prepare(template, &world.ir.defaults, &mut contexts, job) {
+    let prefix = calls::prefix(jobs, job);
+    if job.kind == Shape::Call {
+        let planned = plan_call(world, jobs, job, (owner, template), &contexts, &prefix)?;
+        return finish_call(run, world, job, planned).await;
+    }
+    let prepared = match prepare(template, &owner.defaults, &mut contexts, job, &prefix) {
         Ok(prepared) => prepared,
-        Err(fault) => return fail(run, world, job, fault).await.map(Some),
+        Err(fault) => return fail(run, world, job, fault).await.map(Step::Decided),
     };
     let placement = bosun_db::pools::place(
         run.transaction(),
@@ -1084,13 +1249,15 @@ async fn decide(
     let mut job = job.clone();
     job.unresolved = remote_uses;
     let job = &job;
-    let full = job.group.is_some_and(|group| {
-        let members: Vec<&JobState> = jobs
-            .iter()
-            .filter(|member| member.group == Some(group))
-            .collect();
-        occupied(&members) >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
-    });
+    let full = job.matrix.is_some()
+        && job.group.is_some_and(|group| {
+            let members: Vec<&JobState> = jobs
+                .iter()
+                .filter(|member| member.group == Some(group))
+                .collect();
+            occupied(&members, &expanded(jobs))
+                >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
+        });
     let grouped = prepared.evaluated.concurrency.as_ref();
     let decided = admit(
         run,
@@ -1102,10 +1269,103 @@ async fn decide(
         later,
     )
     .await?;
-    Ok(Some(Decided {
+    Ok(Step::Decided(Decided {
         continue_on_error: prepared.continue_on_error,
         ..decided
     }))
+}
+
+enum CallPlan {
+    Deferred,
+    Refused(Fault),
+    Ready(String, calls::Expanded),
+}
+
+fn plan_call(
+    world: &World,
+    jobs: &[JobState],
+    job: &JobState,
+    (owner, template): (&ir::Workflow, &JobTemplate),
+    contexts: &Contexts,
+    prefix: &str,
+) -> Result<CallPlan, Error> {
+    let ir::JobKind::Call(call) = &template.kind else {
+        return Err(Error::Row {
+            table: "job",
+            message: format!("job {} is a call and its template is not", job.id),
+        });
+    };
+    let callee = calls::callee(world, owner, template)?;
+    if let (Some(group), Some(strategy), true) = (job.group, job.strategy, job.matrix.is_some()) {
+        let members: Vec<&JobState> = jobs
+            .iter()
+            .filter(|member| member.group == Some(group))
+            .collect();
+        if occupied(&members, &expanded(jobs))
+            >= usize::try_from(strategy.max_parallel).unwrap_or(usize::MAX)
+        {
+            return Ok(CallPlan::Deferred);
+        }
+    }
+    let name = match named(template, job, prefix, contexts) {
+        Ok(name) => name,
+        Err(fault) => return Ok(CallPlan::Refused(fault)),
+    };
+    let expanded = match calls::expand(job, template, call, callee, &name, contexts) {
+        Ok(expanded) => expanded,
+        Err(fault) => return Ok(CallPlan::Refused(fault)),
+    };
+    if let Some((held, added)) = calls::crossing(jobs, expanded.children.len()) {
+        return Ok(CallPlan::Refused(Fault {
+            code: LIMIT_EXCEEDED,
+            message: format!(
+                "job `{}` would add {added} jobs to the {held} that already come from reusable \
+                 workflows, and a run holds at most {MOST_CALLED_JOBS} of them",
+                template.key
+            ),
+            span: call.span,
+            path: at(&template.key, &["uses"]),
+        }));
+    }
+    Ok(CallPlan::Ready(name, expanded))
+}
+
+async fn finish_call(
+    run: &mut Locked<'_>,
+    world: &World,
+    job: &JobState,
+    planned: CallPlan,
+) -> Result<Step, Error> {
+    match planned {
+        CallPlan::Deferred => Ok(Step::Deferred),
+        CallPlan::Refused(fault) => fail(run, world, job, fault).await.map(Step::Decided),
+        CallPlan::Ready(name, expanded) => {
+            run.expand_call(job, &name, &expanded.called, &expanded.children)
+                .await?;
+            Ok(Step::Refresh)
+        }
+    }
+}
+
+fn named(
+    job: &JobTemplate,
+    state: &JobState,
+    prefix: &str,
+    contexts: &Contexts,
+) -> Result<String, Fault> {
+    let rendered = match &job.name {
+        Some(name) if name.as_literal().is_none() => {
+            Place::of(job, "name", &["name"], name).text(name, contexts)?
+        }
+        _ => String::new(),
+    };
+    Ok(if !rendered.trim().is_empty() {
+        format!("{prefix}{rendered}")
+    } else if !state.name.trim().is_empty() {
+        state.name.clone()
+    } else {
+        format!("{prefix}{}", job.key)
+    })
 }
 
 enum Admission {
@@ -1183,16 +1443,18 @@ async fn admit(
         }
         Admission::Refuse(entered, grouped) => {
             let workflow = run.ir().await?;
-            let fault = workflow
-                .jobs
-                .iter()
-                .find(|template| template.key == job.key)
-                .and_then(|template| {
-                    let concurrency = template.concurrency.as_ref()?;
-                    concurrency::refusal(entered, concurrency, &Owner::Job(template), &grouped)
-                });
+            let fault = workflow.job(&job.key).and_then(|(_, template)| {
+                let concurrency = template.concurrency.as_ref()?;
+                concurrency::refusal(entered, concurrency, &Owner::Job(template), &grouped)
+            });
             if let Some(fault) = fault {
-                let file = run.facts().await?.workflow;
+                let facts = run.facts().await?;
+                let file = file_of(
+                    &workflow,
+                    &facts.workflow,
+                    facts.repository.as_ref(),
+                    &job.key,
+                );
                 run.notice(Some(job.id), &diagnostic(&file, fault)).await?;
             }
             run.complete_job(
@@ -1213,7 +1475,8 @@ async fn fail(
     job: &JobState,
     fault: Fault,
 ) -> Result<Decided, Error> {
-    run.notice(Some(job.id), &world.diagnostic(fault)).await?;
+    run.notice(Some(job.id), &world.diagnostic_of(&job.key, fault))
+        .await?;
     run.complete_job(
         job.id,
         Conclusion::Failure,
@@ -1224,25 +1487,24 @@ async fn fail(
     Ok(Decided::completed(Conclusion::Failure))
 }
 
-fn ready(jobs: &[JobState]) -> Option<usize> {
-    let completed: HashSet<&JobKey> = jobs
-        .iter()
-        .filter(|job| job.group.is_none() && job.status == JobStatus::Completed)
-        .map(|job| &job.key)
-        .collect();
+fn ready(jobs: &[JobState], deferred: &HashSet<JobId>) -> Option<usize> {
+    let mut completed: HashMap<Option<JobId>, HashSet<&JobKey>> = HashMap::new();
+    for job in jobs {
+        if job.matrix.is_none() && job.status == JobStatus::Completed {
+            completed.entry(job.group).or_default().insert(&job.key);
+        }
+    }
     let expanded = expanded(jobs);
     jobs.iter().position(|job| {
         job.status == JobStatus::Pending
             && !expanded.contains(&job.id)
-            && job.needs.iter().all(|need| completed.contains(need))
+            && !deferred.contains(&job.id)
+            && job.needs.iter().all(|need| {
+                completed
+                    .get(&calls::scope_of(jobs, job))
+                    .is_some_and(|done| done.contains(need))
+            })
     })
-}
-
-fn templates(jobs: &[JobState]) -> HashMap<&JobKey, &JobState> {
-    jobs.iter()
-        .filter(|job| job.group.is_none())
-        .map(|job| (&job.key, job))
-        .collect()
 }
 
 fn effective(job: &JobState) -> Option<Conclusion> {
@@ -1255,7 +1517,7 @@ fn effective(job: &JobState) -> Option<Conclusion> {
 }
 
 fn ancestry(jobs: &[JobState], index: usize) -> (bool, bool) {
-    let by_key = templates(jobs);
+    let by_key = calls::templates(jobs, calls::scope_of(jobs, &jobs[index]));
     let mut seen = HashSet::new();
     let mut open: Vec<&JobKey> = jobs[index].needs.iter().collect();
     let (mut succeeded, mut failed) = (true, false);
@@ -1281,7 +1543,7 @@ fn ancestry(jobs: &[JobState], index: usize) -> (bool, bool) {
 }
 
 fn needs_context(jobs: &[JobState], job: &JobState) -> Map<String, serde_json::Value> {
-    let by_key = templates(jobs);
+    let by_key = calls::templates(jobs, calls::scope_of(jobs, job));
     let mut needs = Map::new();
     for key in &job.needs {
         let Some(need) = by_key.get(key) else {
@@ -1295,7 +1557,7 @@ fn needs_context(jobs: &[JobState], job: &JobState) -> Map<String, serde_json::V
             None => "",
         };
         needs.insert(
-            key.to_string(),
+            key.local().to_owned(),
             json!({ "result": result, "outputs": need.outputs }),
         );
     }
@@ -1379,20 +1641,9 @@ fn prepare(
     workflow: &ir::Defaults,
     contexts: &mut Contexts,
     state: &JobState,
+    prefix: &str,
 ) -> Result<Prepared, Fault> {
-    let rendered = match &job.name {
-        Some(name) if name.as_literal().is_none() => {
-            Place::of(job, "name", &["name"], name).text(name, contexts)?
-        }
-        _ => String::new(),
-    };
-    let name = if !rendered.trim().is_empty() {
-        rendered
-    } else if !state.name.trim().is_empty() {
-        state.name.clone()
-    } else {
-        job.key.to_string()
-    };
+    let name = named(job, state, prefix, contexts)?;
     let (labels, group) = placement(job, contexts)?;
     let grouped = match &job.concurrency {
         Some(concurrency) => Some(concurrency::evaluate(

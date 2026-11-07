@@ -81,7 +81,13 @@ pub(crate) async fn refuse(
     refusals: &[Refusal],
 ) -> Result<(), Error> {
     let (id, job_key) = job;
-    let file = run.facts().await?.workflow;
+    let facts = run.facts().await?;
+    let file = super::file_of(
+        &run.ir().await?,
+        &facts.workflow,
+        facts.repository.as_ref(),
+        job_key,
+    );
     for refusal in refusals {
         let diagnostic = Diagnostic {
             severity: Severity::Error,
@@ -91,7 +97,7 @@ pub(crate) async fn refuse(
             span: refusal.span,
             path: vec![
                 key("jobs"),
-                key(job_key.as_str()),
+                key(job_key.local()),
                 key("steps"),
                 PathSegment::Index(refusal.step),
                 key("uses"),

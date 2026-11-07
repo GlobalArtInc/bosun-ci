@@ -20,7 +20,9 @@ use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait};
 use crate::entity::job as entity;
 use crate::pools::Placement;
 use crate::row::statement;
-use crate::runs::{Evaluated, JobState, Locked, NewMember, StepEnd, Strategy, refuse};
+use crate::runs::{
+    Called, Evaluated, JobState, Locked, NewChild, NewMember, StepEnd, Strategy, refuse,
+};
 use crate::{Error, queue, resolutions, results, row};
 
 const JOBS: &str = "job";
@@ -93,6 +95,7 @@ impl Locked<'_> {
                 strategy: ActiveValue::Set(Some(serde_json::to_value(member.strategy)?)),
                 needs: ActiveValue::Set(group.needs.iter().map(ToString::to_string).collect()),
                 status: ActiveValue::Set(pending.clone()),
+                kind: ActiveValue::Set(row::text(JOBS, group.kind)?),
                 ..Default::default()
             }
             .insert(self.transaction())
@@ -108,6 +111,65 @@ impl Locked<'_> {
                     needs: group.needs.clone(),
                     group_id: Some(group.id),
                     matrix: Some(member.matrix.clone()),
+                }),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn expand_call(
+        &self,
+        instance: &JobState,
+        name: &str,
+        called: &Called,
+        children: &[NewChild],
+    ) -> Result<(), Error> {
+        let (from, _) = self.job(instance.id).await?;
+        if from != JobStatus::Pending {
+            return Err(Error::Transition {
+                entity: "job",
+                id: instance.id.to_string(),
+                from: row::text(JOBS, from)?,
+                to: "expanded".to_owned(),
+            });
+        }
+        self.transaction()
+            .execute(statement(
+                "UPDATE job SET name = $2, call = $3 WHERE id = $1",
+                [
+                    Uuid::from(instance.id).into(),
+                    name.into(),
+                    serde_json::to_value(called)?.into(),
+                ],
+            ))
+            .await?;
+        let pending = row::text(JOBS, JobStatus::Pending)?;
+        for child in children {
+            let created = entity::ActiveModel {
+                id: ActiveValue::Set(Uuid::now_v7()),
+                attempt_id: ActiveValue::Set(self.state().attempt_id.into()),
+                key: ActiveValue::Set(child.key.to_string()),
+                name: ActiveValue::Set(child.name.clone()),
+                group_id: ActiveValue::Set(Some(instance.id.into())),
+                needs: ActiveValue::Set(child.needs.iter().map(ToString::to_string).collect()),
+                status: ActiveValue::Set(pending.clone()),
+                kind: ActiveValue::Set(row::text(JOBS, child.kind)?),
+                ..Default::default()
+            }
+            .insert(self.transaction())
+            .await?;
+            self.append(
+                Some(row::id(JOBS, created.id)?),
+                None,
+                None,
+                &Actor::System,
+                Event::JobCreated(JobCreated {
+                    key: child.key.clone(),
+                    name: child.name.clone(),
+                    needs: child.needs.clone(),
+                    group_id: Some(instance.id),
+                    matrix: None,
                 }),
             )
             .await?;
@@ -953,16 +1015,12 @@ impl Locked<'_> {
 
     async fn steps_of(&self, key: &JobKey) -> Result<Vec<ir::Step>, Error> {
         let workflow = self.ir().await?;
-        let template = workflow
-            .jobs
-            .into_iter()
-            .find(|template| &template.key == key)
-            .ok_or_else(|| Error::Row {
-                table: "run",
-                message: format!("the IR of the run has no job `{key}`"),
-            })?;
-        match template.kind {
-            JobKind::Steps(steps) => Ok(steps),
+        let (_, template) = workflow.job(key).ok_or_else(|| Error::Row {
+            table: "run",
+            message: format!("the IR of the run has no job `{key}`"),
+        })?;
+        match &template.kind {
+            JobKind::Steps(steps) => Ok(steps.clone()),
             JobKind::Call(_) => Err(Error::Row {
                 table: "run",
                 message: format!("the job `{key}` calls a workflow and has no steps"),

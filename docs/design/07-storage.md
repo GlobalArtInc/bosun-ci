@@ -173,8 +173,17 @@ from, `git_ref` and `sha` the default branch and the commit a run of a repositor
 its next instant, `null` for a cron that never fires
 ([02-workflows.md](02-workflows.md#schedules)).
 
+The `kind` of a job is `steps` for a job that runs steps and `call` for a job that calls a workflow
+(step 15 of [../plan.md](../plan.md)); a matrix member has the kind of its template. A call that
+has been expanded holds in `call`
+`{"inputs": {name: value}, "secrets": "inherit" | {"named": {NAME: {"text": value} | {"secret": NAME}}}}`: the
+typed inputs the callee sees, and for each secret the call passes either a text that does not read
+a secret or the name of a secret of the caller, never a value of a secret. The `key` of the member
+of a call is the path `<call>/<callee job id>`, as long as the calls are deep, and a run's `ir`
+holds the callees of the run ([02-workflows.md](02-workflows.md#the-ir)).
+
 A milestone creates the columns it uses. The columns above that M0 does not use (`draft_id` and
-`derived_from` of runs, `reason` of attempts, `kind`, `pinned_agent_id` and `carried_from` of jobs,
+`derived_from` of runs, `reason` of attempts, `pinned_agent_id` and `carried_from` of jobs,
 `parent_step_id` of steps) arrive with their milestones as additive migrations; the display name of
 runs and the evaluated values and outputs of jobs arrived with the planner's expressions (step 15 of
 [../plan.md](../plan.md)), `group_id`, `matrix` and `strategy` of jobs with matrices (step 16), and

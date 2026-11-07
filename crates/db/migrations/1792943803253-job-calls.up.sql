@@ -1,0 +1,3 @@
+ALTER TABLE job ADD COLUMN kind text NOT NULL DEFAULT 'steps';
+
+ALTER TABLE job ADD COLUMN call jsonb;

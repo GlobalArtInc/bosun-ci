@@ -1,0 +1,19 @@
+{
+  "description": "secrets: inherit to a callee of another account is refused at the uses, and the callee is never read",
+  "caller": "on: push\njobs:\n  release:\n    uses: ThirdParty/lib/.github/workflows/release.yml@v1\n    secrets: inherit\n",
+  "files": {},
+  "foreign": {
+    ".github/workflows/release.yml": "on: workflow_call\njobs:\n  first:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"
+  },
+  "expected": {
+    "code": "callee_forbidden",
+    "file": "ci",
+    "path": [
+      "jobs",
+      "release",
+      "uses"
+    ],
+    "line": 4,
+    "message": "`secrets: inherit` is allowed only for a callee of the same account as the calling workflow; pass the secrets by name"
+  }
+}

@@ -280,8 +280,17 @@ async fn mint(
             .map_err(|error| error.to_string())?,
     );
     let (_, permissions) = declared(&claimed.job, claimed.permissions.as_ref());
-    let wanted = wanted(permissions, &claimed.token_permissions, claimed.trusted);
-    let (mut granted, lacking) = intersect(&wanted, &held);
+    let mut asked = wanted(permissions, &claimed.token_permissions, claimed.trusted);
+    for ceiling in &claimed.ceilings {
+        let (_, declared) = match (&ceiling.job, &ceiling.workflow) {
+            (Some(job), _) => (Source::Job, Some(job)),
+            (None, Some(workflow)) => (Source::Workflow, Some(workflow)),
+            (None, None) => (Source::Setting, None),
+        };
+        let limit = wanted(declared, &claimed.token_permissions, claimed.trusted);
+        asked = narrowed(&asked, &limit);
+    }
+    let (mut granted, lacking) = intersect(&asked, &held);
     if granted.is_empty() {
         if !held.contains_key(&ForgePermission::Metadata) {
             return Err(
@@ -340,6 +349,17 @@ fn wanted(declared: Option<&ir::Permissions>, setting: &Grant, trusted: bool) ->
         }
     }
     wanted
+}
+
+fn narrowed(asked: &Grant, limit: &Grant) -> Grant {
+    asked
+        .iter()
+        .filter_map(|(permission, access)| {
+            limit
+                .get(permission)
+                .map(|ceiling| (*permission, (*access).min(*ceiling)))
+        })
+        .collect()
 }
 
 fn declared<'a>(
@@ -429,11 +449,11 @@ fn requested(granted: &Grant) -> Permissions {
 pub(crate) fn notices(claimed: &ClaimedJob, lacking: &[Lacking], file: &str) -> Vec<Diagnostic> {
     let (source, _) = declared(&claimed.job, claimed.permissions.as_ref());
     let mut path = vec![PathSegment::Key("jobs".to_owned())];
-    path.push(PathSegment::Key(claimed.key.to_string()));
+    path.push(PathSegment::Key(claimed.job.key.to_string()));
     let asked = match source {
         Source::Job => {
             path.push(PathSegment::Key("permissions".to_owned()));
-            format!("the `permissions` of job `{}`", claimed.key)
+            format!("the `permissions` of job `{}`", claimed.job.key)
         }
         Source::Workflow => {
             path = vec![PathSegment::Key("permissions".to_owned())];
@@ -571,7 +591,7 @@ mod tests {
     use bosun_types::api::{ForgeAccess, ForgePermission};
     use bosun_types::ir::{Access, Permissions, Scope};
 
-    use super::{Grant, intersect, reads_token, wanted};
+    use super::{Grant, intersect, narrowed, reads_token, wanted};
 
     fn grant(pairs: &[(ForgePermission, ForgeAccess)]) -> Grant {
         pairs.iter().copied().collect()
@@ -609,6 +629,21 @@ mod tests {
             ),
             Grant::new()
         );
+    }
+
+    #[test]
+    fn a_callee_asks_for_no_more_than_every_call_above_it_allows() {
+        let asked = wanted(Some(&Permissions::WriteAll), &setting(), true);
+        let caller = Permissions::Scopes(BTreeMap::from([(Scope::Contents, Access::Read)]));
+        let ceiling = wanted(Some(&caller), &setting(), true);
+        assert_eq!(
+            narrowed(&asked, &ceiling),
+            grant(&[(ForgePermission::Contents, ForgeAccess::Read)])
+        );
+        let open = wanted(Some(&Permissions::WriteAll), &setting(), true);
+        assert_eq!(narrowed(&asked, &open), asked);
+        let narrow = wanted(None, &setting(), true);
+        assert_eq!(narrowed(&narrow, &open), narrow);
     }
 
     #[test]

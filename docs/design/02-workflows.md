@@ -389,9 +389,11 @@ variables of `env`, the inputs of `with` and the vectors of a matrix, are no key
 a key of a later milestone are not listed until the parser reads them in that milestone. A file
 whose YAML does not load has no inventory, only its fault.
 
-Default limits, configurable per installation: 1 MiB of source per file, 256 job templates per
-workflow, 256 jobs per matrix, 10 levels of nested reusable workflows, 50 distinct reusable
-workflows per run, 10 levels of nested composite actions.
+Default limits: 1 MiB of source per file, 256 job templates per workflow, 256 jobs per matrix,
+10 levels of nested reusable workflows, 50 distinct reusable workflows per run, 500 jobs that come
+from reusable workflows in one attempt of a run, 10 levels of nested composite actions. They are
+meant to be configurable per installation, but no setting reads them yet: every one of them, those of
+M1 as well as those of M2, is a constant in the code.
 
 Two limits protect the parser itself and are fixed: collections nest at most 64 levels deep, and
 expanding aliases adds at most 100 000 nodes to a file.
@@ -554,6 +556,98 @@ syntax. Every agent carries `self-hosted`, its operating system (`Linux`) and it
 Bosun agent without a change. Labels of hosted images such as `ubuntu-latest` resolve through the
 installation's label aliases, which map a label to a pool, an executor and, for `podman`, a
 default image.
+
+### Reusable workflows
+
+A job with `uses` calls a workflow whose `on` holds `workflow_call`, and takes the `with` and
+`secrets` of the call. The server reads the callee when the run is planned, and a reusable workflow
+is read, checked and run as follows. Three of these rules are Bosun's own and are decided here; the
+rest follows the target.
+
+- **Where a callee lives.** A local callee, `uses: ./.github/workflows/build.yml`, is a file
+  directly in `.github/workflows/` or in `.bosun/workflows/` of the repository that holds the
+  workflow with the `uses`, at that workflow's commit: the run's commit for the workflow the run
+  starts from, and the callee's own commit for a callee that calls another local one. Either
+  directory serves whatever directory the calling file is in and whatever the project's setting
+  `github_workflows` says, since that setting decides which files start runs and a callee starts
+  none. A file elsewhere, or without the extension `.yml` or `.yaml`, is refused. A workflow of a
+  server-side project has no repository, so a local callee is refused there.
+- **A callee of another repository.** `uses: owner/repo/.github/workflows/release.yml@v1` must
+  belong to the installation of the GitHub App that serves the project's organisation, or be
+  public: the server asks the forge for it with the installation's credentials, or without any when
+  the organisation has no installation, so a private repository of another installation answers
+  as a missing one. The path follows the rule of a local callee. The action policy of the
+  organisation ([05-execution.md](05-execution.md#actions-and-tools)) applies to the reference as
+  it is written, `owner/repo/path@ref`, with the same pure check that steps use.
+- **A ref is read once.** A ref of a callee resolves to a commit through the forge when the run is
+  planned, and the run keeps the commit with the callee in its IR snapshot. A tag moved later
+  changes nothing in a run that was planned before; a callee that a job reaches only after its
+  `needs` still comes from the snapshot, never from the forge.
+- **Check runs.** The jobs of a callee are reported to the forge as check runs named
+  `<caller name> / <callee job name>`: the display name of the calling job, a slash with a space
+  on each side and the display name of the callee's job. A callee that calls another gives
+  `<outer> / <inner> / <job>`, one more name for each level of nesting. A call is a group at every
+  depth and is not reported.
+- **What is refused.** A callee that is missing, that does not lower, that has no `workflow_call`,
+  that the caller passes an undeclared input or secret to, that leaves out a required one
+  ([Validation](#validation)), that the policy forbids, or to which the call passes `secrets: inherit`
+  across accounts (see Secrets), ends the run with `startup_failure`
+  before any job exists. Each diagnostic points at the `uses` of the call, or at the entry of
+  `with` or `secrets` at fault, in the file that holds the call; a callee that does not lower adds
+  its own diagnostics in its own file. The codes are those of `check_call`, `limit_exceeded` and the three
+  that [04-runs.md](04-runs.md#calls-of-reusable-workflows) lists: `callee_missing`, `callee_invalid`
+  and `callee_forbidden`.
+- **Limits.** A run nests reusable workflows at most 10 levels deep and calls at most 50 distinct
+  ones, and one attempt of a run holds at most 500 jobs that come from calls: the members of every
+  call at every depth, the nested calls among them, and the members of a matrix on a call or of a
+  matrix inside a callee. A callee is one file at one commit: the same file called twice counts once
+  as a callee and twice in the 500. A call at the 11th level, which a recursion reaches, and the call
+  that would add a 51st callee are refused with `limit_exceeded`, whose message names the limit, and
+  so is the call of the run's own workflow after which the jobs that calls bring, counted without any
+  matrix, pass 500. A matrix makes the count known only at run time, and then the call or the matrix
+  that would pass 500 fails with `limit_exceeded` as a job fails, and the run ends `failure`. A job
+  of the run's own workflow, with or without a matrix, is not counted, so a matrix of 256 jobs
+  keeps working. The limits are constants in the code.
+- **Inputs.** `with` is evaluated when the calling job is ready, with the contexts of its other
+  keys (`github`, `needs`, `strategy`, `matrix`, `inputs`, `vars` and `bosun`). Each input is
+  typed by its declaration: a string input takes a string, a number or a boolean as text, a
+  boolean input a boolean or the text `true` or `false`, a number input a finite number or text
+  that reads as one. An input that `with` leaves out takes its `default`, and without one an empty
+  string, `false` or `0`. The callee sees the result as `inputs`, and its jobs see no other
+  `inputs` than that.
+- **Secrets.** Secrets cross to a callee only as the caller passes them. A named secret takes the
+  value of the caller's `${{ secrets.NAME }}` or a text; passing a secret inside other text or an
+  expression is `invalid_value`, since a secret is decrypted when a job is assigned and never held
+  by the planner. `secrets: inherit` passes every secret the caller holds, and no more: a middle
+  workflow that received `a` only hands `a` on. It is allowed only for a callee whose repository
+  owner is the owner of the repository of the file that holds the call, compared without regard to
+  case, and a call of a workflow of another account with `secrets: inherit` is refused with
+  `callee_forbidden`, whatever the action policy says and without a request to the forge; the
+  secrets are passed by name to such a callee. For a call in a nested callee the file is that
+  callee, and a workflow without a repository inherits to no callee of another repository. A local
+  callee is of the same repository, so it needs no check. A secret the callee declares and the
+  caller leaves out is empty, and `GITHUB_TOKEN` is the token of the job that reads it in every
+  case. The values of secrets are never written to a diagnostic, a log or the run's rows: the call
+  keeps which name takes which source, and for a text the evaluated text, as the outputs of a job
+  are kept; a text that comes from `needs.*.outputs` or `inputs` is therefore in the row in clear,
+  and a secret is not.
+- **Concurrency.** The `concurrency` of a call and the `concurrency` of the workflow of a callee are
+  not applied yet: the jobs of the callee run without them. Each is a `not_implemented` warning,
+  which the run's notices hold from the moment it is planned: one for each call that has the key, at
+  the call, whether the call is skipped or has a matrix or not, and one for each distinct callee that
+  has it, at the key in the callee's file. The `concurrency` of a job inside a callee applies as for
+  any job.
+- **Context and permissions.** A callee sees the `github` context of the run, the caller's
+  `workflow`, and `github.job` is the callee's own id for the job. The `permissions` of a callee's
+  workflow or job can only narrow what its caller's grant: the token of a callee job holds, per
+  permission, the lowest access that the callee's job, the call, the workflow that holds the call
+  and every call above it allow, and none of a permission one of them leaves out. The trust of the
+  run, which a pull request from a fork lowers, applies to the jobs of a callee unchanged.
+- **Outputs.** The `outputs` of `on.workflow_call` are evaluated when every job of the call has
+  completed, with `github`, `inputs`, `vars`, `bosun` and `jobs`, where `jobs.<id>.result` and
+  `jobs.<id>.outputs.<name>` describe the callee's jobs. They become the outputs of the calling
+  job, so `needs.<caller>.outputs.<name>` reads them. An output that fails to evaluate fails the
+  call, with an error notice at the output.
 
 ### Steps
 
@@ -732,9 +826,10 @@ other key is `not_implemented` and names its From milestone. M1 leaves the list 
 step of a later milestone moves `MILESTONE` on and puts the keys of that milestone on the list until
 the steps that implement them.
 
-At M2 the list holds every key the milestone brings except the two triggers of step 16, and the
-forms that sit inside a key that exists already: `uses: ./path` and `uses: docker://` of a step, and `using: composite` and
-`using: docker` of `runs`. The parser lowers all of them, and the planner and the agent refuse what
+At M2 the list holds every key the milestone brings except the two triggers of step 16 and the keys
+of reusable workflows, which step 15 implements (`on.workflow_call` and the `uses`, `with` and
+`secrets` of a job), and the forms that sit inside a key that exists already: `uses: ./path` and
+`uses: docker://` of a step, and `using: composite` and `using: docker` of `runs`. The parser lowers all of them, and the planner and the agent refuse what
 they cannot run, but a file that uses one is `not_implemented` until its step removes the entry.
 `on.workflow_run` and `on.upstream` are not on the list: step 16 lowers them and the server executes
 them, so a file that uses them is accepted whatever else it holds. The
@@ -980,7 +1075,9 @@ YAML.
 ```
 Workflow   { name, run_name: Template?, triggers: [Trigger], permissions: Permissions?,
              env: Map<Template>, defaults: Defaults, concurrency: Concurrency?,
-             cache_mode: CacheMode?, priority: Priority?, notify: [Route], jobs: [JobTemplate] }
+             cache_mode: CacheMode?, priority: Priority?, notify: [Route], jobs: [JobTemplate],
+             calls: Map<JobKey, usize>, callees: [Reusable] }
+Reusable   { repository: "owner/name", path, commit, workflow: Workflow }
 JobTemplate{ key, name: Template?, needs: [JobKey], if: Condition?, runs_on: Evaluable<RunsOn>?,
              permissions: Permissions?, concurrency: Concurrency?, strategy: Evaluable<Strategy>?,
              env: Map<Template>, defaults: Defaults, timeout_minutes: Evaluable<u32>,
@@ -1055,8 +1152,17 @@ whether or not their keys are still on the pending list. A job that calls a work
 `runs_on`, and a field that is `None`, empty or absent is left out of the serialised IR where it
 is new in M2 (`container`, `services`, `cache_mode`, `cache_volumes`, `priority`).
 
+`calls` and `callees` are filled by the planner, never by the parser: a run's snapshot holds, in
+`callees` of its workflow, every reusable workflow of the run once, lowered, with the repository,
+path and commit it was read at, and each workflow, the run's own and every callee, maps in `calls`
+the key of each of its jobs that calls a workflow to the position of its callee. A snapshot with
+no call has neither field.
+
 `JobKey` and `StepKey` are the ids a workflow gives its jobs and steps (`jobs.<key>`,
-`steps.<key>`); the identifiers of the database rows are a separate kind. Jobs and steps keep the
+`steps.<key>`); the identifiers of the database rows are a separate kind. The job of a called
+workflow has the key `<caller>/<callee job id>` in a run, and a key nests as the calls do, so
+`release/build/test` is the job `test` of the workflow that `build` calls in the workflow that
+`release` calls; a job id a file writes has none of these slashes. Jobs and steps keep the
 order of the source. `Template` is a string with embedded expressions, already parsed; `Expr` is a
 bare expression; `Condition` is the value of an `if`, an `Expr` or, when text surrounds its
 `${{ }}`, a `Template` ([03-expressions.md](03-expressions.md)); `Evaluable<T>` is a literal value
@@ -1149,7 +1255,7 @@ a warning lowers to its IR and has the warning beside it.
 |------|----------|---------|
 | `yaml_syntax` | error | the source is not well-formed YAML |
 | `unsupported_yaml` | error | a merge key, a tag, or more than one document |
-| `limit_exceeded` | error | a limit of the parser, of the installation or of an expression is exceeded |
+| `limit_exceeded` | error | a limit of the parser, of the installation or of an expression is exceeded, or a run nests reusable workflows deeper than 10 levels or calls more than 50 distinct ones ([Reusable workflows](#reusable-workflows)) |
 | `duplicate_key` | error | a key appears twice in one mapping, or an event twice in the list form of `on` |
 | `invalid_type` | error | a value of the wrong type, such as a mapping where a string or a list is expected |
 | `invalid_value` | error | a value of the right type that the key does not accept, such as an empty `steps`, a custom shell without `{0}`, a `uses` without a ref, or an expression in a key that takes none |

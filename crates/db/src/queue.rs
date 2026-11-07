@@ -52,8 +52,37 @@ pub struct ClaimedJob {
     pub first_execution: bool,
     pub trusted: bool,
     pub permissions: Option<ir::Permissions>,
+    pub ceilings: Vec<Ceiling>,
     pub token_permissions: Grant,
     pub repository: Option<ClaimedRepository>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ceiling {
+    pub job: Option<ir::Permissions>,
+    pub workflow: Option<ir::Permissions>,
+}
+
+fn ceilings(root: &ir::Workflow, key: &JobKey) -> Vec<Ceiling> {
+    let mut found = Vec::new();
+    let mut prefix = String::new();
+    let segments: Vec<&str> = key.segments().collect();
+    for segment in segments.iter().take(segments.len().saturating_sub(1)) {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(segment);
+        let Ok(caller) = JobKey::try_from(prefix.clone()) else {
+            break;
+        };
+        if let Some((workflow, template)) = root.job(&caller) {
+            found.push(Ceiling {
+                job: template.permissions.clone(),
+                workflow: workflow.permissions.clone(),
+            });
+        }
+    }
+    found
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,15 +213,17 @@ async fn assign(
         ))
         .await?
         .ok_or_else(|| Error::Vanished(format!("run {run_id}")))?;
-    let workflow: ir::Workflow = row::json("run", found.try_get("", "ir")?)?;
-    let job = workflow
-        .jobs
-        .into_iter()
-        .find(|template| template.key == key)
-        .ok_or_else(|| Error::Row {
-            table: "run",
-            message: format!("the IR of the run has no job `{key}`"),
-        })?;
+    let root: ir::Workflow = row::json("run", found.try_get("", "ir")?)?;
+    let (workflow, job) = root.job(&key).ok_or_else(|| Error::Row {
+        table: "run",
+        message: format!("the IR of the run has no job `{key}`"),
+    })?;
+    let ceilings = ceilings(&root, &key);
+    let (env, job, permissions) = (
+        workflow.env.clone(),
+        job.clone(),
+        workflow.permissions.clone(),
+    );
     let evaluated = found
         .try_get::<Option<Value>>("", "evaluated")?
         .ok_or_else(|| Error::Row {
@@ -208,7 +239,7 @@ async fn assign(
         name: candidate.try_get("", "name")?,
         organisation: found.try_get("", "organisation")?,
         project: found.try_get("", "project")?,
-        env: workflow.env,
+        env,
         job,
         evaluated: row::json("job", evaluated)?,
         continue_on_error: found.try_get("", "continue_on_error")?,
@@ -222,7 +253,8 @@ async fn assign(
             .transpose()?,
         first_execution: found.try_get::<i32>("", "execution_number")? == 1,
         trusted: run.state().trusted,
-        permissions: workflow.permissions,
+        permissions,
+        ceilings,
         token_permissions: row::json("project", found.try_get("", "token_permissions")?)?,
         repository: claimed_repository(&found)?,
     })

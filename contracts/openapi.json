@@ -1240,7 +1240,7 @@
             "type": "string"
           },
           "key": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(/[A-Za-z_][A-Za-z0-9_-]*)*$",
             "type": "string"
           },
           "labels": {
@@ -1261,7 +1261,7 @@
           },
           "needs": {
             "items": {
-              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(/[A-Za-z_][A-Za-z0-9_-]*)*$",
               "type": "string"
             },
             "type": "array"
@@ -1336,7 +1336,7 @@
             ]
           },
           "key": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(/[A-Za-z_][A-Za-z0-9_-]*)*$",
             "type": "string"
           },
           "matrix": {
@@ -1351,7 +1351,7 @@
           },
           "needs": {
             "items": {
-              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(/[A-Za-z_][A-Za-z0-9_-]*)*$",
               "type": "string"
             },
             "type": "array"

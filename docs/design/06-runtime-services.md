@@ -456,6 +456,11 @@ Step 34 of M1 ([../plan.md](../plan.md)) settled how.
   each ([04-runs.md](04-runs.md#run-notices)). What asks for nothing, such as `permissions: {}`,
   gets `metadata: read`, as the target's token keeps it. The token names the repository by its
   current name, and the forge records it as `selected`.
+- **A called workflow.** The job of a called workflow asks for the permissions its own `permissions`,
+  or else its workflow's, or else the project's setting, name, as above, and then keeps for each
+  permission the lowest access that the `permissions` of every call above it allow, each worked out
+  the same way, and drops a permission one of them leaves out: a callee only narrows what its caller
+  grants ([02-workflows.md](02-workflows.md#reusable-workflows)).
 - **When it is minted.** After the replica claimed the job and prepared its actions, and before it
   takes the run's lock, as the actions are prepared
   ([05-execution.md](05-execution.md#actions-and-tools)). A forge that refuses, is rate limited or

@@ -1,0 +1,19 @@
+{
+  "description": "an input of with that the callee does not declare is refused at that entry",
+  "caller": "on: push\njobs:\n  release:\n    uses: ./.github/workflows/build.yml\n    with:\n      verison: '1'\n",
+  "files": {
+    ".github/workflows/build.yml": "on:\n  workflow_call:\n    inputs:\n      version:\n        type: string\njobs:\n  first:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"
+  },
+  "expected": {
+    "code": "unknown_key",
+    "file": "ci",
+    "path": [
+      "jobs",
+      "release",
+      "with",
+      "verison"
+    ],
+    "line": 6,
+    "message": "did you mean `version`?"
+  }
+}

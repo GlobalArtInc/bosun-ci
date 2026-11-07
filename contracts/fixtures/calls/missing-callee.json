@@ -1,0 +1,16 @@
+{
+  "description": "a local callee that is not in the repository at the run's commit ends the run with startup_failure at the uses of the caller",
+  "caller": "on: push\njobs:\n  release:\n    uses: ./.github/workflows/missing.yml\n",
+  "files": {},
+  "expected": {
+    "code": "callee_missing",
+    "file": "ci",
+    "path": [
+      "jobs",
+      "release",
+      "uses"
+    ],
+    "line": 4,
+    "message": "the reusable workflow `./.github/workflows/missing.yml` does not exist"
+  }
+}

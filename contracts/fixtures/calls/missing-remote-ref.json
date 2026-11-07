@@ -1,0 +1,19 @@
+{
+  "description": "a ref of another repository that resolves to no commit ends the run with startup_failure",
+  "caller": "on: push\njobs:\n  release:\n    uses: GlobalArt/shared/.github/workflows/release.yml@v9\n",
+  "files": {},
+  "shared": {
+    ".github/workflows/release.yml": "on: workflow_call\njobs:\n  first:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"
+  },
+  "expected": {
+    "code": "callee_missing",
+    "file": "ci",
+    "path": [
+      "jobs",
+      "release",
+      "uses"
+    ],
+    "line": 4,
+    "message": "sees no repository `GlobalArt/shared` with a ref `v9`"
+  }
+}

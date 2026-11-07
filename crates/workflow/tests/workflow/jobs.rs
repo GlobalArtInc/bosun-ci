@@ -74,9 +74,8 @@ fn uses_takes_a_repository_and_a_ref_and_names_m2_for_other_forms() {
         );
     }
     let call =
-        only("on: workflow_dispatch\njobs:\n  call:\n    uses: ./.github/workflows/build.yml\n");
-    assert_eq!(call.code, "not_implemented");
-    assert!(call.message.ends_with("it arrives in M2"));
+        valid("on: workflow_dispatch\njobs:\n  call:\n    uses: ./.github/workflows/build.yml\n");
+    assert!(matches!(call.jobs[0].kind, JobKind::Call(_)));
     for uses in [
         "actions/checkout",
         "checkout@v4",

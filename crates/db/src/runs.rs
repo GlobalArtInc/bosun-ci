@@ -65,6 +65,8 @@ pub struct JobState {
     pub group: Option<JobId>,
     pub matrix: Option<BTreeMap<String, Value>>,
     pub strategy: Option<Strategy>,
+    pub kind: Shape,
+    pub call: Option<Called>,
     pub status: JobStatus,
     pub waiting_reason: Option<WaitingReason>,
     pub conclusion: Option<Conclusion>,
@@ -75,6 +77,51 @@ pub struct JobState {
     pub started: bool,
     pub completed_at: Option<DateTimeUtc>,
     pub execution: Option<ExecutionState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Shape {
+    Steps,
+    Call,
+}
+
+impl From<&ir::JobKind> for Shape {
+    fn from(kind: &ir::JobKind) -> Shape {
+        match kind {
+            ir::JobKind::Steps(_) => Shape::Steps,
+            ir::JobKind::Call(_) => Shape::Call,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Called {
+    pub inputs: BTreeMap<String, Value>,
+    pub secrets: Passed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Passed {
+    Inherit,
+    Named(BTreeMap<String, Handed>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Handed {
+    Text(String),
+    Secret(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewChild {
+    pub key: JobKey,
+    pub name: String,
+    pub needs: Vec<JobKey>,
+    pub kind: Shape,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -302,7 +349,8 @@ impl<'a> Locked<'a> {
     pub async fn jobs(&self) -> Result<Vec<JobState>, Error> {
         self.transaction
             .query_all(statement(
-                "SELECT j.id, j.key, j.name, j.needs, j.group_id, j.matrix, j.strategy, j.status, \
+                "SELECT j.id, j.key, j.name, j.needs, j.group_id, j.matrix, j.strategy, j.kind, j.call, \
+                 j.status, \
                  j.waiting_reason, j.conclusion, j.continue_on_error, \
                  j.remote_uses AND j.actions IS NULL AS unresolved, \
                  j.evaluated -> 'concurrency' AS concurrency, j.outputs, \
@@ -569,6 +617,11 @@ fn decode_job(found: &QueryResult) -> Result<JobState, Error> {
             .try_get::<Option<Value>>("", "strategy")?
             .map(|strategy| row::json("job", strategy))
             .transpose()?,
+        kind: row::name("job", found.try_get("", "kind")?)?,
+        call: found
+            .try_get::<Option<Value>>("", "call")?
+            .map(|call| row::json("job", call))
+            .transpose()?,
         status: row::name("job", found.try_get("", "status")?)?,
         waiting_reason: found
             .try_get::<Option<String>>("", "waiting_reason")?
@@ -635,6 +688,13 @@ pub fn uses_concurrency(workflow: &ir::Workflow) -> bool {
             .jobs
             .iter()
             .any(|template| template.concurrency.is_some())
+        || workflow.callees.iter().any(|callee| {
+            callee
+                .workflow
+                .jobs
+                .iter()
+                .any(|template| template.concurrency.is_some())
+        })
 }
 
 pub async fn lock_concurrency<C: ConnectionTrait>(db: &C, project: ProjectId) -> Result<(), Error> {
@@ -776,6 +836,7 @@ async fn insert_jobs<C: ConnectionTrait>(
             name: ActiveValue::Set(name.clone()),
             needs: ActiveValue::Set(template.needs.iter().map(ToString::to_string).collect()),
             status: ActiveValue::Set(pending.clone()),
+            kind: ActiveValue::Set(row::text("job", Shape::from(&template.kind))?),
             ..Default::default()
         }
         .insert(db)

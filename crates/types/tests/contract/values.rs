@@ -173,6 +173,36 @@ fn keys_follow_the_identifier_pattern() {
 }
 
 #[test]
+fn a_job_key_names_a_job_of_a_called_workflow_by_the_path_of_its_calls() {
+    for valid in ["build/test", "release/build/test-unit_2"] {
+        assert_eq!(
+            serde_json::from_value::<JobKey>(json!(valid))
+                .expect(valid)
+                .as_str(),
+            valid
+        );
+        assert!(JobKey::from_str(valid).is_err(), "{valid:?}");
+    }
+    let key: JobKey = serde_json::from_value(json!("release/build")).expect("a key");
+    assert_eq!((key.local(), key.is_member()), ("build", true));
+    assert_eq!(
+        JobKey::from_str("release")
+            .expect("a key")
+            .member(&JobKey::from_str("build").expect("a key")),
+        key
+    );
+    for invalid in [
+        "/build",
+        "build/",
+        "build//test",
+        "build/1test",
+        "build/ test",
+    ] {
+        refuses::<JobKey>(json!(invalid));
+    }
+}
+
+#[test]
 fn slugs_follow_the_rule_of_logins() {
     let longest = "a".repeat(64);
     for valid in ["globalart", "keel", "0day", "a.b-c_d", longest.as_str()] {

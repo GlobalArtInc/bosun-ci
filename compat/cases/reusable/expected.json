@@ -1,0 +1,49 @@
+{
+  "description": "a caller passes typed inputs, an explicit secret and secrets: inherit to a reusable workflow of its repository, the callee's jobs run as members named after their caller, an omitted secret is empty while the token is present, and the callee's output reaches the caller's dependent",
+  "runs": [
+    {
+      "name": "reusable",
+      "conclusion": "success",
+      "checks": ["inherited / build", "prepare", "release / build", "report"],
+      "jobs": [
+        {
+          "name": "release / build",
+          "conclusion": "success",
+          "outputs": {"artifact": "bundle-1.2.3"},
+          "logs": [
+            "^[^ ]+ inputs 1\\.2\\.3 4 true stable$",
+            "^[^ ]+ token present$",
+            "^[^ ]+ extra empty$",
+            "^[^ ]+ deploy key empty$",
+            "^[^ ]+ forge token present$"
+          ]
+        },
+        {
+          "name": "inherited / build",
+          "conclusion": "success",
+          "outputs": {"artifact": "bundle-2.0.0"},
+          "logs": [
+            "^[^ ]+ inputs 2\\.0\\.0 2 false stable$",
+            "^[^ ]+ token empty$",
+            "^[^ ]+ extra empty$",
+            "^[^ ]+ deploy key present$",
+            "^[^ ]+ forge token present$"
+          ]
+        },
+        {
+          "name": "release",
+          "conclusion": "success",
+          "outputs": {"artifact": "bundle-1.2.3"}
+        },
+        {
+          "name": "report",
+          "conclusion": "success",
+          "logs": [
+            "^[^ ]+ release built bundle-1\\.2\\.3$",
+            "^[^ ]+ inherited built bundle-2\\.0\\.0$"
+          ]
+        }
+      ]
+    }
+  ]
+}

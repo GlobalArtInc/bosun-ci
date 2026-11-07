@@ -505,10 +505,10 @@ fn forbidden<'a>(
     (!found.is_empty()).then_some(found)
 }
 
-fn refusals(claimed: &Claimed, standing: &Standing, uses: &[&Use]) -> Vec<Refusal> {
-    let allowed = match &standing.policy {
+pub(crate) fn permitted(policy: &ActionPolicy, account: Option<&str>) -> String {
+    match policy {
         ActionPolicy::All {} => String::new(),
-        ActionPolicy::Organisation {} => match &standing.account {
+        ActionPolicy::Organisation {} => match account {
             Some(account) => {
                 format!("it permits only actions owned by the account `{account}`")
             }
@@ -536,7 +536,11 @@ fn refusals(claimed: &Claimed, standing: &Standing, uses: &[&Use]) -> Vec<Refusa
                 shown.join(", ")
             )
         }
-    };
+    }
+}
+
+fn refusals(claimed: &Claimed, standing: &Standing, uses: &[&Use]) -> Vec<Refusal> {
+    let allowed = permitted(&standing.policy, standing.account.as_deref());
     uses.iter()
         .map(|used| Refusal {
             step: used.step,

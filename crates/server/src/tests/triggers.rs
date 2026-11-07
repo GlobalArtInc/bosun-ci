@@ -66,6 +66,7 @@ impl Scene {
         let replica = |db: DatabaseConnection| Triggers {
             db,
             site: public(),
+            forge: None,
             clock: Clock::system(),
             meters: Arc::new(Meters::default()),
         };

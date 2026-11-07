@@ -299,16 +299,16 @@ impl GitHubApp {
         })
     }
 
-    async fn blob(&self, repository: &Repository, sha: &str) -> Result<Vec<u8>, Error> {
-        let url = self.repository_url(repository, &["git", "blobs", sha], "");
+    async fn blob_as(
+        &self,
+        credential: Credential<'_>,
+        owner: &str,
+        name: &str,
+        sha: &str,
+    ) -> Result<Vec<u8>, Error> {
+        let url = self.repository_path(owner, name, &["git", "blobs", sha], "");
         let reply = self
-            .request(
-                Credential::Installation(repository.installation),
-                Method::GET,
-                url,
-                JSON,
-                None,
-            )
+            .request(credential, Method::GET, url, JSON, None)
             .await?;
         let blob: wire::Blob = reply.json()?;
         if blob.encoding != "base64" {
@@ -318,6 +318,36 @@ impl GitHubApp {
             )));
         }
         decode(&blob.content)
+    }
+
+    async fn file_as(
+        &self,
+        credential: Credential<'_>,
+        owner: &str,
+        name: &str,
+        commit: &str,
+        path: &str,
+    ) -> Result<Option<File>, Error> {
+        let Some(contents) = self
+            .contents_as(credential, owner, name, commit, path)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let wire::Contents::Item(item) = contents else {
+            return Ok(None);
+        };
+        if item.kind != "file" {
+            return Ok(None);
+        }
+        let content = match item.encoding.as_deref() {
+            Some("base64") => decode(&item.content)?,
+            _ => self.blob_as(credential, owner, name, &item.sha).await?,
+        };
+        Ok(Some(File {
+            sha: item.sha,
+            content,
+        }))
     }
 }
 
@@ -373,23 +403,25 @@ impl Forge for GitHubApp {
         commit: &str,
         path: &str,
     ) -> Result<Option<File>, Error> {
-        let Some(contents) = self.contents(repository, commit, path).await? else {
-            return Ok(None);
-        };
-        let wire::Contents::Item(item) = contents else {
-            return Ok(None);
-        };
-        if item.kind != "file" {
-            return Ok(None);
-        }
-        let content = match item.encoding.as_deref() {
-            Some("base64") => decode(&item.content)?,
-            _ => self.blob(repository, &item.sha).await?,
-        };
-        Ok(Some(File {
-            sha: item.sha,
-            content,
-        }))
+        self.file_as(
+            Credential::Installation(repository.installation),
+            &repository.owner,
+            &repository.name,
+            commit,
+            path,
+        )
+        .await
+    }
+
+    async fn public_file(
+        &self,
+        owner: &str,
+        name: &str,
+        commit: &str,
+        path: &str,
+    ) -> Result<Option<File>, Error> {
+        self.file_as(Credential::Anonymous, owner, name, commit, path)
+            .await
     }
 
     async fn directory(
@@ -738,16 +770,28 @@ impl GitHubApp {
         commit: &str,
         path: &str,
     ) -> Result<Option<wire::Contents>, Error> {
-        let mut url = self.repository_url(repository, &["contents"], path);
+        self.contents_as(
+            Credential::Installation(repository.installation),
+            &repository.owner,
+            &repository.name,
+            commit,
+            path,
+        )
+        .await
+    }
+
+    async fn contents_as(
+        &self,
+        credential: Credential<'_>,
+        owner: &str,
+        name: &str,
+        commit: &str,
+        path: &str,
+    ) -> Result<Option<wire::Contents>, Error> {
+        let mut url = self.repository_path(owner, name, &["contents"], path);
         url.query_pairs_mut().append_pair("ref", commit);
         let reply = self
-            .request(
-                Credential::Installation(repository.installation),
-                Method::GET,
-                url,
-                JSON,
-                None,
-            )
+            .request(credential, Method::GET, url, JSON, None)
             .await?;
         if reply.status == StatusCode::NOT_FOUND {
             return Ok(None);

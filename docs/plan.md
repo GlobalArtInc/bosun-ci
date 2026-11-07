@@ -3389,14 +3389,20 @@ list), `compat/cases/container-action/`, `compat/cases/container-action-phases/`
 server reads the callee: a local one at the run's commit, or one from another repository with the
 ref resolved to a commit through the forge. It validates the callee with `check_call` and the action
 policy of step 4. A missing, invalid or forbidden callee ends the run with `startup_failure`, with
-diagnostics at the caller's line. A run stops at 10 levels of nesting and 50 distinct callees, and
-the run's IR snapshot holds every callee.
+diagnostics at the caller's line. A run stops at 10 levels of nesting and 50 distinct callees, an
+attempt holds at most 500 jobs that come from calls (counted statically at planning without
+matrices, and again at run time, where a call or a matrix that would pass it fails with
+`limit_exceeded`), and the run's IR snapshot holds every callee. The whole reading of the callees
+has 30 seconds.
 
 A call becomes a group whose members are the callee's jobs, keyed `caller/callee`; a matrix on the
 call job gives one group per member. `with` and `secrets` are evaluated when the call job is ready,
 typed, with defaults and with `inherit`. The outputs of `on.workflow_call` are evaluated when the
 group ends and reach `needs.<caller>.outputs`. The callee sees the caller's `github` context, and
-its `permissions` may only narrow the caller's.
+its `permissions` may only narrow the caller's. `secrets: inherit` hands over the secrets the caller
+holds and only to a callee of the same account as the repository of the calling file. The
+`concurrency` of a call job and of the workflow of a callee are deferred: they are planned with a
+`not_implemented` warning and not applied.
 
 This step settles three things and records them in `design/02-workflows.md`: local callees may live
 in `.github/workflows/` or `.bosun/workflows/`; a callee from another repository must belong to the
@@ -3423,8 +3429,13 @@ pending list.
   and a forbidden callee each end the run with `startup_failure` and the diagnostic.
 - A matrix of two on a call job yields two groups; `if: false` on a call skips its whole group, and
   dependents of a call wait for the group to complete.
-- The fake forge receives check runs named `<caller> / <job>`, and the replay property test,
-  extended with call groups, holds.
+- `secrets: inherit` to a callee of another account is refused with `callee_forbidden`, and a secret
+  a middle workflow did not receive never reaches the leaf; a run from a fork passes none.
+- More than 500 jobs that come from calls ends the run with `startup_failure` when the count is
+  static and fails the call at run time when a matrix makes it so; exactly 500 works.
+- The fake forge receives check runs named `<caller> / <job>`, one more name for each nesting level,
+  and the replay property test, extended with call groups, nested calls and matrices on calls,
+  holds.
 - The case `reusable` pins inputs, secrets and outputs as the target documents them.
 
 **Review.** yes: the run state machine with groups, secrets passed between workflows, and semantics

@@ -377,6 +377,13 @@ Step 24 of M1 ([../plan.md](../plan.md)) settled who reads and writes them; the 
 - **Scope.** A secret or a variable belongs to an organisation, and reaches every project of it, or
   to one project. A project's secret or variable shadows the organisation's of the same name, which
   the project's jobs then do not receive. Environment secrets arrive with environments in M3.
+- **A called workflow** receives only the secrets its caller passes, by name or all of them with
+  `secrets: inherit`, and an untrusted run passes none
+  ([02-workflows.md](02-workflows.md#reusable-workflows)). `secrets: inherit` hands every secret the
+  caller holds to the callee and is allowed only for a callee whose repository owner is the owner of
+  the repository of the calling file, so the secrets of a run never reach, by inheritance, a workflow
+  of another account, whatever the action policy permits; to such a callee a call passes the secrets
+  by name.
 - **Writing** a secret needs `secret.manage`, and a variable `variable.manage`, on its organisation
   or its project, so a maintainer writes them and a developer does not. A binding on a project gives
   nothing on its organisation, so writing an organisation's secrets needs a binding on the

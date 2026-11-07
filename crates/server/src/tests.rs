@@ -2,6 +2,7 @@ mod access;
 mod actions;
 mod admission;
 mod artifacts;
+mod calls;
 mod cancel;
 mod concurrency;
 mod dispatch;
@@ -929,6 +930,8 @@ fn workflow(jobs: Vec<JobTemplate>) -> ir::Workflow {
         cache_mode: None,
         priority: None,
         jobs,
+        calls: BTreeMap::new(),
+        callees: Vec::new(),
     }
 }
 

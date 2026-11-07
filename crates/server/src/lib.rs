@@ -6,6 +6,7 @@ mod aliases;
 mod artifacts;
 mod auth;
 mod bindings;
+mod callees;
 mod check;
 mod clock;
 mod commands;
@@ -226,6 +227,7 @@ pub async fn serve(
         triggers::Triggers {
             db: db.clone(),
             site: config.site.clone(),
+            forge: forge.clone(),
             clock: clock.clone(),
             meters: Arc::clone(&meters),
         },
@@ -272,6 +274,7 @@ pub async fn serve(
     tasks.spawn(schedules::work(
         db.clone(),
         config.site.clone(),
+        forge.clone(),
         clock.clone(),
     ));
     let connector = agents::Connector::new(

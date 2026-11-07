@@ -143,9 +143,14 @@ impl Scheduler {
     }
 
     async fn round(&self) -> Vec<Run> {
-        schedules::round(self.site.db(), &self.site.state.site, self.clock.now())
-            .await
-            .unwrap_or_else(|error| panic!("the round failed: {error}"))
+        schedules::round(
+            self.site.db(),
+            &self.site.state.site,
+            None,
+            self.clock.now(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("the round failed: {error}"))
     }
 
     async fn fires_at(&self, instant: &str) -> Run {
@@ -305,8 +310,8 @@ async fn with_two_replicas_every_schedule_fires_once_a_minute() {
         );
         let now = scheduler.clock.now();
         let (left, right) = tokio::join!(
-            schedules::round(scheduler.site.db(), addresses, now),
-            schedules::round(&other, addresses, now)
+            schedules::round(scheduler.site.db(), addresses, None, now),
+            schedules::round(&other, addresses, None, now)
         );
         let left = left.unwrap_or_else(|error| panic!("a round failed: {error}"));
         let right = right.unwrap_or_else(|error| panic!("a round failed: {error}"));
@@ -483,11 +488,16 @@ impl Pushes {
         transaction.commit().await.expect("a commit");
     }
 
-    async fn round(&self, instant: &str) -> Vec<Run> {
+    pub(super) async fn round(&self, instant: &str) -> Vec<Run> {
         to(&self.clock, at(instant));
-        schedules::round(self.world.db(), &site(), self.clock.now())
-            .await
-            .unwrap_or_else(|error| panic!("the round failed: {error}"))
+        schedules::round(
+            self.world.db(),
+            &site(),
+            Some(&self.forge),
+            self.clock.now(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("the round failed: {error}"))
     }
 
     async fn rows(&self) -> Vec<(String, Value, Option<String>, Option<String>)> {

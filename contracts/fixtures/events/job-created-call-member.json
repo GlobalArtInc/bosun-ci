@@ -1,0 +1,22 @@
+{
+  "seq": 10,
+  "run_id": "0192f3a4-5b6c-7d8e-9f01-000000000007",
+  "attempt_id": "0192f3a4-5b6c-7d8e-9f01-000000000008",
+  "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000013",
+  "execution_id": null,
+  "step_id": null,
+  "actor": {
+    "kind": "system"
+  },
+  "at": "2026-10-24T18:34:50.078Z",
+  "kind": "job.created",
+  "data": {
+    "key": "release/build",
+    "name": "Release / build",
+    "needs": [
+      "release/setup"
+    ],
+    "group_id": "0192f3a4-5b6c-7d8e-9f01-00000000000b",
+    "matrix": null
+  }
+}

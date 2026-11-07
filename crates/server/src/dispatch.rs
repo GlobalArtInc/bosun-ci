@@ -13,6 +13,7 @@ use bosun_workflow::github::{self, Dispatch};
 use sea_orm::{DatabaseTransaction, TransactionTrait};
 
 use crate::access::{Caller, OnProject, RunDispatch};
+use crate::callees;
 use crate::envelope::ApiError;
 use crate::forge::Forge;
 use crate::forge_events;
@@ -150,24 +151,51 @@ pub(crate) async fn dispatch(
         organization: None,
         sender: None,
     });
-    let run = planner::dispatch(
+    let loaded = forge_events::read_callees(
         &transaction,
-        NewRun {
-            workflow: &workflow,
-            revision_id: source.revision_id,
-            ir: &source.ir,
-            event: DISPATCH,
-            git_ref: checkout.as_ref().map(|checkout| checkout.git_ref.as_str()),
-            sha: checkout.as_ref().map(|checkout| checkout.sha.as_str()),
-            payload: &payload,
-            inputs: &inputs.typed,
-            actor: &caller.principal.actor(),
-            trust: Trust::Trusted,
-        },
-        &source.warnings,
-        &state.site,
+        state.forge.as_deref(),
+        &workflow,
+        checkout.as_ref().map(|checkout| checkout.sha.as_str()),
+        &source.ir,
     )
     .await
+    .map_err(|failure| {
+        forge_events::refused(
+            failure.into(),
+            checkout
+                .as_ref()
+                .map_or(workflow.name.as_str(), |checkout| &checkout.full_name),
+        )
+    })?;
+    let actor = caller.principal.actor();
+    let new = |ir| NewRun {
+        workflow: &workflow,
+        revision_id: source.revision_id,
+        ir,
+        event: DISPATCH,
+        git_ref: checkout.as_ref().map(|checkout| checkout.git_ref.as_str()),
+        sha: checkout.as_ref().map(|checkout| checkout.sha.as_str()),
+        payload: &payload,
+        inputs: &inputs.typed,
+        actor: &actor,
+        trust: Trust::Trusted,
+    };
+    let run = match &loaded {
+        callees::Loaded::Unchanged => {
+            planner::dispatch(&transaction, new(&source.ir), &source.warnings, &state.site).await
+        }
+        callees::Loaded::Ready(ready, warnings) => {
+            let mut notices = source.warnings.clone();
+            notices.extend(warnings.iter().cloned());
+            planner::dispatch(&transaction, new(ready), &notices, &state.site).await
+        }
+        callees::Loaded::Refused(diagnostics) => {
+            let failed = forge_events::bare(Some(&source.ir.triggers));
+            let mut notices = source.warnings.clone();
+            notices.extend(diagnostics.iter().cloned());
+            planner::fail_startup(&transaction, new(&failed), &notices).await
+        }
+    }
     .map_err(database)?;
     if workflow.source == WorkflowSource::Repository
         && checkout.is_some_and(|checkout| checkout.default_branch)

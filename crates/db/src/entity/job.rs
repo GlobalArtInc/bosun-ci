@@ -32,6 +32,9 @@ pub struct Model {
     pub capabilities: Vec<String>,
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub actions: Option<Json>,
+    pub kind: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub call: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

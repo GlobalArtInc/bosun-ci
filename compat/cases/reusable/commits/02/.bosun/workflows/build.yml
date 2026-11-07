@@ -1,0 +1,41 @@
+name: build
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      jobs:
+        type: number
+        default: 2
+      verbose:
+        type: boolean
+        default: false
+      channel:
+        type: string
+        default: stable
+    secrets:
+      token:
+      extra:
+    outputs:
+      artifact:
+        value: ${{ jobs.build.outputs.artifact }}
+jobs:
+  build:
+    runs-on: [self-hosted, alpha]
+    outputs:
+      artifact: ${{ steps.pack.outputs.artifact }}
+    env:
+      TOKEN: ${{ secrets.token }}
+      EXTRA: ${{ secrets.extra }}
+      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+      FORGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - id: pack
+        run: |
+          echo "inputs ${{ inputs.version }} ${{ inputs.jobs }} ${{ inputs.verbose }} ${{ inputs.channel }}"
+          if [ "${#TOKEN}" -ge 17 ]; then echo "token present"; else echo "token empty"; fi
+          if [ -z "$EXTRA" ]; then echo "extra empty"; else echo "extra present"; fi
+          if [ "${#DEPLOY_KEY}" -ge 17 ]; then echo "deploy key present"; else echo "deploy key empty"; fi
+          if [ -n "$FORGE_TOKEN" ]; then echo "forge token present"; fi
+          echo "artifact=bundle-${{ inputs.version }}" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,18 @@
+{
+  "description": "a callee that does not lower is refused at the uses of the caller, and its own diagnostics follow in its file",
+  "caller": "on: push\njobs:\n  release:\n    uses: ./.github/workflows/build.yml\n",
+  "files": {
+    ".github/workflows/build.yml": "on: workflow_call\njobs: {}\n"
+  },
+  "expected": {
+    "code": "callee_invalid",
+    "file": "ci",
+    "path": [
+      "jobs",
+      "release",
+      "uses"
+    ],
+    "line": 4,
+    "message": "is not valid"
+  }
+}

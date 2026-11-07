@@ -1,0 +1,25 @@
+{
+  "description": "a callee of another repository that the organisation's action policy does not permit is refused at the uses",
+  "caller": "on: push\njobs:\n  release:\n    uses: GlobalArt/shared/.github/workflows/release.yml@v1\n",
+  "files": {},
+  "shared": {
+    ".github/workflows/release.yml": "on: workflow_call\njobs:\n  first:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"
+  },
+  "policy": {
+    "mode": "listed",
+    "patterns": [
+      "actions/*"
+    ]
+  },
+  "expected": {
+    "code": "callee_forbidden",
+    "file": "ci",
+    "path": [
+      "jobs",
+      "release",
+      "uses"
+    ],
+    "line": 4,
+    "message": "is forbidden by the action policy of organisation `globalart`"
+  }
+}

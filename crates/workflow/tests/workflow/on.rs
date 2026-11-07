@@ -132,7 +132,7 @@ fn triggers_come_back_from_a_file_whose_jobs_are_broken() {
 fn no_triggers_come_back_when_on_itself_is_broken() {
     for source in [
         format!("on:\n  push:\n    branch: main\n{JOBS}"),
-        format!("on: [push, workflow_call]\n{JOBS}"),
+        format!("on:\n  push:\n    branches: []\n{JOBS}"),
         format!("on: push\non: pull_request\n{JOBS}"),
         format!("on: [push\n{JOBS}"),
         JOBS.to_string(),

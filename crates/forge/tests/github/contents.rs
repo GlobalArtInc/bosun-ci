@@ -124,3 +124,45 @@ async fn a_file_above_the_inline_limit_is_read_from_its_blob() {
     assert_eq!(file.content.len(), large.len());
     assert!(file.content == large);
 }
+
+#[tokio::test]
+async fn a_file_of_a_public_repository_is_read_without_credentials_and_a_private_one_is_not() {
+    let setup = setup().await;
+    let owner = setup.forge.install("acme", &[("contents", "read")]);
+    setup.forge.create_repository(owner, "acme/shared");
+    setup.forge.publish("acme/shared");
+    let commit = setup.forge.commit(
+        "acme/shared",
+        "main",
+        [(".github/workflows/release.yml", HELLO)],
+    );
+    let found = setup
+        .app
+        .public_file("acme", "shared", &commit, ".github/workflows/release.yml")
+        .await
+        .unwrap_or_else(|error| panic!("the public file is not read: {error}"))
+        .unwrap_or_else(|| panic!("the public file is missing"));
+    assert_eq!(
+        found,
+        File {
+            sha: HELLO_BLOB.to_owned(),
+            content: HELLO.as_bytes().to_vec(),
+        }
+    );
+    let missing = setup
+        .app
+        .public_file("acme", "shared", &commit, ".github/workflows/absent.yml")
+        .await
+        .unwrap_or_else(|error| panic!("the request failed: {error}"));
+    assert_eq!(missing, None);
+
+    let private = setup.forge.commit(FULL_NAME, "main", [("a.yml", HELLO)]);
+    let (owner, name) = FULL_NAME.split_once('/').expect("an owner");
+    let hidden = setup
+        .app
+        .public_file(owner, name, &private, "a.yml")
+        .await
+        .unwrap_or_else(|error| panic!("the request failed: {error}"));
+    assert_eq!(hidden, None);
+    assert!(setup.forge.tokens().is_empty());
+}

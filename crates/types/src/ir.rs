@@ -239,6 +239,44 @@ pub struct Workflow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
     pub jobs: Vec<JobTemplate>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub calls: BTreeMap<JobKey, usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub callees: Vec<Reusable>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reusable {
+    pub repository: String,
+    pub path: String,
+    pub commit: String,
+    pub workflow: Workflow,
+}
+
+impl Workflow {
+    pub fn job(&self, key: &JobKey) -> Option<(&Workflow, &JobTemplate)> {
+        let mut workflow = self;
+        let mut segments = key.segments().peekable();
+        loop {
+            let segment = segments.next()?;
+            let template = workflow
+                .jobs
+                .iter()
+                .find(|template| template.key.as_str() == segment)?;
+            if segments.peek().is_none() {
+                return Some((workflow, template));
+            }
+            let index = *workflow.calls.get(&template.key)?;
+            workflow = &self.callees.get(index)?.workflow;
+        }
+    }
+
+    pub fn has_calls(&self) -> bool {
+        self.jobs
+            .iter()
+            .any(|template| matches!(template.kind, JobKind::Call(_)))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

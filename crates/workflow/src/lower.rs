@@ -653,6 +653,8 @@ impl<'f> Lowering<'f> {
             cache_mode: cache_mode?,
             priority: priority?,
             jobs: jobs?,
+            calls: BTreeMap::new(),
+            callees: Vec::new(),
         })
     }
 }

@@ -1,0 +1,32 @@
+name: reusable
+on: push
+jobs:
+  prepare:
+    runs-on: [self-hosted, alpha]
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - id: pick
+        run: echo "version=1.2.3" >> "$GITHUB_OUTPUT"
+  release:
+    needs: prepare
+    uses: ./.bosun/workflows/build.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      jobs: 4
+      verbose: true
+    secrets:
+      token: ${{ secrets.DEPLOY_KEY }}
+  inherited:
+    needs: prepare
+    uses: ./.bosun/workflows/build.yml
+    with:
+      version: 2.0.0
+    secrets: inherit
+  report:
+    needs: [release, inherited]
+    runs-on: [self-hosted, beta]
+    steps:
+      - run: |
+          echo "release built ${{ needs.release.outputs.artifact }}"
+          echo "inherited built ${{ needs.inherited.outputs.artifact }}"

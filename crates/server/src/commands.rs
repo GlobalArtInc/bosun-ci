@@ -150,16 +150,9 @@ pub(crate) async fn apply(
                 .await;
             }
             let accepted = accept(run, Some(job), actor, request).await?;
-            let members: Vec<&JobState> = jobs
-                .iter()
-                .filter(|member| member.group == Some(job.id))
-                .collect();
-            if members.is_empty() {
-                cancel(run, job, actor).await.map_err(database)?;
-            }
-            for member in members {
-                cancel(run, member, actor).await.map_err(database)?;
-            }
+            planner::stop_tree(run, &jobs, job, StatusReason::Command, actor)
+                .await
+                .map_err(database)?;
             planner::plan(run, site).await.map_err(database)?;
             Ok(Applied::Accepted(Box::new(accepted)))
         }
@@ -259,12 +252,6 @@ async fn refuse(
     .await
     .map_err(database)?;
     Ok(Applied::Refused(message))
-}
-
-async fn cancel(run: &Locked<'_>, job: &JobState, actor: &Actor) -> Result<(), bosun_db::Error> {
-    planner::stop(run, job, StatusReason::Command, actor)
-        .await
-        .map(|_| ())
 }
 
 pub(crate) fn name(command: &Command) -> &'static str {

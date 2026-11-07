@@ -335,6 +335,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
             started_at: ActiveValue::Set(None),
             completed_at: ActiveValue::Set(None),
             actions: ActiveValue::Set(actions),
+            kind: ActiveValue::Set("steps".to_owned()),
+            call: ActiveValue::Set(None),
         }
         .insert(db)
         .await

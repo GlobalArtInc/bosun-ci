@@ -262,13 +262,8 @@ async fn declared(
                 .as_ref()
                 .is_some_and(|current| current.id == execution)
         })
-        .and_then(|job| {
-            workflow
-                .jobs
-                .iter()
-                .find(|template| template.key == job.key)
-        })
-        .map(|template| &template.outputs);
+        .and_then(|job| workflow.job(&job.key))
+        .map(|(_, template)| &template.outputs);
     let (kept, dropped): (BTreeMap<String, String>, BTreeMap<String, String>) = reported
         .into_iter()
         .partition(|(name, _)| declared.is_some_and(|declared| declared.contains_key(name)));

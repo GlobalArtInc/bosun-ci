@@ -1,0 +1,18 @@
+{
+  "description": "a local callee outside .github/workflows and .bosun/workflows is refused",
+  "caller": "on: push\njobs:\n  release:\n    uses: ./scripts/build.yml\n",
+  "files": {
+    "scripts/build.yml": "on: workflow_call\njobs:\n  first:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"
+  },
+  "expected": {
+    "code": "callee_invalid",
+    "file": "ci",
+    "path": [
+      "jobs",
+      "release",
+      "uses"
+    ],
+    "line": 4,
+    "message": "directly in `.github/workflows/` or `.bosun/workflows/`"
+  }
+}

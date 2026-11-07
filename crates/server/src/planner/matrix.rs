@@ -576,7 +576,7 @@ fn leaves(value: &Value, found: &mut Vec<String>) {
     }
 }
 
-fn json(value: &Value) -> serde_json::Value {
+pub(super) fn json(value: &Value) -> serde_json::Value {
     match value {
         Value::Null => serde_json::Value::Null,
         Value::Boolean(flag) => serde_json::Value::Bool(*flag),

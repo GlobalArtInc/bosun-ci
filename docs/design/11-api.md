@@ -582,6 +582,9 @@ projects returns, or the requests that create one.
   in `group_id` and its combination of the matrix in `matrix`; both are `null` for every other job,
   and a group is the job that members name ([04-runs.md](04-runs.md#parts-of-a-run)), listed before
   them.
+  The `key` of a member of a called workflow is a path of job ids joined by `/`, such as
+  `release/build`, and its `group_id` names the call
+  ([04-runs.md](04-runs.md#calls-of-reusable-workflows)).
 - `GET /jobs/{job}` answers with one job in the same shape, and `GET /executions/{execution}` with
   one execution and its `steps`, ordered by `index`, empty until the agent starts the job. Step 35
   of M1 ([../plan.md](../plan.md)) added what a step reports besides its log

@@ -32,8 +32,12 @@ fn is_valid(value: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
+fn is_path(value: &str) -> bool {
+    !value.is_empty() && value.split('/').all(is_valid)
+}
+
 macro_rules! keys {
-    ($($name:ident => $kind:literal),* $(,)?) => {
+    ($($name:ident => $kind:literal, $accepts:path),* $(,)?) => {
         $(
             #[derive(
                 Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
@@ -51,7 +55,7 @@ macro_rules! keys {
                 type Error = KeyError;
 
                 fn try_from(value: String) -> Result<Self, KeyError> {
-                    if is_valid(&value) {
+                    if $accepts(&value) {
                         Ok(Self(value))
                     } else {
                         Err(KeyError { kind: $kind, value })
@@ -75,14 +79,36 @@ macro_rules! keys {
                 type Err = KeyError;
 
                 fn from_str(value: &str) -> Result<Self, KeyError> {
-                    Self::try_from(value.to_string())
+                    if is_valid(value) {
+                        Ok(Self(value.to_string()))
+                    } else {
+                        Err(KeyError { kind: $kind, value: value.to_string() })
+                    }
                 }
             }
         )*
     };
 }
 
-keys!(JobKey => "job key", StepKey => "step key");
+keys!(JobKey => "job key", is_path, StepKey => "step key", is_valid);
+
+impl JobKey {
+    pub fn member(&self, callee: &JobKey) -> JobKey {
+        JobKey(format!("{}/{}", self.0, callee.0))
+    }
+
+    pub fn local(&self) -> &str {
+        self.0.rsplit('/').next().unwrap_or(&self.0)
+    }
+
+    pub fn segments(&self) -> impl Iterator<Item = &str> {
+        self.0.split('/')
+    }
+
+    pub fn is_member(&self) -> bool {
+        self.0.contains('/')
+    }
+}
 
 impl JsonSchema for JobKey {
     fn inline_schema() -> bool {
@@ -94,6 +120,9 @@ impl JsonSchema for JobKey {
     }
 
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" })
+        json_schema!({
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(/[A-Za-z_][A-Za-z0-9_-]*)*$"
+        })
     }
 }

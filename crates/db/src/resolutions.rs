@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bosun_types::action_policy::ActionPolicy;
-use bosun_types::id::{JobId, RunId};
+use bosun_types::id::{JobId, OrganisationId, RunId};
 use bosun_types::ir::{self, Action, ActionReference, JobKind, Span};
 use bosun_types::key::JobKey;
 use bosun_types::status::{JobStatus, WaitingReason};
@@ -81,15 +81,11 @@ impl Raw {
     fn read(self) -> Result<Claimed, Error> {
         let key: JobKey = row::name(JOBS, self.key)?;
         let workflow: ir::Workflow = row::json("run", self.ir)?;
-        let template = workflow
-            .jobs
-            .into_iter()
-            .find(|template| template.key == key)
-            .ok_or_else(|| Error::Row {
-                table: "run",
-                message: format!("the IR of the run has no job `{key}`"),
-            })?;
-        let JobKind::Steps(steps) = template.kind else {
+        let (_, template) = workflow.job(&key).ok_or_else(|| Error::Row {
+            table: "run",
+            message: format!("the IR of the run has no job `{key}`"),
+        })?;
+        let JobKind::Steps(steps) = template.kind.clone() else {
             return Err(Error::Row {
                 table: "run",
                 message: format!("the job `{key}` runs no steps"),
@@ -250,6 +246,32 @@ pub async fn overdue<C: ConnectionTrait>(
         .map(|found| Ok(found.try_get("", "overdue")?))
         .transpose()
         .map(|overdue| overdue.unwrap_or(false))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Policy {
+    pub organisation: String,
+    pub policy: ActionPolicy,
+    pub account: Option<String>,
+}
+
+pub async fn policy<C: ConnectionTrait>(
+    db: &C,
+    organisation: OrganisationId,
+) -> Result<Policy, Error> {
+    let found = db
+        .query_one(statement(
+            "SELECT o.slug, o.action_policy, fi.account_login FROM organisation o \
+             LEFT JOIN forge_installation fi ON fi.organisation_id = o.id WHERE o.id = $1",
+            [Uuid::from(organisation).into()],
+        ))
+        .await?
+        .ok_or_else(|| Error::Vanished(format!("organisation {organisation}")))?;
+    Ok(Policy {
+        organisation: found.try_get("", "slug")?,
+        policy: row::json("organisation", found.try_get("", "action_policy")?)?,
+        account: found.try_get("", "account_login")?,
+    })
 }
 
 pub async fn standing(

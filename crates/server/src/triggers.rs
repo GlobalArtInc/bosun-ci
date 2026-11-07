@@ -21,6 +21,7 @@ use tracing::{info, warn};
 
 use crate::access;
 use crate::clock::Clock;
+use crate::forge::Forge;
 use crate::forge_events::{self, Followed};
 use crate::metrics::Meters;
 use crate::outbox::{DELIVERY, LEASE, PAUSE, POLL, settle};
@@ -38,6 +39,7 @@ const UPSTREAM: &str = "upstream";
 pub(crate) struct Triggers {
     pub(crate) db: DatabaseConnection,
     pub(crate) site: Site,
+    pub(crate) forge: Option<Arc<Forge>>,
     pub(crate) clock: Clock,
     pub(crate) meters: Arc<Meters>,
 }
@@ -363,6 +365,7 @@ async fn fire(
         let run = forge_events::followed(
             &transaction,
             &triggers.site,
+            triggers.forge.as_deref(),
             Followed {
                 workflow,
                 revision: &revision,

@@ -34,7 +34,7 @@ fn name_cases() -> Vec<NameCase> {
     serde_json::from_str(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
-async fn scopes(world: &World) -> (Scope, Scope) {
+pub(super) async fn scopes(world: &World) -> (Scope, Scope) {
     let project = bosun_db::projects::find(world.db(), world.workflow.project_id)
         .await
         .expect("a project")
@@ -51,7 +51,7 @@ async fn scopes(world: &World) -> (Scope, Scope) {
     )
 }
 
-async fn secret(world: &World, scope: Scope, name: &str, value: &str) {
+pub(super) async fn secret(world: &World, scope: Scope, name: &str, value: &str) {
     let sealed = keys()
         .seal(&secrets::binding(&scope, name), value.as_bytes())
         .expect("a sealed value");
@@ -66,7 +66,7 @@ async fn variable(world: &World, scope: Scope, name: &str, value: &str) {
         .expect("a variable");
 }
 
-fn strings(pairs: &[(&str, &str)]) -> Map<String, Value> {
+pub(super) fn strings(pairs: &[(&str, &str)]) -> Map<String, Value> {
     pairs
         .iter()
         .map(|(name, value)| ((*name).to_owned(), json!(value)))

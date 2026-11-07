@@ -1,0 +1,22 @@
+{
+  "description": "secrets: inherit does not carry across accounts at the second level of a chain: the callee of the same account may inherit, the callee it inherits to may not hand every secret on to another account",
+  "caller": "on: push\njobs:\n  top:\n    uses: GlobalArt/shared/.github/workflows/middle.yml@v1\n    secrets: inherit\n",
+  "files": {},
+  "shared": {
+    ".github/workflows/middle.yml": "on: workflow_call\njobs:\n  next:\n    uses: ThirdParty/lib/.github/workflows/release.yml@v1\n    secrets: inherit\n"
+  },
+  "foreign": {
+    ".github/workflows/release.yml": "on: workflow_call\njobs:\n  first:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"
+  },
+  "expected": {
+    "code": "callee_forbidden",
+    "file": "GlobalArt/shared/.github/workflows/middle.yml",
+    "path": [
+      "jobs",
+      "next",
+      "uses"
+    ],
+    "line": 4,
+    "message": "`secrets: inherit` is allowed only for a callee of the same account as the calling workflow; pass the secrets by name"
+  }
+}
