@@ -12,8 +12,9 @@ Bosun is checked.
   what they recorded, `expr.json`.
 - `fixtures/`: the fixtures of the tools of this directory: `inventory/`, a tree of workflows with
   its inventory, and `recordings/`, cases with their workflow, a log of its run and the recordings
-  imported from it. `fixtures/actions/` holds Bosun's own fixture actions, `first`, `second` and
-  `failure`, built with the toolkit: their sources are in `src/<action>/`, and
+  imported from it. `fixtures/actions/` holds Bosun's own fixture actions, `first`, `second`,
+  `failure` and `runtime` (which prints the runtime variables and the masked token), built with the
+  toolkit: their sources are in `src/<action>/`, and
   `corepack pnpm install && corepack pnpm build` in that directory bundles each into
   `<action>/dist/`, which is committed so that tests need no package registry. The tests of the
   runner run them from this directory, the agent's tests from a tarball of it, and the server's
@@ -45,6 +46,21 @@ shasum -a 256 tarball.tar.gz
 
 For an annotated tag, `git ls-remote` also lists `refs/tags/<ref>^{}`, and the commit is that line.
 None of the vendored tags is annotated.
+
+`actions/bosun-fixtures/actions/v1/` is Bosun's own fixture action `runtime`, packed from
+`fixtures/actions/runtime/` (its `dist/` is built as above first). The tarball is the pack of that
+directory, the same bytes each time (GNU tar headers, mode 0644, owner 0, time 0, no directory
+entries, gzip level 9 with time 0), and nobody writes it by hand:
+
+```sh
+hack/pack-fixture-action.sh compat/fixtures/actions/runtime compat/actions/bosun-fixtures/actions/v1
+```
+
+rewrites `tarball.tar.gz` and the `sha256` of `manifest.json`, whose `commit` it keeps. With
+`--check` before the two directories, the script writes nothing and fails when the manifest's hash is
+not the tarball's or when the tarball, once decompressed, is not the pack of the directory (the
+compressed bytes may differ between zlib builds, the tar inside does not). `hack/e2e.sh` runs the
+check before it builds anything, and so does CI.
 
 ## Cases
 

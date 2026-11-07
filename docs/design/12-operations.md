@@ -109,7 +109,10 @@ brings the schema up to date the same way, creates an owner and prints its first
 as `serve` does, without ever generating one, brings the schema up to date, re-encrypts the data
 key of every secret that is not under the current KEK, prints
 `re-encrypted the data keys of <n> secrets under the KEK <id>`, and exits with 1 and an error that
-names each secret it could not re-encrypt ([07-storage.md](07-storage.md#secrets-at-rest)). It logs
+names each secret it could not re-encrypt ([07-storage.md](07-storage.md#secrets-at-rest)). It moves
+the data key of the live key that signs job tokens as well
+([07-storage.md](07-storage.md#the-key-that-signs-job-tokens)), and the count of secrets does not
+include it. It logs
 to standard error. `bosun-server serve` loads the KEK,
 or generates it into the data directory when the configuration names none,
 connects to the database, brings the schema up to date ([07-storage.md](07-storage.md)), creates the
@@ -253,6 +256,7 @@ max_queue_time = "24h"
 max_pause = "24h"
 max_hold = "2h"
 agent_grace = "10m"
+signing_key_rotation = "720h"
 max_log_retention = 400
 max_run_retention = 730
 ```
@@ -379,6 +383,10 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   an assignment before its job returns to the queue, defaults to 30 seconds, and
   `limits.max_queue_time`, after which a job no agent took is cancelled with `no_agent`, to 24
   hours ([04-runs.md](04-runs.md#dispatch)). Tests shorten them.
+- `limits.signing_key_rotation` (`BOSUN_LIMITS_SIGNING_KEY_ROTATION`) is the rotation period of the
+  key that signs job tokens ([07-storage.md](07-storage.md#the-key-that-signs-job-tokens)), 720
+  hours (30 days) by default and at least one hour: a shorter value stops the server at start with
+  an error that names the key.
 - `limits.max_log_retention` and `limits.max_run_retention` are the installation's maximums of the
   project settings `log_retention` and `run_retention` ([11-api.md](11-api.md#project-settings)),
   whole numbers of days from 1 to 65535. Logs and step summaries are kept for at most 400 days by
@@ -526,7 +534,9 @@ reads this table and checks the exposition against it.
 - **The KEK.** Without it every secret is lost. It is kept outside the cluster that runs Bosun; on a
   single host with a generated key, that means a copy of `keys/kek` from the data directory, which
   the server's log asks for on the start that generated it. After a rotation, the backups of the
-  database taken before `bosun-server secrets rewrap` need the earlier KEK.
+  database taken before `bosun-server secrets rewrap` need the earlier KEK. Losing it also seals
+  the live key that signs job tokens: the operator retires that key by hand and the next
+  assignment generates a new one ([07-storage.md](07-storage.md#the-key-that-signs-job-tokens)).
 
 A restore needs the three together. Logs and artifacts missing from a restored bucket show as
 "expired" on the run page rather than failing it.

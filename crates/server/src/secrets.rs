@@ -187,6 +187,7 @@ pub(crate) async fn rewrap(db: &DatabaseConnection, keys: &Keyring) -> Result<u6
             }
         }
     }
+    crate::signing_key::rewrap(db, keys, &mut failures).await?;
     if failures.is_empty() {
         Ok(rewrapped)
     } else {

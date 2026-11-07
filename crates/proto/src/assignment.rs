@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use bosun_types::ir::{ActionMetadata, ActionReference, JobTemplate, Shell};
 use serde::de::DeserializeOwned;
@@ -28,6 +29,27 @@ pub struct Evaluated {
     pub working_directory: Option<String>,
     pub timeout_minutes: u32,
     pub continue_on_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<Runtime>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Runtime {
+    pub token: String,
+    pub runtime_url: String,
+    pub results_url: String,
+    pub cache_url: String,
+}
+
+impl fmt::Debug for Runtime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Runtime")
+            .field("runtime_url", &self.runtime_url)
+            .field("results_url", &self.results_url)
+            .field("cache_url", &self.cache_url)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

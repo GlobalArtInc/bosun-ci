@@ -37,6 +37,11 @@ pub(crate) const FORGE_TOKEN: Labels = Labels {
     data_key: b"bosun forge token data key\0",
 };
 
+pub(crate) const JOB_TOKEN_KEY: Labels = Labels {
+    value: b"bosun job token key value\0",
+    data_key: b"bosun job token key data key\0",
+};
+
 const SIGNING_LABEL: &[u8] = b"bosun signing key\0";
 
 const GENERATED: &str = "keys/kek";
@@ -135,6 +140,12 @@ impl Keyring {
         &self.current.id
     }
 
+    pub(crate) fn holds(&self, kek_id: &str) -> bool {
+        std::iter::once(&self.current)
+            .chain(&self.previous)
+            .any(|kek| kek.id == kek_id)
+    }
+
     pub(crate) fn seal(&self, binding: &[u8], value: &[u8]) -> Result<Sealed, Error> {
         self.seal_as(&SECRET, binding, value)
     }
@@ -172,8 +183,17 @@ impl Keyring {
     }
 
     pub(crate) fn rewrap(&self, binding: &[u8], sealed: &Sealed) -> Result<Vec<u8>, Unreadable> {
-        let data_key = self.data_key(&SECRET, binding, sealed)?;
-        encrypt(&self.current.key, &aad(SECRET.data_key, binding), &data_key)
+        self.rewrap_as(&SECRET, binding, sealed)
+    }
+
+    pub(crate) fn rewrap_as(
+        &self,
+        labels: &Labels,
+        binding: &[u8],
+        sealed: &Sealed,
+    ) -> Result<Vec<u8>, Unreadable> {
+        let data_key = self.data_key(labels, binding, sealed)?;
+        encrypt(&self.current.key, &aad(labels.data_key, binding), &data_key)
             .map_err(|_| Unreadable::Refused(sealed.kek_id.clone()))
     }
 

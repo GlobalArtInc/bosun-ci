@@ -353,6 +353,12 @@ documents beside it, which the agent reads with every field it does not know ref
   which the planner evaluated when the job became ready, merged over it, so a name in both takes the
   job's value. When the job's `env` or `defaults.run` read secrets, the assignment evaluates them,
   rather than the planner ([03-expressions.md](03-expressions.md#the-contexts-the-server-supplies)).
+  `runtime`, present only for a job whose `actions` list is not empty and only when the server has a
+  public address: `token`, the job token, and `runtime_url`, `results_url` and `cache_url`, the
+  values of `ACTIONS_RUNTIME_URL`, `ACTIONS_RESULTS_URL` and `ACTIONS_CACHE_URL`
+  ([06-runtime-services.md](06-runtime-services.md#the-job-token)). The agent gives these, with
+  `ACTIONS_CACHE_SERVICE_V2=True`, to the processes of the job's Node actions only, last, after the
+  step's own `env`, so that nothing the workflow sets replaces them, and masks the token.
 - `actions`, a list with one entry per distinct `uses` of the job's steps, in the order of the steps:
   `uses`, the step's reference as the job template holds it, an object with `owner`, `repository`,
   `path` (`null` for an action at the root of its repository) and `ref`, not the text the step
@@ -368,6 +374,14 @@ with the same types from `bosun-types`. And a JSON reader can refuse what it doe
 protobuf drops an unknown field without a word, which would let an agent run a job without a part it
 never saw. The documents replaced the structured steps and the text `env` of M0, whose field
 numbers are reserved.
+
+The job token and the addresses of the runtime services travel in `evaluated`, not in a field of
+`Assignment`, for the reason above: an agent that does not know them must refuse the job, not run an
+action without the variables it needs. A key of a document that the agent does not know is refused
+([Fields an agent does not know](#fields-an-agent-does-not-know)), so an agent of the previous minor version answers `Reject` to the assignment of a
+job with an action, and a server omits the key for a job without one, which that agent still runs.
+A rolling update therefore leaves the jobs that use actions to the agents of the new version, and
+the others to every agent.
 
 The forge token travels in a field of `Assignment` as well, `forge_token`, with `expires_in`, the
 time it has left when the server sends it, from which the agent counts its expiry on its own clock
@@ -390,7 +404,10 @@ would see a job without steps and report it successful. An agent of M0 does not 
 either, and so announces `0`. A replica admits an agent of another revision as the version rule
 says, so it can still report the job it was running when the server was upgraded under it, logs a
 warning that names both revisions, and never claims a job for it: the agent stays connected and
-idle until it is upgraded, and no job is offered to it, in a loop or otherwise.
+idle until it is upgraded, and no job is offered to it, in a loop or otherwise. The job token and the
+addresses of the runtime services (`runtime` in `evaluated`) did not raise the revision: an agent
+that predates them refuses the document that holds them, which is the behaviour the revision exists
+to guarantee.
 
 **Fields an agent does not know.** Within a revision a newer server may hand over something an
 agent does not know, such as a key of the IR that a later step lowers. The agent answers `Reject`

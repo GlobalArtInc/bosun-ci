@@ -8,9 +8,10 @@ use bosun_db::control::{self, Kind};
 use bosun_db::queue::{Claim, Claimed, ClaimedJob};
 use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::agent::v1::{Assignment, ServerMessage};
-use bosun_proto::assignment::{self as document, Documents, Evaluated};
+use bosun_proto::assignment::{self as document, Documents, Evaluated, Runtime};
 use bosun_types::id::{AgentId, ExecutionId, JobId};
 use bosun_types::status::ExecutionStatus;
+use chrono::Utc;
 use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{info, warn};
@@ -19,7 +20,9 @@ use crate::actions::{self, Actions};
 use crate::agents::{Offer, Replica, Turn, Turned};
 use crate::config::Queue;
 use crate::forge_token::{Minted, Tokens};
+use crate::job_token;
 use crate::planner::{self, Assigned, Outcome};
+use crate::signing_key::Failure;
 use crate::site::Site;
 use crate::tools;
 
@@ -37,6 +40,8 @@ pub(crate) enum Unoffered {
     Database(#[from] Error),
     #[error("the actions of the job could not be prepared: {0}")]
     Actions(#[from] tools::Failure),
+    #[error("the job token cannot be minted: {0}")]
+    JobToken(#[from] Failure),
 }
 
 impl From<DbErr> for Unoffered {
@@ -290,6 +295,12 @@ pub(crate) async fn assignment(
 ) -> Result<Option<Offer>, Unoffered> {
     let execution = claimed.execution_id;
     let prepared = actions.prepare(&claimed).await?;
+    let runtime = match &prepared {
+        actions::Prepared::Ready { actions, .. } if !actions.is_empty() => {
+            job_token::runtime(db, tokens.keys(), site, &claimed, Utc::now()).await?
+        }
+        _ => None,
+    };
     let minted = match &prepared {
         actions::Prepared::Failed(_) => Minted::Tokenless,
         actions::Prepared::Ready { .. } => tokens.mint(&claimed).await,
@@ -302,7 +313,9 @@ pub(crate) async fn assignment(
         }
     };
     match outcome {
-        Outcome::Assigned(assigned) => offer(claimed, *assigned, prepared.into_actions()).map(Some),
+        Outcome::Assigned(assigned) => {
+            offer(claimed, *assigned, prepared.into_actions(), runtime).map(Some)
+        }
         Outcome::Failed(reason) => {
             warn!(
                 job_id = %claimed.job_id,
@@ -342,6 +355,7 @@ fn offer(
     claimed: ClaimedJob,
     assigned: Assigned,
     actions: Vec<document::Action>,
+    runtime: Option<Runtime>,
 ) -> Result<Offer, Unoffered> {
     let documents = Documents {
         job: claimed.job,
@@ -352,6 +366,7 @@ fn offer(
             working_directory: assigned.working_directory,
             timeout_minutes: claimed.evaluated.timeout_minutes,
             continue_on_error: claimed.continue_on_error,
+            runtime,
         },
         actions,
     };

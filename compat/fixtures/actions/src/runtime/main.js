@@ -1,0 +1,12 @@
+const names = [
+  "ACTIONS_RUNTIME_URL",
+  "ACTIONS_RESULTS_URL",
+  "ACTIONS_CACHE_URL",
+  "ACTIONS_CACHE_SERVICE_V2",
+];
+for (const name of names) {
+  console.log(`${name}=${process.env[name] ?? ""}`);
+}
+const token = process.env.ACTIONS_RUNTIME_TOKEN ?? "";
+console.log(`token ${token}`);
+console.log(`encoded ${Buffer.from(token).toString("base64")}`);

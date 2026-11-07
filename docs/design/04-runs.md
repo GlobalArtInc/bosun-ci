@@ -387,7 +387,10 @@ Timeouts: `timeout-minutes` of a job (default 360) counts only the time spent `i
 pauses and holds do not consume it. The agent enforces it, as it does a step's `timeout-minutes`: a
 job that runs out of time concludes `timed_out`, and a step that does concludes `timed_out` and
 fails its job unless the step may fail under `continue-on-error`
-([05-execution.md](05-execution.md#main-steps)). Paused and held time has its own limit,
+([05-execution.md](05-execution.md#main-steps)). A job with `timeout-minutes: 0` or with more than
+seven days outlives its job token, whose longest life is 8 days and 3 hours
+([06-runtime-services.md](06-runtime-services.md#the-job-token)); the runtime services refuse the
+token after that. Paused and held time has its own limit,
 `max_pause` (default 24 hours) and the hold duration ([02-workflows.md](02-workflows.md)); when it
 runs out, the job is cancelled or released as failed. A paused or held job keeps its agent slot,
 and the queue page says which slots are occupied this way.

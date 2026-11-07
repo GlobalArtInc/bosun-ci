@@ -33,6 +33,7 @@ pub mod schema_version;
 pub mod secret;
 pub mod session;
 pub mod sign_in_failure;
+pub mod signing_key;
 pub mod step;
 pub mod step_summary;
 pub mod stream_event;

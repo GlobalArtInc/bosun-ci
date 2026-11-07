@@ -18,6 +18,7 @@ mod runs;
 mod schedules;
 mod secrets;
 mod sessions;
+mod signing_keys;
 mod stream;
 mod tenancy;
 mod transitions;

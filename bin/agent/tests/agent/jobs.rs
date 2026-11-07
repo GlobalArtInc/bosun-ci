@@ -194,6 +194,14 @@ async fn an_assignment_with_a_field_the_agent_does_not_know_is_rejected_naming_t
     contexts["runner"] = json!({});
     let mut evaluated: Value = serde_json::from_str(&known.evaluated).expect("the values");
     evaluated["services"] = json!({});
+    let mut runtime: Value = serde_json::from_str(&known.evaluated).expect("the values");
+    runtime["runtime"] = json!({
+        "token": "t",
+        "runtime_url": "https://ci.example.org/_runtime/",
+        "results_url": "https://ci.example.org/",
+        "cache_url": "https://ci.example.org/_runtime/cache/",
+        "proxy": "http://proxy:3128",
+    });
     let mut step_field: Value = serde_json::from_str(&known.job).expect("the job as JSON");
     step_field["kind"]["steps"][0]["retry"] = json!(3);
     for (document, field, assignment) in [
@@ -218,6 +226,14 @@ async fn an_assignment_with_a_field_the_agent_does_not_know_is_rejected_naming_t
             "services",
             Assignment {
                 evaluated: evaluated.to_string(),
+                ..assignment(vec![step("echo")])
+            },
+        ),
+        (
+            "evaluated",
+            "proxy",
+            Assignment {
+                evaluated: runtime.to_string(),
                 ..assignment(vec![step("echo")])
             },
         ),

@@ -1,0 +1,6 @@
+{
+  "commits": [
+    {"message": "a readme"},
+    {"message": "a Node action and a run step read the runtime variables"}
+  ]
+}

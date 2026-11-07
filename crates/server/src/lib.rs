@@ -23,6 +23,7 @@ mod hooks;
 mod idempotency;
 mod install;
 mod interface;
+mod job_token;
 mod keys;
 mod lint;
 mod logs;
@@ -53,6 +54,7 @@ mod sessions;
 mod settings;
 mod shutdown;
 mod sign_in;
+mod signing_key;
 mod site;
 mod slug;
 mod store;
@@ -124,6 +126,12 @@ pub async fn serve(
         warn!(
             "this build carries no web interface, so the server answers its pages with how to \
              build it; the API, the CLI and the agents work without it"
+        );
+    }
+    if config.site.url().is_empty() {
+        warn!(
+            "server.public_url is not set, so no job receives a token or the addresses of the \
+             runtime services, and an action that uploads an artifact or uses a cache fails"
         );
     }
     let keys = Arc::new(keys::load(
@@ -223,6 +231,12 @@ pub async fn serve(
     }
     tasks.spawn(queue::sweep(Arc::clone(&dispatcher)));
     tasks.spawn(logs::sweep(db.clone(), Arc::clone(&store)));
+    tasks.spawn(signing_key::sweep(
+        db.clone(),
+        Arc::clone(&keys),
+        clock.clone(),
+        config.signing_key_rotation,
+    ));
     tasks.spawn(sessions::sweep(db.clone(), clock.clone()));
     tasks.spawn(retention::sweep(
         db.clone(),

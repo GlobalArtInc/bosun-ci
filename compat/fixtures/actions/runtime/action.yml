@@ -1,0 +1,5 @@
+name: Runtime
+description: Prints the variables that reach the actions of a job, with the job token twice, plain and encoded.
+runs:
+  using: node24
+  main: dist/main.js

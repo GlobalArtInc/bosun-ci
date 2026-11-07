@@ -493,6 +493,7 @@ dependencies = [
  "bosun-expr",
  "bosun-forge",
  "bosun-proto",
+ "bosun-services",
  "bosun-testkit",
  "bosun-types",
  "bosun-workflow",

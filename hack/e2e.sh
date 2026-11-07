@@ -246,12 +246,34 @@ ready() {
 }
 
 serve() {
-  local replica="$1" listen="$2" log
+  local replica="$1" listen="$2" public="${3:-}" log address_setting=()
+  if [ -n "$public" ]; then
+    address_setting=(BOSUN_SERVER_PUBLIC_URL="http://$listen")
+  fi
   serves=$((serves + 1))
   log="$work/logs/server-$replica.$serves.log"
-  spawn "server-$replica" "$log" env "${settings[@]}" BOSUN_SERVER_LISTEN="$listen" \
-    "$bin/bosun-server" --config "$work/server.toml" serve
+  spawn "server-$replica" "$log" env "${settings[@]}" ${address_setting[@]+"${address_setting[@]}"} \
+    BOSUN_SERVER_LISTEN="$listen" "$bin/bosun-server" --config "$work/server.toml" serve
   ready "replica $replica" "$log"
+}
+
+with_public_address() {
+  local replica listen
+  for replica in a b; do
+    eval "listen=\$address_$replica"
+    stop_process "server-$replica" "$(pid_of "server-$replica")" 30
+    serve "$replica" "$listen" "$1"
+  done
+  await_agents
+}
+
+await_agents() {
+  local deadline=$((SECONDS + 60))
+  until [ "$(cli --profile b --json agent list |
+    jq '[.[] | select(.online and (.name == "e2e-alpha" or .name == "e2e-beta"))] | length')" -eq 2 ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the agents did not come online: $(cli --profile b agent list)"
+    sleep 0.2
+  done
 }
 
 first_start() {
@@ -1605,8 +1627,12 @@ run_case() {
 scenario_cases() {
   begin cases "every case of compat/cases/, or each one named by --case, runs on the fake forge and matches its expected.json"
   forge_ready
-  local name ran=0
+  local name ran=0 public=""
   skipped_cases=0
+  if [ "$(uname -s)" = Linux ]; then
+    public=1
+    with_public_address public
+  fi
   for name in $(case_names); do
     if [ -n "$cases_only" ]; then
       case " $cases_only " in
@@ -1619,6 +1645,9 @@ scenario_cases() {
     clean_runner_cache
   done
   current=cases
+  if [ -n "$public" ]; then
+    with_public_address ""
+  fi
   if [ "$ran" -gt 0 ] && [ "$skipped_cases" -eq "$ran" ]; then
     echo "scenario cases: skipped ($skipped_cases cases skipped on this system)"
     return 0
@@ -1732,6 +1761,9 @@ case " $selected " in
     (cd "$root/web" && corepack pnpm install --frozen-lockfile && corepack pnpm build)
     ;;
 esac
+"$root/hack/pack-fixture-action.sh" --check "$root/compat/fixtures/actions/runtime" \
+  "$root/compat/actions/bosun-fixtures/actions/v1" ||
+  fail "the vendored tarball of the fixture actions is not the pack of compat/fixtures/actions/runtime"
 echo "building bosun-server, bosun-agent, bosun and bosun-fake-forge"
 cargo build --manifest-path "$root/Cargo.toml" -p bosun-server-bin -p bosun-agent -p bosun-cli -p bosun-testkit
 target="$(cargo metadata --manifest-path "$root/Cargo.toml" --format-version 1 --no-deps |
@@ -1879,11 +1911,7 @@ for agent in alpha:a beta:b; do
     GIT_CONFIG_KEY_0=http.curloptResolve GIT_CONFIG_VALUE_0="$forge_host:127.0.0.1" \
     "$bin/bosun-agent" run --config "$work/agents/$name.toml"
 done
-deadline=$((SECONDS + 60))
-until [ "$(cli --profile b --json agent list | jq '[.[] | select(.online)] | length')" -eq 2 ]; do
-  [ "$SECONDS" -lt "$deadline" ] || fail "the agents did not come online: $(cli --profile b agent list)"
-  sleep 0.2
-done
+await_agents
 cli --profile a agent list
 
 for name in $selected; do

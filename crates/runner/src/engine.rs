@@ -27,6 +27,7 @@ use crate::commands::Commands;
 use crate::mask::{Masker, Sink};
 use crate::matchers::{Place, Registry};
 use crate::output::Output;
+use crate::runtime::Runtime;
 use crate::scope::{self, Fixed, Record, Standing, StepScope};
 use crate::shell::Invocation;
 use crate::token::{Renewal, SECRET};
@@ -59,6 +60,7 @@ pub struct Job {
     pub evaluated: Evaluated,
     pub actions: Vec<NodeAction>,
     pub forge_token: Option<Renewal>,
+    pub runtime: Option<Runtime>,
     pub fetched: Result<(), String>,
     pub minute: Duration,
 }
@@ -142,12 +144,19 @@ pub async fn run(
         evaluated,
         actions,
         forge_token,
+        runtime,
         fetched,
         minute,
     } = job;
     let events = Sink::new(
         events,
-        Masker::new(contexts.secrets.values().filter_map(Value::as_str)),
+        Masker::new(
+            contexts
+                .secrets
+                .values()
+                .filter_map(Value::as_str)
+                .chain(runtime.as_ref().map(|runtime| runtime.token.as_str())),
+        ),
     );
     let JobKind::Steps(steps) = template.kind else {
         return Completed {
@@ -230,6 +239,7 @@ pub async fn run(
         fixed,
         actions,
         forge_token,
+        runtime,
         unrenewed: None,
         minute,
         deadline: limit(minute, timeout_minutes).and_then(|limit| started.checked_add(limit)),
@@ -426,6 +436,7 @@ struct Execution {
     fixed: Fixed,
     actions: Vec<NodeAction>,
     forge_token: Option<Renewal>,
+    runtime: Option<Runtime>,
     unrenewed: Option<String>,
     minute: Duration,
     deadline: Option<Instant>,
@@ -816,6 +827,11 @@ impl Execution {
                         .map(|(name, value)| (format!("STATE_{name}"), value.clone())),
                 ) {
                     process_env.insert(name.into(), value.into());
+                }
+                if let Some(runtime) = &self.runtime {
+                    for (name, value) in runtime.variables() {
+                        process_env.insert(name.into(), value.into());
+                    }
                 }
                 let Some(runs) = action.runs() else {
                     return failed(format!(

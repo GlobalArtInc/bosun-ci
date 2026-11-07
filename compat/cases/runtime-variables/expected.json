@@ -1,0 +1,25 @@
+{
+  "description": "a Node action sees the five runtime variables under the public address of the server, a run step of the same job sees none, and the job token is masked in the log",
+  "runs": [
+    {
+      "name": "runtime",
+      "conclusion": "success",
+      "checks": ["probe"],
+      "jobs": [
+        {
+          "name": "probe",
+          "conclusion": "success",
+          "logs": [
+            "^[^ ]+ ACTIONS_RUNTIME_URL=http://127\\.0\\.0\\.1:[0-9]+/_runtime/$",
+            "^[^ ]+ ACTIONS_RESULTS_URL=http://127\\.0\\.0\\.1:[0-9]+/$",
+            "^[^ ]+ ACTIONS_CACHE_URL=http://127\\.0\\.0\\.1:[0-9]+/_runtime/cache/$",
+            "^[^ ]+ ACTIONS_CACHE_SERVICE_V2=True$",
+            "^[^ ]+ token \\*\\*\\*$",
+            "^[^ ]+ encoded \\*\\*\\*$",
+            "^[^ ]+ run step sees 0 of the five$"
+          ]
+        }
+      ]
+    }
+  ]
+}

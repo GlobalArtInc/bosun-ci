@@ -509,8 +509,8 @@ Step 34 of M1 ([../plan.md](../plan.md)) settled how.
 ## The job token
 
 The runtime services authenticate the job with a job token: a JWT signed by the server with
-Ed25519, given to steps as `ACTIONS_RUNTIME_TOKEN`. Its `scp` claim has the form the toolkit
-parses:
+Ed25519, given to the actions of a job as `ACTIONS_RUNTIME_TOKEN`. Its `scp` claim has the form the
+toolkit parses:
 
 ```
 Actions.GenericRead:<run> Actions.UploadArtifacts:<run>:<job> Actions.Results:<run>:<job>
@@ -545,8 +545,50 @@ Step 3 of M2 ([../plan.md](../plan.md)) settled the shape of the token in `bosun
 | `ACTIONS_RUNTIME_URL` | `<bosun>/_runtime/` |
 | `ACTIONS_RESULTS_URL` | `<bosun>/` |
 | `ACTIONS_CACHE_URL` | `<bosun>/_runtime/cache/` |
-| `ACTIONS_CACHE_SERVICE_V2` | `true` |
+| `ACTIONS_CACHE_SERVICE_V2` | `True` |
 | `ACTIONS_RUNTIME_TOKEN` | the job token |
+
+`<bosun>` is `server.public_url` without a trailing slash. These five reach the actions of a job
+and not its `run` steps, as in the target, where a script cannot read the job token: a Node action
+now, and composite and container actions as steps 13 and 14 of M2 ([../plan.md](../plan.md)) add
+them. A `run` step that wants one of them has to be handed it by an action that exports it.
+
+Step 5 of M2 settled how the server signs, mints and checks job tokens, and how the assignment
+carries them:
+
+- **The key.** One Ed25519 key signs every job token. It is a row of `signing_key`
+  ([07-storage.md](07-storage.md#the-key-that-signs-job-tokens)): the server generates it on first
+  need under an advisory lock, seals the private key under the KEK, and rotates it by a periodic
+  task, `limits.signing_key_rotation`, 30 days by default.
+- **The lifetime.** A token is signed when the job is assigned and expires after the job's
+  `timeout-minutes` (a job without the key has 360 minutes, `0` is the explicit "no limit" and counts
+  as seven days, and a value above seven days is capped at seven days) plus 24 hours of `max_pause`, 2 hours of the hold cap and one hour.
+  `max_pause` and `max_hold` are settings from M3 on; until then the server uses their defaults, 24
+  and 2 hours, as constants of the lifetime. The longest token therefore lives 8 days and 3 hours,
+  which is the figure that keeps a retired key.
+- **The assignment.** The key `runtime` of the `evaluated` document of the assignment
+  ([05-execution.md](05-execution.md#the-job-assignment)) carries the token and the three addresses;
+  `ACTIONS_CACHE_SERVICE_V2` is the agent's own constant. The key is present only for a job that
+  has at least one remote action (`uses`). A server without `server.public_url` has no address to
+  derive them from, so it sends no `runtime`, makes no key, and logs a warning at start. The agent
+  refuses an assignment whose `runtime` lacks the token or an address or holds a key it does not
+  know. An agent that does not know the key refuses the whole document, and so the job, rather than
+  running an action without the variables; a job without actions has no such key and still runs on
+  it. The revision of the assignment stays 1.
+- **The agent.** It adds the five variables to the environment of every phase of a Node action
+  (`pre`, `main` and `post`), after the step's own `env`, so a workflow cannot set one to another
+  value for the action. It adds the token to its masker with the other values it masks.
+- **The check.** `job_token::authentication::authenticated` is the layer that steps 6 to 8 put in
+  front of their routes. It takes the one `Authorization: Bearer` header, verifies the token
+  against every public key of the table, the current and the retired ones, and then reads the
+  execution of the token, which must belong to the attempt the token names and must not have
+  completed. Anything else is `401`: no header or two, a header that is not a bearer token, a
+  token that is malformed, altered, expired, signed by a key the table does not hold, or of an
+  execution that has completed or is gone. A database that cannot be read is `500`, never `401`,
+  and never lets a request through. The keys are read from the table on every request rather than
+  cached: the table holds a handful of rows, a key another replica created a moment ago must verify
+  at once, and the request reads the execution from the database anyway. On success the layer puts
+  the `JobToken` among the extensions of the request, which is where `bosun-services` looks.
 
 The toolkit's Twirp clients keep only the origin of `ACTIONS_RESULTS_URL` and call
 `/twirp/<service>/<method>` on it, so the Twirp services are served at the root of Bosun's public

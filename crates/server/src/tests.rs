@@ -9,6 +9,7 @@ mod events;
 mod forge_events;
 mod forge_tokens;
 mod identity;
+mod job_tokens;
 mod journal;
 mod lint;
 mod logs;

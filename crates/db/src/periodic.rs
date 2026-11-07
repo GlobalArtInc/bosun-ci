@@ -12,6 +12,7 @@ pub(crate) enum Task {
     SessionSweep,
     Schedules,
     Retention,
+    SigningKey,
 }
 
 impl Task {
@@ -24,6 +25,7 @@ impl Task {
             Task::SessionSweep => *b"bosunses",
             Task::Schedules => *b"bosuncrn",
             Task::Retention => *b"bosunret",
+            Task::SigningKey => *b"bosunsgk",
         })
     }
 }

@@ -427,6 +427,54 @@ async fn two_assignments_of_an_action_download_it_once_and_a_moved_tag_leaves_th
 }
 
 #[tokio::test]
+async fn a_job_with_an_action_carries_a_job_token_and_the_runtime_addresses_in_its_evaluated_document()
+ {
+    let harness = Harness::new().await;
+    let commit = harness.action("actions/checkout", true, &[("action.yml", CHECKOUT)]);
+    harness.tag("actions/checkout", "v4", &commit);
+    harness
+        .dispatch("      - uses: actions/checkout@v4\n      - run: make\n")
+        .await;
+    let runner = harness.agent("runner1-1").await;
+    let claimed = harness.claim(&runner).await;
+    let (attempt, execution) = (claimed.attempt_id, claimed.execution_id);
+    let documents = harness.assign(claimed).await.expect("an assignment");
+    let runtime = documents.evaluated.runtime.clone().expect("a runtime");
+    assert_eq!(runtime.runtime_url, "https://ci.example.org/_runtime/");
+    assert_eq!(runtime.results_url, "https://ci.example.org/");
+    assert_eq!(runtime.cache_url, "https://ci.example.org/_runtime/cache/");
+    let token = crate::job_token::authentication::verifying_keys(harness.db())
+        .await
+        .expect("the keys")
+        .verify(&runtime.token, Utc::now())
+        .expect("a token the table's keys verify");
+    assert_eq!(
+        (token.identity().attempt, token.identity().execution),
+        (attempt, execution)
+    );
+    assert_eq!(
+        token.expires_at() - token.issued_at(),
+        TimeDelta::minutes(360) + TimeDelta::hours(27)
+    );
+    for document in [
+        serde_json::to_string(&documents.job).expect("the job"),
+        serde_json::to_string(&documents.contexts).expect("the contexts"),
+        serde_json::to_string(&documents.actions).expect("the actions"),
+        serde_json::to_string(&documents.evaluated.env).expect("the env"),
+    ] {
+        assert!(!document.contains(&runtime.token), "{document}");
+        assert!(!document.contains("ACTIONS_RUNTIME"), "{document}");
+    }
+    assert_eq!(
+        bosun_db::signing_keys::public_keys(harness.db())
+            .await
+            .expect("the public keys")
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn two_replicas_that_assign_the_same_new_action_at_once_download_it_once() {
     let harness = Harness::new().await;
     let commit = harness.action("actions/checkout", true, &[("action.yml", CHECKOUT)]);

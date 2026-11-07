@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use bosun_runner::{Annotation, AnnotationKind, Event, Job, NodeAction};
+use bosun_runner::{Annotation, AnnotationKind, Event, Job, NodeAction, Runtime};
 use bosun_types::ir::{Action, ActionReference, Step};
 use bosun_types::status::Conclusion;
 use serde_json::json;
@@ -12,6 +12,9 @@ use serde_json::json;
 use crate::{Finished, job, repository, run, run_cancelled_on, step, template};
 
 const SECRET: &str = "s3cr3t-of-the-first-action";
+
+const RUNTIME_TOKEN: &str =
+    "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJib3N1biJ9.c2lnbmF0dXJlLW9mLXRoZS1qb2ItdG9rZW4";
 
 fn node() -> PathBuf {
     env::var_os("PATH")
@@ -345,4 +348,60 @@ async fn a_job_whose_actions_could_not_be_fetched_fails_in_its_first_step() {
         ["the job could not be prepared on this agent: the server answered 403 Forbidden"]
     );
     assert_eq!(order(&finished), ran([0]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_runtime_variables_reach_a_node_action_after_its_own_env_and_no_run_step_and_the_token_is_masked()
+ {
+    let directory = tempfile::tempdir().expect("a directory");
+    let mut action = uses("runtime", None, &[]);
+    action
+        .env
+        .insert("ACTIONS_RUNTIME_TOKEN".to_owned(), template("other"));
+    let mut job = fixtures(
+        directory.path(),
+        vec![
+            action,
+            script(
+                "echo \"run step sees $(env | grep -cE \
+                 '^ACTIONS_(RUNTIME_TOKEN|RUNTIME_URL|RESULTS_URL|CACHE_URL|CACHE_SERVICE_V2)=' \
+                 || true) of the five\"",
+            ),
+        ],
+        &["runtime"],
+    );
+    job.runtime = Some(Runtime {
+        token: RUNTIME_TOKEN.to_owned(),
+        runtime_url: "https://ci.example.org/_runtime/".to_owned(),
+        results_url: "https://ci.example.org/".to_owned(),
+        cache_url: "https://ci.example.org/_runtime/cache/".to_owned(),
+    });
+    let finished = run(job).await;
+    assert_eq!(
+        finished.conclusion,
+        Conclusion::Success,
+        "{:#?}",
+        finished.events
+    );
+    assert_eq!(
+        finished.lines(0),
+        [
+            "ACTIONS_RUNTIME_URL=https://ci.example.org/_runtime/",
+            "ACTIONS_RESULTS_URL=https://ci.example.org/",
+            "ACTIONS_CACHE_URL=https://ci.example.org/_runtime/cache/",
+            "ACTIONS_CACHE_SERVICE_V2=True",
+            "token ***",
+            "encoded ***",
+        ]
+    );
+    assert_eq!(finished.lines(1), ["run step sees 0 of the five"]);
+    for event in &finished.events {
+        if let Event::Line { text, .. } = event {
+            let line = String::from_utf8_lossy(text);
+            assert!(
+                !line.contains(RUNTIME_TOKEN) && !line.contains("eyJhbGciOiJFZERTQSIs"),
+                "{line}"
+            );
+        }
+    }
 }

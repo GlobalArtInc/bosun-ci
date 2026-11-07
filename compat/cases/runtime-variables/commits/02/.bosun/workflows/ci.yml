@@ -1,0 +1,9 @@
+name: runtime
+on: push
+jobs:
+  probe:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - uses: bosun-fixtures/actions/runtime@v1
+      - run: |
+          echo "run step sees $(env | grep -cE '^ACTIONS_(RUNTIME_TOKEN|RUNTIME_URL|RESULTS_URL|CACHE_URL|CACHE_SERVICE_V2)=' || true) of the five"

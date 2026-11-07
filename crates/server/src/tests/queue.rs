@@ -402,6 +402,7 @@ jobs:
             working_directory: Some("crates".to_owned()),
             timeout_minutes: 20,
             continue_on_error: true,
+            runtime: None,
         }
     );
     assert_eq!(documents.contexts.github["job"], "build");

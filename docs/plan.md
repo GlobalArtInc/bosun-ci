@@ -4442,6 +4442,10 @@ job's `debug.hold-on-failure`, capped by `limits.max_hold`. `hold.started` recor
 assignment carries the capped duration with the feature `hold`, and `debug.hold-on-failure` leaves
 the pending list.
 
+The retention of retired signing keys is derived from constants for `max_pause` (24 h) and
+`max_hold` (2 h); when they become settings, derive it from their maxima or a token can outlive its
+key.
+
 The hold commands go to the agent as control messages:
 
 - `hold.retry-step`: the step goes from `completed` back to `in_progress` when the agent starts it

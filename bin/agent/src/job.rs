@@ -8,10 +8,10 @@ use bosun_proto::agent::v1::{
     Annotation as Reported, AnnotationKind as ReportedKind, Assignment, Conclusion as Concluded,
     ForgeToken as Sent, JobFinished, StepFinished, StepStarted,
 };
-use bosun_proto::assignment::{self, Documents};
+use bosun_proto::assignment::{self, Documents, Runtime as Provided};
 use bosun_runner::{
     Annotation, AnnotationKind, BosunFacts, Completed, Event, ForgeToken, Job, NodeAction, Renewal,
-    Renewed, Runner, Tracking,
+    Renewed, Runner, Runtime, Tracking,
 };
 use bosun_types::id::ExecutionId;
 use bosun_types::ir::{self, Action, JobKind, Shell};
@@ -97,7 +97,7 @@ pub(crate) fn prepare(
     let Documents {
         job,
         contexts,
-        evaluated,
+        mut evaluated,
         actions,
     } = Documents::read(&assignment)?;
     let JobKind::Steps(steps) = &job.kind else {
@@ -118,6 +118,7 @@ pub(crate) fn prepare(
         .unwrap_or(&assignment.project)
         .to_owned();
     let forge_token = assignment.forge_token.map(|token| received(*token));
+    let runtime = evaluated.runtime.take().map(provided).transpose()?;
     let work = config.dir.join("work");
     Ok(Prepared {
         execution,
@@ -143,6 +144,7 @@ pub(crate) fn prepare(
             evaluated,
             actions,
             forge_token: None,
+            runtime,
             fetched: Ok(()),
             minute: MINUTE,
         },
@@ -164,6 +166,25 @@ pub(crate) fn received(token: Sent) -> ForgeToken {
         token: token.token,
         expires_at: Instant::now() + left,
     }
+}
+
+fn provided(runtime: Provided) -> Result<Runtime, String> {
+    for (what, value) in [
+        ("token", &runtime.token),
+        ("runtime address", &runtime.runtime_url),
+        ("results address", &runtime.results_url),
+        ("cache address", &runtime.cache_url),
+    ] {
+        if value.is_empty() {
+            return Err(format!("the runtime of the assignment has no {what}"));
+        }
+    }
+    Ok(Runtime {
+        token: runtime.token,
+        runtime_url: runtime.runtime_url,
+        results_url: runtime.results_url,
+        cache_url: runtime.cache_url,
+    })
 }
 
 fn local(
@@ -555,8 +576,8 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use bosun_proto::agent::v1::Assignment;
-    use bosun_proto::assignment::{self, Contexts, Documents, Evaluated};
-    use bosun_runner::Event;
+    use bosun_proto::assignment::{self, Contexts, Documents, Evaluated, Runtime as Provided};
+    use bosun_runner::{Event, Runtime};
     use bosun_types::id::ExecutionId;
     use bosun_types::ir::{
         Action, ActionMetadata, ActionReference, Defaults, Evaluable, JobKind, JobTemplate,
@@ -646,6 +667,7 @@ mod tests {
                 working_directory: None,
                 timeout_minutes: 360,
                 continue_on_error: false,
+                runtime: None,
             },
             actions: Vec::new(),
         }
@@ -734,6 +756,54 @@ mod tests {
         assert_eq!(job.contexts, documents.contexts);
         assert_eq!(job.template, documents.job);
         assert_eq!(job.minute, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn the_runtime_of_an_assignment_reaches_the_job_and_one_without_a_token_or_an_address_is_refused()
+     {
+        let provided = Provided {
+            token: "eyJ.claims.signature".to_owned(),
+            runtime_url: "https://ci.example.org/_runtime/".to_owned(),
+            results_url: "https://ci.example.org/".to_owned(),
+            cache_url: "https://ci.example.org/_runtime/cache/".to_owned(),
+        };
+        let mut documents = documents(step());
+        documents.evaluated.runtime = Some(provided.clone());
+        let prepared = prepare(assignment(&documents), &config(), "runner1-1").expect("a job");
+        assert_eq!(
+            prepared.job.runtime,
+            Some(Runtime {
+                token: provided.token.clone(),
+                runtime_url: provided.runtime_url.clone(),
+                results_url: provided.results_url.clone(),
+                cache_url: provided.cache_url.clone(),
+            })
+        );
+        assert_eq!(prepared.job.evaluated.runtime, None);
+        assert!(!format!("{:?}", prepared.job.runtime).contains(&provided.token));
+        for emptied in [
+            Provided {
+                token: String::new(),
+                ..provided.clone()
+            },
+            Provided {
+                cache_url: String::new(),
+                ..provided.clone()
+            },
+        ] {
+            documents.evaluated.runtime = Some(emptied);
+            let Err(reason) = prepare(assignment(&documents), &config(), "runner1-1") else {
+                panic!("an assignment with an incomplete runtime was prepared");
+            };
+            assert!(
+                reason.contains("the runtime of the assignment has no"),
+                "{reason}"
+            );
+            assert!(!reason.contains(&provided.token), "{reason}");
+        }
+        documents.evaluated.runtime = None;
+        let prepared = prepare(assignment(&documents), &config(), "runner1-1").expect("a job");
+        assert_eq!(prepared.job.runtime, None);
     }
 
     #[test]

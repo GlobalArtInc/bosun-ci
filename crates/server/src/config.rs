@@ -36,6 +36,10 @@ const DEFAULT_ASSIGNMENT_LEASE: Duration = Duration::from_secs(30);
 
 const DEFAULT_MAX_QUEUE_TIME: Duration = Duration::from_secs(24 * 3600);
 
+const DEFAULT_SIGNING_KEY_ROTATION: Duration = Duration::from_secs(30 * 24 * 3600);
+
+const MIN_SIGNING_KEY_ROTATION: Duration = Duration::from_secs(3600);
+
 const DEFAULT_DATA_DIR: &str = "/var/lib/bosun";
 
 const DEFAULT_AGENT_BINARIES: &str = "/usr/lib/bosun/agent";
@@ -98,6 +102,7 @@ pub struct Config {
     pub(crate) store: Store,
     pub(crate) agent_binaries: PathBuf,
     pub(crate) failed_sign_ins: u32,
+    pub(crate) signing_key_rotation: Duration,
     pub(crate) github: Option<GitHub>,
     pub(crate) tools: Tools,
     pub(crate) oidc: Vec<Oidc>,
@@ -286,6 +291,7 @@ struct TeamFile {
 struct LimitsFile {
     agent_grace: Option<String>,
     max_queue_time: Option<String>,
+    signing_key_rotation: Option<String>,
     failed_sign_ins: Option<u32>,
     max_log_retention: Option<i64>,
     max_run_retention: Option<i64>,
@@ -406,6 +412,23 @@ impl Config {
             file.limits.max_queue_time,
             DEFAULT_MAX_QUEUE_TIME,
         )?;
+        let signing_key_rotation = duration(
+            "limits",
+            "signing_key_rotation",
+            file.limits.signing_key_rotation,
+            DEFAULT_SIGNING_KEY_ROTATION,
+        )?;
+        if signing_key_rotation < MIN_SIGNING_KEY_ROTATION {
+            return Err(invalid(
+                "limits",
+                "signing_key_rotation",
+                format!(
+                    "is {}s, which is less than one hour, the shortest period in which the key \
+                     that signs job tokens may rotate",
+                    signing_key_rotation.as_secs()
+                ),
+            ));
+        }
         let failed_sign_ins = match variable("limits", "failed_sign_ins")? {
             Some(text) => text.parse().map_err(|_| {
                 invalid(
@@ -475,6 +498,7 @@ impl Config {
             store,
             agent_binaries,
             failed_sign_ins,
+            signing_key_rotation,
             github,
             tools,
             oidc,
@@ -1165,6 +1189,42 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    #[test]
+    fn the_signing_key_rotates_every_30_days_unless_the_setting_says_otherwise() {
+        assert_eq!(
+            load(DATABASE).signing_key_rotation,
+            Duration::from_secs(30 * 24 * 3600)
+        );
+        assert_eq!(
+            load(&format!(
+                "{DATABASE}\n[limits]\nsigning_key_rotation = \"48h\"\n"
+            ))
+            .signing_key_rotation,
+            Duration::from_secs(48 * 3600)
+        );
+        let error = refused(&format!(
+            "{DATABASE}\n[limits]\nsigning_key_rotation = \"30d\"\n"
+        ));
+        assert!(error.contains("limits.signing_key_rotation"), "{error}");
+        for text in ["1s", "59m"] {
+            let error = refused(&format!(
+                "{DATABASE}\n[limits]\nsigning_key_rotation = \"{text}\"\n"
+            ));
+            assert!(
+                error.contains("limits.signing_key_rotation")
+                    && error.contains("less than one hour"),
+                "{error}"
+            );
+        }
+        assert_eq!(
+            load(&format!(
+                "{DATABASE}\n[limits]\nsigning_key_rotation = \"60m\"\n"
+            ))
+            .signing_key_rotation,
+            Duration::from_secs(3600)
+        );
     }
 
     #[test]

@@ -278,6 +278,7 @@ pub fn documents(steps: Vec<Step>) -> Documents {
             working_directory: None,
             timeout_minutes: 360,
             continue_on_error: false,
+            runtime: None,
         },
         actions: Vec::new(),
     }

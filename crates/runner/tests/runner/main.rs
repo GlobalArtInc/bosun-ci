@@ -106,9 +106,11 @@ pub fn job(directory: &Path, steps: Vec<Step>) -> Job {
             working_directory: None,
             timeout_minutes: 360,
             continue_on_error: false,
+            runtime: None,
         },
         actions: Vec::new(),
         forge_token: None,
+        runtime: None,
         fetched: Ok(()),
         minute: Duration::from_secs(60),
     }

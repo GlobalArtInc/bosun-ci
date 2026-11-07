@@ -3,9 +3,9 @@ use bosun_db::entity::{
     control_message, execution, expired_object, forge_check_run, forge_installation,
     forge_repository, forge_token, idempotency_key, job, label_alias, log_chunk, log_object,
     oidc_state, organisation, outbox, pool_access, project, registration_token, role, role_binding,
-    run, run_event, schedule, secret, session, sign_in_failure, step, step_summary, stream_event,
-    team, team_member, tool_object, user, user_identity, variable, webhook_delivery, workflow,
-    workflow_revision,
+    run, run_event, schedule, secret, session, sign_in_failure, signing_key, step, step_summary,
+    stream_event, team, team_member, tool_object, user, user_identity, variable, webhook_delivery,
+    workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -47,6 +47,7 @@ pub const TOOL: u8 = 0x1d;
 pub const IDENTITY: u8 = 0x1e;
 pub const SCHEDULE: u8 = 0x1f;
 pub const FORGE_TOKEN: u8 = 0x20;
+pub const SIGNING_KEY: u8 = 0x21;
 
 pub const OUTBOX: i64 = 41;
 pub const MEMBER: i64 = 17;
@@ -110,6 +111,7 @@ pub struct Rows {
     pub forge_check_run: forge_check_run::Model,
     pub concurrency_member: concurrency_member::Model,
     pub forge_token: forge_token::Model,
+    pub signing_key: signing_key::Model,
     pub action_ref: action_ref::Model,
     pub tool_object: tool_object::Model,
     pub user_identity: user_identity::Model,
@@ -707,6 +709,19 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a forge token");
 
+    let signing_key = signing_key::ActiveModel {
+        id: ActiveValue::Set(id(SIGNING_KEY)),
+        public_key: ActiveValue::Set(vec![0x55; 32]),
+        ciphertext: ActiveValue::Set(Some(format!("sealed {label}").into_bytes())),
+        data_key: ActiveValue::Set(Some(vec![0x66; 60])),
+        kek_id: ActiveValue::Set(Some("0123456789abcdef".to_owned())),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:51Z")),
+        retired_at: ActiveValue::Set(None),
+    }
+    .insert(db)
+    .await
+    .expect("a signing key");
+
     let action_ref = action_ref::ActiveModel {
         id: ActiveValue::Set(id(ACTION)),
         owner: ActiveValue::Set("actions".to_owned()),
@@ -801,6 +816,7 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         forge_check_run,
         concurrency_member,
         forge_token,
+        signing_key,
         action_ref,
         tool_object,
         user_identity,
@@ -889,6 +905,7 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         forge_check_run: one::<_, forge_check_run::Entity>(db, id(BUILD)).await,
         concurrency_member: one::<_, concurrency_member::Entity>(db, MEMBER).await,
         forge_token: one::<_, forge_token::Entity>(db, id(FORGE_TOKEN)).await,
+        signing_key: one::<_, signing_key::Entity>(db, id(SIGNING_KEY)).await,
         action_ref: one::<_, action_ref::Entity>(db, id(ACTION)).await,
         tool_object: one::<_, tool_object::Entity>(db, id(TOOL)).await,
         user_identity: one::<_, user_identity::Entity>(db, id(IDENTITY)).await,
