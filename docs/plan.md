@@ -3016,7 +3016,9 @@ store with ranges. Reading needs `project.view`. The design names no permission 
 step settles `run.override` and records it in `design/08-access.md`.
 
 Retention removes artifacts past their `retention-days`, capped by the project's maximum, and past
-the project's default otherwise. A periodic task removes uploads not finalised within 24 hours, a
+the project's default otherwise. The project settings for artifact retention do not exist yet (the
+settings document gets its M2 additions from step 7 on), so this step uses one constant of 90 days
+as both the default and the maximum, and step 7 replaces it with the settings. A periodic task removes uploads not finalised within 24 hours, a
 limit this step settles and records in `design/07-storage.md`.
 
 **Touches.** `crates/server/`, `crates/db/`, `contracts/fixtures/api/`, `compat/cases/artifacts/`,
@@ -3059,7 +3061,9 @@ ref scope as claims, so the server and `bosun exec` decide alike; `upstream` get
 `workflow_run`; a repository-less project has one scope.
 
 In the server: the `cache_entry` index, and eviction after 7 days without a read and beyond 10 GiB
-per project, least recently used first, both project settings. `cache-mode` leaves the pending list.
+per project, least recently used first, both project settings. The same settings document gets the
+default and the maximum of artifact retention, which replace the constant of 90 days of step 6.
+`cache-mode` leaves the pending list.
 
 **Touches.** `crates/services/`, `crates/server/`, `crates/db/`, `crates/workflow/` (the pending
 list), `contracts/fixtures/cache-mode/`, `contracts/fixtures/twirp/`, `contracts/fixtures/api/`,

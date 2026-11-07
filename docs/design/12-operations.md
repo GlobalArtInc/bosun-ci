@@ -278,10 +278,13 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
 - `server.metrics_listen` is the address of the listener that serves `/metrics` and nothing else
   ([Metrics](#metrics)), `127.0.0.1:9464` by default; port 0 takes a free port, which the field
   `metrics` of the `listening` line names.
-- `server.public_url` is the address people and agents reach the server at, an http or https
-  address with a host and maybe a path, without a user, a query or a fragment. It has no default;
-  without it the `bosun.url` and `bosun.run_url` of expressions are empty
-  ([03-expressions.md](03-expressions.md)).
+- `server.public_url` is the address people and agents reach the server at, an origin: an http or
+  https scheme, a host and maybe a port, with no path, user, query or fragment. A path is refused
+  at start because the toolkit of the artifact actions takes only the origin of
+  `ACTIONS_RESULTS_URL`, so the runtime routes can be served only at the root of the address. It has
+  no default; without it the `bosun.url` and `bosun.run_url` of expressions are empty
+  ([03-expressions.md](03-expressions.md)) and no job receives a token or the addresses of the
+  runtime services.
 - `database.url` has no default. `database.max_connections` defaults to 32 and is at least 2,
   because the migrations at start hold two pooled connections at once.
 - The KEK is 64 hexadecimal digits (`openssl rand -hex 32`), in the file `keys.kek_file` or

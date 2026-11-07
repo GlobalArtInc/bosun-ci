@@ -620,8 +620,10 @@ are for, and need no other credentials, because the client sends none.
 
 Artifacts belong to the attempt and the job that uploaded them and are visible to every job of the
 same attempt, including jobs carried into a later attempt ([04-runs.md](04-runs.md)). Their
-retention is `retention-days` when the step gives it, capped by the project's maximum, and the
-project's default otherwise ([07-storage.md](07-storage.md)). The run page lists them for download.
+retention is `retention-days` when the step gives it and the project's default otherwise, each
+capped by the project's maximum ([07-storage.md](07-storage.md)); until the project settings of
+artifact retention exist, which step 7 of M2 adds, the server uses one constant of 90 days for the
+default and for the maximum ([07-storage.md](07-storage.md#retention)). The run page lists them for download.
 Downloading an artifact of another run by its run id goes through the forge's API in the current
 actions and is therefore not supported.
 
@@ -659,7 +661,9 @@ named `sig` when it logs an address.
   download, gets `400`, and so does a query parameter that is given twice. A block id is 1 to 88
   characters of the base64 alphabet with `=`, the length of the encoding of the 64 bytes Azure
   allows; a staged block is the object `blocks/<artifact>/<hex of the block id>`, hex because a
-  block id may hold `/`, which a key cannot. Staging the same id again replaces the block. An
+  block id may hold `/`, which a key cannot. The prefix of staged blocks is `blocks/<artifact>/`;
+  the cache service of step 7 gives its uploads a prefix of their own, since the numeric ids of two
+  kinds of upload would otherwise share it. Staging the same id again replaces the block. An
   artifact stages at most 50,000 distinct block ids, the number a committed list may hold: the
   50,001st distinct id is refused with `409` and the code `BlockCountExceedsLimit`, as Azure does,
   and staging an id again, as a retry does, does not count. The count is the index's
@@ -749,9 +753,43 @@ and the key of the object, `artifacts/<project>/<artifact>` on the server and
 that adds a block id to the artifact's set of staged ids and answers whether the block is
 accepted: `true` for an id the set already holds and for a new one while the set has fewer than the
 limit, `false` for a new one beyond it. The memory index keeps the sets in memory; the Postgres
-index of step 6 implements it as one conditional insert, so that replicas agree. The signed address is the authority for the unscoped
+index of step 6 implements it as a transaction that takes the artifact's row `FOR NO KEY UPDATE`,
+which orders the registrations of one artifact so that replicas agree
+([07-storage.md](07-storage.md#tables)). The signed address is the authority for the unscoped
 lookup, the token for the scoped ones. Which attempts an attempt sees, its own and the ones whose
 results it carries, is the index's to decide.
+
+Step 6 of M2 ([../plan.md](../plan.md)) put the crate behind the server.
+
+- **The routes.** The server mounts `bosun-services` only when `server.public_url` is set, as an
+  origin without a path (a server whose `public_url` has a path refuses to start, naming the
+  setting). `/twirp/` is behind the authentication of the job token
+  ([The job token](#the-job-token)): a request without a valid token gets `401` before the service
+  reads its body. `/_runtime/blob/` has no token, since the client sends none: the signed address is
+  the credential, and the crate verifies it before it touches the index, the store or the body. A
+  server without a public address mounts neither, so both paths fall to the interface's answer for
+  an unknown path.
+- **The key.** The HMAC key of signed addresses is derived from the KEK
+  ([07-storage.md](07-storage.md#the-key-of-signed-addresses)).
+- **The index** is Postgres, over `artifact` and `artifact_block`
+  ([07-storage.md](07-storage.md#tables)). The object of an artifact is
+  `artifacts/<project>/<artifact>`, with the project of the attempt's run, so a name never reaches a
+  key. Which artifacts an attempt sees are those of its own attempt; carrying a result into a later
+  attempt is step 19 of M2. `create_artifact` checks that the execution belongs to the attempt, then
+  inserts under the unique `(attempt_id, name)`, so two uploads of a name race to one winner and the
+  other is `already_exists`. The expiry it stores is the earlier of the request's and 90 days
+  ([07-storage.md](07-storage.md#retention)). The server enforces no quota on bytes or on the
+  number of artifacts: the plan names none.
+- **The REST download** of an artifact does not go through a signed address: it streams from the
+  store for a user with `project.view`, with the headers of the block endpoint's download
+  ([11-api.md](11-api.md#artifacts)).
+- **Removal.** `DeleteArtifact` of the Twirp service and `DELETE /artifacts/{artifact}` delete the
+  object and its staged blocks directly, then the rows, and fail with the store's error if the
+  store fails, leaving the rows to repeat the request. Retention and the clean-up of abandoned
+  uploads go the other way: one transaction deletes the rows and lists the keys of the object and of
+  the staged blocks in `expired_object`, and the objects are removed from the store afterwards, as
+  for logs ([07-storage.md](07-storage.md#retention)). The round of retention that removes runs
+  queues the objects of the run's artifacts in the same way.
 
 ## Caches
 

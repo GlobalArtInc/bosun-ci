@@ -355,6 +355,10 @@ fn path_parameter(name: &str) -> (&'static str, Value) {
         "job" => ("the job's id", id),
         "execution" => ("the execution's id", id),
         "step" => ("the id of a step of the execution", id),
+        "artifact" => (
+            "the artifact's id, a positive integer of at most 2^53 - 1",
+            json!({ "type": "integer", "minimum": 1, "maximum": 9_007_199_254_740_991_i64 }),
+        ),
         "user" => ("the user's id", id),
         "team" => ("the team's id", id),
         "role" => ("the role's id", id),

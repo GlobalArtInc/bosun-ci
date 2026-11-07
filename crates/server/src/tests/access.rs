@@ -8,6 +8,7 @@ use axum::Router;
 use axum::body::{self, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
+use bosun_blob::Store as _;
 use bosun_db::agents::{NewAgent, NewRegistrationToken, Registration};
 use bosun_db::entity::{organisation, project, role};
 use bosun_db::roles::{NewBinding, Subject};
@@ -18,14 +19,16 @@ use bosun_testkit::oidc::{FakeIdentityProvider, Person};
 use bosun_types::api::{Annotation, AnnotationKind, Permissions, Project, Workflow};
 use bosun_types::command::Command;
 use bosun_types::id::{
-    AgentId, ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId, TeamId, TokenId,
-    UserId,
+    AgentId, AttemptId, ExecutionId, JobId, OrganisationId, ProjectId, RoleId, RunId, StepId,
+    TeamId, TokenId, UserId,
 };
 use bosun_types::permission::Permission;
 use bosun_types::status::Conclusion;
 use chrono::{TimeDelta, Utc};
 use sea_orm::prelude::Uuid;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
+};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -603,6 +606,57 @@ impl Site {
         }
     }
 
+    pub(super) async fn artifact(&self, execution: ExecutionId) -> i64 {
+        let attempt = self
+            .db()
+            .query_one(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DbBackend::Postgres,
+                "SELECT j.attempt_id FROM execution e JOIN job j ON j.id = e.job_id \
+                 WHERE e.id = $1",
+                [Uuid::from(execution).into()],
+            ))
+            .await
+            .expect("a query")
+            .expect("the execution")
+            .try_get::<Uuid>("", "attempt_id")
+            .expect("an attempt");
+        let name = format!("dist-{}", Uuid::now_v7());
+        let created = bosun_db::artifacts::create(
+            self.db(),
+            &bosun_db::artifacts::New {
+                attempt: AttemptId::try_from(attempt).expect("an attempt id"),
+                execution,
+                name: &name,
+                content_type: "text/plain",
+                created_at: Utc::now(),
+                expires_at: Utc::now() + TimeDelta::days(1),
+            },
+        )
+        .await
+        .expect("an insert")
+        .expect("a free name");
+        self.state
+            .store
+            .put(
+                &bosun_blob::Key::new(created.key.as_str()).expect("a key"),
+                &b"0123456789"[..],
+            )
+            .await
+            .expect("an object");
+        bosun_db::artifacts::finalize(
+            self.db(),
+            created.id,
+            &bosun_db::artifacts::Done {
+                size: 10,
+                sha256: None,
+                at: Utc::now(),
+            },
+        )
+        .await
+        .expect("a finalisation");
+        created.id
+    }
+
     async fn team(&self, organisation: OrganisationId, slug: &str) -> TeamId {
         bosun_db::teams::create(self.db(), organisation, slug, slug)
             .await
@@ -1098,6 +1152,10 @@ async fn calls(
                 headers: vec![("cookie", oidc::pair(&started))],
                 ..call(oidc::target(&back), None)
             }];
+        }
+        ("GET" | "DELETE", "/api/v1/artifacts/{artifact}") => {
+            let artifact = site.artifact(fixture.execution).await;
+            return vec![call(format!("/api/v1/artifacts/{artifact}"), None)];
         }
         ("DELETE", "/api/v1/tokens/{token}") => {
             let user = bosun_db::users::find_by_login(site.db(), login)

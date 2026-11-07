@@ -1,11 +1,11 @@
 use bosun_db::entity::{
-    action_ref, agent, annotation, api_token, api_token_scope, attempt, concurrency_member,
-    control_message, execution, expired_object, forge_check_run, forge_installation,
-    forge_repository, forge_token, idempotency_key, job, label_alias, log_chunk, log_object,
-    oidc_state, organisation, outbox, pool_access, project, registration_token, role, role_binding,
-    run, run_event, schedule, secret, session, sign_in_failure, signing_key, step, step_summary,
-    stream_event, team, team_member, tool_object, user, user_identity, variable, webhook_delivery,
-    workflow, workflow_revision,
+    action_ref, agent, annotation, api_token, api_token_scope, artifact, artifact_block, attempt,
+    concurrency_member, control_message, execution, expired_object, forge_check_run,
+    forge_installation, forge_repository, forge_token, idempotency_key, job, label_alias,
+    log_chunk, log_object, oidc_state, organisation, outbox, pool_access, project,
+    registration_token, role, role_binding, run, run_event, schedule, secret, session,
+    sign_in_failure, signing_key, step, step_summary, stream_event, team, team_member, tool_object,
+    user, user_identity, variable, webhook_delivery, workflow, workflow_revision,
 };
 use sea_orm::prelude::{DateTimeUtc, Uuid};
 use sea_orm::{
@@ -48,6 +48,8 @@ pub const IDENTITY: u8 = 0x1e;
 pub const SCHEDULE: u8 = 0x1f;
 pub const FORGE_TOKEN: u8 = 0x20;
 pub const SIGNING_KEY: u8 = 0x21;
+
+pub const ARTIFACT: i64 = 9_007_199_254_740_001;
 
 pub const OUTBOX: i64 = 41;
 pub const MEMBER: i64 = 17;
@@ -112,6 +114,8 @@ pub struct Rows {
     pub concurrency_member: concurrency_member::Model,
     pub forge_token: forge_token::Model,
     pub signing_key: signing_key::Model,
+    pub artifact: artifact::Model,
+    pub artifact_block: artifact_block::Model,
     pub action_ref: action_ref::Model,
     pub tool_object: tool_object::Model,
     pub user_identity: user_identity::Model,
@@ -722,6 +726,33 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
     .await
     .expect("a signing key");
 
+    let artifact = artifact::ActiveModel {
+        id: ActiveValue::Set(ARTIFACT),
+        project_id: ActiveValue::Set(id(PROJECT)),
+        attempt_id: ActiveValue::Set(id(ATTEMPT)),
+        execution_id: ActiveValue::Set(id(EXECUTION)),
+        name: ActiveValue::Set(format!("dist {label}")),
+        key: ActiveValue::Set(format!("artifacts/{}/{ARTIFACT}", id(PROJECT))),
+        content_type: ActiveValue::Set("application/zip".to_owned()),
+        created_at: ActiveValue::Set(at("2026-10-24T18:34:51Z")),
+        expires_at: ActiveValue::Set(at("2027-01-22T18:34:51Z")),
+        finalized_at: ActiveValue::Set(Some(at("2026-10-24T18:35:51Z"))),
+        size: ActiveValue::Set(Some(4096)),
+        sha256: ActiveValue::Set(Some(vec![0x77; 32])),
+        blocks: ActiveValue::Set(2),
+    }
+    .insert(db)
+    .await
+    .expect("an artifact");
+
+    let artifact_block = artifact_block::ActiveModel {
+        artifact_id: ActiveValue::Set(ARTIFACT),
+        block: ActiveValue::Set("YmxvY2stMDAwMQ==".to_owned()),
+    }
+    .insert(db)
+    .await
+    .expect("a staged block");
+
     let action_ref = action_ref::ActiveModel {
         id: ActiveValue::Set(id(ACTION)),
         owner: ActiveValue::Set("actions".to_owned()),
@@ -817,6 +848,8 @@ pub async fn write<C: ConnectionTrait>(db: &C, label: &str) -> Rows {
         concurrency_member,
         forge_token,
         signing_key,
+        artifact,
+        artifact_block,
         action_ref,
         tool_object,
         user_identity,
@@ -906,6 +939,12 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Rows {
         concurrency_member: one::<_, concurrency_member::Entity>(db, MEMBER).await,
         forge_token: one::<_, forge_token::Entity>(db, id(FORGE_TOKEN)).await,
         signing_key: one::<_, signing_key::Entity>(db, id(SIGNING_KEY)).await,
+        artifact: one::<_, artifact::Entity>(db, ARTIFACT).await,
+        artifact_block: one::<_, artifact_block::Entity>(
+            db,
+            (ARTIFACT, "YmxvY2stMDAwMQ==".to_owned()),
+        )
+        .await,
         action_ref: one::<_, action_ref::Entity>(db, id(ACTION)).await,
         tool_object: one::<_, tool_object::Entity>(db, id(TOOL)).await,
         user_identity: one::<_, user_identity::Entity>(db, id(IDENTITY)).await,

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use bosun_db::secrets::Sealed;
 use ring::aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
-use ring::hmac;
+use ring::{hkdf, hmac};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use tracing::warn;
@@ -44,6 +44,10 @@ pub(crate) const JOB_TOKEN_KEY: Labels = Labels {
 
 const SIGNING_LABEL: &[u8] = b"bosun signing key\0";
 
+const ADDRESS_LABEL: &[u8] = b"bosun signed address key v1";
+
+pub(crate) const ADDRESS_KEY_BYTES: usize = 32;
+
 const GENERATED: &str = "keys/kek";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -56,6 +60,7 @@ pub(crate) struct Kek {
     id: String,
     key: LessSafeKey,
     signing: hmac::Key,
+    address: [u8; ADDRESS_KEY_BYTES],
 }
 
 impl Kek {
@@ -86,10 +91,17 @@ impl Kek {
             .map(|byte| format!("{byte:02x}"))
             .collect();
         let derived = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &bytes), SIGNING_LABEL);
+        let mut address = [0; ADDRESS_KEY_BYTES];
+        hkdf::Salt::new(hkdf::HKDF_SHA256, &[])
+            .extract(&bytes)
+            .expand(&[ADDRESS_LABEL], hkdf::HKDF_SHA256)
+            .and_then(|key| key.fill(&mut address))
+            .map_err(|_| malformed())?;
         Ok(Kek {
             id: id[..ID_DIGITS].to_owned(),
             key: cipher(&bytes).ok_or_else(malformed)?,
             signing: hmac::Key::new(hmac::HMAC_SHA256, derived.as_ref()),
+            address,
         })
     }
 }
@@ -138,6 +150,10 @@ impl Keyring {
 
     pub(crate) fn current(&self) -> &str {
         &self.current.id
+    }
+
+    pub(crate) fn address_key(&self) -> [u8; ADDRESS_KEY_BYTES] {
+        self.current.address
     }
 
     pub(crate) fn holds(&self, kek_id: &str) -> bool {
@@ -364,6 +380,27 @@ mod tests {
         ] {
             assert!(Kek::parse(malformed, "the test").is_err(), "{malformed}");
         }
+    }
+
+    #[test]
+    fn the_key_of_signed_addresses_follows_the_current_kek_and_equals_neither_it_nor_the_signing_key()
+     {
+        let first = Keyring::new(kek(FIRST), vec![kek(SECOND)]).address_key();
+        assert_eq!(first, Keyring::new(kek(FIRST), Vec::new()).address_key());
+        assert_ne!(first, Keyring::new(kek(SECOND), Vec::new()).address_key());
+        assert_ne!(first.as_slice(), &[0; 32]);
+        let raw: Vec<u8> = (0..32).collect();
+        assert_ne!(first.as_slice(), raw.as_slice());
+    }
+
+    #[test]
+    fn the_key_of_signed_addresses_is_hkdf_sha256_of_the_kek_with_the_fixed_label() {
+        let key = Keyring::new(kek(FIRST), Vec::new()).address_key();
+        let hex: String = key.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(
+            hex,
+            "4876b51ecdeee0e6149a36ec70f5667a66eef00726c191a7187910866e6950c0"
+        );
     }
 
     #[test]

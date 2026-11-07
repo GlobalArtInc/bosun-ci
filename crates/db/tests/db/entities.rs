@@ -1,14 +1,14 @@
 use std::collections::BTreeSet;
 
 use bosun_db::entity::{
-    action_ref, agent, annotation, api_token, api_token_scope, attempt, concurrency_member,
-    control_message, execution, expired_object, forge_check_run, forge_installation,
-    forge_repository, forge_token, idempotency_key, job, label_alias, log_chunk, log_object,
-    oidc_state, organisation, outbox, pool, pool_access, project, registration_token, role,
-    role_binding, run, run_event, schedule, schema_version, secret, session, sign_in_failure,
-    signing_key, step, step_summary, stream_event, team, team_member, tool_object, triggered_run,
-    upstream_follower, upstream_subscription, user, user_identity, variable, webhook_delivery,
-    workflow, workflow_revision,
+    action_ref, agent, annotation, api_token, api_token_scope, artifact, artifact_block, attempt,
+    concurrency_member, control_message, execution, expired_object, forge_check_run,
+    forge_installation, forge_repository, forge_token, idempotency_key, job, label_alias,
+    log_chunk, log_object, oidc_state, organisation, outbox, pool, pool_access, project,
+    registration_token, role, role_binding, run, run_event, schedule, schema_version, secret,
+    session, sign_in_failure, signing_key, step, step_summary, stream_event, team, team_member,
+    tool_object, triggered_run, upstream_follower, upstream_subscription, user, user_identity,
+    variable, webhook_delivery, workflow, workflow_revision,
 };
 use bosun_testkit::TestDatabase;
 use sea_orm::EntityName;
@@ -31,6 +31,8 @@ async fn every_table_has_an_entity() {
         annotation::Entity.table_name(),
         api_token::Entity.table_name(),
         api_token_scope::Entity.table_name(),
+        artifact::Entity.table_name(),
+        artifact_block::Entity.table_name(),
         attempt::Entity.table_name(),
         concurrency_member::Entity.table_name(),
         control_message::Entity.table_name(),

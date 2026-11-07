@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the routes of the runtime services mount this layer from step 6 of M2"
-    )
-)]
-
 use axum::extract::{Request, State};
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;

@@ -3,6 +3,8 @@ pub mod agent;
 pub mod annotation;
 pub mod api_token;
 pub mod api_token_scope;
+pub mod artifact;
+pub mod artifact_block;
 pub mod attempt;
 pub mod concurrency_member;
 pub mod control_message;

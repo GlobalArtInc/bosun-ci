@@ -29,6 +29,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
     ),
     ("agent.json", "get", "/api/v1/agents", Part::Within("Agent")),
     (
+        "artifact.json",
+        "get",
+        "/api/v1/runs/{run}/artifacts",
+        Part::Within("Artifact"),
+    ),
+    (
         "command-job-cancel.json",
         "post",
         "/api/v1/runs/{run}/commands",
@@ -184,6 +190,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         "page-followers.json",
         "get",
         "/api/v1/projects/{project}/followers",
+        Part::Response("200"),
+    ),
+    (
+        "page-artifacts.json",
+        "get",
+        "/api/v1/runs/{run}/artifacts",
         Part::Response("200"),
     ),
     (

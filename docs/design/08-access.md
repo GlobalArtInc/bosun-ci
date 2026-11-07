@@ -246,7 +246,7 @@ white space.
 | `run.cancel` | cancel runs and jobs |
 | `run.rerun` | re-run runs and jobs |
 | `run.control` | pause, resume, skip, breakpoints, priority, abort a step |
-| `run.override` | change a result: mark jobs succeeded, continue past a held step, abort a step as skipped; admit runs from forks |
+| `run.override` | change a result: mark jobs succeeded, continue past a held step, abort a step as skipped; admit runs from forks; delete an artifact |
 | `job.debug` | open terminals in held jobs, retry or release them |
 | `workflow.edit` | edit drafts and server-side workflows, run drafts |
 | `workflow.commit` | save a draft to the repository |
@@ -274,6 +274,14 @@ permission everywhere.
 
 Approving a gate or an environment is not a permission: the approvers are named in the gate or in
 the environment's rules. An approver must also hold `project.view`.
+
+Step 6 of M2 ([../plan.md](../plan.md)) settled which permission deletes an artifact, which this
+design had left open: `run.override`. Deleting changes what a run produced after the fact, as marking
+a job succeeded changes its result, while `project.view` only reads; a `viewer` and a `developer`
+can download an artifact and a `maintainer` can delete it (`DELETE /artifacts/{artifact}`,
+[11-api.md](11-api.md#artifacts)). A job deletes artifacts of its own attempt with its job token,
+which is how an overwrite of `actions/upload-artifact` works; that is the runtime services'
+([06-runtime-services.md](06-runtime-services.md#artifacts)) and no user's permission.
 
 ### Roles and bindings
 

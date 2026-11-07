@@ -41,7 +41,7 @@ async fn variables_override_the_configuration_file() {
 
 #[tokio::test]
 async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fault() {
-    let cases: [Refused; 44] = [
+    let cases: [Refused; 45] = [
         (
             "[database]\nurll = \"postgres://bosun@db/bosun\"\n",
             &[],
@@ -179,6 +179,16 @@ async fn a_configuration_the_server_cannot_use_is_refused_with_the_setting_at_fa
             "the setting server.public_url (BOSUN_SERVER_PUBLIC_URL) is \
              `https://ci.example.org/?next=1`, which is not an address without a user, a query or \
              a fragment",
+        ),
+        (
+            "[server]\nlisten = \"127.0.0.1:0\"\n",
+            &[(
+                "BOSUN_SERVER_PUBLIC_URL",
+                Some("https://ci.example.org/bosun"),
+            )],
+            "the setting server.public_url (BOSUN_SERVER_PUBLIC_URL) is \
+             `https://ci.example.org/bosun`, which is not an origin: scheme, host and maybe a \
+             port, with no path",
         ),
         (
             "[server]\nlisten = \"127.0.0.1:0\"\n",

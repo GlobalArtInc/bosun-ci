@@ -143,4 +143,8 @@ pub enum Error {
     Random(#[source] getrandom::Error),
     #[error("the downloads of actions and tools cannot start: {0}")]
     Tools(String),
+    #[error("the key of signed addresses cannot be used: {0}")]
+    AddressKey(#[source] bosun_services::AddressError),
+    #[error("{0}; server.public_url is the origin of the runtime services")]
+    RuntimeServices(#[source] bosun_services::SettingsError),
 }

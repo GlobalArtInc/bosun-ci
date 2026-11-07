@@ -395,6 +395,69 @@
         ],
         "type": "object"
       },
+      "Artifact": {
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "finalized_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "size": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "attempt_id",
+          "execution_id",
+          "name",
+          "content_type",
+          "size",
+          "digest",
+          "created_at",
+          "finalized_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
       "AttemptCreated": {
         "properties": {
           "number": {
@@ -3866,6 +3929,101 @@
         }
       }
     },
+    "/api/v1/artifacts/{artifact}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the artifact's id, a positive integer of at most 2^53 - 1",
+            "in": "path",
+            "name": "artifact",
+            "required": true,
+            "schema": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "run.override",
+          "on": "project"
+        }
+      },
+      "get": {
+        "parameters": [
+          {
+            "description": "the artifact's id, a positive integer of at most 2^53 - 1",
+            "in": "path",
+            "name": "artifact",
+            "required": true,
+            "schema": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "one byte range of the artifact, `bytes=<first>-<last>`, `bytes=<first>-` or `bytes=-<count>`; the answer is `206` with `Content-Range`",
+            "in": "header",
+            "name": "Range",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Partial Content"
+          },
+          "416": {
+            "description": "Range Not Satisfiable"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.view",
+          "on": "project"
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "requestBody": {
@@ -6049,6 +6207,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.view",
+          "on": "project"
+        }
+      }
+    },
+    "/api/v1/runs/{run}/artifacts": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the run's id",
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Artifact"
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             },

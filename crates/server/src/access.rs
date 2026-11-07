@@ -39,6 +39,7 @@ macro_rules! keys {
 keys!(
     ProjectView,
     RunDispatch,
+    RunOverride,
     WorkflowEdit,
     WorkflowManage,
     ProjectManage,

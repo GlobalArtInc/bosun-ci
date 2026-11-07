@@ -13,7 +13,12 @@ const EXECUTIONS: &str = "execution";
 
 const RUNS: &str = "run";
 
+const ARTIFACTS: &str = "artifact";
+
 const AGENT_STATUS: &str = "agent.status";
+
+const BLOCK_KEY: &str =
+    "'blocks/' || b.artifact_id || '/' || encode(convert_to(b.block, 'UTF8'), 'hex')";
 
 const GIVEN_UP: &str =
     "retention removed the payload of the delivery before the delivery could be processed";
@@ -175,14 +180,20 @@ pub async fn delete_run<C: TransactionTrait>(
     }
     transaction
         .execute(statement(
-            "INSERT INTO expired_object (key) \
-             SELECT o.key FROM attempt a JOIN job j ON j.attempt_id = a.id \
-             JOIN execution e ON e.job_id = j.id JOIN step s ON s.execution_id = e.id \
-             JOIN log_object o ON o.step_id = s.id WHERE a.run_id = $1 \
-             UNION SELECT m.key FROM attempt a JOIN job j ON j.attempt_id = a.id \
-             JOIN execution e ON e.job_id = j.id JOIN step s ON s.execution_id = e.id \
-             JOIN step_summary m ON m.step_id = s.id WHERE a.run_id = $1 \
-             ON CONFLICT DO NOTHING",
+            &format!(
+                "INSERT INTO expired_object (key) \
+                 SELECT o.key FROM attempt a JOIN job j ON j.attempt_id = a.id \
+                 JOIN execution e ON e.job_id = j.id JOIN step s ON s.execution_id = e.id \
+                 JOIN log_object o ON o.step_id = s.id WHERE a.run_id = $1 \
+                 UNION SELECT m.key FROM attempt a JOIN job j ON j.attempt_id = a.id \
+                 JOIN execution e ON e.job_id = j.id JOIN step s ON s.execution_id = e.id \
+                 JOIN step_summary m ON m.step_id = s.id WHERE a.run_id = $1 \
+                 UNION SELECT f.key FROM attempt a JOIN artifact f ON f.attempt_id = a.id \
+                 WHERE a.run_id = $1 \
+                 UNION SELECT {BLOCK_KEY} FROM attempt a JOIN artifact f ON f.attempt_id = a.id \
+                 JOIN artifact_block b ON b.artifact_id = f.id WHERE a.run_id = $1 \
+                 ON CONFLICT DO NOTHING"
+            ),
             [id.into()],
         ))
         .await?;
@@ -254,5 +265,96 @@ pub async fn forget_objects<C: ConnectionTrait>(db: &C, keys: &[String]) -> Resu
         [keys.to_vec().into()],
     ))
     .await?;
+    Ok(())
+}
+
+pub async fn expired_artifacts<C: ConnectionTrait>(
+    db: &C,
+    now: DateTimeUtc,
+    batch: u64,
+) -> Result<Vec<i64>, Error> {
+    db.query_all(statement(
+        "SELECT id FROM artifact WHERE finalized_at IS NOT NULL AND expires_at <= $1 \
+         ORDER BY expires_at, id LIMIT $2",
+        [now.into(), limit(ARTIFACTS, batch)?],
+    ))
+    .await?
+    .into_iter()
+    .map(|found| Ok(found.try_get::<i64>("", "id")?))
+    .collect()
+}
+
+pub async fn expire_artifact<C: TransactionTrait>(
+    db: &C,
+    id: i64,
+    now: DateTimeUtc,
+) -> Result<bool, Error> {
+    let transaction = db.begin().await?;
+    let still = transaction
+        .query_one(statement(
+            "SELECT id FROM artifact WHERE id = $1 AND finalized_at IS NOT NULL \
+             AND expires_at <= $2 FOR UPDATE SKIP LOCKED",
+            [id.into(), now.into()],
+        ))
+        .await?;
+    if still.is_none() {
+        return Ok(false);
+    }
+    remove_artifact(&transaction, id).await?;
+    transaction.commit().await?;
+    Ok(true)
+}
+
+pub async fn abandoned_uploads<C: ConnectionTrait>(
+    db: &C,
+    started_before: DateTimeUtc,
+    batch: u64,
+) -> Result<Vec<i64>, Error> {
+    db.query_all(statement(
+        "SELECT id FROM artifact WHERE finalized_at IS NULL AND created_at <= $1 \
+         ORDER BY created_at, id LIMIT $2",
+        [started_before.into(), limit(ARTIFACTS, batch)?],
+    ))
+    .await?
+    .into_iter()
+    .map(|found| Ok(found.try_get::<i64>("", "id")?))
+    .collect()
+}
+
+pub async fn abandon_upload<C: TransactionTrait>(
+    db: &C,
+    id: i64,
+    started_before: DateTimeUtc,
+) -> Result<bool, Error> {
+    let transaction = db.begin().await?;
+    let still = transaction
+        .query_one(statement(
+            "SELECT id FROM artifact WHERE id = $1 AND finalized_at IS NULL \
+             AND created_at <= $2 FOR UPDATE SKIP LOCKED",
+            [id.into(), started_before.into()],
+        ))
+        .await?;
+    if still.is_none() {
+        return Ok(false);
+    }
+    remove_artifact(&transaction, id).await?;
+    transaction.commit().await?;
+    Ok(true)
+}
+
+async fn remove_artifact(transaction: &DatabaseTransaction, id: i64) -> Result<(), Error> {
+    transaction
+        .execute(statement(
+            &format!(
+                "INSERT INTO expired_object (key) SELECT f.key FROM artifact f WHERE f.id = $1 \
+                 UNION SELECT {BLOCK_KEY} FROM artifact_block b WHERE b.artifact_id = $1 \
+                 ON CONFLICT DO NOTHING"
+            ),
+            [id.into()],
+        ))
+        .await?;
+    transaction
+        .execute(statement("DELETE FROM artifact WHERE id = $1", [id.into()]))
+        .await?;
     Ok(())
 }

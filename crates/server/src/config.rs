@@ -912,7 +912,17 @@ fn address(section: &str, key: &str, text: &str) -> Result<Url, Error> {
 }
 
 fn public_url(text: &str) -> Result<String, Error> {
-    address("server", "public_url", text).map(|_| text.to_owned())
+    let url = address("server", "public_url", text)?;
+    if !matches!(url.path(), "" | "/") || url.password().is_some() {
+        return Err(invalid(
+            "server",
+            "public_url",
+            format!(
+                "is `{text}`, which is not an origin: scheme, host and maybe a port, with no path"
+            ),
+        ));
+    }
+    Ok(text.to_owned())
 }
 
 fn store(file: StoreFile, data_dir: &Path) -> Result<Store, Error> {

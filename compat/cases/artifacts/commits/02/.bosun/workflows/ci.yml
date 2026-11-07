@@ -1,0 +1,35 @@
+name: artifacts
+on: push
+jobs:
+  produce:
+    runs-on: [self-hosted, alpha]
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - run: |
+          mkdir -p out
+          printf 'first\n' > out/greeting.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: greeting
+          path: out/greeting.txt
+      - id: digest
+        run: |
+          printf 'second\n' > out/greeting.txt
+          echo "digest=$(sha256sum out/greeting.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: greeting
+          path: out/greeting.txt
+          overwrite: true
+  consume:
+    needs: produce
+    runs-on: [self-hosted, beta]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: greeting
+          path: got
+      - run: |
+          test "$(sha256sum got/greeting.txt | cut -d' ' -f1)" = "${{ needs.produce.outputs.digest }}"
+          echo "downloaded $(cat got/greeting.txt)"

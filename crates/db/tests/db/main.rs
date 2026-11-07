@@ -1,4 +1,5 @@
 mod agents;
+mod artifacts;
 mod control;
 mod deliveries;
 mod entities;

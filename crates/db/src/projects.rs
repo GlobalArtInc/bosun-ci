@@ -7,7 +7,7 @@ use sea_orm::prelude::Uuid;
 use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, Condition, ConnectionTrait, EntityTrait,
-    QueryFilter, QueryOrder, QuerySelect,
+    QueryFilter, QueryOrder, QuerySelect, Value,
 };
 
 use crate::entity::{forge_repository, organisation, project};
@@ -66,6 +66,7 @@ pub enum Holder {
     Run(RunId),
     Job(JobId),
     Execution(ExecutionId),
+    Artifact(i64),
 }
 
 pub async fn create<C: ConnectionTrait>(
@@ -270,29 +271,33 @@ pub async fn change_settings<C: ConnectionTrait>(
 }
 
 pub async fn holding<C: ConnectionTrait>(db: &C, holder: Holder) -> Result<Option<Project>, Error> {
-    let (sql, id) = match holder {
+    let (sql, id): (&str, Value) = match holder {
         Holder::Workflow(id) => (
             "SELECT p.* FROM project p JOIN workflow w ON w.project_id = p.id WHERE w.id = $1",
-            Uuid::from(id),
+            Uuid::from(id).into(),
         ),
         Holder::Run(id) => (
             "SELECT p.* FROM project p JOIN run r ON r.project_id = p.id WHERE r.id = $1",
-            Uuid::from(id),
+            Uuid::from(id).into(),
         ),
         Holder::Job(id) => (
             "SELECT p.* FROM project p JOIN run r ON r.project_id = p.id \
              JOIN attempt a ON a.run_id = r.id JOIN job j ON j.attempt_id = a.id WHERE j.id = $1",
-            Uuid::from(id),
+            Uuid::from(id).into(),
         ),
         Holder::Execution(id) => (
             "SELECT p.* FROM project p JOIN run r ON r.project_id = p.id \
              JOIN attempt a ON a.run_id = r.id JOIN job j ON j.attempt_id = a.id \
              JOIN execution e ON e.job_id = j.id WHERE e.id = $1",
-            Uuid::from(id),
+            Uuid::from(id).into(),
+        ),
+        Holder::Artifact(id) => (
+            "SELECT p.* FROM project p JOIN artifact f ON f.project_id = p.id WHERE f.id = $1",
+            id.into(),
         ),
     };
     let found = project::Entity::find()
-        .from_raw_sql(statement(sql, [id.into()]))
+        .from_raw_sql(statement(sql, [id]))
         .one(db)
         .await?;
     one(db, found).await

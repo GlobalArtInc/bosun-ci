@@ -17,6 +17,8 @@ const PAYLOADS: TimeDelta = TimeDelta::days(30);
 
 const AGENT_EVENTS: TimeDelta = TimeDelta::days(7);
 
+const UPLOADS: TimeDelta = TimeDelta::hours(24);
+
 const BATCH: u64 = 100;
 
 const ROWS: u64 = 1000;
@@ -35,6 +37,8 @@ pub(crate) struct Removed {
     pub(crate) runs: u64,
     pub(crate) payloads: u64,
     pub(crate) agent_events: u64,
+    pub(crate) artifacts: u64,
+    pub(crate) uploads: u64,
     pub(crate) objects: u64,
 }
 
@@ -54,6 +58,8 @@ pub(crate) async fn sweep(
                 runs = removed.runs,
                 payloads = removed.payloads,
                 agent_events = removed.agent_events,
+                artifacts = removed.artifacts,
+                uploads = removed.uploads,
                 objects = removed.objects,
                 "removed what retention expired"
             ),
@@ -125,6 +131,34 @@ async fn expire<S: Store>(
             let deleted = bosun_db::retention::remove_agent_events(db, before, ROWS).await?;
             removed.agent_events += deleted;
             if deleted < ROWS {
+                break;
+            }
+        }
+    }
+    loop {
+        let found = bosun_db::retention::expired_artifacts(db, now, BATCH).await?;
+        let mut deleted = 0;
+        for artifact in &found {
+            if bosun_db::retention::expire_artifact(db, *artifact, now).await? {
+                deleted += 1;
+            }
+        }
+        removed.artifacts += deleted;
+        if (found.len() as u64) < BATCH || deleted == 0 {
+            break;
+        }
+    }
+    if let Some(started_before) = now.checked_sub_signed(UPLOADS) {
+        loop {
+            let found = bosun_db::retention::abandoned_uploads(db, started_before, BATCH).await?;
+            let mut deleted = 0;
+            for artifact in &found {
+                if bosun_db::retention::abandon_upload(db, *artifact, started_before).await? {
+                    deleted += 1;
+                }
+            }
+            removed.uploads += deleted;
+            if (found.len() as u64) < BATCH || deleted == 0 {
                 break;
             }
         }

@@ -649,6 +649,21 @@ pub struct Execution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Artifact {
+    pub id: i64,
+    pub run_id: RunId,
+    pub attempt_id: AttemptId,
+    pub execution_id: ExecutionId,
+    pub name: String,
+    pub content_type: String,
+    pub size: u64,
+    pub digest: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub finalized_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Step {
     pub id: StepId,
     pub execution_id: ExecutionId,

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use bosun_types::api::{
-    AddMemberRequest, Agent, CreateOrganisationRequest, CreatePersonalTokenRequest,
+    AddMemberRequest, Agent, Artifact, CreateOrganisationRequest, CreatePersonalTokenRequest,
     CreatePoolRequest, CreateProjectRequest, CreateRoleBindingRequest, CreateRoleRequest,
     CreateTeamRequest, CreateUserRequest, CreateWorkflowRequest, DispatchRequest, Execution,
     Follower, Job, LabelAlias, LintRequest, LintResponse, LogEnd, LogLine, LogSearch, Me,
@@ -131,6 +131,8 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<AddMemberRequest>,
         ),
         ("api/agent.json", round_trip::<Agent>),
+        ("api/artifact.json", round_trip::<Artifact>),
+        ("api/page-artifacts.json", round_trip::<Page<Artifact>>),
         ("api/command-job-cancel.json", round_trip::<CommandRequest>),
         ("api/command-run-admit.json", round_trip::<CommandRequest>),
         ("api/command-run-cancel.json", round_trip::<CommandRequest>),

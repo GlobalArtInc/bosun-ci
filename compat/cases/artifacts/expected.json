@@ -1,0 +1,29 @@
+{
+  "description": "a job uploads a file with actions/upload-artifact@v4 and again under the same name with overwrite, and a dependent job on another agent downloads the same bytes with actions/download-artifact@v4",
+  "runs": [
+    {
+      "name": "artifacts",
+      "conclusion": "success",
+      "checks": ["produce", "consume"],
+      "jobs": [
+        {
+          "name": "produce",
+          "conclusion": "success",
+          "outputs": {"digest": "480c2336b410f1ad5f8bf1b28944490255804b65350c527787e74ebdd511e3a4"},
+          "logs": [
+            "^[^ ]+ Artifact greeting has been successfully uploaded! Final size is [0-9]+ bytes\\. Artifact ID is [0-9]+$"
+          ]
+        },
+        {
+          "name": "consume",
+          "conclusion": "success",
+          "logs": [
+            "^[^ ]+ Downloading single artifact$",
+            "^[^ ]+ Artifact download completed successfully\\.$",
+            "^[^ ]+ downloaded second$"
+          ]
+        }
+      ]
+    }
+  ]
+}

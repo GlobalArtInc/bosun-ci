@@ -1,0 +1,6 @@
+{
+  "commits": [
+    {"message": "a readme"},
+    {"message": "a job uploads an artifact twice and a dependent job downloads it"}
+  ]
+}

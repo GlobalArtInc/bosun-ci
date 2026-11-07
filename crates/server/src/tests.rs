@@ -1,6 +1,7 @@
 mod access;
 mod actions;
 mod admission;
+mod artifacts;
 mod cancel;
 mod concurrency;
 mod dispatch;

@@ -106,6 +106,9 @@ step_summary step_id, key, size, created_at
 forge_token  id, execution_id, repository_id, permissions jsonb, ciphertext, data_key, kek_id,
              expires_at, created_at
 signing_key  id, public_key, ciphertext, data_key, kek_id, created_at, retired_at
+artifact     id bigint, project_id, attempt_id, execution_id, name, key, content_type,
+             created_at, expires_at, finalized_at, size, sha256, blocks
+artifact_block artifact_id, block
 run_event    seq bigserial, run_id, attempt_id, job_id, execution_id, step_id, kind,
              actor jsonb, data jsonb, at, xact
 stream_event seq bigserial, xact, subject, project_id, run_id, kind, data jsonb, at
@@ -277,6 +280,24 @@ and each renewal one more; the delivery of the execution's `token_revocation` de
 row outlives its execution's end only until that delivery. The index on `(execution_id,
 expires_at)` finds the newest token of an execution. The table arrived with step 34 of
 [../plan.md](../plan.md).
+An `artifact` is one artifact of the runtime services
+([06-runtime-services.md](06-runtime-services.md#artifacts)), owned by its project, its attempt and
+the execution that created it, each with `ON DELETE CASCADE`, so deleting a run under `run_retention`
+deletes its artifacts too. Step 6 of M2 ([../plan.md](../plan.md)) settled the table. Its `id` is a
+number drawn from a sequence that stops at 2^53 - 1, since the toolkit reads it as a JavaScript
+number; `(attempt_id, name)` is unique, which is how an attempt refuses a second artifact of a name
+and how an overwrite finds the one to replace; `key` is the object, `artifacts/<project>/<id>`, and
+never holds the name, which is the job's; `expires_at` is set when the artifact is created
+([Retention](#retention)); `finalized_at`, `size` and `sha256` are all null until `FinalizeArtifact`
+and the first two never null after it, `sha256` staying null when the client reported none. An
+`artifact_block` is one block id that an upload staged, kept so that replicas agree on how many
+distinct ids an artifact has staged: `artifact.blocks` counts the rows, and
+`register_block` takes the artifact's row `FOR NO KEY UPDATE`, inserts the id with `ON CONFLICT DO
+NOTHING` and increments the counter when it was new, in one transaction, so racing uploads of one
+artifact are counted one after another and never pass the limit, while the count itself reads one
+column and not the table. A finalised artifact has no `artifact_block` rows: finalising deletes them
+in the transaction that sets `finalized_at`.
+
 `action_ref` holds `id, owner, repository, sha, key, size, sha256, metadata jsonb, created_at`, one
 row per commit of an action repository, unique by owner, repository and commit, where `key` is the
 tarball's object, `sha256` its digest and `metadata` maps the path of every `action.yml` and
@@ -810,12 +831,13 @@ lines under the same numbers whichever state it meets ([11-api.md](11-api.md#log
 
 ## Retention
 
-Project settings, each capped by an installation maximum:
+Project settings, each capped by an installation maximum, except that the retention of artifacts
+has no setting yet (see Artifacts below) and is a constant of the server:
 
 | What | Default |
 |------|---------|
 | logs and step summaries | 90 days |
-| artifacts | 90 days, or `retention-days` of the upload |
+| artifacts | 90 days, or `retention-days` of the upload, at most 90 days; an upload not finalised within 24 hours is removed |
 | caches | 7 days without a read; 10 GiB per project, least recently used first |
 | terminal recordings | 30 days |
 | audit events | 1 year |
@@ -842,6 +864,15 @@ summaries, runs, webhook payloads and `agent.status` events.
   Webhook payloads and `agent.status` events have fixed periods, since no project's setting can
   apply to them: a delivery is stored before it is matched to a project, and an installation event
   concerns none.
+- **Artifacts.** Step 6 of M2 ([../plan.md](../plan.md)) settled their period. No project setting
+  exists for it yet, so the period an upload gets when its step gives no `retention-days` and the
+  longest an upload may ask for are both 90 days, a constant of the server; step 7 of M2 adds the
+  setting and its installation maximum. The server fixes the
+  artifact's `expires_at` when `CreateArtifact` creates it: the expiry the toolkit sent for its
+  `retention-days`, or 90 days after the creation when it sent none, whichever is earlier. Lowering
+  the constant later therefore shortens no artifact that exists. Artifacts age from their creation
+  and not from the completion of their run, and one that is not finalised is not subject to
+  `expires_at` but to the clean-up of abandoned uploads below.
 - **From when.** The logs and summaries of an execution age from its completion, and a run from its
   completion, by the server's clock, which tests inject. An execution or a run that has not
   completed is never removed, because an agent may still report to it; a run that waits forever, for
@@ -866,7 +897,8 @@ summaries, runs, webhook payloads and `agent.status` events.
   2. **Runs.** Up to 100 completed runs at a time past their period, through the partial index on
      `run (completed_at) where status = 'completed'`, bounded the same way. For each, a transaction
      takes the run's row `FOR UPDATE SKIP LOCKED` on the condition that it still expired, lists the
-     keys of the log objects and summaries of its executions in `expired_object`, and deletes the
+     keys of the log objects and summaries of its executions in `expired_object`, and likewise the
+     objects of its artifacts and the objects of their staged blocks, and deletes the
      run, which deletes everything it owns ([Tables](#tables)). The API then answers for the run,
      its jobs and its executions as for ones that never existed.
   3. **Webhook payloads.** Up to 1000 deliveries at a time received 30 days ago or earlier, through
@@ -880,7 +912,18 @@ summaries, runs, webhook payloads and `agent.status` events.
      forge never sends a payload that is not an object, so `null` is unambiguous.
   4. **`agent.status` events** 7 days old or older, 1000 at a time, through a partial index on
      `stream_event (at) where kind = 'agent.status'`.
-  5. **Objects.** `expired_object` (`key, created_at`) lists the objects of the store whose rows
+  5. **Artifacts.** Up to 100 finalised artifacts at a time whose `expires_at` has passed, through
+     the partial index on `artifact (expires_at) where finalized_at is not null`. For each, a
+     transaction takes the artifact's row `FOR UPDATE SKIP LOCKED` on the condition that it still
+     expired, lists the artifact's object and the objects of its staged blocks in `expired_object`,
+     and deletes the row, which deletes its `artifact_block` rows.
+  6. **Abandoned uploads.** Up to 100 artifacts at a time that are not finalised and were created
+     24 hours ago or earlier, through the partial index on `artifact (created_at) where
+     finalized_at is null`, removed as in 5. The limit is a constant of the server, 24 hours, and
+     counts from `CreateArtifact`, which an upload of any size and a slow runner finish within
+     (the upload address lives one hour); a job that keeps an artifact pending for longer than a
+     day has its `FinalizeArtifact` answered `not_found`.
+  7. **Objects.** `expired_object` (`key, created_at`) lists the objects of the store whose rows
      retention removed and which it has yet to delete. The round deletes them from the store, 100
      at a time, and then their rows. A key is listed in the transaction that removes the rows that
      name its object, so neither a crash nor a store that fails leaves an object that nothing will
@@ -889,7 +932,7 @@ summaries, runs, webhook payloads and `agent.status` events.
   and so does one after a restore of an older bucket; the API answers both as it answers a log or a
   summary that expired ([11-api.md](11-api.md#logs), [12-operations.md](12-operations.md#backups)).
 - **Its log.** A round that removed anything logs `removed what retention expired` with the numbers
-  of `logs`, `runs`, `payloads`, `agent_events` and `objects`; a round that fails is logged at
+  of `logs`, `runs`, `payloads`, `agent_events`, `artifacts`, `uploads` and `objects`; a round that fails is logged at
   warning level, and the next one goes on where it stopped.
 
 ## Secrets at rest
@@ -948,10 +991,23 @@ Further key material:
 - the Ed25519 key that signs job tokens is generated by the server, stored encrypted under the
   KEK, and rotated; earlier public keys are kept until the last token they signed has expired
   ([below](#the-key-that-signs-job-tokens));
-- the HMAC key of signed addresses is derived from the KEK with HKDF and a fixed label.
+- the HMAC key of signed addresses is derived from the KEK with HKDF and a fixed label
+  ([below](#the-key-of-signed-addresses)).
 
 Losing the KEK loses every secret, and the backup instructions say so
 ([12-operations.md](12-operations.md)). The API accepts secret values and never returns them.
+
+### The key of signed addresses
+
+Step 6 of M2 ([../plan.md](../plan.md)) settled the derivation. The key is 32 bytes of HKDF-SHA256
+over the 32 bytes of the current KEK, with an empty salt and the label `bosun signed address key
+v1` as the `info`, so it is the same on every replica that holds the KEK, is stored nowhere, and
+equals neither the KEK nor the key the server signs with elsewhere. The server derives it when it
+starts and uses it for the HMAC of the signed addresses of the artifact service
+([06-runtime-services.md](06-runtime-services.md#artifacts)). Only the current KEK derives it: an
+address signed under a KEK that the configuration then replaced stops verifying, and addresses live
+one hour, so a rotation of the KEK makes an address issued before it `403`, and an upload or a download in
+flight at that moment fails with its step.
 
 ### The key that signs job tokens
 

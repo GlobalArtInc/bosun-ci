@@ -304,6 +304,9 @@ with the answers each built-in role gets:
 | `GET /executions/{execution}` | `project.view` | `project` |
 | `GET /executions/{execution}/steps/{step}/log` | `project.view` | `project` |
 | `GET /executions/{execution}/steps/{step}/summary` | `project.view` | `project` |
+| `GET /runs/{run}/artifacts` | `project.view` | `project` |
+| `GET /artifacts/{artifact}` | `project.view` | `project` |
+| `DELETE /artifacts/{artifact}` | `run.override` | `project` |
 | `GET /events` | `project.view`, and `agent.manage` on the installation for the events of no project | `items` |
 | `GET /queue` | `project.view` | `items` |
 | `GET /agents` | `agent.manage` | `installation` |
@@ -827,6 +830,34 @@ its log, the annotations and the step summary its agent sends in `StepFinished`
   missing from the store.
 - Reading annotations, summaries and logs needs `project.view` on the run's project, as reading
   the execution does.
+
+### Artifacts
+
+Step 6 of M2 ([../plan.md](../plan.md)) settled how the API serves the artifacts that jobs upload
+through the runtime services ([06-runtime-services.md](06-runtime-services.md#artifacts)).
+
+- `GET /runs/{run}/artifacts` lists the finalised artifacts of every attempt of the run, oldest id
+  first, as a cursor page, in the shape `Artifact`: `{"id", "run_id", "attempt_id", "execution_id",
+  "name", "content_type", "size", "digest", "created_at", "finalized_at", "expires_at"}`. `id` is the
+  artifact's number, a positive integer of at most 2^53 - 1, and `digest` is `sha256:` and 64 hex
+  digits or `null` when the client reported none. An upload that is not finalised is not listed.
+  The `next` of a page is the id of its last artifact written as a UUID whose low 64 bits hold the
+  number, which a client treats as opaque like every cursor.
+- `GET /artifacts/{artifact}` streams the artifact from the store: `200`, or `206` with
+  `Content-Range` for one `Range: bytes=a-b`, `a-` or `-n`, `416` with `Content-Range: bytes
+  */<size>` for a range outside the object, and `422 invalid_input` for a `Range` that is not a
+  single well-formed range. The answer carries `Content-Length`, `Accept-Ranges: bytes`, the
+  content type the artifact was created with, a `Content-Disposition` of `attachment` built from
+  the last component of the artifact's name as the block endpoint builds it, `X-Content-Type-Options:
+  nosniff`, a `Content-Security-Policy` of `default-src 'none'; sandbox` and `Cache-Control:
+  no-store`, because the content is the job's and the address is on Bosun's origin. An artifact
+  whose object is missing from the store, which retention or a restore of an older bucket causes,
+  is `410 expired`.
+- `DELETE /artifacts/{artifact}` removes the object from the store and then the artifact's rows,
+  and answers `204`. It needs `run.override`
+  ([08-access.md](08-access.md#permissions-and-roles)); a viewer gets `403`.
+- Reading needs `project.view` on the run's project. An artifact that does not exist, one of a
+  project the caller cannot see, and one that is not finalised are `404 not_found`.
 
 ### The queue
 

@@ -3,6 +3,7 @@ mod actions;
 mod address;
 mod agents;
 mod aliases;
+mod artifacts;
 mod auth;
 mod bindings;
 mod check;
@@ -52,6 +53,7 @@ mod runtime;
 mod schedules;
 mod scope;
 mod secrets;
+mod services;
 mod sessions;
 mod settings;
 mod shutdown;
@@ -329,6 +331,7 @@ pub async fn serve(
         oidc,
         meters,
     };
+    let runtime = services::routes(&state)?;
     let scrapes = shutdown.clone();
     let scraped = tokio::spawn(
         axum::serve(metrics_listener, scraping(state.clone()))
@@ -339,7 +342,7 @@ pub async fn serve(
     );
     axum::serve(
         listener,
-        app(state, interface, connector, shutdown)
+        app(state, interface, connector, shutdown, runtime)
             .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
@@ -416,6 +419,7 @@ fn api() -> openapi::Api {
         .merge(queue::routes())
         .merge(secrets::routes())
         .merge(variables::routes())
+        .merge(artifacts::routes())
 }
 
 fn scraping(state: AppState) -> Router {
@@ -429,6 +433,7 @@ fn app(
     interface: interface::Interface,
     connector: agents::Connector,
     shutdown: shutdown::Shutdown,
+    runtime: Router,
 ) -> Router {
     let http = Router::new()
         .route("/healthz", get(health::alive))
@@ -440,7 +445,8 @@ fn app(
         .merge(hooks::routes())
         .fallback(move |method: Method, uri: Uri| interface::answer(interface, method, uri))
         .method_not_allowed_fallback(envelope::no_route)
-        .with_state(state);
+        .with_state(state)
+        .merge(runtime);
     let agents = AgentServer::new(connector).max_decoding_message_size(agents::MESSAGE_LIMIT);
     let grpc = grpc::routes(Routes::new(agents), shutdown);
     Router::new()
