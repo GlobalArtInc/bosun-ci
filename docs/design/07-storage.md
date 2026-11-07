@@ -66,8 +66,8 @@ a number is never given twice, even after runs are deleted. Times are `timestamp
 |------|--------|
 | identity | `user`, `user_identity`, `team`, `team_member`, `role`, `role_binding`, `api_token`, `api_token_scope`, `session`, `sign_in_failure`, `oidc_state` |
 | tenancy | `organisation` (with its settings, among them the action policy), `forge_installation`, `forge_repository`, `project`, `environment`, `environment_rule`, `secret`, `variable` |
-| workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription` |
-| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `concurrency_member`, `approval`, `annotation`, `step_summary`, `forge_token`, `terminal_session` |
+| workflows | `workflow`, `workflow_revision`, `workflow_draft`, `schedule`, `upstream_subscription`, `upstream_follower` |
+| runs | `run`, `attempt`, `job`, `execution`, `step`, `run_event`, `stream_event`, `concurrency_member`, `approval`, `annotation`, `step_summary`, `forge_token`, `triggered_run`, `terminal_session` |
 | agents | `pool`, `pool_access`, `agent`, `registration_token`, `control_message`, `label_alias` |
 | logs | `log_chunk`, `log_object` |
 | retention | `expired_object` |
@@ -219,6 +219,21 @@ forge, `job_id, id, created_at`, owned by the job. Both arrived with step 28 of
 [../plan.md](../plan.md); `forge_check_run.annotations`, the number of the job's annotations the
 check run has received, arrived with step 35.
 
+`upstream_subscription` holds `id, workflow_id, revision_id, trigger, source_project, filter jsonb,
+git_ref, sha, created_at`, unique by `(workflow_id, trigger)`: one row for each `workflow_run` or
+`upstream` key of a workflow, with the key as the IR lowers it in `filter`, the project path as
+written in `source_project` (null for the workflow's own project) and the ref and commit a run of
+it starts at. `triggered_run` holds `source_run_id, attempt_id, workflow_id, transition, run_id,
+skipped, depth, created_at`, with the primary key `(source_run_id, attempt_id, workflow_id,
+transition)`: the decision about a workflow that follows a transition of a run, either the run it
+created, in `run_id` and unique, or the reason it created none, in `skipped`, together with the
+number of levels the created run is above the first run of its chain. `upstream_follower` holds
+`project_id, follower_id`, both foreign keys to `project` that cascade, with the primary key
+`(project_id, follower_id)`: the projects whose workflows may subscribe to the runs of `project_id`
+with `on.upstream`, by the consent of `project_id`'s owner
+([02-workflows.md](02-workflows.md#runs-that-follow-runs)). All three arrived with step 16 of M2
+([../plan.md](../plan.md)) ([Triggers between runs](04-runs.md#triggers-between-runs)).
+
 A workflow's `source_kind` is `server` or `repository`. A repository workflow is named by the path
 of its file and is unique by project and path, which the partial unique index on
 `workflow (project_id, name) where source_kind = 'repository'` keeps, so two replicas that read a
@@ -345,7 +360,10 @@ claim of the queue takes the job and its run's lock with `SKIP LOCKED`, so it ne
 that another transaction is changing; it takes the agent's row first, and never waits after that, so
 it closes no cycle. The claim of the resolver takes only job rows, with `SKIP LOCKED`, and no run's
 lock, so it waits for nobody; its decision transaction takes the run's lock first and then the job,
-as the planner does.
+as the planner does. The reservation of a triggered run inserts into `triggered_run`, whose foreign
+keys take `FOR KEY SHARE` on the source run and on the workflow before the transaction takes the
+concurrency lock; that lock does not conflict with the `FOR NO KEY UPDATE` that every other holder of
+those rows takes, so it closes no cycle either.
 
 The lock orders the journal of one run, not the journal of all runs. A reader across runs, such as
 the event stream filtered by project ([11-api.md](11-api.md#the-event-stream)), arrives with a
@@ -569,6 +587,14 @@ another `4xx` as final, with a warning, and deletes each row as soon as it is re
 found expired, so a delivery that fails halfway and is tried again revokes only the rest. Since
 every token expires within the hour, a row that keeps failing finds nothing left to revoke within
 the hour and is delivered, long before it would be marked dead.
+
+Step 16 of M2 added the kind `run_trigger`, which is no report to the forge: a run offers a
+transition to the workflows that follow it ([Triggers between runs](04-runs.md#triggers-between-runs)).
+`journal::append` writes it in the transaction of the event that causes it, for `attempt.created`,
+for `run.status` to `in_progress` and for `run.status` to `completed`, with the payload `{run_id,
+attempt_id, transition, conclusion}` and the collapse key `run_trigger/<run>/<attempt>/<transition>`.
+Every replica, with or without a GitHub App, runs a worker of its own that claims this kind alone
+the way the worker below claims the others, and that worker never claims it.
 
 Every replica with a GitHub App runs one outbox worker, woken by `bosun_outbox` and otherwise every
 second, which is the resolution of the backoff. One delivery is two short transactions, the claim

@@ -9,6 +9,7 @@ use bosun_db::tokens::Carried;
 use bosun_types::api::{Organisation, Permissions, Project, User};
 use bosun_types::command::Command;
 use bosun_types::error::ErrorCode;
+use bosun_types::id::{OrganisationId, ProjectId};
 use bosun_types::permission::Permission;
 use sea_orm::ConnectionTrait;
 use serde_json::{Value, json};
@@ -185,6 +186,12 @@ impl<R> Caller<R> {
                 place()
             ),
         ))
+    }
+
+    pub(crate) fn views(&self, organisation: OrganisationId, project: ProjectId) -> bool {
+        self.permissions()
+            .on_project(organisation, project)
+            .contains(&Permission::ProjectView)
     }
 
     async fn project_of<C: ConnectionTrait>(

@@ -181,6 +181,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Response("200"),
     ),
     (
+        "page-followers.json",
+        "get",
+        "/api/v1/projects/{project}/followers",
+        Part::Response("200"),
+    ),
+    (
         "page-jobs.json",
         "get",
         "/api/v1/runs/{run}/attempts/{attempt}/jobs",

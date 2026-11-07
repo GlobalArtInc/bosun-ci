@@ -58,6 +58,37 @@ pub async fn find_personal<C: ConnectionTrait>(
     let Some((token, Some(user))) = found else {
         return Ok(None);
     };
+    let carried = carried_by(db, &token).await?;
+    Ok(Some(Bearer {
+        id: row::id(TABLE, token.id)?,
+        password_change_required: user.password_change_required,
+        user: users::decode(user)?,
+        expires_at: token.expires_at,
+        revoked_at: token.revoked_at,
+        carried,
+    }))
+}
+
+pub async fn carried<C: ConnectionTrait>(
+    db: &C,
+    id: TokenId,
+    now: DateTimeUtc,
+) -> Result<Option<Carried>, Error> {
+    match api_token::Entity::find_by_id(Uuid::from(id))
+        .one(db)
+        .await?
+    {
+        Some(token) if token.revoked_at.is_none() && token.expires_at > now => {
+            carried_by(db, &token).await.map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
+async fn carried_by<C: ConnectionTrait>(
+    db: &C,
+    token: &api_token::Model,
+) -> Result<Carried, Error> {
     let scopes = if token.restricted {
         let mut scopes = Vec::new();
         for scope in api_token_scope::Entity::find()
@@ -74,17 +105,10 @@ pub async fn find_personal<C: ConnectionTrait>(
     } else {
         None
     };
-    Ok(Some(Bearer {
-        id: row::id(TABLE, token.id)?,
-        password_change_required: user.password_change_required,
-        user: users::decode(user)?,
-        expires_at: token.expires_at,
-        revoked_at: token.revoked_at,
-        carried: Carried {
-            permissions: token.permissions.as_deref().map(roles::known),
-            scopes,
-        },
-    }))
+    Ok(Carried {
+        permissions: token.permissions.as_deref().map(roles::known),
+        scopes,
+    })
 }
 
 pub async fn create<C: ConnectionTrait>(

@@ -18,7 +18,9 @@ use crate::envelope::{self, ApiError};
 use crate::openapi::{Api, Input, Spec};
 use crate::reply::Created;
 use crate::request::{Body, Faults, Idempotent, Listing, Segment, database, failed};
-use crate::{AppState, forge_events, idempotency, organisations, settings, slug, workflows};
+use crate::{
+    AppState, followers, forge_events, idempotency, organisations, settings, slug, workflows,
+};
 
 const WORKFLOWS: &str = "workflows";
 
@@ -26,13 +28,15 @@ const SETTINGS: &str = "settings";
 
 const EVENTS: &str = "events";
 
+const FOLLOWERS: &str = "followers";
+
 pub(crate) fn routes() -> Api {
     Api::new()
         .get("/api/v1/projects", list)
         .post("/api/v1/projects", create)
         .route(
             "/api/v1/projects/{*path}",
-            get(read).post(write).patch(change),
+            get(read).post(write).patch(change).put(put).delete(delete),
         )
         .describe(Method::GET, "/api/v1/projects/{project}", show)
         .describe(Method::PATCH, "/api/v1/projects/{project}", update)
@@ -61,6 +65,21 @@ pub(crate) fn routes() -> Api {
             "/api/v1/projects/{project}/events",
             forge_events::receive,
         )
+        .describe(
+            Method::GET,
+            "/api/v1/projects/{project}/followers",
+            followers::list,
+        )
+        .describe(
+            Method::PUT,
+            "/api/v1/projects/{project}/followers/{follower}",
+            followers::add,
+        )
+        .describe(
+            Method::DELETE,
+            "/api/v1/projects/{project}/followers/{follower}",
+            followers::remove,
+        )
 }
 
 enum Reference {
@@ -73,11 +92,36 @@ enum Below {
     Workflows,
     Settings,
     Events,
+    Followers(Option<Reference>),
+}
+
+fn follower(rest: &[&str]) -> Option<Below> {
+    match rest {
+        [] => Some(Below::Followers(None)),
+        [id] => Some(Below::Followers(Some(Reference::Id((*id).to_owned())))),
+        [organisation, project] => Some(Below::Followers(Some(Reference::Slugs(
+            (*organisation).to_owned(),
+            (*project).to_owned(),
+        )))),
+        _ => None,
+    }
 }
 
 fn parse(path: &str) -> Option<(Reference, Below)> {
     let segments: Vec<&str> = path.strip_prefix('/').unwrap_or(path).split('/').collect();
     let owned = |text: &str| text.to_owned();
+    match segments.as_slice() {
+        [id, FOLLOWERS, rest @ ..] if id.parse::<ProjectId>().is_ok() => {
+            return Some((Reference::Id(owned(id)), follower(rest)?));
+        }
+        [organisation, project, FOLLOWERS, rest @ ..] => {
+            return Some((
+                Reference::Slugs(owned(organisation), owned(project)),
+                follower(rest)?,
+            ));
+        }
+        _ => {}
+    }
     let below = |segment: &str| match segment {
         WORKFLOWS => Some(Below::Workflows),
         SETTINGS => Some(Below::Settings),
@@ -103,6 +147,8 @@ fn parse(path: &str) -> Option<(Reference, Below)> {
 
 pub(crate) struct ProjectPath(Reference);
 
+pub(crate) struct FollowerPath(Reference);
+
 impl<S: Send + Sync> FromRequestParts<S> for ProjectPath {
     type Rejection = ApiError;
 
@@ -116,6 +162,48 @@ impl<S: Send + Sync> FromRequestParts<S> for ProjectPath {
 
 impl Input for ProjectPath {
     fn input(_: &mut Spec<'_>) {}
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for FollowerPath {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<FollowerPath, ApiError> {
+        let Segment(path) = Segment::from_request_parts(parts, state).await?;
+        match parse(&path) {
+            Some((_, Below::Followers(Some(reference)))) => Ok(FollowerPath(reference)),
+            _ => Err(envelope::absent(&parts.method, &parts.uri)),
+        }
+    }
+}
+
+impl Input for FollowerPath {
+    fn input(_: &mut Spec<'_>) {}
+}
+
+impl FollowerPath {
+    pub(crate) async fn find<C: ConnectionTrait>(
+        &self,
+        db: &C,
+    ) -> Result<Option<Project>, ApiError> {
+        match &self.0 {
+            Reference::Id(id) => match id.parse::<ProjectId>() {
+                Ok(id) => bosun_db::projects::find(db, id).await.map_err(database),
+                Err(_) => Ok(None),
+            },
+            Reference::Slugs(organisation, project) => {
+                bosun_db::projects::find_by_slugs(db, organisation, project)
+                    .await
+                    .map_err(database)
+            }
+        }
+    }
+
+    pub(crate) fn name(&self) -> String {
+        match &self.0 {
+            Reference::Id(id) => id.clone(),
+            Reference::Slugs(organisation, project) => format!("{organisation}/{project}"),
+        }
+    }
 }
 
 impl ProjectPath {
@@ -313,7 +401,36 @@ async fn read(
         Some((_, Below::Nothing)) => show.call(request, state).await,
         Some((_, Below::Workflows)) => workflows::list.call(request, state).await,
         Some((_, Below::Settings)) => settings::show.call(request, state).await,
-        Some((_, Below::Events)) | None => envelope::absent(&method, &uri).into_response(),
+        Some((_, Below::Followers(None))) => followers::list.call(request, state).await,
+        Some((_, Below::Followers(Some(_)) | Below::Events)) | None => {
+            envelope::absent(&method, &uri).into_response()
+        }
+    }
+}
+
+async fn put(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    Segment(path): Segment,
+    request: Request,
+) -> Response {
+    match parse(&path) {
+        Some((_, Below::Followers(Some(_)))) => followers::add.call(request, state).await,
+        _ => envelope::absent(&method, &uri).into_response(),
+    }
+}
+
+async fn delete(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    Segment(path): Segment,
+    request: Request,
+) -> Response {
+    match parse(&path) {
+        Some((_, Below::Followers(Some(_)))) => followers::remove.call(request, state).await,
+        _ => envelope::absent(&method, &uri).into_response(),
     }
 }
 

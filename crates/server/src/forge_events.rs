@@ -30,6 +30,7 @@ use crate::forge::Forge;
 use crate::planner;
 use crate::schedules::{self, Source};
 use crate::site::Site;
+use crate::triggers;
 use cache::{Counted, Lowered};
 use pull::{PULL_REQUESTS, Pull, TARGET};
 use push::{Changes, Pending, Read};
@@ -194,6 +195,8 @@ impl Target {
             r#ref,
             base_ref,
             changed_files,
+            workflow: None,
+            conclusion: None,
         }
     }
 }
@@ -466,6 +469,16 @@ async fn repository_runs(
             occurrence.at,
         )
         .await?;
+        triggers::rebuild(
+            transaction,
+            bosun_db::triggers::Scope::Repository(binding.project.id),
+            &sources,
+            bosun_db::triggers::Origin {
+                git_ref: target.git_ref.as_deref(),
+                sha: Some(&target.sha),
+            },
+        )
+        .await?;
     }
     Ok(Planned {
         runs,
@@ -591,6 +604,52 @@ async fn group(
         bosun_db::runs::lock_concurrency(transaction, binding.project.id).await?;
     }
     Ok(())
+}
+
+pub(crate) struct Followed<'a> {
+    pub(crate) workflow: &'a Workflow,
+    pub(crate) revision: &'a Revision,
+    pub(crate) event: &'a str,
+    pub(crate) git_ref: Option<&'a str>,
+    pub(crate) sha: Option<&'a str>,
+    pub(crate) payload: &'a Value,
+    pub(crate) actor: &'a Actor,
+    pub(crate) at: DateTime<Utc>,
+}
+
+pub(crate) async fn followed(
+    transaction: &DatabaseTransaction,
+    site: &Site,
+    followed: Followed<'_>,
+) -> Result<Run, bosun_db::Error> {
+    let lowered = Lowered::new(&followed.workflow.name, &followed.revision.source);
+    let occurrence = Occurrence {
+        event: followed.event,
+        action: None,
+        payload: followed.payload,
+        actor: followed.actor,
+        attempt: 0,
+        at: followed.at,
+        starts_runs: true,
+    };
+    let target = followed
+        .sha
+        .map(|sha| Target::other(followed.git_ref.map(str::to_owned), sha.to_owned(), true));
+    let candidate = Candidate {
+        workflow: followed.workflow,
+        revision_id: followed.revision.id,
+        lowered: &lowered,
+        touched: false,
+    };
+    start(
+        transaction,
+        site,
+        &occurrence,
+        target.as_ref(),
+        Trust::Trusted,
+        candidate,
+    )
+    .await
 }
 
 pub(crate) async fn scheduled(
@@ -930,6 +989,8 @@ fn matched(
                     r#ref: None,
                     base_ref: None,
                     changed_files: None,
+                    workflow: None,
+                    conclusion: None,
                 },
             };
             bosun_workflow::matches(triggers, &event)
@@ -949,6 +1010,19 @@ async fn plan(
     if !matched(occurrence, target, &candidate) || !candidate.workflow.enabled {
         return Ok(None);
     }
+    start(transaction, site, occurrence, target, trust, candidate)
+        .await
+        .map(Some)
+}
+
+async fn start(
+    transaction: &DatabaseTransaction,
+    site: &Site,
+    occurrence: &Occurrence<'_>,
+    target: Option<&Target>,
+    trust: Trust,
+    candidate: Candidate<'_>,
+) -> Result<Run, bosun_db::Error> {
     let lowered = candidate.lowered;
     let inputs = Map::new();
     let new = |ir| NewRun {
@@ -964,14 +1038,12 @@ async fn plan(
         trust,
     };
     match &lowered.workflow {
-        Some(workflow) => planner::dispatch(transaction, new(workflow), &lowered.warnings(), site)
-            .await
-            .map(Some),
+        Some(workflow) => {
+            planner::dispatch(transaction, new(workflow), &lowered.warnings(), site).await
+        }
         None => {
             let failed = bare(lowered.triggers.as_deref());
-            planner::fail_startup(transaction, new(&failed), &lowered.diagnostics)
-                .await
-                .map(Some)
+            planner::fail_startup(transaction, new(&failed), &lowered.diagnostics).await
         }
     }
 }

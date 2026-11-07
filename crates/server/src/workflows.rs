@@ -24,7 +24,7 @@ use crate::projects::ProjectPath;
 use crate::reply::{Created, Saved};
 use crate::request::{Body, Faults, Filters, Idempotent, Listing, Segment, database, failed};
 use crate::schedules::{self, Source};
-use crate::{AppState, dispatch, idempotency, slug};
+use crate::{AppState, dispatch, idempotency, slug, triggers};
 
 const NAME: &str = "name";
 
@@ -248,20 +248,32 @@ async fn reschedule<C: ConnectionTrait>(
     actor: &Actor,
     now: DateTime<Utc>,
 ) -> Result<(), ApiError> {
+    let sources = [Source {
+        workflow_id,
+        revision_id,
+        triggers: &parsed.workflow.triggers,
+    }];
     schedules::rebuild(
         db,
         Scope::Workflow(workflow_id),
-        &[Source {
-            workflow_id,
-            revision_id,
-            triggers: &parsed.workflow.triggers,
-        }],
+        &sources,
         Origin {
             git_ref: None,
             sha: None,
             actor,
         },
         now,
+    )
+    .await
+    .map_err(database)?;
+    triggers::rebuild(
+        db,
+        bosun_db::triggers::Scope::Workflow(workflow_id),
+        &sources,
+        bosun_db::triggers::Origin {
+            git_ref: None,
+            sha: None,
+        },
     )
     .await
     .map_err(database)?;

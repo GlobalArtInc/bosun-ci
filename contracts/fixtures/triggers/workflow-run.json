@@ -1,0 +1,288 @@
+[
+  {
+    "description": "a completed run of a listed workflow on a listed branch fires",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "types": [
+          "completed"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "a run on another branch does not fire",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "types": [
+          "completed"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI",
+      "ref": "refs/heads/dev"
+    },
+    "matches": false
+  },
+  {
+    "description": "a run without a branch does not meet a branch filter",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "types": [
+          "completed"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI"
+    },
+    "matches": false
+  },
+  {
+    "description": "a run of another workflow does not fire",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "types": [
+          "completed"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "Release",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "the workflow name is compared exactly",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "types": [
+          "completed"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "ci",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "a type that is not listed does not fire",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "types": [
+          "completed"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "requested",
+      "workflow": "CI",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "without types every type fires: requested",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "requested",
+      "workflow": "CI",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "without types every type fires: in_progress",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "in_progress",
+      "workflow": "CI",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "without types every type fires: completed",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "any of several workflows fires",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "Lint",
+          "CI"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "branches-ignore skips an ignored branch",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "branches-ignore": [
+          "dev"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI",
+      "ref": "refs/heads/dev"
+    },
+    "matches": false
+  },
+  {
+    "description": "branches-ignore lets another branch through",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "branches-ignore": [
+          "dev"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "a run without a branch meets branches-ignore only by naming none: it does not fire",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "branches-ignore": [
+          "dev"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "CI"
+    },
+    "matches": false
+  },
+  {
+    "description": "workflow_run does not fire for a push",
+    "on": {
+      "workflow_run": {
+        "workflows": [
+          "CI"
+        ],
+        "types": [
+          "completed"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "push",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  }
+]

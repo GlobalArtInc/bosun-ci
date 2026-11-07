@@ -2,6 +2,7 @@ on:
   workflow_run:
     workflows: [ci]
     types: [completed]
+    branches: [main]
 
 jobs:
   build:

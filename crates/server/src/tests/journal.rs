@@ -125,6 +125,7 @@ pub(super) enum Action {
     TimeOut(JobId),
     CancelRun,
     CancelJob(JobId),
+    SkipTrigger,
 }
 
 fn cases() -> impl Strategy<Value = Case> {
@@ -410,7 +411,7 @@ fn actions(
     controls: &BTreeSet<ExecutionId>,
 ) -> (Vec<Action>, Vec<Action>) {
     let mut progress = Vec::new();
-    let mut extra = vec![Action::CancelRun];
+    let mut extra = vec![Action::CancelRun, Action::SkipTrigger];
     for (&job, row) in &projection.jobs {
         extra.push(Action::CancelJob(job));
         if row.status == JobStatus::Queued {
@@ -494,6 +495,10 @@ pub(super) async fn perform(
         }
         Action::CancelJob(job) => {
             world.command(run, &job_cancel(job)).await;
+            return Ok(false);
+        }
+        Action::SkipTrigger => {
+            world.skip_trigger(run).await;
             return Ok(false);
         }
         Action::Lose(execution) => {

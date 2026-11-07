@@ -242,7 +242,7 @@ white space.
 | Permission | Allows |
 |------------|--------|
 | `project.view` | see the project, its workflows, runs, logs, artifacts |
-| `run.dispatch` | start runs by hand or through the API |
+| `run.dispatch` | start runs by hand or through the API; the user of a run needs it on a project for that run's `on.upstream` to start a run there, and the project that run belongs to must name that project as a follower ([02-workflows.md](02-workflows.md#runs-that-follow-runs)) |
 | `run.cancel` | cancel runs and jobs |
 | `run.rerun` | re-run runs and jobs |
 | `run.control` | pause, resume, skip, breakpoints, priority, abort a step |
@@ -256,7 +256,7 @@ white space.
 | `environment.bypass` | admit a job to an environment without its approvals, where the environment allows it |
 | `agent.manage` | pools, agents, registration tokens, pinning jobs |
 | `plugin.manage` | install plugins, configure instances |
-| `project.manage` | project settings, create and delete projects |
+| `project.manage` | project settings, the followers that may subscribe to the project's runs, create and delete projects |
 | `organisation.manage` | members, teams, roles, organisation settings |
 | `audit.view` | read the audit trail |
 
@@ -479,6 +479,13 @@ and linked from the journal and the audit trail.
   secrets. Pools limit which projects can use them; credentials rotate; a pool can restrict the
   source addresses its agents may connect from.
 - A job token gets the runtime services of one job until its execution completes.
+- A follower project sees the whole resource of every run of the project it follows that its
+  workflows match, in the payload of its `on.upstream` runs: the ids of the run, its workflow and
+  its revision, the display name, event, ref and commit, the status, conclusion and timestamps,
+  the name and id of the workflow, and the actor, which for a token is the token's id and the id
+  of the user who owns it. The run created in the follower stores the same actor. The owner of
+  the followed project accepts that when they add the follower, and sees which projects have it
+  accepted through `GET /projects/{project}/followers`, which needs `project.manage`.
 
 A job can read its own agent's credential: on `shell` the steps run as the agent's user, and with
 the podman socket a container can mount the agent's files. Any job dispatched to a pool can

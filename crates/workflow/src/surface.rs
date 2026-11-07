@@ -55,26 +55,7 @@ const LOWERED: &[Form] = &[
     ("outputs.<output_id>", "value"),
 ];
 
-const UNLOWERED: &[Form] = &[("on", "workflow_run"), ("on", "upstream")];
-
-const fn joined<const N: usize>(first: &[Form], second: &[Form]) -> [Form; N] {
-    let mut all = [("", ""); N];
-    let mut at = 0;
-    while at < first.len() {
-        all[at] = first[at];
-        at += 1;
-    }
-    let mut next = 0;
-    while next < second.len() {
-        all[at + next] = second[next];
-        next += 1;
-    }
-    all
-}
-
-const LISTED: [Form; LOWERED.len() + UNLOWERED.len()] = joined(LOWERED, UNLOWERED);
-
-pub const PENDING: &[(&str, &str)] = &LISTED;
+pub const PENDING: &[(&str, &str)] = LOWERED;
 
 pub(crate) fn pending_form(place: &str, form: &str) -> bool {
     PENDING.contains(&(place, form))
@@ -137,9 +118,6 @@ impl Shape {
     pub(crate) fn find(&self, name: &str) -> Known {
         match self.keys.iter().find(|arrival| arrival.name == name) {
             Some(arrival) if arrival.from > MILESTONE => Known::Later(arrival.from),
-            Some(arrival) if UNLOWERED.contains(&(self.place, arrival.name)) => {
-                Known::Later(arrival.from)
-            }
             Some(arrival) if PENDING.contains(&(self.place, arrival.name)) => {
                 Known::Pending(arrival.from)
             }
@@ -227,6 +205,32 @@ pub(crate) const EVENTS: Shape = Shape {
             key("workflow_run", M2),
             extension("upstream", M2),
             extension("plugin", M5),
+        ],
+    )
+};
+
+pub(crate) const WORKFLOW_RUN: Shape = Shape {
+    required: &["workflows"],
+    ..shape(
+        "workflow_run",
+        &[
+            key("workflows", M2),
+            key("types", M2),
+            key("branches", M2),
+            key("branches-ignore", M2),
+        ],
+    )
+};
+
+pub(crate) const UPSTREAM: Shape = Shape {
+    required: &["workflows"],
+    ..shape(
+        "upstream",
+        &[
+            key("project", M2),
+            key("workflows", M2),
+            key("branches", M2),
+            key("conclusions", M2),
         ],
     )
 };

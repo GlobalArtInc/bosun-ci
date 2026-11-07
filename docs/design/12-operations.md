@@ -522,7 +522,7 @@ it ([09-frontend.md](09-frontend.md)), and `drain` is `true` or `false`. Every p
 series of its agents, at zero when no agent is in them, so that an alert can compare a pool's
 online agents with its queue. `status` is each status of a job, a matrix counting as its members
 rather than as the job they expand from, and `kind` each kind of outbox row (`check_run`,
-`commit_status`, `fork_status`); both always have every value, at zero when nothing has it. A test
+`commit_status`, `fork_status`, `token_revocation`, `run_trigger`); both always have every value, at zero when nothing has it. A test
 reads this table and checks the exposition against it.
 
 | Series | Type | Labels | Source | Meaning |
@@ -535,7 +535,7 @@ reads this table and checks the exposition against it.
 | `bosun_jobs_completed_last_hour` | gauge | — | database | jobs that ran on an agent and completed in the last hour |
 | `bosun_job_duration_last_hour_seconds` | gauge | `percentile` | database | percentiles of the durations of those jobs |
 | `bosun_agents` | gauge | `pool`, `state`, `drain` | database | agents that are not deleted |
-| `bosun_outbox_backlog` | gauge | `kind` | database | outbox rows that wait for their delivery to the forge |
+| `bosun_outbox_backlog` | gauge | `kind` | database | outbox rows that wait for their worker: for the forge kinds their delivery to the forge, for `run_trigger` the creation of the runs that follow a run |
 | `bosun_outbox_dead` | gauge | `kind` | database | outbox rows that are dead and no longer tried ([07-storage.md](07-storage.md#the-outbox)) |
 | `bosun_outbox_failures_total` | counter | `kind` | replica | failed deliveries of outbox rows, the last attempt of a row that dies included |
 | `bosun_log_lines_total` | counter | — | replica | log lines stored from the agents connected to the replica, duplicates and dropped output left out |

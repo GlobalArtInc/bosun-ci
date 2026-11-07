@@ -951,6 +951,21 @@ async fn calls(
                 None,
             )];
         }
+        ("PUT" | "DELETE", "/api/v1/projects/{project}/followers/{follower}") => {
+            let follower = site
+                .second_project(&format!(
+                    "follower-{}-{name}",
+                    endpoint.method.to_lowercase()
+                ))
+                .await;
+            return vec![call(
+                format!(
+                    "/api/v1/projects/globalart/{}/followers/globalart/{}",
+                    fixture.project.slug, follower.slug
+                ),
+                None,
+            )];
+        }
         ("DELETE", "/api/v1/users/{user}") => {
             let (user, _) = site.user(&format!("deleted-{name}")).await;
             return vec![call(format!("/api/v1/users/{user}"), None)];

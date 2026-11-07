@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`passed` in `conclusions` of `upstream` is not a conclusion of a run; they are success, failure, cancelled, skipped, timed_out, startup_failure",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 4,
+    "column": 19,
+    "end_line": 4,
+    "end_column": 25
+  },
+  "path": [
+    "on",
+    "upstream",
+    "conclusions",
+    0
+  ]
+}

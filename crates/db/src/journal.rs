@@ -67,6 +67,7 @@ pub async fn append<C: ConnectionTrait>(db: &C, event: NewEvent) -> Result<RunEv
     outbox::record(
         db,
         event.run_id,
+        event.attempt_id,
         event.job_id,
         event.execution_id,
         &event.event,

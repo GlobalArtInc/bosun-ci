@@ -68,6 +68,7 @@ async fn every_operation_reaches_a_handler_with_the_owners_token() {
                     "globalart%2Fops".to_owned(),
                 ],
             ),
+            ("{follower}", vec![Uuid::now_v7().to_string()]),
             ("{workflow}", vec![Uuid::now_v7().to_string()]),
             ("{run}", vec![Uuid::now_v7().to_string()]),
             ("{attempt}", vec!["1".to_owned()]),

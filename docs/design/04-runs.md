@@ -562,6 +562,7 @@ The kinds of M0, and those M1 adds:
 | `command.refused` | the command, the error code and message |
 | `run.notice` | from M1: a diagnostic of [02-workflows.md](02-workflows.md) with the severity `error`, `warning` or `notice`; the event's `job_id` names the job it concerns, or is `null` ([Run notices](#run-notices)) |
 | `concurrency.cancelled` | from M1: an arrival cancelled a member of a concurrency group: `group`, as the arrival rendered it, and `arrival`, its `run_id` and its `job_id` or `null`; the event's `job_id` names the cancelled job, or is `null` for a run, whose cancellation it requests as the `command.accepted` of a `run.cancel` does ([Concurrency groups](#concurrency-groups)) |
+| `trigger.skipped` | from M2: a run that finished or started would have triggered workflows of a project through `on.workflow_run` or `on.upstream`, and the server did not create the runs: the `project_id` of the project whose workflows would have run, which is the run's own project or a project that follows it, and the `reason`: `no_user` (the run has no Bosun user, so it fires no cross-project `upstream`), `no_permission` (its user, or its token, does not hold `run.dispatch` on that project) or `chain_too_long` (the run is the third level of a chain of these triggers). It is written once for the project and the attempt, however many workflows of the project match, and names no workflow. The event's `attempt_id` names the attempt ([Triggers between runs](#triggers-between-runs)) |
 
 Later milestones add kinds for approvals, holds, terminals and the rest of the commands' effects.
 A status event always names both ends of the transition, so a replay can check that each event
@@ -647,6 +648,54 @@ The journal is the source for:
 - the event stream of the API ([11-api.md](11-api.md));
 - the outbox that updates statuses on the forge, sends notifications and delivers outgoing
   webhooks, so a side effect is never lost when a replica dies after a commit.
+
+## Triggers between runs
+
+Step 16 of M2 ([../plan.md](../plan.md)) settled how a run that finishes, or starts, creates runs of
+workflows that follow it through `on.workflow_run` and `on.upstream`. What they mean, their
+payloads and the rules about users and levels are in
+[02-workflows.md](02-workflows.md#runs-that-follow-runs); this is how the server does it, so that
+no replica creates a run twice and none is lost.
+
+- **The outbox row.** The journal events that a run offers write an `outbox` row of kind
+  `run_trigger`, in the transaction of the event, as `journal::append` writes the reports to the
+  forge: `attempt.created` offers `requested`, a `run.status` to `in_progress` offers
+  `in_progress` and one to `completed` offers `completed` with the run's conclusion. The payload
+  is the run, the attempt, the transition and the conclusion, and the collapse key is
+  `run_trigger/<run>/<attempt>/<transition>`, so a run that goes `in_progress` again after a
+  pause is offered once. A row is written whether or not anything follows the run, so that a
+  subscription saved a moment before the run completes is not missed.
+- **The worker.** Every replica runs one worker, whether or not it has a GitHub App, woken by
+  `bosun_outbox` and otherwise every second. It claims `run_trigger` rows with `SKIP LOCKED` as
+  the worker that reports to the forge claims its own kinds, and the two never claim each
+  other's. It reads the run. A `requested` row carries `awaiting_admission`, whether the run
+  waited for its admission when the row was written, in the transaction of the journal event, and
+  such a row is done without a trace however late it is processed; the other transitions are done
+  the same way while the run still waits when they are processed. It reads the rows of
+  `upstream_subscription` that watch the run's project, matches them in memory, and groups the
+  matches by the project of the subscriber. For each project other than the run's own it first
+  asks whether the project is in the followers of the run's project, one indexed query, and a
+  project that is not costs nothing more and leaves no trace, not even a log line. Only for the
+  rest does it read the workflows, log a row it cannot read once for each process, and decide once
+  for the project: fire or skip, in a transaction of its own. A row that fails is tried again with the
+  backoff of the outbox, and the transactions that committed are not repeated.
+- **Exactly once.** Each decision starts by inserting a row into `triggered_run`, whose primary
+  key is the run, the attempt, the workflow and the transition. A decision that finds the row
+  there already does nothing; one that inserts it goes on, in the same transaction, to create the
+  run, or to write the `trigger.skipped` event, and commits both. Two replicas that process one
+  row at once therefore meet at the key: the second waits for the first to commit and then finds
+  the key. A worker that dies after its commit leaves the outbox row, which another claim processes
+  after the lease, and finds every key taken. A run created this way is recorded in its key, with
+  the number of levels it is above the first run of its chain.
+- **Journal events.** `trigger.skipped` is written to the followed run, once for each project and
+  attempt, under the run's lock, which orders the check that none is there yet, and in a
+  transaction of its own, never in the transaction that creates a run, so that no transaction
+  holds the concurrency lock of one project and waits for that of another.
+- **The user.** A run's triggering user is read from its actor when the row is processed, with
+  the keys and restrictions of its token; a token that is revoked or has expired by then carries no
+  authority, and its run is skipped with `no_permission`. A forge account maps to a Bosun user through
+  `linked_user`, which step 20 of M2 fills in; until then it finds none, so a run started by a
+  forge event follows no `upstream` of another project.
 
 ## Operator commands
 

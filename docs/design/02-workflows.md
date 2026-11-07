@@ -211,6 +211,117 @@ Step 31 of M1 ([../plan.md](../plan.md)) settled how `on.schedule` becomes runs.
 - **Never.** A cron with no instant in the next eleven years, such as one for the 31st of
   February, never fires; its row keeps no next instant.
 
+### Runs that follow runs
+
+Step 16 of M2 ([../plan.md](../plan.md)) settled how `on.workflow_run` and `on.upstream` become runs;
+the mechanism that creates them is in [04-runs.md](04-runs.md#triggers-between-runs) and the tables
+in [07-storage.md](07-storage.md#tables).
+
+- **Subscribers are read from the default branch.** An `upstream_subscription` row is one
+  `workflow_run` or `upstream` key of a workflow: the workflow, the revision it was read from, the
+  key as the IR lowers it, the project it watches as written (none for its own), and the ref and
+  commit a run of it starts at. The rows are maintained at the occasions of the schedules
+  ([Schedules](#schedules)): every push to the default branch rebuilds the rows of every repository
+  workflow of the project from the files the push reads, so a file that is gone, whose `on` is
+  broken or that no longer has the key loses its row; creating a server-side workflow and every
+  save of its source rebuild its rows in the same transaction, and unbinding or rebinding the
+  project's repository forgets the rows of its repository workflows. A workflow on any other
+  branch, in a pull request or in a tag subscribes to nothing, and a change to a trigger takes
+  effect when it reaches the default branch. A revision that a dispatch made current on the
+  default branch (`POST /workflows/{workflow}/dispatch` on a ref that is the default branch) does
+  not rebuild the rows; it is picked up at the next push to the default branch, save of a
+  server-side workflow or rebinding, as the schedules are. The rows take the default branch and its last commit as Bosun last
+  saw it as the ref and the commit of the runs they start, as a schedule does; a server-side
+  workflow's runs have neither.
+- **What a run offers.** A run of an attempt offers three transitions, `requested` when the
+  attempt is created, `in_progress` when the run starts, and `completed`; `workflow_run` takes
+  them as its `types`, and `upstream` takes `completed` only. A transition is matched against the
+  rows that watch the run's project: `workflow_run` rows of the project itself, and `upstream`
+  rows that name the project's path or name none and belong to it. `workflows` lists the names of
+  workflows, compared exactly and with case: a workflow's `name`, or its file when it has none, or
+  its name on the server, and no pattern is read in it, so `CI*` names a workflow with a star in
+  its name and the lowering refuses it. `branches` and `branches-ignore` filter the head branch of
+  the run: the branch of its ref, the head branch of a pull request, the head ref of a merge
+  group's queue; a run on a tag, on a schedule or on no ref has none and meets neither filter. `conclusions`
+  filters the conclusion of a run that completed, `startup_failure` among them. A disabled
+  workflow follows nothing. A run that awaits its admission, a pull request run from a fork that no
+  maintainer has approved ([08-access.md](08-access.md)), offers nothing while it waits. Its
+  `requested` is never delivered: the row records, when it is written, that the run was waiting,
+  and however late a worker processes it, even after `run.admit`, it fires nothing. Its
+  `in_progress` and `completed` follow the state of the run when they are processed, so they fire
+  once the run is admitted. A run that was cancelled while it waited can never be admitted,
+  since `run.admit` refuses a completed run, and its `completed` fires nothing.
+- **The run that follows.** It is created at the revision of the row and at its ref and commit,
+  with the event name `workflow_run` or `upstream`, a payload below, the actor of the run it
+  follows and the trust of a trusted run, since it runs a reviewed file of the default branch as
+  `pull_request_target` does. It is created once for a run, an attempt, a workflow and a
+  transition, however many of the workflow's keys match, and a workflow that is disabled, gone or
+  broken in its `on` is skipped without a journal event (the server logs it); a file with errors in its jobs yields a run that
+  ends with `startup_failure`, as its other triggers do.
+- **The `upstream` payload.** `github.event` is the resource of the upstream run, as `GET
+  /runs/{run}` shows it, with two more members, `project` (`id`, `organisation_id`, `path`) and
+  `workflow` (`id`, and `name`, the name `workflows` is matched against). Its `status` and
+  `conclusion` are those of the transition, its `attempt` that of the attempt, and `notices` is
+  always empty, since a notice may quote the upstream project's files. The case is
+  `contracts/fixtures/github/upstream.json`.
+- **The `workflow_run` payload.** It is what the target produces for the event, as far as the run
+  resource fills it: `action`; `workflow_run` with `id` (the `github.run_id` of the run), `name`,
+  `path`, `display_title`, `head_branch`, `head_sha`, `event`, `status`, `conclusion`,
+  `run_number`, `run_attempt`, `html_url` (`null` when the installation has no address),
+  `created_at`, `updated_at`, `run_started_at`, `head_repository`, `actor` and
+  `triggering_actor`; and `workflow` with `name` and `path`. `head_repository` has `full_name` and
+  `fork`: for a pull request run the repository the pull request comes from, a fork when it is not
+  the repository the pull request targets or is gone, and for every other run the project's own
+  repository, `null` when it has none, with `fork` false, so that a guard on
+  `github.event.workflow_run.head_repository.fork` holds for a fork run as it does in the target. An actor has a `login`, and an `id` when the forge's account started the
+  run. Left out are the members that name objects Bosun does not keep or addresses of the forge's
+  API: `node_id`, `workflow_id`, `check_suite_id`, `check_suite_node_id`, `check_suite_url`,
+  `url`, `jobs_url`, `logs_url`, `artifacts_url`, `cancel_url`, `rerun_url`,
+  `previous_attempt_url`, `workflow_url`, `pull_requests`, `head_commit`, `repository` and
+  `referenced_workflows`, and the top-level `repository`, `organization`,
+  `sender` and `installation`. The case is `contracts/fixtures/github/workflow-run.json`. In both
+  payloads the `github` context takes `ref` and `sha` from the run, so they are the default
+  branch and its last commit, which is what the target documents for `workflow_run`. Bosun
+  differs from the target in two things. A run on a tag has a `head_branch` of `null`, where the
+  target puts the tag's name, so a `branches` filter never meets it. And `workflows` matches
+  exactly and with case, with no pattern, where the target's behaviour with patterns is not
+  verified; a refusal can be relaxed later and an acceptance could not be taken back.
+- **A cross-project `upstream` needs the consent of the project it follows.** The project U
+  that is followed lists the projects S whose workflows may subscribe to its runs, its
+  followers: `PUT /projects/{U}/followers/{S}` adds one and needs `project.manage` on U
+  ([11-api.md](11-api.md#projects-and-server-side-workflows)). Without it, anyone who could
+  write the default branch of S could subscribe to a private project and read the branch names,
+  run names, commits and actors of its runs. A subscription that names no project, or the
+  workflow's own, needs no list. The server decides in this order: the subscription is the
+  workflow's own project's, which fires subject to the depth of its chain; or S is not in U's list,
+  and the subscription is ignored without a trace, with no run and no journal event of any kind,
+  so that a project that is not a follower cannot append to U's journal and does not learn that
+  U's run was the third level of a chain; or the chain would pass its third level; or the user
+  holds `run.dispatch` on S, as the next paragraph says. Removing S from the list stops the
+  subscription at the next transition.
+- **A run without a Bosun user fires no cross-project `upstream`.** The triggering user of a run
+  is the user who started it, the user of the token that did, or, for a run a forge event started,
+  the Bosun user linked to the event's sender; the forge account link arrives with step 20 of M2,
+  and until then a run a forge event started has no user. A schedule, an agent and the system
+  have none either. A token acts with the keys it carries and within the organisations and
+  projects it is restricted to, so the user must hold `run.dispatch` on the subscriber through
+  the token as well, and a token that is revoked or has expired when the transition is processed
+  carries none. When the upstream run has no user, or its user does not hold `run.dispatch` on
+  the follower project, no run is created and the upstream run's journal gets a
+  `trigger.skipped` event, once for the follower project and the attempt however many of its
+  workflows match, with the follower's `project_id` and a `reason` of `no_user` or
+  `no_permission` ([04-runs.md](04-runs.md#the-journal)). The event names no workflow, since a
+  reader of U may not be allowed to see S. An `upstream` that names its own project crosses
+  nothing and asks nothing of the user, and `workflow_run` never does.
+- **Chains stop after three levels.** A run that an event, a schedule or a person started is level
+  0, and a run that a trigger created is one level above the run it followed. A trigger creates a
+  run only up to level 3: if A is started by a push, B follows A, C follows B and D follows C, then
+  D is created and the E that would follow D is not, as in the target, where `workflow_run` chains
+  stop at the same depth. The run that would have been the fourth level gets no run, and the run it
+  followed gets a `trigger.skipped` event with the reason `chain_too_long`, for the project of
+  the workflow that would have followed it when that project is the run's own or one of its
+  followers.
+
 ## Parsing
 
 The parser reads YAML 1.2 with the core schema, so `on`, `yes` and `no` are strings, as the target
@@ -303,7 +414,7 @@ have in the target syntax.
 | `merge_group` | forge webhook | `types`, `branches`, `branches-ignore` |
 | `workflow_dispatch` | web interface, API, CLI, MCP | `inputs` of type `string`, `boolean`, `choice`, `number`, `environment` |
 | `workflow_call` | another workflow's job | `inputs`, `secrets`, `outputs` |
-| `workflow_run` | completion of another workflow of the same project | `workflows`, `types`, `branches`, `branches-ignore` |
+| `workflow_run` | a run of another workflow of the same project, when it is requested, starts or completes ([Runs that follow runs](#runs-that-follow-runs)) | `workflows`, `types`, `branches`, `branches-ignore` |
 | `repository_dispatch` | forge webhook, or `POST /api/v1/projects/{id}/events` | `types` |
 | any other webhook event the forge delivers (`release`, `create`, `delete`, `issue_comment`, ...) | forge webhook | `types`, matched against the payload's `action` |
 
@@ -329,8 +440,8 @@ the mapping form. Filters are literal text; no key under `on` takes an expressio
 - `branches`, `tags` and `paths` take a pattern or a list of patterns, and each has an `-ignore`
   form. A key together with its `-ignore` form is `invalid_value` at the `-ignore` value, as are an
   empty list, an empty pattern and a pattern the syntax below refuses.
-- `types` takes an activity type or a list of them. The names are not checked against the types the
-  forge defines: a name the forge never sends never matches. Every event without a row of its own
+- `types` takes an activity type or a list of them. Except for those of `workflow_run`, the names
+  are not checked against the types the forge defines: a name the forge never sends never matches. Every event without a row of its own
   in the table accepts `types`, matched against the payload's `action`.
 - A `schedule` entry has `cron`, which is required, and `timezone`. A cron has the five fields of
   the target: minute (0-59), hour (0-23), day of the month (1-31), month (1-12 or `JAN` to `DEC`)
@@ -346,6 +457,15 @@ the mapping form. Filters are literal text; no key under `on` takes an expressio
   through `chrono-tz` (database 2025b), so the browser's parser knows the same names as the
   server. A name in the wrong case is refused with a suggestion. Without `timezone` a schedule runs
   in UTC.
+- `workflow_run` takes `workflows`, which is required and lists names, `types`, and `branches` or
+  `branches-ignore`; `upstream` takes `project`, `workflows`, which is required, `branches` and
+  `conclusions`. A name in `workflows` is not empty and holds none of `*`, `?` and `[`, since
+  `workflows` takes exact names; a `types` entry of `workflow_run` is `completed`, `requested` or
+  `in_progress`; `project` is two slugs joined by `/`, and a `conclusions` entry is one of the
+  conclusions of a run (`success`, `failure`, `cancelled`, `skipped`, `timed_out`,
+  `startup_failure`); each is `invalid_value` otherwise. An absent
+  `conclusions` lowers to `[success]`, an absent `types` to none, which every type meets. Neither
+  key has a form without a mapping: `on: workflow_run` is a `missing_key` for `workflows`.
 - `workflow_dispatch` `inputs` keep the order of the source. An input has `description`,
   `required` (a boolean, `false` when absent), `type` (`string` when absent), `default`, and
   `options`, which `choice` requires, non-empty, and no other type accepts. An input's name follows
@@ -612,13 +732,12 @@ other key is `not_implemented` and names its From milestone. M1 leaves the list 
 step of a later milestone moves `MILESTONE` on and puts the keys of that milestone on the list until
 the steps that implement them.
 
-At M2 the list holds every key the milestone brings, and the forms that sit inside a key that
-exists already: `uses: ./path` and `uses: docker://` of a step, and `using: composite` and
+At M2 the list holds every key the milestone brings except the two triggers of step 16, and the
+forms that sit inside a key that exists already: `uses: ./path` and `uses: docker://` of a step, and `using: composite` and
 `using: docker` of `runs`. The parser lowers all of them, and the planner and the agent refuse what
 they cannot run, but a file that uses one is `not_implemented` until its step removes the entry.
-`on.workflow_run` and `on.upstream` are the exception: step 16 implements them and nothing lowers
-them yet, so they are refused whatever else is admitted. They form a list of their own beside the
-lowered ones, and `PENDING` is the two lists together, so step 16 removes them in one place. The
+`on.workflow_run` and `on.upstream` are not on the list: step 16 lowers them and the server executes
+them, so a file that uses them is accepted whatever else it holds. The
 tests lower pending keys through `parse_with`, `lint_with` and `action_with`, which exist only
 under the feature `admit-pending` of `bosun-workflow`; no build of the server, the agent, the CLI or
 the WebAssembly packages enables it. A test reads this table, the extensions table and the table of
@@ -837,11 +956,13 @@ The scheduler's use of it is in [04-runs.md](04-runs.md).
 
 ### `on.upstream`
 
-`project` (an `org/project` path; the current project when omitted), `workflows` (names),
-`branches`, `conclusions` (default `[success]`). It fires when a run of a named workflow completes
-with one of the conclusions; `github.event` carries the upstream run's summary. Unlike
-`workflow_run`, it crosses projects, which requires the triggering user of the upstream run to have
-`run.dispatch` on this project ([08-access.md](08-access.md)).
+`project` (an `organisation/project` path; the current project when omitted), `workflows` (names,
+required), `branches` and `conclusions` (default `[success]`). It fires when a run of a named
+workflow completes with one of the conclusions; `github.event_name` is `upstream` and `github.event`
+is the upstream run's resource with its project and workflow. Unlike `workflow_run`, it crosses
+projects, which requires the triggering user of the upstream run to have `run.dispatch` on this
+project ([08-access.md](08-access.md)). [Runs that follow runs](#runs-that-follow-runs) settles
+the rest.
 
 ### `on.plugin` and `notify`
 
@@ -900,6 +1021,9 @@ Trigger    = Push { branches: Filter?, tags: Filter?, paths: Filter? }
            | MergeGroup { types: [String]?, branches: Filter? }
            | Schedule [{ cron: Cron, timezone: String? }]
            | WorkflowDispatch { inputs: [Input] } | WorkflowCall(WorkflowCall)
+           | WorkflowRun { workflows: [String], types: [String]?, branches: Filter? }
+           | Upstream { project: String?, workflows: [String], branches: Filter?,
+             conclusions: [String] }
            | RepositoryDispatch { types: [String]? } | Generic { name, types: [String]? }
 WorkflowCall { inputs: [CallInput], secrets: [CallSecret], outputs: [CallOutput] }
 CallInput  { name, description: String?, required: bool,

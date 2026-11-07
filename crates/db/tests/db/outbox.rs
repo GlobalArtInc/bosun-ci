@@ -118,7 +118,7 @@ async fn jobs(db: &DatabaseConnection, run: RunId) -> (JobId, JobId) {
 async fn rows(db: &DatabaseConnection) -> Vec<(String, String, Value)> {
     db.query_all(sea_orm::Statement::from_string(
         db.get_database_backend(),
-        "SELECT kind, collapse_key, payload FROM bosun.outbox ORDER BY id",
+        "SELECT kind, collapse_key, payload FROM bosun.outbox WHERE kind <> 'run_trigger' ORDER BY id",
     ))
     .await
     .expect("the outbox")
@@ -320,6 +320,42 @@ async fn a_claim_takes_the_oldest_row_of_a_key_and_hands_over_the_newest_once() 
     let next = claim(db, later()).await.expect("the newer row");
     assert_eq!((next.id, next.dropped), (newer, 0));
     assert_eq!(outbox::pending(db).await.expect("the backlog"), 2);
+}
+
+#[tokio::test]
+async fn the_forge_claim_never_takes_a_run_trigger_row_and_the_trigger_claim_never_a_forge_row() {
+    let database = TestDatabase::migrated().await;
+    let db = database.connection();
+    let forge = insert(db, "check_run/job/a", "queued").await;
+    db.execute_unprepared(
+        "INSERT INTO bosun.outbox (kind, collapse_key, payload) VALUES ('run_trigger', 'run_trigger/a', '{}')",
+    )
+    .await
+    .expect("a run trigger row");
+    let now = later();
+
+    let claimed = claim(db, now).await.expect("the forge row");
+    assert_eq!((claimed.id, claimed.kind), (forge, Kind::CheckRun));
+    assert_eq!(
+        claim(db, now).await,
+        None,
+        "the forge claim took a trigger row"
+    );
+
+    let transaction = db.begin().await.expect("a transaction");
+    let triggered = outbox::claim_triggers(&transaction, now, now + LEASE)
+        .await
+        .expect("a claim")
+        .expect("the trigger row");
+    assert_eq!(triggered.kind, Kind::RunTrigger);
+    assert_eq!(
+        outbox::claim_triggers(&transaction, now, now + LEASE)
+            .await
+            .expect("a claim"),
+        None,
+        "the trigger claim took a forge row"
+    );
+    transaction.commit().await.expect("a commit");
 }
 
 #[tokio::test]

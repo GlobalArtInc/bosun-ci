@@ -389,8 +389,12 @@ the event, with the actor taken from the linked forge account of the Bosun user 
   `sender` and `installation` as the forge describes them, when Bosun has them. Bosun keeps no
   description of them from the forge in M1, so they are absent; the `github` context takes the
   repository from the facts.
+- `workflow_run` and `upstream` (M2): the payloads in
+  [02-workflows.md](02-workflows.md#runs-that-follow-runs), pinned by
+  `contracts/fixtures/github/workflow-run.json` and `upstream.json`. Their `ref` and `sha` are the
+  default branch and its last commit.
 
-`upstream` (M2) and trigger plugins (M5) define the payloads of their runs with their triggers.
+Trigger plugins (M5) define the payloads of their runs with their triggers.
 
 **A project without a repository** has no repository, ref or commit. Its `repository`,
 `repository_id`, `repository_owner`, `repository_owner_id`, `repositoryUrl`, `ref`, `ref_name`,

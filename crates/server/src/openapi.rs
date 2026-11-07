@@ -342,6 +342,10 @@ fn path_parameter(name: &str) -> (&'static str, Value) {
             "the project's id, or the slugs of its organisation and of itself joined by `/`",
             json!({ "type": "string" }),
         ),
+        "follower" => (
+            "the id of the follower project, or the slugs of its organisation and of itself joined by `/`",
+            json!({ "type": "string" }),
+        ),
         "workflow" => ("the workflow's id", id),
         "run" => ("the run's id", id),
         "attempt" => (

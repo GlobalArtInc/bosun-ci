@@ -27,6 +27,7 @@ mod schedules;
 mod secrets;
 mod settings;
 mod sign_in;
+mod triggers;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -43,7 +44,7 @@ use bosun_types::actor::Actor;
 use bosun_types::api::{Run, Workflow};
 use bosun_types::command::{Command, CommandRequest, Target};
 use bosun_types::diagnostic::Diagnostic;
-use bosun_types::event::{Event, RunEvent};
+use bosun_types::event::{Event, RunEvent, SkipReason, TriggerSkipped};
 use bosun_types::id::{AgentId, ExecutionId, JobId, RunId, StepId, TokenId, UserId};
 use bosun_types::ir::{
     self, Action, Defaults, Evaluable, JobKind, JobTemplate, RunsOn, SecretReferences, Span, Step,
@@ -57,7 +58,8 @@ use bosun_types::status::{
 use chrono::{TimeDelta, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+    TransactionTrait,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
@@ -360,6 +362,34 @@ impl World {
             .unwrap_or_else(|error| panic!("the command failed: {}", error.0.message));
         transaction.commit().await.expect("a commit");
         applied
+    }
+
+    async fn skip_trigger(&self, run: RunId) {
+        let attempt = attempt::Entity::find()
+            .filter(attempt::Column::RunId.eq(run.as_uuid()))
+            .order_by_desc(attempt::Column::Number)
+            .one(self.db())
+            .await
+            .expect("an attempt")
+            .expect("the attempt");
+        let transaction = self.db().begin().await.expect("a transaction");
+        let recorded = bosun_db::triggers::record_skip(
+            &transaction,
+            &bosun_db::triggers::Key {
+                run_id: run,
+                attempt_id: id(attempt.id),
+                workflow_id: self.workflow.id,
+                transition: bosun_db::outbox::Transition::Completed,
+            },
+            TriggerSkipped {
+                project_id: id(Uuid::now_v7()),
+                reason: SkipReason::NoUser,
+            },
+        )
+        .await
+        .expect("a skip");
+        assert!(recorded, "the run {run} is gone");
+        transaction.commit().await.expect("a commit");
     }
 
     async fn set_online(&self, online: bool) {
@@ -752,6 +782,12 @@ fn apply(projection: &mut Projection, event: &RunEvent) -> Result<(), String> {
                     .ok_or("concurrency.cancelled before run.created")?;
                 row.cancel_requested = true;
             }
+        }
+        Event::TriggerSkipped(_) => {
+            projection
+                .run
+                .as_ref()
+                .ok_or("trigger.skipped before run.created")?;
         }
         Event::CommandAccepted(accepted) => {
             if accepted.command.command == Command::RunCancel {

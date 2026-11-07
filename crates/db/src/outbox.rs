@@ -2,8 +2,8 @@ use std::mem;
 
 use bosun_types::api::Reporting;
 use bosun_types::event::Event;
-use bosun_types::id::{ExecutionId, JobId, RunId};
-use bosun_types::status::{ExecutionStatus, JobStatus, RunConclusion};
+use bosun_types::id::{AttemptId, ExecutionId, JobId, RunId};
+use bosun_types::status::{ExecutionStatus, JobStatus, RunConclusion, RunStatus};
 use chrono::{DateTime, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult};
@@ -35,15 +35,52 @@ pub enum Kind {
     CommitStatus,
     ForkStatus,
     TokenRevocation,
+    RunTrigger,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 4] = [
+    pub const ALL: [Kind; 5] = [
+        Kind::CheckRun,
+        Kind::CommitStatus,
+        Kind::ForkStatus,
+        Kind::TokenRevocation,
+        Kind::RunTrigger,
+    ];
+
+    pub const FORGE: [Kind; 4] = [
         Kind::CheckRun,
         Kind::CommitStatus,
         Kind::ForkStatus,
         Kind::TokenRevocation,
     ];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Transition {
+    Requested,
+    InProgress,
+    Completed,
+}
+
+impl Transition {
+    pub fn name(self) -> &'static str {
+        match self {
+            Transition::Requested => "requested",
+            Transition::InProgress => "in_progress",
+            Transition::Completed => "completed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunTrigger {
+    pub run_id: RunId,
+    pub attempt_id: AttemptId,
+    pub transition: Transition,
+    pub conclusion: Option<RunConclusion>,
+    #[serde(default)]
+    pub awaiting_admission: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +132,73 @@ pub struct Claimed {
 }
 
 pub(crate) async fn record<C: ConnectionTrait>(
+    db: &C,
+    run: RunId,
+    attempt: Option<AttemptId>,
+    job: Option<JobId>,
+    execution: Option<ExecutionId>,
+    event: &Event,
+) -> Result<(), Error> {
+    report(db, run, job, execution, event).await?;
+    let (Some(attempt), Some((transition, conclusion))) = (attempt, transition(event)) else {
+        return Ok(());
+    };
+    let awaiting_admission =
+        transition == Transition::Requested && awaiting_admission(db, run).await?;
+    trigger(
+        db,
+        &RunTrigger {
+            run_id: run,
+            attempt_id: attempt,
+            transition,
+            conclusion,
+            awaiting_admission,
+        },
+    )
+    .await
+}
+
+async fn awaiting_admission<C: ConnectionTrait>(db: &C, run: RunId) -> Result<bool, Error> {
+    let found = db
+        .query_one(statement(
+            "SELECT NOT trusted AND admitted_at IS NULL AS waiting FROM run WHERE id = $1",
+            [Uuid::from(run).into()],
+        ))
+        .await?;
+    match found {
+        Some(found) => Ok(found.try_get("", "waiting")?),
+        None => Ok(false),
+    }
+}
+
+fn transition(event: &Event) -> Option<(Transition, Option<RunConclusion>)> {
+    match event {
+        Event::AttemptCreated(_) => Some((Transition::Requested, None)),
+        Event::RunStatusChanged(changed) => match changed.to {
+            RunStatus::InProgress => Some((Transition::InProgress, None)),
+            RunStatus::Completed => Some((Transition::Completed, changed.conclusion)),
+            RunStatus::Queued | RunStatus::Waiting | RunStatus::Paused => None,
+        },
+        _ => None,
+    }
+}
+
+async fn trigger<C: ConnectionTrait>(db: &C, row: &RunTrigger) -> Result<(), Error> {
+    insert(
+        db,
+        Kind::RunTrigger,
+        &format!(
+            "{}/{}/{}",
+            row.run_id,
+            row.attempt_id,
+            row.transition.name()
+        ),
+        serde_json::to_value(row)?,
+    )
+    .await
+}
+
+async fn report<C: ConnectionTrait>(
     db: &C,
     run: RunId,
     job: Option<JobId>,
@@ -297,7 +401,24 @@ pub async fn claim(
     now: DateTime<Utc>,
     lease: DateTime<Utc>,
 ) -> Result<Option<Claimed>, Error> {
-    let kinds = Kind::ALL
+    claim_of(transaction, now, lease, &Kind::FORGE).await
+}
+
+pub async fn claim_triggers(
+    transaction: &DatabaseTransaction,
+    now: DateTime<Utc>,
+    lease: DateTime<Utc>,
+) -> Result<Option<Claimed>, Error> {
+    claim_of(transaction, now, lease, &[Kind::RunTrigger]).await
+}
+
+async fn claim_of(
+    transaction: &DatabaseTransaction,
+    now: DateTime<Utc>,
+    lease: DateTime<Utc>,
+    kinds: &[Kind],
+) -> Result<Option<Claimed>, Error> {
+    let kinds = kinds
         .iter()
         .map(|kind| row::text(TABLE, kind))
         .collect::<Result<Vec<String>, Error>>()?;

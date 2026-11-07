@@ -1,0 +1,10 @@
+on:
+  upstream:
+    workflows: [release, nightly]
+    conclusions: [success, failure]
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

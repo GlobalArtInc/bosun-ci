@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
+use bosun_types::api::UpstreamEvent;
 use bosun_workflow::github::{
-    self, BosunFacts, Dispatch, Facts, RepositoryDispatch, RunnerFacts, StepFacts,
+    self, BosunFacts, Dispatch, Facts, FinishedRun, RepositoryDispatch, RunnerFacts, StepFacts,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -30,6 +31,8 @@ enum Produce {
     WorkflowDispatch(Dispatch),
     Schedule { cron: String },
     RepositoryDispatch(RepositoryDispatch),
+    WorkflowRun(FinishedRun),
+    Upstream(UpstreamEvent),
 }
 
 impl Produce {
@@ -38,6 +41,8 @@ impl Produce {
             Produce::WorkflowDispatch(dispatch) => github::dispatch_payload(dispatch),
             Produce::Schedule { cron } => github::schedule_payload(cron),
             Produce::RepositoryDispatch(dispatch) => github::repository_dispatch_payload(dispatch),
+            Produce::WorkflowRun(run) => github::workflow_run_payload(run),
+            Produce::Upstream(event) => serde_json::to_value(event).expect("serialisable"),
         }
     }
 }
@@ -134,6 +139,8 @@ fn the_fixtures_cover_every_event_the_step_names() {
         "schedule",
         "repository_dispatch",
         "issues",
+        "workflow_run",
+        "upstream",
     ] {
         assert!(events.contains(event), "no github fixture for `{event}`");
     }
@@ -169,6 +176,27 @@ fn a_pull_request_runs_on_its_merge_ref_and_a_push_has_no_head_or_base_ref() {
         assert_eq!(property(&push, "head_ref"), "", "{name}");
         assert_eq!(property(&push, "base_ref"), "", "{name}");
     }
+}
+
+#[test]
+fn the_head_repository_of_a_workflow_run_is_the_fork_of_a_pull_request_and_the_own_repository_otherwise()
+ {
+    let own = Some("Codertocat/Hello-World");
+    let fork = github::head_repository("pull_request", own, &case("pull-request-fork").payload);
+    assert_eq!(fork.full_name.as_deref(), Some("octocat/Hello-World"));
+    assert!(fork.fork);
+    let same = github::head_repository("pull_request", own, &case("pull-request").payload);
+    assert_eq!(same.full_name.as_deref(), own);
+    assert!(!same.fork);
+    let gone = github::head_repository(
+        "pull_request",
+        own,
+        &json!({ "pull_request": { "head": { "repo": null } } }),
+    );
+    assert!(gone.fork && gone.full_name.is_none());
+    let pushed = github::head_repository("push", own, &case("push-branch").payload);
+    assert_eq!(pushed.full_name.as_deref(), own);
+    assert!(!pushed.fork);
 }
 
 #[test]
@@ -284,4 +312,33 @@ fn only_strings_and_booleans_of_the_target_list_become_variables() {
     ] {
         assert!(!environment.contains_key(absent), "{absent} is set");
     }
+}
+
+#[test]
+fn the_head_of_a_run_is_the_head_of_its_pull_request_or_the_branch_of_its_ref() {
+    let pull_request = case("pull-request").payload;
+    let head_sha = pull_request["pull_request"]["head"]["sha"]
+        .as_str()
+        .expect("a head commit");
+    assert_eq!(
+        github::head_branch("pull_request", Some("refs/pull/2/merge"), &pull_request),
+        Some("changes".to_string())
+    );
+    assert_eq!(
+        github::head_sha("pull_request", Some("0000"), &pull_request),
+        Some(head_sha.to_string())
+    );
+    assert_eq!(
+        github::head_branch("push", Some("refs/heads/release/1.2"), &Value::Null),
+        Some("release/1.2".to_string())
+    );
+    assert_eq!(
+        github::head_branch("push", Some("refs/tags/v1"), &Value::Null),
+        None
+    );
+    assert_eq!(github::head_branch("schedule", None, &Value::Null), None);
+    assert_eq!(
+        github::head_sha("push", Some("abc"), &Value::Null),
+        Some("abc".to_string())
+    );
 }

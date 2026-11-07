@@ -286,6 +286,9 @@ with the answers each built-in role gets:
 | `POST /projects/{project}/workflows` | `workflow.edit` | `project` |
 | `GET /projects/{project}/settings` | `project.view` | `project` |
 | `PATCH /projects/{project}/settings` | `project.manage` | `project` |
+| `GET /projects/{project}/followers` | `project.manage` | `project` |
+| `PUT /projects/{project}/followers/{follower}` | `project.manage` | `project` |
+| `DELETE /projects/{project}/followers/{follower}` | `project.manage` | `project` |
 | `POST /projects/{project}/events` | `run.dispatch` | `project` |
 | `GET /workflows/{workflow}` | `project.view` | `project` |
 | `PATCH /workflows/{workflow}` | `workflow.manage` | `project` |
@@ -384,6 +387,22 @@ A step that adds an endpoint adds its row here.
   becomes current, with the caller as the actor of the entries they add
   ([02-workflows.md](02-workflows.md#schedules)). `GET /workflows/{workflow}/revisions` lists newest
   first.
+- The followers of a project are the projects whose workflows may subscribe to its runs with
+  `on.upstream` ([02-workflows.md](02-workflows.md#runs-that-follow-runs)).
+  `GET /projects/{project}/followers` lists them by id as a cursor page of
+  `{"id", "organisation_id", "path"}`. The list is management data, so it needs `project.manage`
+  on the project, and an item carries `organisation_id` and `path` only when the caller holds
+  `project.view` on the follower; otherwise both are `null`, and the `id` still lets the caller
+  `DELETE` it. `PUT /projects/{project}/followers/{follower}` adds one and `DELETE` removes one;
+  both need `project.manage` on the project, `PUT` refuses the project itself as `422
+  invalid_input` naming `follower`, and `{follower}` names a project the way `{project}` does, by
+  its id or by the slugs of its organisation and of itself joined by `/`. `PUT` answers `201` with
+  the reference when the follower is new and `200` when it was listed already; a follower the
+  caller may not view with `project.view` is `404 not_found`, as if it did not exist, so the call
+  cannot probe for projects. `DELETE` answers `204` however the follower stands, listed or not,
+  visible to the caller or not, so a project's owner can always withdraw a consent given to a
+  project they cannot see, and the call tells nothing about the follower. M2 records neither in
+  the audit log; M3 step 4 of [../plan.md](../plan.md) covers them.
 - Step 38 of M1 ([../plan.md](../plan.md)) settled enabling and disabling a workflow and the latest
   run a workflow carries:
   - `PATCH /workflows/{workflow}` takes `enabled`, `true` or `false`, needs `workflow.manage`, and

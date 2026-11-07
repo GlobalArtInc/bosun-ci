@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "not_implemented",
+  "message": "key `environment` in job `deploy` is not supported yet; it arrives in M3",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 6,
+    "column": 5,
+    "end_line": 6,
+    "end_column": 16
+  },
+  "path": [
+    "jobs",
+    "deploy",
+    "environment"
+  ]
+}

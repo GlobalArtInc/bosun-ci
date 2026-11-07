@@ -33,7 +33,15 @@ fn every_trigger_case_matches_as_committed() {
     files.sort();
     assert!(!files.is_empty(), "no trigger cases");
     let case_keys = BTreeSet::from(["description", "on", "event", "matches"]);
-    let event_keys = BTreeSet::from(["name", "action", "ref", "base_ref", "changed_files"]);
+    let event_keys = BTreeSet::from([
+        "name",
+        "action",
+        "ref",
+        "base_ref",
+        "changed_files",
+        "workflow",
+        "conclusion",
+    ]);
     for path in files {
         let file = path.file_name().expect("a file name").to_string_lossy();
         let cases: Vec<Value> =
@@ -64,6 +72,8 @@ fn every_trigger_case_matches_as_committed() {
                     r#ref: text(event, "ref"),
                     base_ref: text(event, "base_ref"),
                     changed_files: changed.as_deref(),
+                    workflow: text(event, "workflow"),
+                    conclusion: text(event, "conclusion"),
                 },
             );
             assert_eq!(

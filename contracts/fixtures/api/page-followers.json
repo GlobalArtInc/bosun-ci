@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "0192f3a4-5b6c-7d8e-9f01-000000000012",
+      "organisation_id": "0192f3a4-5b6c-7d8e-9f01-000000000011",
+      "path": "partner/app"
+    },
+    {
+      "id": "0192f3a4-5b6c-7d8e-9f01-000000000013",
+      "organisation_id": null,
+      "path": null
+    }
+  ],
+  "next": null
+}

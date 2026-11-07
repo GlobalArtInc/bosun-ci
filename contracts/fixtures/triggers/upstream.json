@@ -1,0 +1,223 @@
+[
+  {
+    "description": "a successful run of a listed workflow fires by default",
+    "on": {
+      "upstream": {
+        "project": "globalart/keel",
+        "workflows": [
+          "release"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "release",
+      "conclusion": "success",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "a failed run does not fire by default",
+    "on": {
+      "upstream": {
+        "project": "globalart/keel",
+        "workflows": [
+          "release"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "release",
+      "conclusion": "failure",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "a conclusions filter excludes a failed run",
+    "on": {
+      "upstream": {
+        "workflows": [
+          "release"
+        ],
+        "conclusions": [
+          "success"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "release",
+      "conclusion": "failure",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "a conclusions filter lets a listed conclusion through",
+    "on": {
+      "upstream": {
+        "workflows": [
+          "release"
+        ],
+        "conclusions": [
+          "success",
+          "failure"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "release",
+      "conclusion": "failure",
+      "ref": "refs/heads/main"
+    },
+    "matches": true
+  },
+  {
+    "description": "a cancelled run does not meet a filter that lists failure",
+    "on": {
+      "upstream": {
+        "workflows": [
+          "release"
+        ],
+        "conclusions": [
+          "failure"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "release",
+      "conclusion": "cancelled",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "only a completed run fires: requested",
+    "on": {
+      "upstream": {
+        "project": "globalart/keel",
+        "workflows": [
+          "release"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "requested",
+      "workflow": "release",
+      "conclusion": "success",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "only a completed run fires: in_progress",
+    "on": {
+      "upstream": {
+        "project": "globalart/keel",
+        "workflows": [
+          "release"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "in_progress",
+      "workflow": "release",
+      "conclusion": "success",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "a run of another workflow does not fire",
+    "on": {
+      "upstream": {
+        "project": "globalart/keel",
+        "workflows": [
+          "release"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "build",
+      "conclusion": "success",
+      "ref": "refs/heads/main"
+    },
+    "matches": false
+  },
+  {
+    "description": "a branch filter excludes another branch",
+    "on": {
+      "upstream": {
+        "workflows": [
+          "release"
+        ],
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "release",
+      "conclusion": "success",
+      "ref": "refs/heads/dev"
+    },
+    "matches": false
+  },
+  {
+    "description": "a branch filter lets a listed branch through",
+    "on": {
+      "upstream": {
+        "workflows": [
+          "release"
+        ],
+        "branches": [
+          "main",
+          "release/**"
+        ]
+      }
+    },
+    "event": {
+      "name": "upstream",
+      "action": "completed",
+      "workflow": "release",
+      "conclusion": "success",
+      "ref": "refs/heads/release/1.2"
+    },
+    "matches": true
+  },
+  {
+    "description": "upstream does not fire for workflow_run",
+    "on": {
+      "upstream": {
+        "project": "globalart/keel",
+        "workflows": [
+          "release"
+        ]
+      }
+    },
+    "event": {
+      "name": "workflow_run",
+      "action": "completed",
+      "workflow": "release",
+      "ref": "refs/heads/main",
+      "conclusion": "success"
+    },
+    "matches": false
+  }
+]

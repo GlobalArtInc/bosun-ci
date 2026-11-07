@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "patterns are not supported in `workflows`; use the exact workflow names",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 3,
+    "column": 17,
+    "end_line": 3,
+    "end_column": 20
+  },
+  "path": [
+    "on",
+    "workflow_run",
+    "workflows",
+    0
+  ]
+}

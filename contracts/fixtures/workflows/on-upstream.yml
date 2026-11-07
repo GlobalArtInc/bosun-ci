@@ -2,6 +2,7 @@ on:
   upstream:
     project: globalart/keel
     workflows: [release]
+    branches: [main]
 
 jobs:
   build:

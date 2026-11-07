@@ -28,13 +28,13 @@ use crate::retry::{Failure, backoff};
 use crate::site::Site;
 use crate::store::Backend;
 
-const POLL: Duration = Duration::from_secs(1);
+pub(crate) const POLL: Duration = Duration::from_secs(1);
 
-const PAUSE: Duration = Duration::from_secs(1);
+pub(crate) const PAUSE: Duration = Duration::from_secs(1);
 
-const LEASE: TimeDelta = TimeDelta::minutes(5);
+pub(crate) const LEASE: TimeDelta = TimeDelta::minutes(5);
 
-const DELIVERY: Duration = Duration::from_secs(120);
+pub(crate) const DELIVERY: Duration = Duration::from_secs(120);
 
 const DEAD_AFTER: TimeDelta = TimeDelta::hours(24);
 
@@ -94,17 +94,37 @@ pub(crate) async fn next(outbox: &Outbox) -> Result<bool, bosun_db::Error> {
             at_least: Duration::ZERO,
         }),
     };
+    settle(
+        &outbox.db,
+        &outbox.clock,
+        &outbox.meters,
+        &claimed,
+        result,
+        started,
+    )
+    .await?;
+    Ok(true)
+}
+
+pub(crate) async fn settle(
+    db: &DatabaseConnection,
+    clock: &Clock,
+    meters: &Meters,
+    claimed: &Claimed,
+    result: Result<(), Failure>,
+    started: Instant,
+) -> Result<(), bosun_db::Error> {
     if result.is_err() {
-        outbox.meters.failed_report(claimed.kind);
+        meters.failed_report(claimed.kind);
     }
-    let now = outbox.clock.now();
-    let transaction = outbox.db.begin().await?;
+    let now = clock.now();
+    let transaction = db.begin().await?;
     let row = claimed.id;
     let kind = name(claimed.kind);
     let key = claimed.collapse_key.as_str();
     let kept = match result {
         Ok(()) => {
-            let kept = bosun_db::outbox::delivered(&transaction, &claimed).await?;
+            let kept = bosun_db::outbox::delivered(&transaction, claimed).await?;
             if kept {
                 info!(
                     row,
@@ -121,17 +141,17 @@ pub(crate) async fn next(outbox: &Outbox) -> Result<bool, bosun_db::Error> {
             let failing_since = claimed.failing_since.unwrap_or(now);
             if now - failing_since >= DEAD_AFTER {
                 let kept =
-                    bosun_db::outbox::kill(&transaction, &claimed, &error, failing_since, now)
+                    bosun_db::outbox::kill(&transaction, claimed, &error, failing_since, now)
                         .await?;
                 if kept {
-                    dead(&claimed, &error);
+                    dead(claimed, &error);
                 }
                 kept
             } else {
                 let wait = backoff(claimed.attempts).max(at_least);
                 let at = now + TimeDelta::from_std(wait).unwrap_or(LEASE);
                 let kept =
-                    bosun_db::outbox::postpone(&transaction, &claimed, &error, failing_since, at)
+                    bosun_db::outbox::postpone(&transaction, claimed, &error, failing_since, at)
                         .await?;
                 if kept {
                     warn!(
@@ -149,9 +169,9 @@ pub(crate) async fn next(outbox: &Outbox) -> Result<bool, bosun_db::Error> {
         Err(Failure::Refused(error)) => {
             let failing_since = claimed.failing_since.unwrap_or(now);
             let kept =
-                bosun_db::outbox::kill(&transaction, &claimed, &error, failing_since, now).await?;
+                bosun_db::outbox::kill(&transaction, claimed, &error, failing_since, now).await?;
             if kept {
-                dead(&claimed, &error);
+                dead(claimed, &error);
             }
             kept
         }
@@ -165,7 +185,7 @@ pub(crate) async fn next(outbox: &Outbox) -> Result<bool, bosun_db::Error> {
             "an outbox row was claimed again before its delivery ended, and the later claim settles it"
         );
     }
-    Ok(true)
+    Ok(())
 }
 
 fn dead(claimed: &Claimed, error: &str) {
@@ -185,6 +205,7 @@ pub(crate) fn name(kind: Kind) -> &'static str {
         Kind::CommitStatus => "commit_status",
         Kind::ForkStatus => "fork_status",
         Kind::TokenRevocation => "token_revocation",
+        Kind::RunTrigger => "run_trigger",
     }
 }
 
@@ -213,6 +234,9 @@ async fn deliver(outbox: &Outbox, claimed: &Claimed) -> Result<(), Failure> {
         Kind::CommitStatus => commit_status(outbox, payload(claimed)?).await,
         Kind::ForkStatus => fork_status(outbox, payload(claimed)?).await,
         Kind::TokenRevocation => revoke(outbox, payload(claimed)?).await,
+        Kind::RunTrigger => Err(Failure::Refused(
+            "a row that starts runs reached the worker that reports to the forge".to_owned(),
+        )),
     }
 }
 

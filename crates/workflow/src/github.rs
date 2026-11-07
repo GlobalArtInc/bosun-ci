@@ -156,6 +156,36 @@ pub struct RepositoryDispatch {
     pub installation: Option<Value>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FinishedRun {
+    pub action: String,
+    pub id: u64,
+    pub name: String,
+    pub path: String,
+    pub display_title: String,
+    pub head_branch: Option<String>,
+    pub head_sha: Option<String>,
+    pub event: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub run_number: u64,
+    pub run_attempt: u32,
+    pub html_url: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub run_started_at: Option<String>,
+    pub head_repository: HeadRepository,
+    pub actor: Account,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeadRepository {
+    pub full_name: Option<String>,
+    pub fork: bool,
+}
+
 struct Refs {
     git_ref: String,
     sha: String,
@@ -478,4 +508,132 @@ pub fn repository_dispatch_payload(dispatch: &RepositoryDispatch) -> Value {
             ("installation", &dispatch.installation),
         ],
     )
+}
+
+fn account(account: &Account) -> Value {
+    let mut object = Map::new();
+    object.insert("login".to_string(), Value::String(account.login.clone()));
+    if let Some(id) = account.id {
+        object.insert("id".to_string(), Value::from(id));
+    }
+    Value::Object(object)
+}
+
+fn text(value: &str) -> Value {
+    Value::String(value.to_string())
+}
+
+fn optional_text(value: &Option<String>) -> Value {
+    value.as_deref().map_or(Value::Null, text)
+}
+
+pub fn workflow_run_payload(run: &FinishedRun) -> Value {
+    let mut object = Map::new();
+    object.insert("id".to_string(), Value::from(run.id));
+    object.insert("name".to_string(), text(&run.name));
+    object.insert("path".to_string(), text(&run.path));
+    object.insert("display_title".to_string(), text(&run.display_title));
+    object.insert("head_branch".to_string(), optional_text(&run.head_branch));
+    object.insert("head_sha".to_string(), optional_text(&run.head_sha));
+    object.insert("event".to_string(), text(&run.event));
+    object.insert("status".to_string(), text(&run.status));
+    object.insert("conclusion".to_string(), optional_text(&run.conclusion));
+    object.insert("run_number".to_string(), Value::from(run.run_number));
+    object.insert("run_attempt".to_string(), Value::from(run.run_attempt));
+    object.insert("html_url".to_string(), optional_text(&run.html_url));
+    object.insert("created_at".to_string(), text(&run.created_at));
+    object.insert("updated_at".to_string(), text(&run.updated_at));
+    object.insert(
+        "run_started_at".to_string(),
+        optional_text(&run.run_started_at),
+    );
+    let mut head_repository = Map::new();
+    head_repository.insert(
+        "full_name".to_string(),
+        optional_text(&run.head_repository.full_name),
+    );
+    head_repository.insert("fork".to_string(), Value::Bool(run.head_repository.fork));
+    object.insert(
+        "head_repository".to_string(),
+        Value::Object(head_repository),
+    );
+    object.insert("actor".to_string(), account(&run.actor));
+    object.insert("triggering_actor".to_string(), account(&run.actor));
+    let mut workflow = Map::new();
+    workflow.insert("name".to_string(), text(&run.name));
+    workflow.insert("path".to_string(), text(&run.path));
+    let mut payload = Map::new();
+    payload.insert("action".to_string(), text(&run.action));
+    payload.insert("workflow_run".to_string(), Value::Object(object));
+    payload.insert("workflow".to_string(), Value::Object(workflow));
+    Value::Object(payload)
+}
+
+pub fn head_branch(event: &str, git_ref: Option<&str>, payload: &Value) -> Option<String> {
+    let from_payload = |pointer: &str| {
+        payload
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    match event {
+        "pull_request"
+        | "pull_request_target"
+        | "pull_request_review"
+        | "pull_request_review_comment" => from_payload("/pull_request/head/ref"),
+        "merge_group" => from_payload("/merge_group/head_ref").map(|head| {
+            head.strip_prefix("refs/heads/")
+                .unwrap_or(&head)
+                .to_string()
+        }),
+        _ => git_ref
+            .and_then(|git_ref| git_ref.strip_prefix("refs/heads/"))
+            .map(str::to_string),
+    }
+}
+
+pub fn head_repository(event: &str, own: Option<&str>, payload: &Value) -> HeadRepository {
+    if !matches!(
+        event,
+        "pull_request"
+            | "pull_request_target"
+            | "pull_request_review"
+            | "pull_request_review_comment"
+    ) {
+        return HeadRepository {
+            full_name: own.map(str::to_string),
+            fork: false,
+        };
+    }
+    let head = payload
+        .pointer("/pull_request/head/repo/id")
+        .and_then(Value::as_u64);
+    let base = payload
+        .pointer("/pull_request/base/repo/id")
+        .or_else(|| payload.pointer("/repository/id"))
+        .and_then(Value::as_u64);
+    HeadRepository {
+        full_name: payload
+            .pointer("/pull_request/head/repo/full_name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        fork: head.is_none() || head != base,
+    }
+}
+
+pub fn head_sha(event: &str, sha: Option<&str>, payload: &Value) -> Option<String> {
+    match event {
+        "pull_request"
+        | "pull_request_target"
+        | "pull_request_review"
+        | "pull_request_review_comment" => payload
+            .pointer("/pull_request/head/sha")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        "merge_group" => payload
+            .pointer("/merge_group/head_sha")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        _ => sha.map(str::to_string),
+    }
 }

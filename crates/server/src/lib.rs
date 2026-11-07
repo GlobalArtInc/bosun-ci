@@ -14,6 +14,7 @@ mod dispatch;
 mod envelope;
 mod error;
 mod events;
+mod followers;
 mod forge;
 mod forge_events;
 mod forge_token;
@@ -67,6 +68,7 @@ mod token;
 mod tokens;
 mod tools;
 mod trace;
+mod triggers;
 mod users;
 mod variables;
 mod workflows;
@@ -218,6 +220,15 @@ pub async fn serve(
         )
         .work(resolving),
     );
+    tasks.spawn(triggers::work(
+        triggers::Triggers {
+            db: db.clone(),
+            site: config.site.clone(),
+            clock: clock.clone(),
+            meters: Arc::clone(&meters),
+        },
+        Arc::clone(&reports),
+    ));
     if let Some(forge) = &forge {
         tasks.spawn(hooks::work(
             db.clone(),

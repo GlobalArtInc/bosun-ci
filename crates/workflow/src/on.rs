@@ -3,18 +3,24 @@ use std::collections::BTreeSet;
 use bosun_types::diagnostic::PathSegment;
 use bosun_types::ir::{
     Activity, Filter, GenericEvent, Input, InputKind, MergeGroup, PullRequest, Push, Schedule,
-    Trigger, WorkflowDispatch,
+    Trigger, Upstream, WorkflowDispatch, WorkflowRun,
 };
+use bosun_types::slug::is_slug;
+use bosun_types::status::RunConclusion;
 
 use crate::Code;
 use crate::lower::{Entry, Fields, Item, Lowering, Mark, child, index, optional, scalar_text};
 use crate::pattern;
 use crate::schedule;
 use crate::surface::{
-    ACTIVITY, EVENTS, INPUT, Known, MERGE_GROUP, PULL_REQUEST, PUSH, SCHEDULE, Shape,
-    WORKFLOW_CALL, WORKFLOW_DISPATCH, suggest,
+    ACTIVITY, EVENTS, INPUT, Known, MERGE_GROUP, PULL_REQUEST, PUSH, SCHEDULE, Shape, UPSTREAM,
+    WORKFLOW_CALL, WORKFLOW_DISPATCH, WORKFLOW_RUN, suggest,
 };
 use crate::yaml::{Node, Value};
+
+const FILTERED: [&str; 2] = ["workflow_run", "upstream"];
+
+const RUN_TYPES: &[&str] = &["completed", "requested", "in_progress"];
 
 const INPUT_TYPES: &[&str] = &["string", "boolean", "choice", "number", "environment"];
 
@@ -34,6 +40,8 @@ fn shape(event: &str) -> &'static Shape {
         "merge_group" => &MERGE_GROUP,
         "workflow_dispatch" => &WORKFLOW_DISPATCH,
         "workflow_call" => &WORKFLOW_CALL,
+        "workflow_run" => &WORKFLOW_RUN,
+        "upstream" => &UPSTREAM,
         _ => &ACTIVITY,
     }
 }
@@ -142,7 +150,25 @@ impl Lowering<'_> {
             );
             return None;
         }
+        if FILTERED.contains(&item.text.as_str()) {
+            self.missing_workflows(&item.text, item.node.span, &item.path);
+            return None;
+        }
         self.trigger(&item.text, None)
+    }
+
+    fn missing_workflows(
+        &mut self,
+        event: &str,
+        span: bosun_types::ir::Span,
+        path: &[PathSegment],
+    ) {
+        self.error(
+            Code::MissingKey,
+            span,
+            path,
+            format!("missing key `workflows` in `{event}`"),
+        );
     }
 
     fn mapped(&mut self, event: &Entry<'_>) -> Option<Trigger> {
@@ -150,6 +176,10 @@ impl Lowering<'_> {
             return self.schedules(event).map(Trigger::Schedule);
         }
         match event.value.value {
+            Value::Null if FILTERED.contains(&event.name) => {
+                self.missing_workflows(event.name, event.key.span, &event.path);
+                None
+            }
             Value::Null => self.trigger(event.name, None),
             Value::Mapping(_) => {
                 let place = format!("`{}`", event.name);
@@ -190,7 +220,7 @@ impl Lowering<'_> {
                 }))
             }
             "pull_request" | "pull_request_target" => {
-                let types = optional(get("types"), |entry| self.types(entry, &place));
+                let types = optional(get("types"), |entry| self.types(entry, &place, None));
                 let branches = self.filter(get("branches"), get("branches-ignore"), &place);
                 let paths = self.filter(get("paths"), get("paths-ignore"), &place);
                 let pull_request = PullRequest {
@@ -205,7 +235,7 @@ impl Lowering<'_> {
                 })
             }
             "merge_group" => {
-                let types = optional(get("types"), |entry| self.types(entry, &place));
+                let types = optional(get("types"), |entry| self.types(entry, &place, None));
                 let branches = self.filter(get("branches"), get("branches-ignore"), &place);
                 Some(Trigger::MergeGroup(MergeGroup {
                     types: types?,
@@ -219,12 +249,38 @@ impl Lowering<'_> {
                 }))
             }
             "workflow_call" => self.workflow_call(fields).map(Trigger::WorkflowCall),
+            "workflow_run" => {
+                let workflows = optional(get("workflows"), |entry| self.names(entry, &place));
+                let types = optional(get("types"), |entry| {
+                    self.types(entry, &place, Some(RUN_TYPES))
+                });
+                let branches = self.filter(get("branches"), get("branches-ignore"), &place);
+                Some(Trigger::WorkflowRun(WorkflowRun {
+                    workflows: workflows??,
+                    types: types?,
+                    branches: branches?,
+                }))
+            }
+            "upstream" => {
+                let project = optional(get("project"), |entry| self.project(entry, &place));
+                let workflows = optional(get("workflows"), |entry| self.names(entry, &place));
+                let branches = optional(get("branches"), |entry| self.patterns(entry, &place));
+                let conclusions =
+                    optional(get("conclusions"), |entry| self.conclusions(entry, &place));
+                Some(Trigger::Upstream(Upstream {
+                    project: project?,
+                    workflows: workflows??,
+                    branches: branches?.map(Filter::Include),
+                    conclusions: conclusions?
+                        .unwrap_or_else(|| vec![RunConclusion::Success.name().to_string()]),
+                }))
+            }
             "repository_dispatch" => {
-                let types = optional(get("types"), |entry| self.types(entry, &place));
+                let types = optional(get("types"), |entry| self.types(entry, &place, None));
                 Some(Trigger::RepositoryDispatch(Activity { types: types? }))
             }
             _ => {
-                let types = optional(get("types"), |entry| self.types(entry, &place));
+                let types = optional(get("types"), |entry| self.types(entry, &place, None));
                 Some(Trigger::Generic(GenericEvent {
                     name: name.to_string(),
                     types: types?,
@@ -298,7 +354,12 @@ impl Lowering<'_> {
         complete.then_some(patterns)
     }
 
-    fn types(&mut self, entry: &Entry<'_>, place: &str) -> Option<Vec<String>> {
+    fn types(
+        &mut self,
+        entry: &Entry<'_>,
+        place: &str,
+        allowed: Option<&[&str]>,
+    ) -> Option<Vec<String>> {
         let mut types = Vec::new();
         let mut complete = true;
         for item in self.listing(entry, place)? {
@@ -310,11 +371,101 @@ impl Lowering<'_> {
                     &item.path,
                     format!("`types` of {place} names an empty activity type"),
                 );
+            } else if allowed.is_some_and(|allowed| !allowed.contains(&item.text.as_str())) {
+                complete = false;
+                self.error(
+                    Code::InvalidValue,
+                    item.node.span,
+                    &item.path,
+                    format!(
+                        "`{}` in `types` of {place} is not an activity type of a run; they are {}",
+                        item.text,
+                        allowed.unwrap_or_default().join(", ")
+                    ),
+                );
             } else {
                 types.push(item.text);
             }
         }
         complete.then_some(types)
+    }
+
+    fn names(&mut self, entry: &Entry<'_>, place: &str) -> Option<Vec<String>> {
+        let mut names = Vec::new();
+        let mut complete = true;
+        for item in self.listing(entry, place)? {
+            if item.text.is_empty() {
+                complete = false;
+                self.error(
+                    Code::InvalidValue,
+                    item.node.span,
+                    &item.path,
+                    format!("`workflows` of {place} names an empty workflow"),
+                );
+            } else if item.text.contains(['*', '?', '[']) {
+                complete = false;
+                self.error(
+                    Code::InvalidValue,
+                    item.node.span,
+                    &item.path,
+                    "patterns are not supported in `workflows`; use the exact workflow names"
+                        .to_string(),
+                );
+            } else {
+                names.push(item.text);
+            }
+        }
+        complete.then_some(names)
+    }
+
+    fn project(&mut self, entry: &Entry<'_>, place: &str) -> Option<String> {
+        let what = format!("`project` of {place}");
+        let text = self.string(entry.value, &entry.path, &what)?;
+        let is_path = text
+            .split_once('/')
+            .is_some_and(|(organisation, project)| is_slug(organisation) && is_slug(project));
+        if !is_path {
+            self.error(
+                Code::InvalidValue,
+                entry.value.span,
+                &entry.path,
+                format!(
+                    "{what} is `{text}`, which is not a path of the form `organisation/project`"
+                ),
+            );
+            return None;
+        }
+        Some(text)
+    }
+
+    fn conclusions(&mut self, entry: &Entry<'_>, place: &str) -> Option<Vec<String>> {
+        let mut conclusions = Vec::new();
+        let mut complete = true;
+        for item in self.listing(entry, place)? {
+            if RunConclusion::ALL
+                .iter()
+                .any(|known| known.name() == item.text)
+            {
+                conclusions.push(item.text);
+            } else {
+                complete = false;
+                let known: Vec<&str> = RunConclusion::ALL
+                    .iter()
+                    .map(|known| known.name())
+                    .collect();
+                self.error(
+                    Code::InvalidValue,
+                    item.node.span,
+                    &item.path,
+                    format!(
+                        "`{}` in `conclusions` of {place} is not a conclusion of a run; they are {}",
+                        item.text,
+                        known.join(", ")
+                    ),
+                );
+            }
+        }
+        complete.then_some(conclusions)
     }
 
     fn schedules(&mut self, event: &Entry<'_>) -> Option<Vec<Schedule>> {

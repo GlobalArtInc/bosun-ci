@@ -38,6 +38,7 @@ pub mod stream;
 pub mod teams;
 pub mod tokens;
 pub mod tools;
+pub mod triggers;
 pub mod users;
 pub mod variables;
 pub mod views;

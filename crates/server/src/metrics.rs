@@ -262,7 +262,7 @@ fn database(text: &mut Exposition, snapshot: &Snapshot) {
     text.family(
         "bosun_outbox_backlog",
         "gauge",
-        "Outbox rows that wait for their delivery to the forge.",
+        "Outbox rows that wait for their worker: delivery to the forge, or the creation of the runs that follow a run.",
     );
     for (kind, backlog, _) in &kinds {
         text.sample("bosun_outbox_backlog", &[("kind", kind)], *backlog as f64);

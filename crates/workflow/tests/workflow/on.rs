@@ -25,6 +25,8 @@ fn event_of(trigger: &Trigger) -> &str {
         Trigger::Schedule(_) => "schedule",
         Trigger::WorkflowDispatch(_) => "workflow_dispatch",
         Trigger::WorkflowCall(_) => "workflow_call",
+        Trigger::WorkflowRun(_) => "workflow_run",
+        Trigger::Upstream(_) => "upstream",
         Trigger::RepositoryDispatch(_) => "repository_dispatch",
         Trigger::Generic(generic) => &generic.name,
     }

@@ -5,14 +5,14 @@ use std::path::Path;
 use bosun_types::api::{
     AddMemberRequest, Agent, CreateOrganisationRequest, CreatePersonalTokenRequest,
     CreatePoolRequest, CreateProjectRequest, CreateRoleBindingRequest, CreateRoleRequest,
-    CreateTeamRequest, CreateUserRequest, CreateWorkflowRequest, DispatchRequest, Execution, Job,
-    LabelAlias, LintRequest, LintResponse, LogEnd, LogLine, LogSearch, Me, Organisation, Page,
-    PasswordChangeRequest, PersonalToken, PersonalTokenCreated, Pool, Project, ProjectSettings,
-    QueuedJob, RegisterAgentRequest, RegisterAgentResponse, RegistrationTokenCreated,
-    RegistrationTokenRequest, RepositoryDispatchRequest, Revision, Role, RoleBinding, Run, Secret,
-    SetLabelAliasRequest, SetSecretRequest, SetVariableRequest, SignInMethods, SignInRequest, Step,
-    Team, UpdateAgentRequest, UpdateOrganisationRequest, UpdateProjectRequest, UpdateSourceRequest,
-    UpdateWorkflowRequest, User, Variable, Workflow,
+    CreateTeamRequest, CreateUserRequest, CreateWorkflowRequest, DispatchRequest, Execution,
+    Follower, Job, LabelAlias, LintRequest, LintResponse, LogEnd, LogLine, LogSearch, Me,
+    Organisation, Page, PasswordChangeRequest, PersonalToken, PersonalTokenCreated, Pool, Project,
+    ProjectSettings, QueuedJob, RegisterAgentRequest, RegisterAgentResponse,
+    RegistrationTokenCreated, RegistrationTokenRequest, RepositoryDispatchRequest, Revision, Role,
+    RoleBinding, Run, Secret, SetLabelAliasRequest, SetSecretRequest, SetVariableRequest,
+    SignInMethods, SignInRequest, Step, Team, UpdateAgentRequest, UpdateOrganisationRequest,
+    UpdateProjectRequest, UpdateSourceRequest, UpdateWorkflowRequest, User, Variable, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -184,6 +184,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("api/log-search.json", round_trip::<LogSearch>),
         ("api/me.json", round_trip::<Me>),
         ("api/organisation.json", round_trip::<Organisation>),
+        ("api/page-followers.json", round_trip::<Page<Follower>>),
         ("api/page-jobs.json", round_trip::<Page<Job>>),
         (
             "api/password-change-request.json",
@@ -356,6 +357,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<Diagnostic>,
         ),
         (
+            "diagnostics/job-environment-later.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
             "diagnostics/job-with-without-uses.json",
             round_trip::<Diagnostic>,
         ),
@@ -371,8 +376,30 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "diagnostics/number-default-not-a-number.json",
             round_trip::<Diagnostic>,
         ),
-        ("diagnostics/on-upstream.json", round_trip::<Diagnostic>),
-        ("diagnostics/on-workflow-run.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/on-upstream-project-not-a-path.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/on-upstream-unknown-conclusion.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/on-workflow-run-branches-and-ignore.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/on-workflow-run-unknown-type.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/on-workflow-run-without-workflows.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/on-workflow-run-workflows-pattern.json",
+            round_trip::<Diagnostic>,
+        ),
         (
             "diagnostics/permissions-id-token-read.json",
             round_trip::<Diagnostic>,
@@ -491,6 +518,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("events/run-status.json", round_trip::<RunEvent>),
         ("events/step-created.json", round_trip::<RunEvent>),
         ("events/step-status.json", round_trip::<RunEvent>),
+        ("events/trigger-skipped.json", round_trip::<RunEvent>),
         ("ir/aliases.json", round_trip::<ir::Workflow>),
         ("ir/all-secrets.json", round_trip::<ir::Workflow>),
         (
@@ -517,10 +545,16 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("ir/on-schedule.json", round_trip::<ir::Workflow>),
         ("ir/on-string.json", round_trip::<ir::Workflow>),
         (
+            "ir/on-upstream-conclusions.json",
+            round_trip::<ir::Workflow>,
+        ),
+        ("ir/on-upstream.json", round_trip::<ir::Workflow>),
+        (
             "ir/on-workflow-call-string.json",
             round_trip::<ir::Workflow>,
         ),
         ("ir/on-workflow-dispatch.json", round_trip::<ir::Workflow>),
+        ("ir/on-workflow-run.json", round_trip::<ir::Workflow>),
         ("ir/permissions.json", round_trip::<ir::Workflow>),
         ("ir/run-name.json", round_trip::<ir::Workflow>),
         ("ir/runs-on-expressions.json", round_trip::<ir::Workflow>),

@@ -1066,6 +1066,33 @@
         ],
         "type": "object"
       },
+      "Follower": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "organisation_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "organisation_id",
+          "path"
+        ],
+        "type": "object"
+      },
       "ForgeAccess": {
         "enum": [
           "read",
@@ -2757,6 +2784,22 @@
               "data"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/TriggerSkipped"
+              },
+              "kind": {
+                "const": "trigger.skipped",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "data"
+            ],
+            "type": "object"
           }
         ],
         "properties": {
@@ -3016,6 +3059,14 @@
           "password"
         ],
         "type": "object"
+      },
+      "SkipReason": {
+        "enum": [
+          "no_user",
+          "no_permission",
+          "chain_too_long"
+        ],
+        "type": "string"
       },
       "Span": {
         "additionalProperties": false,
@@ -3365,6 +3416,22 @@
           "slug",
           "name",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "TriggerSkipped": {
+        "properties": {
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/SkipReason"
+          }
+        },
+        "required": [
+          "project_id",
+          "reason"
         ],
         "type": "object"
       },
@@ -4112,6 +4179,7 @@
                   "command.refused",
                   "run.notice",
                   "concurrency.cancelled",
+                  "trigger.skipped",
                   "agent.status",
                   "queue.job"
                 ],
@@ -4992,6 +5060,164 @@
         ],
         "x-bosun-permission": {
           "key": "run.dispatch",
+          "on": "project"
+        }
+      }
+    },
+    "/api/v1/projects/{project}/followers": {
+      "get": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Follower"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-bosun-permission": {
+          "key": "project.manage",
+          "on": "project"
+        }
+      }
+    },
+    "/api/v1/projects/{project}/followers/{follower}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the id of the follower project, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "follower",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "project.manage",
+          "on": "project"
+        }
+      },
+      "put": {
+        "parameters": [
+          {
+            "description": "the project's id, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the id of the follower project, or the slugs of its organisation and of itself joined by `/`",
+            "in": "path",
+            "name": "follower",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRef"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "project.manage",
           "on": "project"
         }
       }

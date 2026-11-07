@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`complete` in `types` of `workflow_run` is not an activity type of a run; they are completed, requested, in_progress",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 4,
+    "column": 13,
+    "end_line": 4,
+    "end_column": 21
+  },
+  "path": [
+    "on",
+    "workflow_run",
+    "types",
+    0
+  ]
+}

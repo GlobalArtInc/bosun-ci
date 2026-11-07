@@ -1,16 +1,16 @@
 {
   "severity": "error",
-  "code": "not_implemented",
-  "message": "event `upstream` in `on` is not supported yet; it arrives in M2",
+  "code": "missing_key",
+  "message": "missing key `workflows` in `workflow_run`",
   "file": ".bosun/workflows/ci.yml",
   "span": {
     "line": 2,
     "column": 3,
     "end_line": 2,
-    "end_column": 11
+    "end_column": 15
   },
   "path": [
     "on",
-    "upstream"
+    "workflow_run"
   ]
 }

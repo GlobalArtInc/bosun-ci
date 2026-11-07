@@ -113,6 +113,9 @@ pub async fn send(request: RequestBuilder) -> (u16, Value) {
     let response = request.send().await.expect("a response");
     let status = response.status().as_u16();
     let body = response.text().await.expect("a body");
+    if body.is_empty() {
+        return (status, Value::Null);
+    }
     let value = serde_json::from_str(&body)
         .unwrap_or_else(|error| panic!("a body that is not JSON ({error}): {body}"));
     (status, value)

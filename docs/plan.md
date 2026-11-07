@@ -2697,8 +2697,8 @@ to every step:
   loop and the prepare phase only where it hooks in. Step 13 follows step 10 because the nested
   steps of a composite action must run in the job container too.
 - No step of M2 records audit events. `audit_event` arrives with M3 step 4, whose audited settings
-  cover the ones M2 adds: the action policy, the pool settings, the dispatch weight and the running
-  cap.
+  cover the ones M2 adds: the action policy, the pool settings, the dispatch weight, the running
+  cap and the upstream followers.
 - Every step:
   - a step that adds an endpoint regenerates `contracts/openapi.json`;
   - a step that adds a journal event kind adds its fixture under `contracts/fixtures/events/` and
@@ -3435,20 +3435,26 @@ at once, so neither enters the pending list. A transition of a run to `requested
 `upstream_subscription`, which is maintained when a workflow revision becomes current on the default
 branch or a server-side workflow is saved, and creates the triggered runs idempotently, keyed by the
 source run, its attempt, the target workflow and the type. `workflow_run` stays within the project
-and carries the payload the target produces. `upstream` crosses projects when the triggering user of
-the upstream run has `run.dispatch` on the subscriber; the triggering user of a forge event is the
-Bosun user linked to its sender, which step 20 makes possible. Its `github.event_name` is
+and carries the payload the target produces. `upstream` crosses projects when the upstream project
+lists the subscriber's project as a follower and the triggering user of the upstream run has
+`run.dispatch` on the subscriber; the triggering user of a forge event is the Bosun user linked to
+its sender, which step 20 makes possible. Its `github.event_name` is
 `upstream`, and its `github.event` is the upstream run's resource with its project and workflow.
 
-This step settles four things and records them in `design/02-workflows.md`: the shape of the
+This step settles five things and records them in `design/02-workflows.md`: the shape of the
 `upstream` payload, pinned by a fixture; a run without a Bosun user, such as a schedule or a push by
 an unlinked actor, fires no cross-project `upstream`, and the skip is a journal event of the
 upstream run; subscribers are read from the default branch; chains of these triggers stop after
-three levels, as the target's do.
+three levels, as the target's do; and the consent of the upstream project, a list of followers that
+the project's managers keep through `GET`, `PUT` and `DELETE /projects/{project}/followers`, so that
+no one who can write a default branch reads the runs of a project that did not agree. A run that
+awaits its admission offers nothing until it is admitted.
 
-**Touches.** `crates/workflow/`, `crates/types/`, `crates/server/`, `crates/db/`
-(`upstream_subscription`), `contracts/fixtures/`, `contracts/schema/workflow.json`,
-`docs/design/02-workflows.md`.
+**Touches.** `crates/workflow/`, `crates/types/`, `crates/server/` (among them `followers.rs`),
+`crates/db/` (`upstream_subscription`, `upstream_follower`), `contracts/fixtures/`,
+`contracts/openapi.json`, `contracts/schema/workflow.json`, `docs/design/02-workflows.md`,
+`docs/design/04-runs.md`, `docs/design/07-storage.md`, `docs/design/08-access.md`,
+`docs/design/11-api.md`, `docs/design/12-operations.md`.
 
 **Depends on.** 1.
 
@@ -3462,9 +3468,16 @@ three levels, as the target's do.
   none.
 - Two replicas processing the same outbox row, or a worker that dies after the commit, still yield
   exactly one triggered run.
-- `upstream` from another project fires when the dispatching user of the upstream run holds
-  `run.dispatch` on the subscriber; without it nothing is created, and the skip event names the
-  reason.
+- `upstream` from another project fires only when the upstream project lists the subscriber as a
+  follower and the dispatching user of the upstream run holds `run.dispatch` on the subscriber;
+  without the permission nothing is created, and the skip event names the reason.
+- A project that is not a follower leaves no trace: no run, and no event in the journal of the
+  upstream run.
+- The followers endpoints need `project.manage` on the upstream project, a follower the caller
+  cannot view is `404` on `PUT`, and a listing shows a follower's path only to a caller who can
+  view it.
+- A run that awaits its admission fires nothing, its `requested` is never delivered even when it is
+  processed after the admission, and its `completed` fires once it is admitted.
 - A `conclusions` filter excludes a failed upstream run.
 - A fourth level of a chain creates no run.
 

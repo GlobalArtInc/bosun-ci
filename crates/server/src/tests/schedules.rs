@@ -29,7 +29,7 @@ const BELGRADE: &str = "name: nightly\non:\n  schedule:\n    - cron: '30 2 * * *
 
 const FULL_NAME: &str = "GlobalArt/keel";
 
-const ROMAN: Sender<'static> = Sender {
+pub(super) const ROMAN: Sender<'static> = Sender {
     login: "roman",
     id: 7001,
 };
@@ -329,8 +329,8 @@ async fn with_two_replicas_every_schedule_fires_once_a_minute() {
     assert_eq!(fired, expected);
 }
 
-struct Pushes {
-    world: World,
+pub(super) struct Pushes {
+    pub(super) world: World,
     installation: u64,
     fake: FakeForge,
     forge: Forge,
@@ -341,7 +341,7 @@ struct Pushes {
 }
 
 impl Pushes {
-    async fn new(start: &str) -> Pushes {
+    pub(super) async fn new(start: &str) -> Pushes {
         let world = World::new().await;
         let fake = FakeForge::start().await;
         let installation = fake.install(
@@ -410,13 +410,32 @@ impl Pushes {
         }
     }
 
-    async fn push(&mut self, branch: &str, files: &[(&str, &str)], sender: Sender<'_>) -> String {
+    pub(super) async fn push(
+        &mut self,
+        branch: &str,
+        files: &[(&str, &str)],
+        sender: Sender<'_>,
+    ) -> String {
+        let after = self.fake.commit(FULL_NAME, branch, files.iter().copied());
+        self.pushed(branch, after, sender).await
+    }
+
+    pub(super) async fn remove(
+        &mut self,
+        branch: &str,
+        paths: &[&str],
+        sender: Sender<'_>,
+    ) -> String {
+        let after = self.fake.remove(FULL_NAME, branch, paths);
+        self.pushed(branch, after, sender).await
+    }
+
+    async fn pushed(&mut self, branch: &str, after: String, sender: Sender<'_>) -> String {
         let before = self
             .heads
             .get(branch)
             .cloned()
             .unwrap_or_else(|| NO_COMMIT.to_owned());
-        let after = self.fake.commit(FULL_NAME, branch, files.iter().copied());
         self.heads.insert(branch.to_owned(), after.clone());
         let payload = self.fake.push_event(
             FULL_NAME,
@@ -425,6 +444,19 @@ impl Pushes {
             &after,
             sender,
         );
+        self.deliver("push", payload).await;
+        after
+    }
+
+    pub(super) async fn pull_request(&self, head: &str, sender: Sender<'_>) {
+        let number = self.fake.open_pull_request(FULL_NAME, "main", head);
+        let payload = self
+            .fake
+            .pull_request_event(FULL_NAME, number, "opened", sender);
+        self.deliver("pull_request", payload).await;
+    }
+
+    async fn deliver(&self, event: &str, payload: Value) {
         let transaction = self.world.db().begin().await.expect("a transaction");
         let delivered = forge_events::delivered(
             &transaction,
@@ -434,7 +466,7 @@ impl Pushes {
             &Delivery {
                 id: Uuid::now_v7(),
                 delivery: Uuid::now_v7().to_string(),
-                event: "push".to_owned(),
+                event: event.to_owned(),
                 payload,
                 attempts: 0,
             },
@@ -443,13 +475,12 @@ impl Pushes {
         .await;
         match delivered {
             Ok(()) => {}
-            Err(Failed::Database(error)) => panic!("the push failed in the database: {error}"),
-            Err(Failed::Forge(error)) => panic!("the push failed at the forge: {error}"),
-            Err(Failed::Payload(error)) => panic!("the push has a broken payload: {error}"),
-            Err(Failed::Unmerged(error)) => panic!("the push waits for a merge: {error}"),
+            Err(Failed::Database(error)) => panic!("the {event} failed in the database: {error}"),
+            Err(Failed::Forge(error)) => panic!("the {event} failed at the forge: {error}"),
+            Err(Failed::Payload(error)) => panic!("the {event} has a broken payload: {error}"),
+            Err(Failed::Unmerged(error)) => panic!("the {event} waits for a merge: {error}"),
         }
         transaction.commit().await.expect("a commit");
-        after
     }
 
     async fn round(&self, instant: &str) -> Vec<Run> {

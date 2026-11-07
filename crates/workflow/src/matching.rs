@@ -11,6 +11,8 @@ pub struct Event<'e> {
     pub r#ref: Option<&'e str>,
     pub base_ref: Option<&'e str>,
     pub changed_files: Option<&'e [String]>,
+    pub workflow: Option<&'e str>,
+    pub conclusion: Option<&'e str>,
 }
 
 pub fn matches(triggers: &[Trigger], event: &Event<'_>) -> bool {
@@ -54,6 +56,19 @@ fn fires(trigger: &Trigger, event: &Event<'_>) -> bool {
         Trigger::Schedule(_) => event.name == "schedule",
         Trigger::WorkflowDispatch(_) => event.name == "workflow_dispatch",
         Trigger::WorkflowCall(_) => false,
+        Trigger::WorkflowRun(run) => {
+            event.name == "workflow_run"
+                && listed(&run.workflows, event.workflow)
+                && activity(run.types.as_deref(), None, event.action)
+                && base(run.branches.as_ref(), event.r#ref)
+        }
+        Trigger::Upstream(upstream) => {
+            event.name == "upstream"
+                && event.action == Some("completed")
+                && listed(&upstream.workflows, event.workflow)
+                && listed(&upstream.conclusions, event.conclusion)
+                && base(upstream.branches.as_ref(), event.r#ref)
+        }
         Trigger::RepositoryDispatch(dispatch) => {
             event.name == "repository_dispatch"
                 && activity(dispatch.types.as_deref(), None, event.action)
@@ -80,6 +95,10 @@ fn activity(types: Option<&[String]>, defaults: Option<&[&str]>, action: Option<
         (None, None, _) => true,
         (_, _, None) => false,
     }
+}
+
+fn listed(names: &[String], name: Option<&str>) -> bool {
+    name.is_some_and(|name| names.iter().any(|listed| listed == name))
 }
 
 fn base(filter: Option<&Filter>, base_ref: Option<&str>) -> bool {

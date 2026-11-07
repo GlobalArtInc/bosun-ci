@@ -170,7 +170,7 @@ impl Scene {
         db.query_all(Statement::from_string(
             db.get_database_backend(),
             "SELECT attempts::bigint AS attempts, last_error, dead_at IS NOT NULL AS dead \
-             FROM bosun.outbox ORDER BY id",
+             FROM bosun.outbox WHERE kind <> 'run_trigger' ORDER BY id",
         ))
         .await
         .expect("the outbox")

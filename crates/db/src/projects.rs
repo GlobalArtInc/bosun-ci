@@ -12,7 +12,7 @@ use sea_orm::{
 
 use crate::entity::{forge_repository, organisation, project};
 use crate::row::statement;
-use crate::{Error, row, schedules};
+use crate::{Error, row, schedules, triggers};
 
 const TABLE: &str = "project";
 
@@ -116,6 +116,7 @@ pub async fn bind<C: ConnectionTrait>(
         .rows_affected();
     if changed > 0 {
         schedules::forget_repository(db, id).await?;
+        triggers::forget_repository(db, id).await?;
     }
     find(db, id).await
 }

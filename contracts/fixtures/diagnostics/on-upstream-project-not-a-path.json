@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`project` of `upstream` is `keel`, which is not a path of the form `organisation/project`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 3,
+    "column": 14,
+    "end_line": 3,
+    "end_column": 18
+  },
+  "path": [
+    "on",
+    "upstream",
+    "project"
+  ]
+}

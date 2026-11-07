@@ -583,6 +583,20 @@ pub struct Run {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UpstreamEvent {
+    #[serde(flatten)]
+    pub run: Run,
+    pub project: ProjectRef,
+    pub workflow: WorkflowRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowRef {
+    pub id: WorkflowId,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Notice {
     pub job_id: Option<JobId>,
     #[serde(flatten)]
@@ -720,6 +734,13 @@ pub struct ProjectRef {
     pub id: ProjectId,
     pub organisation_id: OrganisationId,
     pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Follower {
+    pub id: ProjectId,
+    pub organisation_id: Option<OrganisationId>,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

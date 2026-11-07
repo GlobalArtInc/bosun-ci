@@ -338,6 +338,29 @@ impl FakeForge {
         P: AsRef<str>,
         C: AsRef<[u8]>,
     {
+        self.change(repository, branch, files, &[])
+    }
+
+    pub fn remove(&self, repository: &str, branch: &str, paths: &[&str]) -> String {
+        self.change(
+            repository,
+            branch,
+            std::iter::empty::<(&str, &str)>(),
+            paths,
+        )
+    }
+
+    fn change<P, C>(
+        &self,
+        repository: &str,
+        branch: &str,
+        files: impl IntoIterator<Item = (P, C)>,
+        removed: &[&str],
+    ) -> String
+    where
+        P: AsRef<str>,
+        C: AsRef<[u8]>,
+    {
         let mut state = self.shared.lock();
         let repository = state.repository(repository);
         let reference = format!("refs/heads/{branch}");
@@ -360,6 +383,9 @@ impl FakeForge {
             let sha = git::blob_sha(content);
             repository.blobs.insert(sha.clone(), content.to_vec());
             tree.insert(path.as_ref().to_owned(), sha);
+        }
+        for path in removed {
+            tree.remove(*path);
         }
         let sha = git::commit_sha(parent.as_deref(), &tree, repository.commits.len());
         repository.commits.insert(sha.clone(), tree);

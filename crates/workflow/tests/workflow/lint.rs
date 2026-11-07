@@ -60,7 +60,7 @@ fn every_use_of_the_bosun_context_warns_in_any_case() {
 #[test]
 fn extension_keys_warn_under_github_workflows_beside_their_refusal() {
     let source = format!(
-        "priority: high\non:\n  push:\n  upstream:\n    project: a/b\n{}",
+        "priority: high\non:\n  push:\n  upstream:\n    project: a/b\n    workflows: [ci]\n{}",
         job("      - run: make\n")
     );
     let github = bosun_workflow::lint(GITHUB, &source);
@@ -68,10 +68,10 @@ fn extension_keys_warn_under_github_workflows_beside_their_refusal() {
     assert_eq!(extensions.len(), 2, "{github:#?}");
     assert_eq!(extensions[0].path, path(&["priority"]));
     assert_eq!(extensions[1].path, path(&["on", "upstream"]));
-    assert_eq!(coded(&github, "not_implemented").len(), 2, "{github:#?}");
+    assert_eq!(coded(&github, "not_implemented").len(), 1, "{github:#?}");
     let bosun = bosun_workflow::lint(FILE, &source);
     assert!(coded(&bosun, "extension").is_empty(), "{bosun:#?}");
-    assert_eq!(coded(&bosun, "not_implemented").len(), 2, "{bosun:#?}");
+    assert_eq!(coded(&bosun, "not_implemented").len(), 1, "{bosun:#?}");
     let listed = format!("on: [push, plugin]\n{}", job("      - run: make\n"));
     let warned = bosun_workflow::lint(GITHUB, &listed);
     assert_eq!(coded(&warned, "extension")[0].path, path(&["on", "1"]));

@@ -1,0 +1,11 @@
+on:
+  workflow_run:
+    workflows: [ci]
+    branches: [main]
+    branches-ignore: [dev]
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

@@ -891,7 +891,7 @@ fn kind(actor: &Actor) -> &'static str {
     }
 }
 
-fn login(actor: &Actor) -> Option<&str> {
+pub(crate) fn login(actor: &Actor) -> Option<&str> {
     match actor {
         Actor::User { login, .. } | Actor::Token { login, .. } | Actor::Forge { login, .. } => {
             Some(login)

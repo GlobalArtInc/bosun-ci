@@ -406,6 +406,8 @@ pub enum Trigger {
     Schedule(Vec<Schedule>),
     WorkflowDispatch(WorkflowDispatch),
     WorkflowCall(WorkflowCall),
+    WorkflowRun(WorkflowRun),
+    Upstream(Upstream),
     RepositoryDispatch(Activity),
     Generic(GenericEvent),
 }
@@ -438,6 +440,23 @@ pub struct PullRequest {
 pub struct MergeGroup {
     pub types: Option<Vec<String>>,
     pub branches: Option<Filter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowRun {
+    pub workflows: Vec<String>,
+    pub types: Option<Vec<String>>,
+    pub branches: Option<Filter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Upstream {
+    pub project: Option<String>,
+    pub workflows: Vec<String>,
+    pub branches: Option<Filter>,
+    pub conclusions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

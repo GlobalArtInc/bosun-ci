@@ -62,10 +62,12 @@ pub enum Event {
     RunNotice(Diagnostic),
     #[serde(rename = "concurrency.cancelled")]
     ConcurrencyCancelled(ConcurrencyCancelled),
+    #[serde(rename = "trigger.skipped")]
+    TriggerSkipped(TriggerSkipped),
 }
 
 impl Event {
-    pub const KINDS: [&'static str; 13] = [
+    pub const KINDS: [&'static str; 14] = [
         "run.created",
         "attempt.created",
         "job.created",
@@ -79,6 +81,7 @@ impl Event {
         "command.refused",
         "run.notice",
         "concurrency.cancelled",
+        "trigger.skipped",
     ];
 
     pub fn kind(&self) -> &'static str {
@@ -96,6 +99,7 @@ impl Event {
             Event::CommandRefused(_) => "command.refused",
             Event::RunNotice(_) => "run.notice",
             Event::ConcurrencyCancelled(_) => "concurrency.cancelled",
+            Event::TriggerSkipped(_) => "trigger.skipped",
         }
     }
 }
@@ -208,6 +212,27 @@ pub struct CommandAccepted {
 pub struct ConcurrencyCancelled {
     pub group: String,
     pub arrival: Arrival,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TriggerSkipped {
+    pub project_id: ProjectId,
+    pub reason: SkipReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerKind {
+    WorkflowRun,
+    Upstream,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipReason {
+    NoUser,
+    NoPermission,
+    ChainTooLong,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

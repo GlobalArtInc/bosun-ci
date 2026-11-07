@@ -1,0 +1,10 @@
+on:
+  upstream:
+    project: keel
+    workflows: [release]
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

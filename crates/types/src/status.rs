@@ -161,6 +161,17 @@ impl RunConclusion {
         RunConclusion::TimedOut,
         RunConclusion::StartupFailure,
     ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            RunConclusion::Success => "success",
+            RunConclusion::Failure => "failure",
+            RunConclusion::Cancelled => "cancelled",
+            RunConclusion::Skipped => "skipped",
+            RunConclusion::TimedOut => "timed_out",
+            RunConclusion::StartupFailure => "startup_failure",
+        }
+    }
 }
 
 impl From<Conclusion> for RunConclusion {

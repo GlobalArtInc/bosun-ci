@@ -199,6 +199,7 @@ async fn two_replicas_deliver_each_report_once_and_name_check_runs_as_the_target
             lines
                 .iter()
                 .filter(|line| message(line) == "delivered an outbox row")
+                .filter(|line| line["kind"] != "run_trigger")
                 .count(),
         );
     }

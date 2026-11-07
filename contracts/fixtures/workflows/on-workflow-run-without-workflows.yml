@@ -1,0 +1,9 @@
+on:
+  workflow_run:
+    types: [completed]
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make
