@@ -20,26 +20,6 @@
   },
   "notices": [
     {
-      "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
-      "severity": "warning",
-      "code": "node_substituted",
-      "message": "the action `acme/legacy@v1` declares `node16`, which this server runs on Node 24.22.1",
-      "file": "ci",
-      "span": {
-        "line": 6,
-        "column": 9,
-        "end_line": 6,
-        "end_column": 29
-      },
-      "path": [
-        "jobs",
-        "legacy",
-        "steps",
-        0,
-        "uses"
-      ]
-    },
-    {
       "job_id": "0192f3a4-5b6c-7d8e-9f01-00000000000a",
       "severity": "error",
       "code": "action_unresolved",
@@ -54,6 +34,26 @@
       "path": [
         "jobs",
         "private",
+        "steps",
+        0,
+        "uses"
+      ]
+    },
+    {
+      "job_id": "0192f3a4-5b6c-7d8e-9f01-000000000009",
+      "severity": "warning",
+      "code": "node_substituted",
+      "message": "the action `acme/legacy@v1` declares `node16`, which this server runs on Node 24.22.1",
+      "file": "ci",
+      "span": {
+        "line": 6,
+        "column": 9,
+        "end_line": 6,
+        "end_column": 29
+      },
+      "path": [
+        "jobs",
+        "legacy",
         "steps",
         0,
         "uses"

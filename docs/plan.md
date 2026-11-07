@@ -2916,17 +2916,23 @@ but neither `./path` nor `docker://`. The check is one pure function that steps 
 Resolution of remote `uses` moves from the assignment to the moment the job becomes ready, outside
 the planner's transaction. This step settles how and records it in `design/04-runs.md` and
 `design/05-execution.md`. The planner's transaction puts a ready job with unresolved remote
-references into `waiting` with the new reason `resolving`. A resolver in every replica claims such
-jobs with `SKIP LOCKED`, resolves their references through the forge with no transaction open, and
-stores the commits with the job. One transaction then checks the policy and either lets the job
-continue to its admission rules and `queued`, or completes it as `failure` with the new reason
-`action_forbidden`, naming the action. A reference the forge reports as missing completes the job at
+references into `waiting` with the new reason `resolving`, after the job has entered its own
+concurrency group, so that the forge is asked only about a job its group has accepted as running
+and the order of arrival in the group does not depend on the forge's answers. A resolver in every
+replica claims such jobs with `SKIP LOCKED`, resolves their references through the forge with no
+transaction open, and stores the commits with the job. One transaction then checks the policy and
+either queues the job, or completes it as `failure` with the new reason `action_forbidden`, naming
+the action. A reference the forge reports as missing completes the job at
 once as `failure` with the new reason `action_unresolved`. A forge that does not answer is retried
-with backoff from 1 second to 1 minute; after 10 minutes the job completes the same way, naming the
-forge's error. The assignment reuses the stored commits.
+with backoff from 1 second to 1 minute; after 10 minutes, counted over the whole time in
+`resolving`, the job completes the same way, naming the forge's error or the reference a slow pass
+had reached, and a job whose row does not read completes so too, with a notice that names nothing
+from the row. A forbidden action fails the job and its run whatever its `continue-on-error`. The
+assignment reuses the stored commits.
 
 **Touches.** `crates/server/`, `crates/db/`, `crates/types/` (the setting, the waiting reason, the
-reasons), `contracts/fixtures/api/`, `contracts/fixtures/action-policy/`, `docs/design/04-runs.md`,
+reasons), `crates/workflow/` (a test that lowers every reference of the policy table),
+`contracts/fixtures/api/`, `contracts/fixtures/action-policy/`, `docs/design/04-runs.md`,
 `docs/design/05-execution.md`.
 
 **Depends on.** nothing in M2.
@@ -2947,6 +2953,9 @@ reasons), `contracts/fixtures/api/`, `contracts/fixtures/action-policy/`, `docs/
   `action_unresolved`. While the fake forge hangs, the jobs of another run are planned and queued
   without waiting for it.
 - A reference to a tag the fake forge does not have fails the job at once with `action_unresolved`.
+- A job enters its own concurrency group before its actions resolve: with `cancel-in-progress` a
+  newer arrival cancels a member that is still `resolving` at once, and the late answer for it is
+  dropped; under `queue: max` the next member is not asked until the one before it completes.
 - A maintainer gets `403` when changing the policy.
 - The waiting reasons and the reasons of `bosun-types` still equal the tables of
   `design/04-runs.md`.

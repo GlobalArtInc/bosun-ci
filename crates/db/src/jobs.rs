@@ -21,7 +21,7 @@ use crate::entity::job as entity;
 use crate::pools::Placement;
 use crate::row::statement;
 use crate::runs::{Evaluated, JobState, Locked, NewMember, StepEnd, Strategy, refuse};
-use crate::{Error, queue, results, row};
+use crate::{Error, queue, resolutions, results, row};
 
 const JOBS: &str = "job";
 
@@ -37,6 +37,7 @@ impl Locked<'_> {
         continue_on_error: bool,
         evaluated: &Evaluated,
         strategy: Option<&Strategy>,
+        remote_uses: bool,
     ) -> Result<(), Error> {
         let (from, _) = self.job(job).await?;
         if from != JobStatus::Pending {
@@ -45,14 +46,25 @@ impl Locked<'_> {
         self.transaction()
             .execute(statement(
                 "UPDATE job SET name = $2, continue_on_error = $3, evaluated = $4, \
-                 strategy = coalesce($5, strategy) WHERE id = $1",
+                 strategy = coalesce($5, strategy), remote_uses = $6 WHERE id = $1",
                 [
                     Uuid::from(job).into(),
                     name.into(),
                     continue_on_error.into(),
                     serde_json::to_value(evaluated)?.into(),
                     strategy.map(serde_json::to_value).transpose()?.into(),
+                    remote_uses.into(),
                 ],
+            ))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn clear_continue_on_error(&self, job: JobId) -> Result<(), Error> {
+        self.transaction()
+            .execute(statement(
+                "UPDATE job SET continue_on_error = false WHERE id = $1",
+                [Uuid::from(job).into()],
             ))
             .await?;
         Ok(())
@@ -173,8 +185,14 @@ impl Locked<'_> {
         }
         self.transaction()
             .execute(statement(
-                "UPDATE job SET waiting_reason = $2 WHERE id = $1",
-                [Uuid::from(job).into(), row::text(JOBS, reason)?.into()],
+                "UPDATE job SET waiting_reason = $2, \
+                 resolving_since = CASE WHEN $2 = $3 THEN now() ELSE resolving_since END \
+                 WHERE id = $1",
+                [
+                    Uuid::from(job).into(),
+                    row::text(JOBS, reason)?.into(),
+                    row::text(JOBS, WaitingReason::Resolving)?.into(),
+                ],
             ))
             .await?;
         self.append(
@@ -192,6 +210,9 @@ impl Locked<'_> {
             }),
         )
         .await?;
+        if reason == WaitingReason::Resolving {
+            resolutions::announce(self.transaction()).await?;
+        }
         Ok(())
     }
 
@@ -248,7 +269,9 @@ impl Locked<'_> {
         self.transaction()
             .execute(statement(
                 "UPDATE job SET status = $2, waiting_reason = $3, labels = $4, pool_ids = $5, \
-                 capabilities = $6, queued_at = CASE WHEN $3 IS NULL THEN now() END WHERE id = $1",
+                 capabilities = $6, queued_at = CASE WHEN $3 IS NULL THEN now() END, \
+                 resolving_since = CASE WHEN $3 = $7 THEN now() ELSE resolving_since END \
+                 WHERE id = $1",
                 [
                     Uuid::from(job).into(),
                     row::text(JOBS, to)?.into(),
@@ -259,6 +282,7 @@ impl Locked<'_> {
                     lowered.into(),
                     pools.into(),
                     capabilities.into(),
+                    row::text(JOBS, WaitingReason::Resolving)?.into(),
                 ],
             ))
             .await?;
@@ -277,6 +301,9 @@ impl Locked<'_> {
             }),
         )
         .await?;
+        if waiting == Some(WaitingReason::Resolving) {
+            resolutions::announce(self.transaction()).await?;
+        }
         Ok(())
     }
 

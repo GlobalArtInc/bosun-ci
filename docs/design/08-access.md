@@ -307,7 +307,10 @@ API answers is in [11-api.md](11-api.md#permissions).
   pools, agents and registration tokens, which belong to the installation (`agent.manage`). So do
   the label aliases, an organisation's too (step 18 of [../plan.md](../plan.md)): an alias chooses
   the pool that receives a project's jobs, and with them its secrets, and pools are the secret
-  boundary the owners draw ([What a stolen credential gets](#what-a-stolen-credential-gets)).
+  boundary the owners draw ([What a stolen credential gets](#what-a-stolen-credential-gets)). So is
+  an organisation's action policy (step 4 of M2): it decides which code the jobs of the organisation
+  may run, and it is changed through `PATCH /organisations/{organisation}` with
+  `organisation.manage` on the installation.
 
 ### Users, teams, roles and tokens
 

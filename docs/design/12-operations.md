@@ -259,6 +259,10 @@ agent_grace = "10m"
 signing_key_rotation = "720h"
 max_log_retention = 400
 max_run_retention = 730
+resolve_backoff_min = "1s"
+resolve_backoff_max = "1m"
+resolve_give_up = "10m"
+resolve_request_timeout = "30s"
 ```
 
 The file is `--config <file>`, or `/etc/bosun/server.toml` when that exists, or `etc/bosun.toml` in
@@ -297,6 +301,18 @@ name no key, such as `BOSUN_TEST_DATABASE_URL`, are left alone.
   a sign-in, each an address such as `10.0.0.7` or a network such as `10.0.0.0/8`; it is empty by
   default, so the header counts for nothing. Its variable is a list separated by commas, such as
   `BOSUN_SERVER_TRUSTED_PROXIES=10.0.0.0/8,fd00::/8`.
+- `limits.resolve_backoff_min`, 1 second, and `limits.resolve_backoff_max`, 1 minute, bound the pause
+  before the resolver asks the forge again about a job whose actions it could not resolve; the pause
+  doubles from the first to the second. `limits.resolve_give_up`, 10 minutes, is, give or take one request
+  timeout and one backoff, the limit of the whole time a job may spend with the reason `resolving`, whether a request fails, a pass over its
+  references is slow or its row does not read: after it the job fails as `action_unresolved`, with
+  the forge's error where there is one, and
+  `limits.resolve_request_timeout`, 30 seconds, bounds each request of the resolver to the forge; a
+  claim of the resolver is leased for twice that and renewed before each further request for the
+  same job. Their variables are `BOSUN_LIMITS_RESOLVE_BACKOFF_MIN`,
+  `BOSUN_LIMITS_RESOLVE_BACKOFF_MAX`, `BOSUN_LIMITS_RESOLVE_GIVE_UP` and
+  `BOSUN_LIMITS_RESOLVE_REQUEST_TIMEOUT`. A replica resolves at most 16 jobs at once and looks for
+  claimable jobs every second, and at once when a job enters `resolving`.
 - `limits.failed_sign_ins`, 10 by default and at least 1, is the number of failed sign-ins of an
   account or an address after which it is locked ([08-access.md](08-access.md#local-sign-in)).
 - `store.kind` is `directory`, the default, or `s3`. `store.path` is the root of the directory
@@ -547,6 +563,14 @@ Migrations are additive inside a major version, so replicas of version N and N+1
 side during a rolling update, and a rollback of the binary is safe. A server accepts agents of its
 own minor version and the previous one; the agents page marks older ones, and the release notes say
 when the next release will refuse them.
+
+One release is an exception to the rolling update: the one that moves the resolution of remote
+actions to the moment a job becomes ready. A job that an older replica queued without pinned
+commits fails once, when a newer replica assigns it, with the reason `action_unavailable`, and a job
+in `resolving` waits for a replica of the newer version. An older binary cannot decode the waiting
+reason `resolving` (it reads the names of the reasons strictly), so its planning of a run that has
+such a job fails until the newer binary returns or the job is cancelled; a rollback of the binary
+leaves those runs unplanned.
 
 ## Taking over the team's CI
 

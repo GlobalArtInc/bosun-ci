@@ -131,39 +131,49 @@ async fn update(
     caller.installation()?;
     let absent = || ApiError::new(ErrorCode::NotFound, missing(&reference));
     let organisation = find(&state.db, &reference).await?.ok_or_else(absent)?;
-    let Body(UpdateOrganisationRequest { installation }) = body?;
-    let Some(installation) = installation else {
+    let Body(UpdateOrganisationRequest {
+        installation,
+        action_policy,
+    }) = body?;
+    if installation.is_none() && action_policy.is_none() {
         return Ok(Json(organisation));
-    };
+    }
     let transaction = state.db.begin().await.map_err(database)?;
-    let bound = bosun_db::installations::bind(&transaction, organisation.id, installation)
-        .await
-        .map_err(database)?;
-    match bound {
-        Bound::Bound => {}
-        Bound::Unknown(installation) => {
-            let mut faults = Faults::default();
-            faults.add(
-                "installation",
-                format!(
-                    "there is no installation `{installation}` of the GitHub App; Bosun learns of \
-                     an installation from its webhooks"
-                ),
-            );
-            return Err(faults.refuse("the organisation is not valid"));
+    if let Some(installation) = installation {
+        let bound = bosun_db::installations::bind(&transaction, organisation.id, installation)
+            .await
+            .map_err(database)?;
+        match bound {
+            Bound::Bound => {}
+            Bound::Unknown(installation) => {
+                let mut faults = Faults::default();
+                faults.add(
+                    "installation",
+                    format!(
+                        "there is no installation `{installation}` of the GitHub App; Bosun \
+                         learns of an installation from its webhooks"
+                    ),
+                );
+                return Err(faults.refuse("the organisation is not valid"));
+            }
+            Bound::Taken {
+                installation,
+                organisation: other,
+            } => {
+                return Err(ApiError::new(
+                    ErrorCode::Conflict,
+                    format!(
+                        "the installation `{installation}` of the GitHub App belongs to the \
+                         organisation `{other}`"
+                    ),
+                ));
+            }
         }
-        Bound::Taken {
-            installation,
-            organisation: other,
-        } => {
-            return Err(ApiError::new(
-                ErrorCode::Conflict,
-                format!(
-                    "the installation `{installation}` of the GitHub App belongs to the \
-                     organisation `{other}`"
-                ),
-            ));
-        }
+    }
+    if let Some(policy) = &action_policy {
+        bosun_db::organisations::set_action_policy(&transaction, organisation.id, policy)
+            .await
+            .map_err(database)?;
     }
     let organisation = bosun_db::organisations::find(&transaction, organisation.id)
         .await

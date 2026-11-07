@@ -103,6 +103,12 @@ Shapes that code on both sides of a boundary, and programs outside this reposito
   with a `description`, the `name` given, and the name it is `stored` as, or `null` when the name
   breaks the target's rules. The server's tests send every case to `POST /api/v1/secrets` and
   `POST /api/v1/variables`.
+- `fixtures/action-policy/`: `cases.json`, from step 4 of M2, the action policy against references.
+  The test of `bosun-types` checks the function against every case, the lists of valid and invalid
+  patterns and the `limits` of a policy, its most patterns and the longest pattern in bytes. The
+  test of `bosun-workflow` lowers the `uses` of every case with the real parser and applies the
+  function to what it gives, so the grammar of references and the table cannot drift apart.
+  `fixtures/api/update-organisation-policy-request.json` is the body that sets a policy.
 - `fixtures/inputs/`: `cases.json`, from step 30 of M1, the inputs of a dispatch. Each case has a
   `description`, the `declared` inputs of `on.workflow_dispatch.inputs` written as JSON, or `null`
   for a workflow that declares none, and the `inputs` it is `given`; it expects either the `inputs`

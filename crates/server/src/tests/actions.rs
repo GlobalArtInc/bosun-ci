@@ -19,15 +19,16 @@ use bosun_proto::agent::v1::server_message::Message;
 use bosun_proto::assignment::Documents;
 use bosun_testkit::TestBucket;
 use bosun_testkit::forge::{APP_ID, APP_KEY, FakeForge, fixture_actions};
+use bosun_types::action_policy::ActionPolicy;
 use bosun_types::api::{Capability, Notice};
 use bosun_types::diagnostic::{PathSegment, Severity};
 use bosun_types::event::Event;
-use bosun_types::id::{ExecutionId, RunId};
+use bosun_types::id::{ExecutionId, JobId, RunId};
 use bosun_types::ir::{ActionReference, Runs};
-use bosun_types::status::{Conclusion, JobStatus, StatusReason};
+use bosun_types::status::{Conclusion, JobStatus, StatusReason, WaitingReason};
 use chrono::{TimeDelta, Utc};
-use sea_orm::TransactionTrait;
 use sea_orm::prelude::Uuid;
+use sea_orm::{ConnectionTrait, DbBackend, Statement, TransactionTrait};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -39,7 +40,9 @@ use super::{NODE, World, finished, site, tools_settings};
 use crate::actions::Actions;
 use crate::agents::progress::{self, Progress, Reporter};
 use crate::clock::Clock;
+use crate::config::Resolution;
 use crate::forge::Forge;
+use crate::resolver::Resolver;
 use crate::store::Backend;
 use crate::token::{AGENT, Token};
 use crate::tools::Tools;
@@ -61,14 +64,26 @@ const NODE24: &str = "name: Current\nruns:\n  using: node24\n  main: index.js\n"
 const COMPOSITE: &str =
     "name: Composite\nruns:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n";
 
+mod groups;
+mod passes;
+mod resolution;
+
 struct Harness {
     world: World,
     forge: FakeForge,
     state: AppState,
     actions: Actions,
+    resolver: Arc<Resolver>,
     replica: Uuid,
     directory: TempDir,
 }
+
+type Transition = (
+    JobStatus,
+    JobStatus,
+    Option<WaitingReason>,
+    Option<StatusReason>,
+);
 
 struct Agent {
     reporter: Reporter,
@@ -77,7 +92,11 @@ struct Agent {
 
 impl Harness {
     async fn new() -> Harness {
-        let harness = Harness::without_installation().await;
+        Harness::configured(quick()).await
+    }
+
+    async fn configured(settings: Resolution) -> Harness {
+        let harness = Harness::without_installation_configured(settings).await;
         let installation = harness.forge.install("globalart", READ);
         let project = bosun_db::projects::find(harness.db(), harness.world.workflow.project_id)
             .await
@@ -102,6 +121,10 @@ impl Harness {
     }
 
     async fn without_installation() -> Harness {
+        Harness::without_installation_configured(quick()).await
+    }
+
+    async fn without_installation_configured(settings: Resolution) -> Harness {
         let world = World::new().await;
         let forge = FakeForge::start().await;
         let directory = tempfile::tempdir().expect("a directory");
@@ -113,11 +136,13 @@ impl Harness {
         )
         .await;
         let actions = replica(&world, &forge, &state);
+        let resolver = resolving(&world, &forge, settings);
         Harness {
             world,
             forge,
             state,
             actions,
+            resolver,
             replica: Uuid::now_v7(),
             directory,
         }
@@ -165,13 +190,20 @@ impl Harness {
     }
 
     async fn dispatch(&self, steps: &str) -> RunId {
+        let run = self.dispatch_unresolved(steps).await;
+        self.resolver.once().await;
+        run
+    }
+
+    async fn dispatch_unresolved(&self, steps: &str) -> RunId {
         let source = format!(
             "on: workflow_dispatch\njobs:\n  build:\n    runs-on: self-hosted\n    steps:\n{steps}"
         );
-        let workflow = bosun_workflow::parse("ci", &source)
-            .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
-            .workflow;
-        self.world.dispatch(&workflow).await
+        self.dispatch_source(&source).await
+    }
+
+    async fn dispatch_source(&self, source: &str) -> RunId {
+        self.world.dispatch(&workflow(source)).await
     }
 
     async fn agent(&self, name: &str) -> Agent {
@@ -281,6 +313,90 @@ impl Harness {
     async fn notices(&self, run: RunId) -> Vec<Notice> {
         self.world.run(run).await.notices
     }
+
+    async fn transitions(&self, run: RunId, key: &str) -> Vec<Transition> {
+        let (job, _) = self.world.project(run).await.job(key);
+        self.moves(run, job).await
+    }
+
+    async fn moves(&self, run: RunId, job: JobId) -> Vec<Transition> {
+        self.world
+            .journal(run)
+            .await
+            .into_iter()
+            .filter(|event| event.job_id == Some(job))
+            .filter_map(|event| match event.event {
+                Event::JobStatusChanged(changed) => Some((
+                    changed.from,
+                    changed.to,
+                    changed.waiting_reason,
+                    changed.reason,
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    async fn status(&self, run: RunId, key: &str) -> JobStatus {
+        self.world.project(run).await.job(key).1.status
+    }
+
+    async fn waiting(&self, run: RunId, key: &str) -> (JobStatus, Option<WaitingReason>) {
+        let projection = self.world.project(run).await;
+        let job = projection.job(key).1;
+        (job.status, job.waiting_reason)
+    }
+
+    async fn attempts(&self, run: RunId, key: &str) -> i32 {
+        let (job, _) = self.world.project(run).await.job(key);
+        self.db()
+            .query_one(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "SELECT resolve_attempts FROM bosun.job WHERE id = $1",
+                [Uuid::from(job).into()],
+            ))
+            .await
+            .expect("a count of attempts")
+            .expect("the job")
+            .try_get("", "resolve_attempts")
+            .expect("a count of attempts")
+    }
+
+    async fn set_policy(&self, policy: &ActionPolicy) {
+        let project = bosun_db::projects::find(self.db(), self.world.workflow.project_id)
+            .await
+            .expect("a project")
+            .expect("the project of the world");
+        bosun_db::organisations::set_action_policy(self.db(), project.organisation_id, policy)
+            .await
+            .expect("a policy");
+    }
+}
+
+fn quick() -> Resolution {
+    Resolution {
+        backoff_min: Duration::from_millis(20),
+        backoff_max: Duration::from_millis(100),
+        give_up: Duration::from_secs(60),
+        request_timeout: Duration::from_secs(5),
+    }
+}
+
+fn workflow(source: &str) -> bosun_types::ir::Workflow {
+    bosun_workflow::parse("ci", source)
+        .unwrap_or_else(|diagnostics| panic!("{source}\n{diagnostics:#?}"))
+        .workflow
+}
+
+fn resolving(world: &World, forge: &FakeForge, settings: Resolution) -> Arc<Resolver> {
+    let app =
+        GitHubApp::new(APP_ID, APP_KEY.as_bytes(), &forge.api_url()).expect("the App's client");
+    Resolver::new(
+        world.db().clone(),
+        Some(Arc::new(Forge::of(app))),
+        site(),
+        settings,
+    )
 }
 
 fn replica(world: &World, forge: &FakeForge, state: &AppState) -> Actions {
@@ -584,10 +700,9 @@ async fn an_agent_downloads_only_the_actions_of_an_execution_it_holds() {
 }
 
 #[tokio::test]
-async fn an_unseen_action_a_composite_action_and_oversized_metadata_fail_the_job_before_an_agent() {
+async fn a_composite_action_and_oversized_metadata_fail_the_job_at_its_assignment_before_an_agent()
+{
     let harness = Harness::new().await;
-    let private = harness.action("other/private", false, &[("action.yml", NODE24)]);
-    harness.tag("other/private", "v1", &private);
     let composite = harness.action("acme/composite", true, &[("action.yml", COMPOSITE)]);
     harness.tag("acme/composite", "v1", &composite);
     let oversized = format!("{NODE24}{}", " ".repeat(1 << 20));
@@ -595,13 +710,6 @@ async fn an_unseen_action_a_composite_action_and_oversized_metadata_fail_the_job
     harness.tag("acme/huge", "v1", &huge);
     let runner = harness.agent("runner1-1").await;
     for (steps, code, expected) in [
-        (
-            "      - run: make\n      - uses: other/private@v1\n",
-            "action_unresolved",
-            "the action `other/private@v1` cannot be resolved: the installation of the GitHub \
-             App of organisation `globalart` sees no repository `other/private` with a ref `v1`"
-                .to_owned(),
-        ),
         (
             "      - run: make\n      - uses: acme/composite@v1\n",
             "not_implemented",
@@ -648,7 +756,6 @@ async fn an_unseen_action_a_composite_action_and_oversized_metadata_fail_the_job
         assert_eq!(notice.path, at(1));
         assert_eq!(notices[0].job_id, Some(projection.job("build").0));
     }
-    assert!(harness.downloads("other/private").is_empty());
 }
 
 #[tokio::test]
@@ -814,9 +921,15 @@ async fn a_public_action_resolves_without_an_installation_and_a_private_one_name
     );
 
     let run = harness.dispatch("      - uses: other/private@v1\n").await;
-    let runner = harness.agent("runner1-2").await;
-    let claimed = harness.claim(&runner).await;
-    assert!(harness.assign(claimed).await.is_none());
+    assert_eq!(
+        harness.transitions(run, "build").await.last(),
+        Some(&(
+            JobStatus::Waiting,
+            JobStatus::Completed,
+            None,
+            Some(StatusReason::ActionUnresolved)
+        ))
+    );
     let notices = harness.notices(run).await;
     assert_eq!(
         notices
@@ -842,35 +955,15 @@ async fn a_server_without_a_github_app_fails_every_job_that_uses_an_action() {
     .expect("a workflow")
     .workflow;
     let run = world.dispatch(&workflow).await;
-    let replica = Uuid::now_v7();
-    let agent = super::queue::connected(&world, "runner1-1", &LABELS, replica).await;
-    let claimed = match bosun_db::queue::claim(
-        world.db(),
-        Claim {
-            agent: agent.id,
-            replica_id: replica,
-            lease: LEASE,
-            passed_over: &[],
-        },
-    )
-    .await
-    .expect("a claim")
-    {
-        Claimed::Job(claimed) => *claimed,
-        other => panic!("no job was claimed: {other:?}"),
-    };
-    assert!(
-        queue::assignment(
-            world.db(),
-            claimed,
-            &site(),
-            world.tokens(),
-            world.actions()
-        )
-        .await
-        .expect("a failed assignment")
-        .is_none()
+    let resolver = Resolver::new(world.db().clone(), None, site(), quick());
+    assert_eq!(resolver.once().await, 1);
+    let projection = world.project(run).await;
+    let (_, job) = projection.job("build");
+    assert_eq!(
+        (job.status, job.conclusion),
+        (JobStatus::Completed, Some(Conclusion::Failure))
     );
+    assert!(projection.executions.is_empty());
     let notices = world.run(run).await.notices;
     assert_eq!(
         notices
@@ -933,18 +1026,27 @@ async fn every_notice_code_about_actions_is_in_the_table_of_the_design() {
     .enumerate()
     {
         let run = harness.dispatch(steps).await;
-        let runner = harness.agent(&format!("runner{index}-1")).await;
-        let claimed = harness.claim(&runner).await;
-        harness.assign(claimed).await;
-        let notices = harness.notices(run).await;
-        assert_eq!(notices.len(), 1, "{steps}: {notices:#?}");
-        let severity = serde_json::to_value(notices[0].diagnostic.severity).expect("a severity");
-        produced.insert((
-            notices[0].diagnostic.code.clone(),
-            severity.as_str().expect("a name").to_owned(),
-        ));
+        if harness.status(run, "build").await == JobStatus::Queued {
+            let runner = harness.agent(&format!("runner{index}-1")).await;
+            let claimed = harness.claim(&runner).await;
+            harness.assign(claimed).await;
+        }
+        produced.insert(only_notice(&harness, run, steps).await);
     }
+    harness.set_policy(&ActionPolicy::Organisation {}).await;
+    let run = harness.dispatch("      - uses: acme/legacy@v1\n").await;
+    produced.insert(only_notice(&harness, run, "a forbidden action").await);
     assert_eq!(produced, action_codes());
+}
+
+async fn only_notice(harness: &Harness, run: RunId, what: &str) -> (String, String) {
+    let notices = harness.notices(run).await;
+    assert_eq!(notices.len(), 1, "{what}: {notices:#?}");
+    let severity = serde_json::to_value(notices[0].diagnostic.severity).expect("a severity");
+    (
+        notices[0].diagnostic.code.clone(),
+        severity.as_str().expect("a name").to_owned(),
+    )
 }
 
 async fn upstream(
@@ -1251,11 +1353,10 @@ async fn the_notices_about_actions_are_those_of_the_api_fixture() {
         .expect("a workflow")
         .workflow;
     let run = harness.world.dispatch(&workflow).await;
-    for name in ["runner1-1", "runner1-2"] {
-        let runner = harness.agent(name).await;
-        let claimed = harness.claim(&runner).await;
-        harness.assign(claimed).await;
-    }
+    harness.resolver.once().await;
+    let runner = harness.agent("runner1-1").await;
+    let claimed = harness.claim(&runner).await;
+    harness.assign(claimed).await;
     let projection = harness.world.project(run).await;
     let shown = serde_json::to_value(harness.world.run(run).await).expect("a run as JSON");
     let path =
@@ -1263,7 +1364,7 @@ async fn the_notices_about_actions_are_those_of_the_api_fixture() {
     let text =
         fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let mut expected: serde_json::Value = serde_json::from_str(&text).expect("a run");
-    let jobs = ["legacy", "private"].map(|key| projection.job(key).0.to_string());
+    let jobs = ["private", "legacy"].map(|key| projection.job(key).0.to_string());
     for (notice, job) in expected["notices"]
         .as_array_mut()
         .expect("the notices of the fixture")

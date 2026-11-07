@@ -35,6 +35,7 @@ struct ActionCase {
 }
 
 const RUN_BY_OTHER_SUITES: &[&str] = &[
+    "action-policy",
     "concurrency",
     "expr",
     "github",
@@ -246,6 +247,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         (
             "api/update-organisation-request.json",
+            round_trip::<UpdateOrganisationRequest>,
+        ),
+        (
+            "api/update-organisation-policy-request.json",
             round_trip::<UpdateOrganisationRequest>,
         ),
         (

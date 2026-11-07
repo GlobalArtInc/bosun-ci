@@ -5,7 +5,7 @@ use sea_orm::sqlx::postgres::PgListener;
 use crate::control::{self, Notice};
 use crate::logs::{self, Notice as LogNotice};
 use crate::stream::{self, Notice as EventNotice};
-use crate::{Error, deliveries, outbox, queue, sqlx_error};
+use crate::{Error, deliveries, outbox, queue, resolutions, sqlx_error};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Notification {
@@ -15,6 +15,7 @@ pub enum Notification {
     Log(LogNotice),
     Delivery,
     Outbox,
+    Resolving,
     Events(EventNotice),
 }
 
@@ -31,6 +32,7 @@ impl Listener {
                 logs::CHANNEL,
                 deliveries::CHANNEL,
                 outbox::CHANNEL,
+                resolutions::CHANNEL,
                 stream::CHANNEL,
             ])
             .await
@@ -49,6 +51,7 @@ impl Listener {
                 logs::CHANNEL => logs::notice(payload).map(Notification::Log),
                 deliveries::CHANNEL => Some(Notification::Delivery),
                 outbox::CHANNEL => Some(Notification::Outbox),
+                resolutions::CHANNEL => Some(Notification::Resolving),
                 stream::CHANNEL => stream::notice(payload).map(Notification::Events),
                 _ => control::notice(payload)
                     .map(Notification::Control)

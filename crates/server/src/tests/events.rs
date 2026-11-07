@@ -69,6 +69,7 @@ async fn forward(world: &World, events: Arc<Hub>, followers: Arc<Followers>) -> 
             followers,
             deliveries: Arc::new(Notify::new()),
             outbox: Arc::new(Notify::new()),
+            resolving: Arc::new(Notify::new()),
             events,
         },
     )

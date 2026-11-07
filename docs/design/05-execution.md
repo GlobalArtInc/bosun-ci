@@ -963,15 +963,56 @@ different pools.
 
 ## Actions and tools
 
-Agents do not download actions from the internet. At assignment the server resolves every
-`owner/repo@ref` and `owner/repo/path@ref` to a commit through the forge, stores the tarball in the
-object store keyed by the commit, reads the action's metadata from it, and gives the agent an
-address on the server. A tag that moves between assignment and execution has no effect on a running
-job.
+Agents do not download actions from the internet. The server resolves every `owner/repo@ref` and
+`owner/repo/path@ref` of a job to a commit through the forge when the job is admitted
+([04-runs.md](04-runs.md#resolving-actions)); at assignment it stores the tarball of the commit in
+the object store keyed by the commit, reads the action's metadata from it, and gives the agent an
+address on the server. A tag that moves after the job was admitted has no effect on that job, and
+none between assignment and execution on a running one.
 
-The organisation's action policy decides which actions may be used: all, only those owned by the
-organisation, or those matching listed patterns. A job that uses a forbidden action fails before it
-reaches an agent, naming the action. The policy arrives in M2.
+**The action policy.** The organisation's action policy decides which actions its jobs may use. It
+is a setting of the organisation, `all` by default, that `PATCH /organisations/{org}` changes with
+`organisation.manage` on the installation, so only owners change it ([11-api.md](11-api.md)). Its document is
+`{"mode": "all"}`, `{"mode": "organisation"}` or `{"mode": "listed", "patterns": [...]}`, and a
+document with a field that its mode does not take is refused rather than ignored.
+
+- `all` permits every action.
+- `organisation` permits an action whose owner is the organisation's forge account, the account of
+  the installation of the GitHub App that is mapped to it, compared ignoring case. An organisation
+  without an installation has no such account and so is permitted nothing.
+- `listed` permits an action that matches at least one of its patterns, and an empty list permits
+  none. A pattern is `owner/*`, every repository of the owner; `owner/repo@*`, every ref of the
+  repository; `owner/repo@<ref>`, that ref; or the last two with a path, `owner/repo/path@*` and
+  `owner/repo/path@<ref>`. The owner and the repository compare ignoring case, as the forge compares
+  them, and the path and the ref exactly. `*` stands for a whole ref and for nothing else. A pattern
+  without a path covers the whole repository, its root and every path in it, since the code that
+  runs is the same tarball at the same ref; a pattern with a path covers that path alone, neither
+  the root nor a path below it. A pattern names the ref as the workflow writes it, and the policy
+  does not resolve a tag to a commit, so `owner/repo@<commit>` permits only the workflows that pin
+  that commit.
+
+A `listed` policy holds at most 1000 patterns, each at most 256 bytes, so a document is bounded
+where it is read. One over either limit is refused with `422 invalid_input` naming `action_policy`,
+as an invalid pattern is.
+
+The policy covers remote actions at every level of nesting, and remote reusable workflows. It
+covers neither `./path`, which is the code of the repository the run builds, nor `docker://image`,
+which names an image and not an action. One pure function decides, `ActionPolicy::permits` of
+`bosun-types`, and everything that checks a reference calls it: the jobs' own `uses` in this step,
+the actions that composite actions run in step 13 and the callees of reusable workflows in step 15.
+The cases of `contracts/fixtures/action-policy/` pin it.
+
+A job is checked in the decision transaction that follows the resolution of its actions, which
+reads the policy again, so a change of the policy reaches a job at its next decision transaction.
+It applies to the jobs that become ready after it and to those that are `waiting` with the reason
+`resolving` when it is made, because the policy is read after the forge answered. A job that waits
+for its concurrency group is not asked yet, so it is checked when its group admits it and it is
+next resolved. A job already past its decision, `queued` or further, is unaffected. A job that uses
+a forbidden action completes as `failure` with the reason `action_forbidden` before it reaches the
+queue, and the run's notices name the action. The refusal is the server's, so it fails the job and
+its run whatever the job's `continue-on-error`, as an error in an expression of the job does; a job
+that `needs` it follows its `if`. A job that fails with `action_unresolved` is an ordinary failed
+job, and its `continue-on-error` applies.
 
 Node runtimes reach agents the same way: the agent fetches
 `/_runtime/tools/node/<version>/<os>-<arch>[-musl].tar.xz` from the server, which caches it from
@@ -980,8 +1021,8 @@ use the job's network and proxy settings, not Bosun.
 
 Step 32 of M1 ([../plan.md](../plan.md)) settled how.
 
-**Resolution.** When a replica has claimed a job for an agent, and before it takes the run's lock,
-it prepares the job's actions: each distinct `uses` of its steps once, in their order. The owner
+**Resolution.** The resolver of [04-runs.md](04-runs.md#resolving-actions) resolves the job's
+actions as the job is admitted: each distinct `uses` of its steps once, in their order. The owner
 and the repository are compared ignoring case, as the forge compares them, and are kept in lower
 case wherever Bosun stores them; the ref is compared exactly.
 
@@ -999,16 +1040,45 @@ case wherever Bosun stores them; the ref is compared exactly.
   projects from `actions/setup-node` and its kind. The forge answers a conditional request that
   finds nothing new with `304`, which does not count against the limit, so a steady use of a few
   public actions stays well within it.
-- A server without a GitHub App resolves no action, and every job that uses one fails.
+- A server without a GitHub App resolves no action, and every job that uses one fails when it is
+  admitted.
 
 The ref resolves to a commit through the forge's `commits/<ref>`
-([06-runtime-services.md](06-runtime-services.md#the-github-app-client)). The first assignment of
-a job pins its commits: the server writes them to the job's `actions`
-([07-storage.md](07-storage.md#tables)) as a list of owner, repository, ref and commit, in the
-transaction that sends the assignment. A later assignment of the same job, after a `Reject` or an
-expired lease, takes the pinned commits and resolves nothing, so moving the tag after a job was
-first assigned never changes the commit that job receives; another job resolves the tag again and
-gets the commit it names then.
+([06-runtime-services.md](06-runtime-services.md#the-github-app-client)). The resolver pins the
+commits: it writes them to the job's `actions` ([07-storage.md](07-storage.md#tables)) as a list of
+owner, repository, ref and commit, in the transaction that lets the job go on from `resolving`.
+Every assignment of the job, the first or one after a `Reject` or an expired lease, takes the pinned
+commits and resolves nothing, so moving the tag after a job was admitted never changes the commit
+that job receives; another job resolves the tag again and gets the commit it names then. An
+assignment that finds no pin for an action of the job's steps, which only a job queued by an earlier
+version of the server can, fails the job as a ref that does not resolve.
+
+**Timings.** The resolver retries a forge that does not answer after
+`limits.resolve_backoff_min`, doubling up to `limits.resolve_backoff_max`, and gives up on a job
+that has been `resolving` for `limits.resolve_give_up`: when a request fails, when a pass over
+the references of the job is still going on before a further request, and when the row of the job
+does not read and the resolver has postponed it until then. The give-up clock
+starts when the job enters `resolving`, not when it becomes ready, so the time it waited for its
+concurrency group does not count. `limits.resolve_request_timeout` bounds each request to the
+forge, and the error of a request that exceeds it names the reference that was being asked, so a
+slow forge that answers every request in time never fails a pass, however many references the job
+has, up to the give-up limit. The lease of the claim is twice that timeout, and the resolver renews
+it before each request after the first with an update guarded by the claim token, so a pass over
+many references cannot outlive its lease; the same update reports whether the job has been
+`resolving` for the give-up limit, and a pass that learns so ends as one the forge did not answer,
+naming the reference it was about to ask. An update that finds the claim gone, because the job
+was decided or another replica took it, ends the pass and drops its work. A job whose row does not
+read fails with `action_unresolved` after the limit, with a notice that names nothing from the
+row. A pass that failed starts again from the first
+reference at its next attempt. The references it resolved are not kept, since keeping them needs a
+column for the partial result, and the client's cache of conditional requests answers them with
+`304`, which costs nothing against the forge's rate limit. The defaults are `1s`, `1m`, `10m` and
+`30s`, and a test shortens them as it shortens the assignment lease.
+
+A refusal that will not pass, such as the `401` or `403` of an installation that lost its access, is
+retried like any other error of the forge. Its text is in the server's log, at `warn` with the job
+and the reference, on every attempt; the notice of the job names it only after the give-up, when
+the job completes as `action_unresolved`.
 
 **The store.** The tarball of a commit is fetched once into `actions/<owner>/<repo>/<commit>.tar.gz`
 and recorded in `action_ref`, with its size, its SHA-256 and every `action.yml` and `action.yaml` it
@@ -1034,9 +1104,11 @@ assigned ([04-runs.md](04-runs.md#run-notices)).
 
 **Failures.** The job fails before it reaches an agent when one of its actions:
 
-- cannot be resolved, or its tarball cannot be downloaded or read: `action_unresolved`. A forge that
-  refuses, is rate limited or cannot be reached fails the job too, with the forge's error in the
-  message, rather than leaving it queued;
+- has a tarball that cannot be downloaded or read, or has no pinned commit: `action_unresolved`. A
+  forge that refuses, is rate limited or cannot be reached fails the job too, with the forge's error
+  in the message, rather than leaving it queued. An action that does not resolve to a commit never
+  gets this far: it fails the job when it is admitted, with the reason `action_unresolved` or, when
+  the policy forbids it, `action_forbidden` ([04-runs.md](04-runs.md#resolving-actions));
 - has no metadata in its directory, metadata larger than 1 MiB, which the message names with its
   size, or metadata with errors: `action_invalid`, quoting the first error with its file, line and
   column;

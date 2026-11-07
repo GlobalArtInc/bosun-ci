@@ -1241,6 +1241,91 @@ async fn calls(
     vec![call(path, body)]
 }
 
+async fn patch_organisation(site: &Site, credentials: &Credentials, body: Value) -> Answer {
+    site.send_with(
+        Method::PATCH,
+        "/api/v1/organisations/globalart",
+        credentials,
+        &[],
+        Some(body),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn only_an_owner_changes_the_action_policy_and_a_maintainer_gets_403() {
+    let site = Site::new().await;
+    let organisation = site.project().await.organisation_id;
+    let policy = json!({ "action_policy": { "mode": "organisation" } });
+    for role in ["maintainer", "admin"] {
+        let login = format!("as-{role}");
+        let (user, _) = site.user(&login).await;
+        site.bind(role, Subject::User(user), organisation, None)
+            .await;
+        let credentials = site.signed(user, &login).await;
+        forbidden(
+            &patch_organisation(&site, &credentials, policy.clone()).await,
+            role,
+        );
+    }
+
+    let owner = owner_credentials(&site).await;
+    let changed = patch_organisation(&site, &owner, policy.clone()).await;
+    assert_eq!(changed.status, StatusCode::OK, "{changed:?}");
+    assert_eq!(changed.body["action_policy"], policy["action_policy"]);
+    let shown = site.get("/api/v1/organisations/globalart", &owner).await;
+    assert_eq!(shown.body["action_policy"], policy["action_policy"]);
+
+    let invalid = patch_organisation(
+        &site,
+        &owner,
+        json!({ "action_policy": { "mode": "listed", "patterns": ["actions"] } }),
+    )
+    .await;
+    assert_eq!(
+        invalid.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{invalid:?}"
+    );
+    let kept = site.get("/api/v1/organisations/globalart", &owner).await;
+    assert_eq!(kept.body["action_policy"], policy["action_policy"]);
+}
+
+#[tokio::test]
+async fn a_policy_over_its_bounds_is_refused_naming_action_policy() {
+    let site = Site::new().await;
+    let owner = owner_credentials(&site).await;
+    let listed = |count: usize| {
+        let patterns: Vec<String> = (0..count)
+            .map(|number| format!("acme/tool{number}@*"))
+            .collect();
+        json!({ "action_policy": { "mode": "listed", "patterns": patterns } })
+    };
+
+    let accepted = patch_organisation(&site, &owner, listed(1000)).await;
+    assert_eq!(accepted.status, StatusCode::OK, "{accepted:?}");
+    let refused = patch_organisation(&site, &owner, listed(1001)).await;
+    assert_eq!(
+        refused.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{refused:?}"
+    );
+    assert_eq!(refused.body["error"]["code"], "invalid_input");
+    assert!(
+        refused.body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("`action_policy`")),
+        "{refused:?}"
+    );
+    let long = patch_organisation(
+        &site,
+        &owner,
+        json!({ "action_policy": { "mode": "listed", "patterns": [format!("acme/{}@*", "a".repeat(260))] } }),
+    )
+    .await;
+    assert_eq!(long.status, StatusCode::UNPROCESSABLE_ENTITY, "{long:?}");
+}
+
 #[tokio::test]
 async fn a_viewer_cannot_dispatch_and_an_organisation_binding_reaches_every_project() {
     let site = Site::new().await;

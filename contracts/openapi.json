@@ -62,6 +62,58 @@
       }
     },
     "schemas": {
+      "ActionPolicy": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "const": "all",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "const": "organisation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "const": "listed",
+                "type": "string"
+              },
+              "patterns": {
+                "items": {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              }
+            },
+            "required": [
+              "mode",
+              "patterns"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Actor": {
         "oneOf": [
           {
@@ -1503,6 +1555,9 @@
       },
       "Organisation": {
         "properties": {
+          "action_policy": {
+            "$ref": "#/components/schemas/ActionPolicy"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -1533,6 +1588,7 @@
           "slug",
           "name",
           "installation",
+          "action_policy",
           "created_at"
         ],
         "type": "object"
@@ -3005,6 +3061,8 @@
           "agent_lost",
           "agent_removed",
           "action_unavailable",
+          "action_forbidden",
+          "action_unresolved",
           "concurrency",
           "token_unavailable"
         ],
@@ -3329,6 +3387,9 @@
       "UpdateOrganisationRequest": {
         "additionalProperties": false,
         "properties": {
+          "action_policy": {
+            "$ref": "#/components/schemas/ActionPolicy"
+          },
           "installation": {
             "format": "uint64",
             "minimum": 0,
@@ -3457,6 +3518,7 @@
           "approval",
           "wait_timer",
           "policy",
+          "resolving",
           "concurrency",
           "max_parallel",
           "paused"

@@ -356,6 +356,12 @@ A step that adds an endpoint adds its row here.
   one it had, or to none; it needs `organisation.manage` on the installation, so only owners map
   installations. An installation Bosun does not know is `invalid_input` naming `installation`, and
   one that another organisation holds is `409 conflict`.
+- An organisation carries `action_policy`, its action policy as `{"mode": "all"}`,
+  `{"mode": "organisation"}` or `{"mode": "listed", "patterns": [...]}`
+  ([05-execution.md](05-execution.md)). `PATCH /organisations/{organisation}` takes it
+  in the same way, needs `organisation.manage` on the installation like the mapping of an
+  installation, and refuses a document with a field its mode does not take, an unknown mode or an
+  invalid pattern with `422 invalid_input` naming `action_policy`.
 - A project carries `path`, `<organisation>/<project>` with the slugs of its organisation and of
   itself, which every request that names a project by its slugs takes, so a client lists projects
   in the form it names them by. Step 38 of M1 ([../plan.md](../plan.md)) added it for

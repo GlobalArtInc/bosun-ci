@@ -1,0 +1,65 @@
+{
+  "description": "a job enters its own concurrency group before its actions resolve: the first member waits with the reason resolving, one behind it waits with the reason concurrency and goes on to resolving when the group admits it",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "jobs": {
+        "ship": {
+          "runs-on": "self-hosted",
+          "concurrency": {
+            "group": "ship",
+            "queue": "max"
+          },
+          "steps": [
+            {
+              "uses": "actions/checkout@v4"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "waiting",
+          "ship": "waiting resolving"
+        },
+        "second": {
+          "run": "waiting",
+          "ship": "waiting concurrency"
+        }
+      }
+    },
+    {
+      "cancel": {
+        "run": "first"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed cancelled",
+          "ship": "completed cancelled command"
+        },
+        "second": {
+          "run": "waiting",
+          "ship": "waiting resolving"
+        }
+      }
+    }
+  ]
+}

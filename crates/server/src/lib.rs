@@ -42,6 +42,7 @@ mod projects;
 mod queue;
 mod reply;
 mod request;
+mod resolver;
 mod retention;
 mod retry;
 mod roles;
@@ -190,6 +191,7 @@ pub async fn serve(
     let followers = Arc::new(logs::Followers::default());
     let deliveries = Arc::new(Notify::new());
     let reports = Arc::new(Notify::new());
+    let resolving = Arc::new(Notify::new());
     let events = Arc::new(events::Hub::default());
     let parses = Arc::new(forge_events::Parses::default());
     let meters = Arc::new(metrics::Meters::default());
@@ -203,8 +205,18 @@ pub async fn serve(
             followers: Arc::clone(&followers),
             deliveries: Arc::clone(&deliveries),
             outbox: Arc::clone(&reports),
+            resolving: Arc::clone(&resolving),
             events: Arc::clone(&events),
         },
+    );
+    tasks.spawn(
+        resolver::Resolver::new(
+            db.clone(),
+            forge.clone(),
+            config.site.clone(),
+            config.resolution,
+        )
+        .work(resolving),
     );
     if let Some(forge) = &forge {
         tasks.spawn(hooks::work(

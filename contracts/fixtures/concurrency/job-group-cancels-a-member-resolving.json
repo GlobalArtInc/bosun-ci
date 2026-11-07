@@ -1,0 +1,56 @@
+{
+  "description": "a job that arrives with cancel-in-progress cancels the member of its group that is still resolving its actions, at once, and goes on to resolve its own",
+  "workflows": {
+    "deploy": {
+      "on": "workflow_dispatch",
+      "jobs": {
+        "ship": {
+          "runs-on": "self-hosted",
+          "concurrency": {
+            "group": "ship",
+            "cancel-in-progress": true
+          },
+          "steps": [
+            {
+              "uses": "actions/checkout@v4"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "first"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "waiting",
+          "ship": "waiting resolving"
+        }
+      }
+    },
+    {
+      "dispatch": {
+        "workflow": "deploy",
+        "run": "second"
+      }
+    },
+    {
+      "expect": {
+        "first": {
+          "run": "completed cancelled",
+          "ship": "completed cancelled concurrency"
+        },
+        "second": {
+          "run": "waiting",
+          "ship": "waiting resolving"
+        }
+      }
+    }
+  ]
+}

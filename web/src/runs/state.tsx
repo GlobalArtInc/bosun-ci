@@ -70,6 +70,7 @@ export const WAITING: Record<WaitingReason, Key> = {
   wait_timer: 'state.waiting.wait_timer',
   policy: 'state.waiting.policy',
   concurrency: 'state.waiting.concurrency',
+  resolving: 'state.waiting.resolving',
   max_parallel: 'state.waiting.max_parallel',
   paused: 'state.waiting.paused',
 };

@@ -223,7 +223,12 @@ pub(super) async fn reconcile(
                     && state.status == JobStatus::Waiting
                     && state.waiting_reason == Some(WaitingReason::Concurrency)
                 {
-                    run.release_job(job, &Actor::System).await?;
+                    if state.unresolved {
+                        run.rehold_job(job, WaitingReason::Resolving, &Actor::System)
+                            .await?;
+                    } else {
+                        run.release_job(job, &Actor::System).await?;
+                    }
                     return Ok(Reconciled::Changed);
                 }
             }

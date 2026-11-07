@@ -1,3 +1,4 @@
+use bosun_types::action_policy::ActionPolicy;
 use bosun_types::api::{Installation, Organisation};
 use bosun_types::id::OrganisationId;
 use sea_orm::prelude::Uuid;
@@ -25,7 +26,24 @@ pub async fn create<C: ConnectionTrait>(
     .insert(db)
     .await
     .map_err(|error| row::taken(error, || Error::OrganisationTaken(slug.to_owned())))?;
-    decode(created, None)
+    decode(created, None, ActionPolicy::default())
+}
+
+pub async fn set_action_policy<C: ConnectionTrait>(
+    db: &C,
+    id: OrganisationId,
+    policy: &ActionPolicy,
+) -> Result<(), Error> {
+    let updated = db
+        .execute(statement(
+            "UPDATE organisation SET action_policy = $2 WHERE id = $1",
+            [Uuid::from(id).into(), serde_json::to_value(policy)?.into()],
+        ))
+        .await?;
+    if updated.rows_affected() == 0 {
+        return Err(Error::Vanished(format!("organisation {id}")));
+    }
+    Ok(())
 }
 
 pub async fn create_unless_taken<C: ConnectionTrait>(
@@ -75,12 +93,21 @@ async fn present<C: ConnectionTrait>(
         .filter(forge_installation::Column::OrganisationId.eq(found.id))
         .one(db)
         .await?;
-    decode(found, installation).map(Some)
+    let policy = db
+        .query_one(statement(
+            "SELECT action_policy FROM organisation WHERE id = $1",
+            [found.id.into()],
+        ))
+        .await?
+        .ok_or_else(|| Error::Vanished(format!("organisation {}", found.id)))?;
+    let policy = row::json(TABLE, policy.try_get("", "action_policy")?)?;
+    decode(found, installation, policy).map(Some)
 }
 
 fn decode(
     organisation: organisation::Model,
     installation: Option<forge_installation::Model>,
+    action_policy: ActionPolicy,
 ) -> Result<Organisation, Error> {
     Ok(Organisation {
         id: row::id(TABLE, organisation.id)?,
@@ -94,6 +121,7 @@ fn decode(
                 })
             })
             .transpose()?,
+        action_policy,
         created_at: organisation.created_at,
     })
 }

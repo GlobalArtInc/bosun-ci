@@ -10,6 +10,7 @@ mod inventory;
 mod jobs;
 mod lint;
 mod on;
+mod policy;
 mod schema;
 mod triggers;
 

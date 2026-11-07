@@ -4,9 +4,11 @@ use std::num::NonZeroU16;
 
 use chrono::{DateTime, Utc};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
+use crate::action_policy::ActionPolicy;
 use crate::actor::Actor;
 use crate::diagnostic::Diagnostic;
 use crate::id::{
@@ -272,6 +274,7 @@ pub struct Organisation {
     pub slug: String,
     pub name: String,
     pub installation: Option<Installation>,
+    pub action_policy: ActionPolicy,
     pub created_at: DateTime<Utc>,
 }
 
@@ -297,6 +300,13 @@ pub struct UpdateOrganisationRequest {
     )]
     #[schemars(with = "Option<u64>")]
     pub installation: Option<Option<u64>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "given_policy"
+    )]
+    #[schemars(with = "ActionPolicy")]
+    pub action_policy: Option<ActionPolicy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -344,6 +354,15 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Some)
+}
+
+fn given_policy<'de, D>(deserializer: D) -> Result<Option<ActionPolicy>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    ActionPolicy::deserialize(deserializer)
+        .map(Some)
+        .map_err(|error| D::Error::custom(format!("`action_policy`: {error}")))
 }
 
 fn given<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>

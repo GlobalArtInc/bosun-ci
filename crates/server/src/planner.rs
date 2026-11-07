@@ -1,5 +1,6 @@
 mod concurrency;
 mod matrix;
+mod resolution;
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -31,6 +32,9 @@ use crate::secrets;
 use crate::site::{ForgeSite, Site};
 use concurrency::{Entered, Later, Owner, Reconciled};
 use matrix::Expansion;
+pub(crate) use resolution::{
+    NOWHERE, Refusal, UNRESOLVED, abandon, proceed, refuse as refuse_resolution,
+};
 
 const INVALID_TYPE: &str = "invalid_type";
 
@@ -261,6 +265,7 @@ async fn planned(
                 job.waiting_reason = decided.waiting_reason;
                 job.conclusion = decided.conclusion;
                 job.continue_on_error = decided.continue_on_error;
+                job.unresolved = decided.unresolved;
             }
             _ => jobs = run.jobs().await?,
         }
@@ -428,7 +433,11 @@ fn occupied(members: &[&JobState]) -> usize {
                 member.status == JobStatus::Waiting
                     && matches!(
                         member.waiting_reason,
-                        Some(WaitingReason::Untrusted | WaitingReason::Concurrency)
+                        Some(
+                            WaitingReason::Untrusted
+                                | WaitingReason::Resolving
+                                | WaitingReason::Concurrency
+                        )
                     )
             })
             .count()
@@ -648,18 +657,10 @@ pub(crate) async fn assign(
         }
     };
     env.extend(job_values.env);
-    if let actions::Prepared::Ready {
-        actions,
-        pins,
-        notices,
-    } = prepared
-    {
-        if let Some(pins) = pins {
-            bosun_db::actions::pin(run.transaction(), job.id, pins).await?;
-            for notice in notices {
-                run.notice(Some(job.id), &notice.diagnostic(&world.facts.workflow))
-                    .await?;
-            }
+    if let actions::Prepared::Ready { actions, notices } = prepared {
+        for notice in notices {
+            run.notice(Some(job.id), &notice.diagnostic(&world.facts.workflow))
+                .await?;
         }
         if let ir::JobKind::Steps(steps) = &claimed.job.kind {
             let stages = ir::stages(steps, |reference| {
@@ -969,6 +970,7 @@ struct Decided {
     waiting_reason: Option<WaitingReason>,
     conclusion: Option<Conclusion>,
     continue_on_error: bool,
+    unresolved: bool,
 }
 
 impl Decided {
@@ -978,6 +980,7 @@ impl Decided {
             waiting_reason: None,
             conclusion: Some(conclusion),
             continue_on_error: false,
+            unresolved: false,
         }
     }
 }
@@ -1068,14 +1071,19 @@ async fn decide(
         &prepared.labels,
     )
     .await?;
+    let remote_uses = resolution::remote(template);
     run.prepare_job(
         job.id,
         &prepared.name,
         prepared.continue_on_error,
         &prepared.evaluated,
         single.as_ref(),
+        remote_uses,
     )
     .await?;
+    let mut job = job.clone();
+    job.unresolved = remote_uses;
+    let job = &job;
     let full = job.group.is_some_and(|group| {
         let members: Vec<&JobState> = jobs
             .iter()
@@ -1106,6 +1114,14 @@ enum Admission {
     Refuse(Entered, Grouped),
 }
 
+fn resolving_or_queue(job: &JobState) -> Admission {
+    if job.unresolved {
+        Admission::Hold(WaitingReason::Resolving)
+    } else {
+        Admission::Queue
+    }
+}
+
 async fn admit(
     run: &mut Locked<'_>,
     job: &JobState,
@@ -1123,12 +1139,12 @@ async fn admit(
         Admission::Hold(WaitingReason::Concurrency)
     } else if let Some(grouped) = grouped {
         match concurrency::enter(run, Some(job.id), grouped, later).await? {
-            Entered::Running => Admission::Queue,
+            Entered::Running => resolving_or_queue(job),
             Entered::Waiting => Admission::Hold(WaitingReason::Concurrency),
             refused => Admission::Refuse(refused, grouped.clone()),
         }
     } else {
-        Admission::Queue
+        resolving_or_queue(job)
     };
     let placed = || {
         placement.ok_or_else(|| Error::Row {
@@ -1148,6 +1164,7 @@ async fn admit(
                 waiting_reason: None,
                 conclusion: None,
                 continue_on_error: job.continue_on_error,
+                unresolved: job.unresolved,
             })
         }
         Admission::Hold(reason) => {
@@ -1161,6 +1178,7 @@ async fn admit(
                 waiting_reason: Some(reason),
                 conclusion: None,
                 continue_on_error: job.continue_on_error,
+                unresolved: job.unresolved,
             })
         }
         Admission::Refuse(entered, grouped) => {

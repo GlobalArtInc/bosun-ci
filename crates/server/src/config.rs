@@ -40,6 +40,14 @@ const DEFAULT_SIGNING_KEY_ROTATION: Duration = Duration::from_secs(30 * 24 * 360
 
 const MIN_SIGNING_KEY_ROTATION: Duration = Duration::from_secs(3600);
 
+const DEFAULT_RESOLVE_BACKOFF_MIN: Duration = Duration::from_secs(1);
+
+const DEFAULT_RESOLVE_BACKOFF_MAX: Duration = Duration::from_secs(60);
+
+const DEFAULT_RESOLVE_GIVE_UP: Duration = Duration::from_secs(600);
+
+const DEFAULT_RESOLVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 const DEFAULT_DATA_DIR: &str = "/var/lib/bosun";
 
 const DEFAULT_AGENT_BINARIES: &str = "/usr/lib/bosun/agent";
@@ -99,6 +107,7 @@ pub struct Config {
     pub(crate) bootstrap_admin: Option<String>,
     pub(crate) agents: Agents,
     pub(crate) queue: Queue,
+    pub(crate) resolution: Resolution,
     pub(crate) store: Store,
     pub(crate) agent_binaries: PathBuf,
     pub(crate) failed_sign_ins: u32,
@@ -154,6 +163,25 @@ pub(crate) enum Store {
 pub(crate) struct Queue {
     pub(crate) lease: Duration,
     pub(crate) max_queue_time: Duration,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Resolution {
+    pub(crate) backoff_min: Duration,
+    pub(crate) backoff_max: Duration,
+    pub(crate) give_up: Duration,
+    pub(crate) request_timeout: Duration,
+}
+
+impl Default for Resolution {
+    fn default() -> Resolution {
+        Resolution {
+            backoff_min: DEFAULT_RESOLVE_BACKOFF_MIN,
+            backoff_max: DEFAULT_RESOLVE_BACKOFF_MAX,
+            give_up: DEFAULT_RESOLVE_GIVE_UP,
+            request_timeout: DEFAULT_RESOLVE_REQUEST_TIMEOUT,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -292,6 +320,10 @@ struct LimitsFile {
     agent_grace: Option<String>,
     max_queue_time: Option<String>,
     signing_key_rotation: Option<String>,
+    resolve_backoff_min: Option<String>,
+    resolve_backoff_max: Option<String>,
+    resolve_give_up: Option<String>,
+    resolve_request_timeout: Option<String>,
     failed_sign_ins: Option<u32>,
     max_log_retention: Option<i64>,
     max_run_retention: Option<i64>,
@@ -429,6 +461,42 @@ impl Config {
                 ),
             ));
         }
+        let resolution = Resolution {
+            backoff_min: duration(
+                "limits",
+                "resolve_backoff_min",
+                file.limits.resolve_backoff_min,
+                DEFAULT_RESOLVE_BACKOFF_MIN,
+            )?,
+            backoff_max: duration(
+                "limits",
+                "resolve_backoff_max",
+                file.limits.resolve_backoff_max,
+                DEFAULT_RESOLVE_BACKOFF_MAX,
+            )?,
+            give_up: duration(
+                "limits",
+                "resolve_give_up",
+                file.limits.resolve_give_up,
+                DEFAULT_RESOLVE_GIVE_UP,
+            )?,
+            request_timeout: duration(
+                "limits",
+                "resolve_request_timeout",
+                file.limits.resolve_request_timeout,
+                DEFAULT_RESOLVE_REQUEST_TIMEOUT,
+            )?,
+        };
+        if resolution.backoff_max < resolution.backoff_min {
+            return Err(invalid(
+                "limits",
+                "resolve_backoff_max",
+                format!(
+                    "is {:?}, and the backoff starts at {:?}, which it must not be shorter than",
+                    resolution.backoff_max, resolution.backoff_min
+                ),
+            ));
+        }
         let failed_sign_ins = match variable("limits", "failed_sign_ins")? {
             Some(text) => text.parse().map_err(|_| {
                 invalid(
@@ -495,6 +563,7 @@ impl Config {
                 lease,
                 max_queue_time,
             },
+            resolution,
             store,
             agent_binaries,
             failed_sign_ins,
@@ -1141,6 +1210,48 @@ mod tests {
             "https://mirror.example.org/node/"
         );
         assert_eq!(tools.node_musl_upstream.as_str(), "file:///srv/node-musl");
+    }
+
+    #[test]
+    fn the_backoff_and_the_limits_of_the_resolution_of_actions_default_and_are_set_in_limits() {
+        let defaults = load(DATABASE).resolution;
+        assert_eq!(
+            (
+                defaults.backoff_min,
+                defaults.backoff_max,
+                defaults.give_up,
+                defaults.request_timeout
+            ),
+            (
+                Duration::from_secs(1),
+                Duration::from_secs(60),
+                Duration::from_secs(600),
+                Duration::from_secs(30)
+            )
+        );
+        let set = load(&format!(
+            "{DATABASE}\n[limits]\nresolve_backoff_min = \"50ms\"\nresolve_backoff_max = \
+             \"2s\"\nresolve_give_up = \"5s\"\nresolve_request_timeout = \"250ms\"\n"
+        ))
+        .resolution;
+        assert_eq!(
+            (
+                set.backoff_min,
+                set.backoff_max,
+                set.give_up,
+                set.request_timeout
+            ),
+            (
+                Duration::from_millis(50),
+                Duration::from_secs(2),
+                Duration::from_secs(5),
+                Duration::from_millis(250)
+            )
+        );
+        let message = refused(&format!(
+            "{DATABASE}\n[limits]\nresolve_backoff_min = \"10s\"\nresolve_backoff_max = \"1s\"\n"
+        ));
+        assert!(message.contains("limits.resolve_backoff_max"), "{message}");
     }
 
     fn refused(text: &str) -> String {

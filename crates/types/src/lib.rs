@@ -1,3 +1,4 @@
+pub mod action_policy;
 pub mod actor;
 pub mod api;
 pub mod command;

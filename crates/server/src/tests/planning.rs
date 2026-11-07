@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 
+use bosun_db::actions::Pin;
+use bosun_types::actor::Actor;
 use bosun_types::event::Event;
 use bosun_types::ir::{Action, ActionReference, Evaluable, JobKind, RunsOn, Template};
 use bosun_types::status::{
     Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason, StepStatus,
 };
-use sea_orm::{ConnectionTrait, Statement};
+use sea_orm::{ConnectionTrait, Statement, TransactionTrait};
 
 use super::{World, finished, replay, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
@@ -191,6 +193,25 @@ async fn a_step_that_uses_an_action_is_named_after_the_action() {
     });
     let run = world.dispatch(&workflow(vec![build])).await;
     let (build, _) = world.project(run).await.job("build");
+    let transaction = world.db().begin().await.expect("a transaction");
+    let locked = bosun_db::runs::lock(&transaction, run)
+        .await
+        .expect("a lock")
+        .expect("the run");
+    let pin = Pin {
+        owner: "actions".to_owned(),
+        repository: "cache".to_owned(),
+        r#ref: "v4".to_owned(),
+        commit: "0".repeat(40),
+    };
+    bosun_db::actions::pin(&transaction, build, &[pin])
+        .await
+        .expect("a pin");
+    locked
+        .release_job(build, &Actor::System)
+        .await
+        .expect("a release");
+    transaction.commit().await.expect("a commit");
     let execution = world.assign(run, build).await;
     progress::accepted(world.db(), world.agent(), execution, &Site::default())
         .await

@@ -56,7 +56,6 @@ impl Notice {
 pub(crate) enum Prepared {
     Ready {
         actions: Vec<assignment::Action>,
-        pins: Option<Vec<Pin>>,
         notices: Vec<Notice>,
     },
     Failed(Vec<Notice>),
@@ -120,7 +119,7 @@ impl Actions {
                 path: vec![key("jobs"), key(claimed.key.as_str())],
             }]));
         };
-        let mut pins = claimed.pins.clone().unwrap_or_default();
+        let pins = claimed.pins.clone().unwrap_or_default();
         let mut seen = HashSet::new();
         let mut actions = Vec::new();
         let mut notices = Vec::new();
@@ -161,7 +160,7 @@ impl Actions {
                 PathSegment::Index(index),
                 key("uses"),
             ];
-            match self.action(claimed, reference, &mut pins).await? {
+            match self.action(claimed, reference, &pins).await? {
                 Ok((action, substituted)) => {
                     actions.push(action);
                     notices.extend(substituted.map(|message| Notice {
@@ -184,10 +183,9 @@ impl Actions {
         if !faults.is_empty() {
             return Ok(Prepared::Failed(faults));
         }
-        let first = claimed.pins.is_none() && !actions.is_empty();
+        let first = claimed.first_execution && !actions.is_empty();
         Ok(Prepared::Ready {
             actions,
-            pins: first.then_some(pins),
             notices: if first { notices } else { Vec::new() },
         })
     }
@@ -196,28 +194,19 @@ impl Actions {
         &self,
         claimed: &ClaimedJob,
         reference: &ActionReference,
-        pins: &mut Vec<Pin>,
+        pins: &[Pin],
     ) -> Result<Result<(assignment::Action, Option<String>), Refusal>, Failure> {
         let owner = reference.owner.to_lowercase();
         let repository = reference.repository.to_lowercase();
         let pinned = pins.iter().find(|pin| {
             pin.owner == owner && pin.repository == repository && pin.r#ref == reference.r#ref
         });
-        let commit = match pinned {
-            Some(pin) => pin.commit.clone(),
-            None => match self.resolve(claimed, reference).await {
-                Ok(commit) => {
-                    pins.push(Pin {
-                        owner: owner.clone(),
-                        repository: repository.clone(),
-                        r#ref: reference.r#ref.clone(),
-                        commit: commit.clone(),
-                    });
-                    commit
-                }
-                Err(message) => return Ok(Err(Refusal::unresolved(message))),
-            },
+        let Some(pinned) = pinned else {
+            return Ok(Err(Refusal::unresolved(format!(
+                "the action `{reference}` was not resolved to a commit when its job was admitted"
+            ))));
         };
+        let commit = pinned.commit.clone();
         let stored = match self
             .stored(claimed.installation, reference, &commit)
             .await?
@@ -286,58 +275,6 @@ impl Actions {
             },
             substituted,
         )))
-    }
-
-    async fn resolve(
-        &self,
-        claimed: &ClaimedJob,
-        reference: &ActionReference,
-    ) -> Result<String, String> {
-        let unresolved =
-            |problem: String| format!("the action `{reference}` cannot be resolved: {problem}");
-        let Some(forge) = &self.forge else {
-            return Err(unresolved(
-                "this server has no GitHub App to resolve actions with".to_owned(),
-            ));
-        };
-        let (owner, name, wanted) = (
-            reference.owner.as_str(),
-            reference.repository.as_str(),
-            reference.r#ref.as_str(),
-        );
-        let resolved = match claimed.installation {
-            Some(installation) => {
-                forge
-                    .app
-                    .resolve(
-                        &Repository {
-                            installation,
-                            owner: owner.to_owned(),
-                            name: name.to_owned(),
-                        },
-                        wanted,
-                    )
-                    .await
-            }
-            None => forge.app.resolve_public(owner, name, wanted).await,
-        };
-        match resolved {
-            Ok(Some(commit)) => Ok(commit.to_lowercase()),
-            Ok(None) => Err(unresolved(match claimed.installation {
-                Some(_) => format!(
-                    "the installation of the GitHub App of organisation `{}` sees no repository \
-                     `{owner}/{name}` with a ref `{wanted}`",
-                    claimed.organisation
-                ),
-                None => format!(
-                    "organisation `{}` has no installation of the GitHub App, so only public \
-                     actions resolve, and no public repository `{owner}/{name}` has a ref \
-                     `{wanted}`",
-                    claimed.organisation
-                ),
-            })),
-            Err(error) => Err(unresolved(error.to_string())),
-        }
     }
 
     async fn stored(

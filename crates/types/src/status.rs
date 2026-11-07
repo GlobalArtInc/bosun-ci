@@ -189,17 +189,19 @@ pub enum WaitingReason {
     Approval,
     WaitTimer,
     Policy,
+    Resolving,
     Concurrency,
     MaxParallel,
     Paused,
 }
 
 impl WaitingReason {
-    pub const ALL: [WaitingReason; 7] = [
+    pub const ALL: [WaitingReason; 8] = [
         WaitingReason::Untrusted,
         WaitingReason::Approval,
         WaitingReason::WaitTimer,
         WaitingReason::Policy,
+        WaitingReason::Resolving,
         WaitingReason::Concurrency,
         WaitingReason::MaxParallel,
         WaitingReason::Paused,
@@ -219,12 +221,14 @@ pub enum StatusReason {
     AgentLost,
     AgentRemoved,
     ActionUnavailable,
+    ActionForbidden,
+    ActionUnresolved,
     Concurrency,
     TokenUnavailable,
 }
 
 impl StatusReason {
-    pub const ALL: [StatusReason; 12] = [
+    pub const ALL: [StatusReason; 14] = [
         StatusReason::IfFalse,
         StatusReason::EvaluationFailed,
         StatusReason::Command,
@@ -235,6 +239,8 @@ impl StatusReason {
         StatusReason::AgentLost,
         StatusReason::AgentRemoved,
         StatusReason::ActionUnavailable,
+        StatusReason::ActionForbidden,
+        StatusReason::ActionUnresolved,
         StatusReason::Concurrency,
         StatusReason::TokenUnavailable,
     ];

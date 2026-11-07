@@ -311,6 +311,7 @@ pub(crate) async fn forward(
             Ok(Some(Notification::Queued(_))) => dispatcher.wake_all(),
             Ok(Some(Notification::Delivery)) => listeners.deliveries.notify_waiters(),
             Ok(Some(Notification::Outbox)) => listeners.outbox.notify_waiters(),
+            Ok(Some(Notification::Resolving)) => listeners.resolving.notify_one(),
             Ok(Some(Notification::Log(notice))) => {
                 listeners.followers.announce(notice.execution_id);
             }
@@ -341,6 +342,7 @@ pub(crate) async fn forward(
                 listeners.followers.wake_all();
                 listeners.deliveries.notify_waiters();
                 listeners.outbox.notify_waiters();
+                listeners.resolving.notify_one();
                 listeners.events.wake_all();
             }
             Err(error) => {
@@ -351,6 +353,7 @@ pub(crate) async fn forward(
                 listeners.followers.wake_all();
                 listeners.deliveries.notify_waiters();
                 listeners.outbox.notify_waiters();
+                listeners.resolving.notify_one();
                 listeners.events.wake_all();
             }
         }

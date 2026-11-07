@@ -37,6 +37,7 @@ pub(crate) struct Listeners {
     pub(crate) followers: Arc<Followers>,
     pub(crate) deliveries: Arc<Notify>,
     pub(crate) outbox: Arc<Notify>,
+    pub(crate) resolving: Arc<Notify>,
     pub(crate) events: Arc<Hub>,
 }
 

@@ -43,7 +43,7 @@ who may give which command is in [08-access.md](08-access.md).
 |--------|--------|---------|
 | run | `queued` | created, no job has started |
 | | `in_progress` | at least one job has started and not all are complete |
-| | `waiting` | no job is queued or on an agent, and at least one waits, for admission, an approval, a timer, a policy or a concurrency group; the others are pending behind it |
+| | `waiting` | no job is queued or on an agent, and at least one waits, for admission, an approval, a timer, a policy, the resolution of its actions or a concurrency group; the others are pending behind it |
 | | `paused` | an operator paused the run |
 | | `completed` | every job is complete; the conclusion is set |
 | job | `pending` | its `needs` are not complete |
@@ -83,8 +83,8 @@ The transitions of a job, exhaustively:
 | `pending` | `queued` | `needs` complete, `if` true, nothing holds the job back |
 | `pending` | `completed` | `if` false (`skipped`), `job.skip`, `job.mark-success`, cancellation, the members of its group completed |
 | `waiting` | `queued` | every admission rule is satisfied |
-| `waiting` | `waiting` | the admission rule that held the job back is satisfied and a later one holds it, such as `max_parallel` giving way to `concurrency` |
-| `waiting` | `completed` | rejection, gate timeout, branch policy, policy denial, `job.skip`, `job.mark-success`, cancellation |
+| `waiting` | `waiting` | the admission rule that held the job back is satisfied and a later one holds it, such as `max_parallel` giving way to `concurrency`, or `concurrency` giving way to `resolving` |
+| `waiting` | `completed` | rejection, gate timeout, branch policy, policy denial, a forbidden or unresolvable action, `job.skip`, `job.mark-success`, cancellation |
 | `queued` | `waiting` | `job.pause`, `run.pause` |
 | `queued` | `assigned` | claimed by an agent |
 | `queued` | `completed` | cancellation, `no_agent`, `job.skip`, `job.mark-success` |
@@ -198,14 +198,20 @@ in this order:
    `timeout-minutes` a whole number of at least 0; `continue-on-error` a boolean; and a shell in
    `defaults.run` one of the shells of [02-workflows.md](02-workflows.md).
 4. The admission rules: the environment's protection rules, the admission policies of plugins,
-   the concurrency groups, and a pause of the run or the job. While any of them holds the job back,
-   it is `waiting` with the reason recorded. A branch policy that excludes the ref, or a policy that
-   denies, completes the job as `failure` with the reason. The rules of M1 apply in this order:
-   the `max-parallel` of the job's group ([Matrices](#matrices)), the run's own concurrency group,
-   which holds every job of a run that waits in it, and the job's concurrency group
-   ([Concurrency groups](#concurrency-groups)). When a rule gives way, the job goes on with the rules
-   after it, so a member that `max-parallel` releases may go on to wait for its concurrency group,
-   which a `job.status` event from `waiting` to `waiting` with the new reason records.
+   the concurrency groups, the resolution of the job's remote actions, and a pause of the run or the
+   job. While any of them holds the job back, it is `waiting` with the reason recorded. A branch
+   policy that excludes the ref, or a policy that denies, completes the job as `failure` with the
+   reason. The rules of M1 apply in this order: the `max-parallel` of the job's group
+   ([Matrices](#matrices)), the admission of a run from a fork
+   ([08-access.md](08-access.md#code-from-outside-the-team)), the run's own concurrency group, which
+   holds every job of a run that waits in it, the job's concurrency group
+   ([Concurrency groups](#concurrency-groups)), and the resolution of the job's remote actions
+   ([Resolving actions](#resolving-actions)). A job enters its group before its actions resolve, so
+   that it arrives in the order in which it became ready, however long the forge takes for each job.
+   When a rule gives way, the job goes on with the rules after it, so a member that `max-parallel`
+   releases may go on to wait for its concurrency group, and one that its group admits may go on to
+   wait for its actions to resolve, which a `job.status` event from `waiting` to `waiting` with the
+   new reason records.
 5. Otherwise the job becomes `queued`.
 
 A gate skips steps 2, 3 and the queue: once its admission rules pass, it waits for approvals.
@@ -270,12 +276,13 @@ The planner keeps the group going in every transaction it runs in:
   when it is not on an agent, through a `cancel` control message when it is. Waiting members are
   not released after that.
 - Otherwise, when fewer members than `max-parallel` are `queued`, `assigned`, `in_progress`,
-  `paused` or `held`, or wait with the reason `concurrency`, the members waiting with the reason
-  `max_parallel` are released in the order of creation until the limit is reached again, each to
-  the admission rules after `max-parallel`, which queue it unless a concurrency group holds it. A
-  member that becomes ready while the limit is reached goes to `waiting` with the reason
-  `max_parallel` after step 3. A member that waits for a concurrency group counts against the
-  limit, so admitting it never exceeds `max-parallel`.
+  `paused` or `held`, or wait with the reason `concurrency` or `resolving`, the members waiting
+  with the reason `max_parallel` are released in the order of creation until the limit is reached
+  again, each to the admission rules after `max-parallel`, which queue it unless a concurrency
+  group holds it or its remote actions are still to resolve. A member that becomes ready while the
+  limit is reached goes to `waiting` with the reason `max_parallel` after step 3. A member that
+  waits for a concurrency group or for its actions counts against the limit, so admitting it never
+  exceeds `max-parallel`.
 - When every member is complete, the group completes with the conclusion above, from `pending`,
   and with the outputs of its members: the members are taken in the order they completed, and a
   value that is not empty replaces what an earlier member gave for that name, so the last member
@@ -286,7 +293,102 @@ that holds: `failure` when a job failed or timed out without `continue-on-error`
 the run or one of its jobs was cancelled, `skipped` when every job was skipped, and `success`
 otherwise. A run that accepted `run.cancel` ends `cancelled` unless a job failed, even when its last
 running job then finished well before the cancel reached it. A job failed by an evaluation error
-has no `continue-on-error`, so it fails the run.
+has no `continue-on-error`, so it fails the run, and so does a job that an action policy fails with
+`action_forbidden` ([Resolving actions](#resolving-actions)).
+
+### Resolving actions
+
+Step 4 of M2 ([../plan.md](../plan.md)) moved the resolution of remote `uses` from the assignment to
+the moment a job is admitted, so that the organisation's action policy
+([05-execution.md](05-execution.md#actions-and-tools)) fails a job before it can be queued, and the
+commits an agent receives are fixed before any agent claims the job.
+
+- **What waits.** A job whose steps use remote actions, `owner/repo@ref` or `owner/repo/path@ref`,
+  that are not resolved yet is `waiting` with the reason `resolving` from the planner's transaction
+  on, which calls no forge. The rule comes last: after `max-parallel`, the admission of a run from a
+  fork, the run's own concurrency group and the job's own concurrency group
+  ([Planning](#planning)). A job resolves only once its own group has admitted it, so the forge is
+  never asked for a run nobody has admitted, for a run that waits for its group, or for a job that
+  waits for its own group, and a member that a newer arrival displaces from a group is cancelled
+  without a request to the forge. Because the job entered its group before it began to resolve, the
+  order of arrival in the group is the order in which the jobs became ready, and does not depend on
+  which answer of the forge came first. A member in `resolving` is the running member of its group:
+  an arrival with `cancel-in-progress` cancels it at once, and the answer of the resolver that comes
+  later is dropped. A member in `resolving` counts against the `max-parallel` of its group, as one
+  that waits for its concurrency group does. A job without remote actions, and a job whose commits
+  are stored, does not stop here.
+- **The resolver.** Every replica runs one. It claims the jobs that are `waiting` with the reason
+  `resolving` and due with `FOR UPDATE SKIP LOCKED`, in a transaction that only stamps the job with
+  a claim token and a lease and commits, so two replicas never take the same job and a replica that
+  dies leaves a job another takes when the lease runs out. It asks the forge for the commit of each
+  distinct `owner/repo@ref` of the job, in the order of the steps, **with no transaction open**: a
+  forge that hangs holds the resolver's task for that job, and a replica runs at most 16 such tasks
+  at once, so a hung forge can occupy all 16 until their requests time out and the jobs beyond them
+  wait for a free task. The planning of other runs, which never calls the forge, does not wait for
+  it. `limits.resolve_request_timeout` bounds each request, not the pass over the job's
+  references: a request that lasts longer counts as a forge that did not answer, and the message
+  names the reference that was being asked. The pass is bounded by `limits.resolve_give_up`: the
+  renewal of the lease before each further request also reports that the job has been `resolving`
+  for that long, and the pass then stops as one the forge did not answer, naming the reference it
+  was about to ask and saying that the forge did not finish within the limit. The lease of the claim is twice that timeout, and the
+  resolver renews it before each further request, so a pass over many references cannot outlive its
+  lease. A row of a job that does not read, such as an IR that does not parse, is logged and
+  postponed with the backoff, and the other jobs of the same claim go on; once the job has been
+  `resolving` for `limits.resolve_give_up`, the next claim completes it as `failure` with the
+  reason `action_unresolved` and a notice that says only that the server cannot read the record of
+  the job and names nothing from it. If the run cannot be planned after that, because the same
+  record is what the planner would read, the job is still completed in a transaction of its own and
+  the failure is logged at `error`: the jobs of that run that still wait for it stay pending, the run does
+  not conclude and keeps the concurrency groups it holds, and cancelling the run, by hand or by a run
+  that arrives in the same group with `cancel-in-progress`, fails on the same record; `job.cancel`
+  on each pending job is the recovery. The policy is checked
+  before the forge is asked, so the forge is never asked about an action the policy forbids and
+  cannot be used to find out whether a repository exists.
+- **The decision.** One transaction takes the run's lock, as every change to a run does, and checks
+  that the job is still `waiting` with the reason `resolving` and still carries this claim: a
+  cancellation, or another replica after an expired lease, may have decided it, and a result that
+  arrives late is dropped. It reads the policy again, so a policy changed while the forge answered
+  applies, and then:
+  - **an action is forbidden.** Each forbidden action adds an error notice `action_forbidden` at
+    the first step that uses it, naming the action and the policy. The job completes as `failure`
+    with the reason `action_forbidden`, the planner takes the run on, and the job never reaches
+    `queued`. The refusal is the server's, not the job's, so it ignores the job's
+    `continue-on-error`: the stored value is cleared in the same transaction, the job fails its run,
+    and a job that `needs` it follows its `if` as it follows any failed job. A job that fails with
+    `action_unresolved` is an ordinary failed job and keeps its `continue-on-error`.
+  - **the forge does not know a ref**, or the server has no GitHub App to ask. An error notice
+    `action_unresolved` names the action and what the forge said; the job completes as `failure`
+    with the reason `action_unresolved` at once. The ref is looked up for the job's organisation as
+    [05-execution.md](05-execution.md#actions-and-tools) describes, and a repository the
+    organisation cannot see is a ref the forge does not know.
+  - **every action resolves and the policy allows them.** The commits are stored with the job, as
+    its `actions`, in the same transaction, and the job becomes `queued`. No rule follows
+    `resolving`: a job with a concurrency group entered it before it began to resolve and holds it
+    as the running member, and the transaction does not enter the group again.
+  - **the forge did not answer** (it refused, was rate limited, could not be reached or took longer
+    than the request limit). Nothing changes in the job's state: the claim is released and the job
+    is due again after a backoff that starts at `limits.resolve_backoff_min` (1 second), doubles
+    with each failure and stops at `limits.resolve_backoff_max` (1 minute). A job that has been
+    `resolving` for `limits.resolve_give_up` (10 minutes) when a request fails, or when a pass
+    over its references is still going on, completes as `failure` with the reason
+    `action_unresolved`, and its notice names the forge's error or the reference the pass had
+    reached. `limits.resolve_give_up` is thus the limit of the whole time in `resolving`, whatever
+    keeps the job there, give or take one request: a pass checks it before each request after the
+    first, and a retry waits for a backoff that was already set, so a job can pass it by one request
+    timeout and one backoff. The
+    give-up clock starts when the job enters `resolving`, so the time it waited for its group
+    does not count. Until then the error of the forge is in the server's log: a permanent refusal,
+    such as a `401` or `403` of an installation that lost its access, retries with the backoff for
+    the whole limit before the job's notice names it.
+- **The journal.** Every change of state above is a `job.status` event written in the transaction
+  that changes the columns: `pending`, or `waiting` with the reason `max_parallel`, `untrusted` or
+  `concurrency`, to `waiting` with `waiting_reason` `resolving`; `waiting` to `queued`; `waiting` to
+  `completed` with the reason. A retry changes no status, so it writes none; the claim, the lease
+  and the time of the next attempt are bookkeeping of the resolver, not state of the run.
+- **Cancelling.** `run.cancel` and `job.cancel` complete a job in `resolving` at once, as they
+  complete any waiting job; the resolver that holds it finds that its result belongs to nobody.
+- **The assignment.** It takes the stored commits and resolves nothing, so moving a tag after the
+  job was admitted changes nothing, and another job resolves the tag again.
 
 ## Dispatch
 
@@ -337,10 +439,13 @@ step 3. The cases of `contracts/fixtures/concurrency/` pin the rules:
   `concurrency_deadlock`. Only that job is cancelled: the other jobs of the run go on, and the run
   ends `cancelled` because one of its jobs did, where the target cancels the whole run.
 - A group has at most one running member and admits members in their order of arrival. A run is
-  running from its admission until it completes, and a job from its admission, which queues it,
-  until it completes. A member that arrives while the group has a running member or waiting
-  members waits: a run keeps every job it makes ready `waiting` with the reason `concurrency`, so
-  the run itself is `waiting`, and a job waits with the reason `concurrency`.
+  running from its admission until it completes, and a job from its admission to the group until it
+  completes, whether its admission queues it or leaves it `waiting` with the reason `resolving`
+  while its remote actions resolve ([Resolving actions](#resolving-actions)): a job in `resolving`
+  is the running member of its group, and an arrival with `cancel-in-progress` cancels it at once.
+  A member that arrives while the group has a running member or waiting members waits: a run keeps
+  every job it makes ready `waiting` with the reason `concurrency`, so the run itself is `waiting`,
+  and a job waits with the reason `concurrency`.
 - With `queue: single`, the default, an arrival cancels every member that waits in the group, so the
   newest waits alone. With `queue: max`, members wait in their order of arrival and none is
   cancelled; when 100 members wait already, the arrival itself is cancelled, a run with every job
@@ -366,7 +471,8 @@ step 3. The cases of `contracts/fixtures/concurrency/` pin the rules:
   completes `cancelled` at once and leaves the group.
 - When the running member completes, the group admits its first waiting member in the same
   transaction. An admitted run releases the jobs it kept waiting, each to the admission rules after
-  its run's group; an admitted job is queued.
+  its run's group; an admitted job is queued, or waits with the reason `resolving` when its remote
+  actions are not resolved yet.
 - A run from a fork that waits for admission ([08-access.md](08-access.md#code-from-outside-the-team))
   is a member of no group, so that a pull request nobody has reviewed cancels nothing and holds no
   place. Its workflow's group is evaluated when the run is created, to refuse a faulty one at once,
@@ -473,7 +579,9 @@ that is not self-explanatory:
 | `no_agent` | the job stayed queued longer than `max_queue_time` |
 | `agent_lost` | the agent did not come back within the grace period |
 | `agent_removed` | the agent was deleted while it held the job: a job it ran fails, and one it had not accepted yet returns to the queue ([05-execution.md](05-execution.md#draining-and-deleting-agents)) |
-| `action_unavailable` | an action a step uses could not be resolved, downloaded or read, or is of a kind the server does not run yet; the run's notices name the action ([05-execution.md](05-execution.md#actions-and-tools)) |
+| `action_unavailable` | when the job is assigned, an action a step uses has no pinned commit or a tarball that cannot be downloaded or read (the notice has the code `action_unresolved`), has metadata that is missing or invalid (`action_invalid`), or is of a kind the server does not run yet (`not_implemented`); the run's notices name the action ([05-execution.md](05-execution.md#actions-and-tools)). A reference that does not resolve to a commit never gets this far: it fails at readiness with the reason `action_unresolved` |
+| `action_forbidden` | the organisation's action policy forbids an action a step of the job uses; the run's notices name the action ([05-execution.md](05-execution.md#actions-and-tools)) |
+| `action_unresolved` | the forge does not know a ref of an action a step of the job uses, or did not answer within the limit; the run's notices name the action and the forge's answer ([Resolving actions](#resolving-actions)) |
 | `concurrency` | its concurrency group cancelled it: a newer member arrived under `queue: single` or with `cancel-in-progress`, which a `concurrency.cancelled` event names, or the group refused it, which the run's notices say ([Concurrency groups](#concurrency-groups)) |
 | `token_unavailable` | the forge did not mint the forge token of the job's execution at its assignment: the server has no GitHub App, or the forge refused, was rate limited or could not be reached; the run's notices hold the forge's error ([06-runtime-services.md](06-runtime-services.md#the-forge-token)) |
 
@@ -492,6 +600,9 @@ that is not a status. Notices are `run.notice` events, so they keep the order of
 - when a file with errors yields a run that ends with `startup_failure`, from every diagnostic of
   the file, and from a key the planner does not apply yet as `not_implemented`, with their codes
   from [02-workflows.md](02-workflows.md#repository-workflows) and without a job;
+- when the server resolves the actions of a job as it becomes ready and the policy forbids one or
+  the forge does not resolve one, as an error at the first step that uses it
+  ([Resolving actions](#resolving-actions));
 - when the server prepares the actions of a job at its assignment and one of them cannot be used,
   as an error at the step that uses it, or when it runs one on another Node than its `using`
   names, as a warning there ([05-execution.md](05-execution.md#actions-and-tools));
@@ -516,7 +627,8 @@ The codes of the notices about actions:
 
 | Code | Severity | Meaning |
 |------|----------|---------|
-| `action_unresolved` | error | the forge does not resolve the `uses` to a commit for the job's organisation, refuses the request or cannot be reached, or the tarball of the commit cannot be downloaded or is not a tarball |
+| `action_unresolved` | error | the forge does not resolve the `uses` to a commit for the job's organisation, refuses the request or cannot be reached within the limit, when the job becomes ready; or the tarball of the commit cannot be downloaded or is not a tarball, when the job is assigned |
+| `action_forbidden` | error | the organisation's action policy forbids the `uses` |
 | `action_invalid` | error | the action has no `action.yml` or `action.yaml` in its directory, or its metadata has errors; the message quotes the first one with its line |
 | `not_implemented` | error | the action declares `using: composite` or `using: docker`, which arrive in M2 |
 | `node_substituted` | warning | the installation's runtime map runs the action on another major version of Node than its `using` names |
@@ -648,6 +760,7 @@ A job is `waiting` for one of these reasons, which the run page shows:
 | `approval` | the gate or the environment has enough approvals, or a rejection |
 | `wait_timer` | the environment's wait timer has run out |
 | `policy` | an admission policy plugin admits the job, or denies it |
+| `resolving` | the job's remote actions are resolved to commits and allowed by the organisation's action policy, or one is forbidden or does not resolve |
 | `concurrency` | the concurrency group has room |
 | `max_parallel` | the job group has room |
 | `paused` | the job or the run is resumed |

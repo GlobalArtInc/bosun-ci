@@ -17,7 +17,10 @@ concurrently. `bosun-server migrate` applies them; `bosun-server serve` applies 
 an advisory lock, so several replicas starting at once apply them once. A server starts against a
 schema that a newer version of the same major migrated, because additive migrations leave
 everything it uses in place, which is what makes rolling updates and rollbacks safe; it refuses to
-start against a schema of a newer major version.
+start against a schema of a newer major version. The release that moves the resolution of remote
+actions to the moment a job becomes ready is the one exception to a transparent rolling update: a job
+that an older replica queued without pins fails once, when a newer replica assigns it, with the
+reason `action_unavailable`.
 
 The files are `crates/db/migrations/<milliseconds>-<slug>.up.sql`, embedded in the binary. There
 are no down files, and a test refuses `DROP`, `ALTER … DROP` and `ALTER … TYPE` in any of them.
@@ -89,7 +92,8 @@ job          id, attempt_id, key, name, group_id, matrix jsonb, strategy jsonb, 
              status, waiting_reason, conclusion, conclusion_source, continue_on_error,
              evaluated jsonb, outputs jsonb, priority, labels text[], pool_ids uuid[],
              capabilities text[], actions jsonb, pinned_agent_id, carried_from,
-             queued_at, started_at, completed_at
+             remote_uses, resolving_since, resolve_after, resolve_attempts, resolve_claim,
+             resolve_lease_until, queued_at, started_at, completed_at
 execution    id, job_id, number, agent_id, lease_until, status, conclusion, reason, started_at,
              completed_at, log_bytes, log_compacted_at, stages jsonb, logs_expired_at
 step         id, execution_id, parent_step_id, index, name, status, outcome, conclusion,
@@ -224,7 +228,21 @@ server-side workflows ([02-workflows.md](02-workflows.md#repository-workflows)).
 `sha` are the ref and the commit of its event, `null` for a run of a project without a repository.
 They arrived with step 27 of [../plan.md](../plan.md).
 
-A job's `actions` are the commits its first assignment pinned for the actions its steps use, a list
+`organisation.action_policy` is the jsonb document of the action policy, `{"mode": "all"}` for every
+organisation until it is changed ([05-execution.md](05-execution.md)). A job whose steps use remote
+actions has `remote_uses` set when it becomes ready, where the planner prepares it, and not when it
+is created. When its concurrency group, if it has one, admits it, the planner puts it into
+`waiting` with the reason `resolving` and sets
+`resolving_since`, the start of the give-up clock, which retries and re-planning never move. The
+resolver of every replica claims such jobs through the partial index `job_resolving` on `job (id)`
+where `status = 'waiting'` and `waiting_reason = 'resolving'`: the claim takes the rows with `FOR
+UPDATE SKIP LOCKED`, writes a fresh `resolve_claim` and a `resolve_lease_until` of twice the request
+timeout, which it renews before each further request for the same job, and keeps no transaction open
+while it asks the forge. A claimed job whose lease expired is claimed again. A transient answer sets
+`resolve_after` to the end of the backoff and counts in `resolve_attempts`; the decision transaction
+accepts an answer only from the holder of the current `resolve_claim`.
+
+A job's `actions` are the commits the resolver pinned when the job became ready for the actions its steps use, a list
 of `{"owner", "repository", "ref", "commit"}` with the owner and the repository in lower case, and
 `null` until then or for a job without a `uses`; they arrived with the action store (step 32 of
 [../plan.md](../plan.md)), together with two tables of what the object store keeps for agents. An
@@ -325,7 +343,9 @@ waits for. A transaction that holds an agent's row, such as the sweep that marks
 takes no run's lock; the sweep fails abandoned executions afterwards, one transaction each. The
 claim of the queue takes the job and its run's lock with `SKIP LOCKED`, so it never waits for a run
 that another transaction is changing; it takes the agent's row first, and never waits after that, so
-it closes no cycle.
+it closes no cycle. The claim of the resolver takes only job rows, with `SKIP LOCKED`, and no run's
+lock, so it waits for nobody; its decision transaction takes the run's lock first and then the job,
+as the planner does.
 
 The lock orders the journal of one run, not the journal of all runs. A reader across runs, such as
 the event stream filtered by project ([11-api.md](11-api.md#the-event-stream)), arrives with a
@@ -463,6 +483,7 @@ of its own under its run's lock, after checking again, with the reason `no_agent
 | Channel | Payload | Listener |
 |---------|---------|----------|
 | `bosun_queue` | job id | replicas with idle agents |
+| `bosun_resolve` | empty | the resolver of every replica |
 | `bosun_replica_<id>` | agent id and control message id, separated by a space; or the agent id alone, when the agent was drained, its drain was lifted or it was deleted | the replica holding that agent's stream |
 | `bosun_events` | `run` and the run's id, or `agent` and the agent's id, separated by a space | replicas with subscribers on the event stream |
 | `bosun_log` | execution id and the sequence number of the chunk stored, separated by a space | replicas with followers of that log |

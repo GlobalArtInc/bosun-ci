@@ -69,6 +69,7 @@ pub struct JobState {
     pub waiting_reason: Option<WaitingReason>,
     pub conclusion: Option<Conclusion>,
     pub continue_on_error: bool,
+    pub unresolved: bool,
     pub concurrency: Option<Grouped>,
     pub outputs: BTreeMap<String, String>,
     pub started: bool,
@@ -303,6 +304,7 @@ impl<'a> Locked<'a> {
             .query_all(statement(
                 "SELECT j.id, j.key, j.name, j.needs, j.group_id, j.matrix, j.strategy, j.status, \
                  j.waiting_reason, j.conclusion, j.continue_on_error, \
+                 j.remote_uses AND j.actions IS NULL AS unresolved, \
                  j.evaluated -> 'concurrency' AS concurrency, j.outputs, \
                  j.started_at IS NOT NULL AS started, j.completed_at, e.id AS execution_id, e.agent_id, \
                  e.status AS execution_status, e.online AS agent_online FROM job j \
@@ -577,6 +579,7 @@ fn decode_job(found: &QueryResult) -> Result<JobState, Error> {
             .map(|conclusion| row::name("job", conclusion))
             .transpose()?,
         continue_on_error: found.try_get("", "continue_on_error")?,
+        unresolved: found.try_get("", "unresolved")?,
         concurrency: found
             .try_get::<Option<Value>>("", "concurrency")?
             .map(|grouped| row::json("job", grouped))

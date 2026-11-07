@@ -1,0 +1,6 @@
+{
+  "action_policy": {
+    "mode": "listed",
+    "patterns": ["actions/*", "globalartinc/keel@*"]
+  }
+}

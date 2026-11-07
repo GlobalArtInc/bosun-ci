@@ -23,6 +23,7 @@ mod periodic;
 pub mod pools;
 pub mod projects;
 pub mod queue;
+pub mod resolutions;
 pub mod results;
 pub mod retention;
 pub mod roles;

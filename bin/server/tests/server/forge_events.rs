@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use bosun_testkit::TestDatabase;
 use bosun_testkit::forge::{BOT, FakeForge, NO_COMMIT, Sender};
 use reqwest::Method;
 use serde_json::{Value, json};
+use tokio::time::{Instant, sleep};
 
 use crate::api::{Api, fixture, send, text};
 use crate::hooks::{ACCOUNT, PERMISSIONS, delivered, processed};
@@ -12,6 +14,8 @@ use crate::message;
 const REPOSITORY: &str = "GlobalArtInc/ops";
 
 const PROJECT: &str = "/api/v1/projects/globalartinc/ops";
+
+const RESOLUTION_WAIT: Duration = Duration::from_secs(30);
 
 const ROMAN: Sender<'static> = Sender {
     login: "roman",
@@ -106,6 +110,22 @@ impl Scene {
         let mut runs = page["items"].as_array().expect("a list of runs").clone();
         runs.reverse();
         runs
+    }
+
+    async fn until_queued(&self, name: &str) -> Value {
+        let deadline = Instant::now() + RESOLUTION_WAIT;
+        loop {
+            let runs = self.runs().await;
+            let found = runs.iter().find(|run| run["display_name"] == name);
+            if let Some(run) = found.filter(|run| run["status"] == "queued") {
+                return run.clone();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the run `{name}` was not queued within {RESOLUTION_WAIT:?}: {found:?}"
+            );
+            sleep(Duration::from_millis(100)).await;
+        }
     }
 
     async fn workflow(&self, name: &str) -> Value {
@@ -329,6 +349,19 @@ async fn a_broken_file_whose_on_matches_ends_its_run_as_a_startup_failure_with_i
         [".bosun/workflows/ci.yml"]
     );
 
+    let checkout = scene.forge.install("actions", PERMISSIONS);
+    scene.forge.create_repository(checkout, "actions/checkout");
+    scene.forge.publish("actions/checkout");
+    let commit = scene.forge.commit(
+        "actions/checkout",
+        "main",
+        [(
+            "action.yml",
+            "name: Checkout\nruns:\n  using: node20\n  main: dist/index.js\n",
+        )],
+    );
+    scene.forge.tag("actions/checkout", "v4", &commit);
+
     scene
         .push(
             "main",
@@ -339,12 +372,7 @@ async fn a_broken_file_whose_on_matches_ends_its_run_as_a_startup_failure_with_i
             )],
         )
         .await;
-    let runs = scene.runs().await;
-    let uses = runs
-        .iter()
-        .find(|run| run["display_name"] == "uses")
-        .expect("the run of the workflow with a `uses` step");
-    assert_eq!(uses["status"], "queued", "{uses}");
+    let uses = scene.until_queued("uses").await;
     assert_eq!(uses["notices"], json!([]));
 }
 
