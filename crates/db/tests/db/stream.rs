@@ -301,8 +301,14 @@ async fn a_cursor_resumes_both_sequences_after_their_positions() {
     let rest = delivered(db, &everything(), parsed, 2).await;
     assert_eq!(journal_seqs(&rest), vec![second.seq]);
     assert_eq!(agent_states(&rest), vec![true]);
+    let journal_position = heard
+        .iter()
+        .find_map(|(position, event)| {
+            matches!(event, Delivered::Run(_)).then_some(position.journal)
+        })
+        .expect("the position of the journal event");
     let middle = Cursor {
-        journal: heard[0].0.journal,
+        journal: journal_position,
         stream: start.stream,
     };
     let again = delivered(db, &everything(), middle, 3).await;
