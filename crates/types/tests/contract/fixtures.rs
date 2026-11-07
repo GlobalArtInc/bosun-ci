@@ -47,6 +47,7 @@ const RUN_BY_OTHER_SUITES: &[&str] = &[
     "runs",
     "schedules",
     "triggers",
+    "twirp",
 ];
 
 fn round_trip<T: Serialize + DeserializeOwned>(value: &Value) -> Result<Value, String> {
