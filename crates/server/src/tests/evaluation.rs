@@ -426,7 +426,11 @@ jobs:
             build.labels.as_slice(),
             build.continue_on_error
         ),
-        ("Build on GPU", ["gpu".to_owned()].as_slice(), true)
+        (
+            "Build on GPU",
+            ["gpu".to_owned(), "shell".to_owned()].as_slice(),
+            true
+        )
     );
     let evaluated: Evaluated =
         serde_json::from_value(build.evaluated.expect("the evaluated values")).expect("values");

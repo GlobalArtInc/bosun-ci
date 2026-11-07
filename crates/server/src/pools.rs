@@ -1,7 +1,8 @@
 use axum::Json;
 use axum::extract::State;
 use bosun_db::pools::{Access, NewPool};
-use bosun_types::api::{CreatePoolRequest, Page, Pool};
+use bosun_types::api::{CreatePoolRequest, Page, Pool, TrustLevel, UpdatePoolRequest};
+use bosun_types::error::ErrorCode;
 use sea_orm::TransactionTrait;
 use tracing::info;
 
@@ -9,13 +10,14 @@ use crate::access::{AgentManage, Caller, OnInstallation};
 use crate::envelope::ApiError;
 use crate::openapi::Api;
 use crate::reply::Created;
-use crate::request::{Faults, Idempotent, Listing, database};
+use crate::request::{Body, Faults, Idempotent, Listing, Segment, database};
 use crate::{AppState, idempotency, organisations, projects, slug};
 
 pub(crate) fn routes() -> Api {
     Api::new()
         .get("/api/v1/pools", list)
         .post("/api/v1/pools", create)
+        .patch("/api/v1/pools/{pool}", update)
 }
 
 async fn list(
@@ -94,4 +96,44 @@ async fn create(
         idempotency::commit(&state.db, transaction, body.idempotency.as_ref(), pool).await?;
     info!(pool_id = %id, name = request.name, ?trust, "created a pool");
     Ok(created)
+}
+
+async fn update(
+    State(state): State<AppState>,
+    caller: Caller<OnInstallation<AgentManage>>,
+    Segment(name): Segment,
+    body: Result<Body<UpdatePoolRequest>, ApiError>,
+) -> Result<Json<Pool>, ApiError> {
+    caller.installation()?;
+    let Body(request) = body?;
+    let absent = || ApiError::new(ErrorCode::NotFound, format!("there is no pool `{name}`"));
+    let current = bosun_db::pools::named(&state.db, &name)
+        .await
+        .map_err(database)?
+        .ok_or_else(absent)?;
+    let Some(allow) = request.allow_privileged else {
+        return Ok(Json(current));
+    };
+    if allow && current.trust == TrustLevel::Untrusted {
+        let mut faults = Faults::default();
+        faults.add(
+            "allow_privileged",
+            "cannot be set on an untrusted pool, whose agents never run privileged container options",
+        );
+        return Err(faults.refuse("the pool is not valid"));
+    }
+    let changed = bosun_db::pools::set_allow_privileged(&state.db, current.id, allow)
+        .await
+        .map_err(database)?
+        .ok_or_else(absent)?;
+    if changed.allow_privileged != current.allow_privileged {
+        info!(
+            pool_id = %changed.id,
+            name = changed.name,
+            login = caller.principal.user.login,
+            allow_privileged = changed.allow_privileged,
+            "changed whether a pool allows privileged container options"
+        );
+    }
+    Ok(Json(changed))
 }

@@ -389,6 +389,18 @@ async fn an_untrusted_runs_token_is_read_only_whatever_its_workflow_asks() {
         &[Access::AllProjects],
     )
     .await;
+    bosun_db::aliases::set(
+        scene.world.db(),
+        bosun_db::aliases::NewAlias {
+            organisation: None,
+            label: "boxed",
+            pool: None,
+            capability: Some(Capability::Podman),
+            image: Some("alpine"),
+        },
+    )
+    .await
+    .expect("an alias with an image");
     let run = scene
         .world
         .dispatch_from_fork(
@@ -396,7 +408,7 @@ async fn an_untrusted_runs_token_is_read_only_whatever_its_workflow_asks() {
                 "on: workflow_dispatch
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: boxed
     permissions:
       contents: write
       issues: write

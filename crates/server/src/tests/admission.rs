@@ -241,13 +241,25 @@ async fn the_assignment_of_a_run_from_a_fork_holds_no_secret_and_every_variable(
         &[Access::AllProjects],
     )
     .await;
+    bosun_db::aliases::set(
+        world.db(),
+        bosun_db::aliases::NewAlias {
+            organisation: None,
+            label: "boxed",
+            pool: None,
+            capability: Some(Capability::Podman),
+            image: Some("alpine"),
+        },
+    )
+    .await
+    .expect("an alias with an image");
     let run = world
         .dispatch_from_fork(
             &parse(
                 "on: workflow_dispatch
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: boxed
     env:
       TOKEN: ${{ secrets.TOKEN }}
       REGION: ${{ vars.REGION }}

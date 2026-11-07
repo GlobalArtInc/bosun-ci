@@ -297,7 +297,7 @@ async fn a_fork_pull_request_under_the_default_policy_creates_no_run_and_gets_a_
 async fn under_approval_a_fork_waits_for_admission_and_then_runs_on_an_untrusted_pool_alone() {
     let scene = Scene::new(&[(
         ".bosun/workflows/ci.yml",
-        "name: ci\non: pull_request\njobs:\n  build:\n    runs-on: [self-hosted, build]\n    \
+        "name: ci\non: pull_request\njobs:\n  build:\n    runs-on: [self-hosted, build, boxed]\n    \
          env:\n      TOKEN: ${{ secrets.DEPLOY_TOKEN }}\n    steps:\n      \
          - run: echo ${{ vars.GREETING }}\n",
     )])
@@ -316,6 +316,20 @@ async fn under_approval_a_fork_waits_for_admission_and_then_runs_on_an_untrusted
             .await;
         assert_eq!(status, 201, "{body}");
     }
+    let (status, alias) = scene
+        .api
+        .post(
+            "/api/v1/label-aliases",
+            &json!({
+                "label": "boxed",
+                "organisation": null,
+                "pool": null,
+                "capability": null,
+                "image": "docker.io/library/alpine:3"
+            }),
+        )
+        .await;
+    assert_eq!(status, 201, "{alias}");
     let everyone = json!({ "all_projects": true, "organisations": [], "projects": [] });
     for (name, trust) in [("inside", "trusted"), ("forks", "untrusted")] {
         let (status, pool) = scene

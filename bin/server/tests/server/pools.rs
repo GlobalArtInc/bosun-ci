@@ -70,6 +70,18 @@ impl Site {
         (status, response.json().await.expect("a JSON body"))
     }
 
+    async fn patch(&self, path: &str, body: &Value) -> (u16, Value) {
+        let response = client()
+            .patch(format!("http://{}{path}", self.address))
+            .bearer_auth(&self.owner)
+            .json(body)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("PATCH {path}: {error}"));
+        let status = response.status().as_u16();
+        (status, response.json().await.expect("a JSON body"))
+    }
+
     async fn created(&self, path: &str, body: &Value) -> Value {
         let (status, body) = self.post(path, body).await;
         assert_eq!(status, 201, "POST {path}: {body}");
@@ -102,6 +114,17 @@ impl Site {
             "pool": pool,
             "capability": null,
             "image": null
+        }))
+        .await;
+    }
+
+    async fn image_alias(&self, label: &str) {
+        self.alias_with(&json!({
+            "label": label,
+            "organisation": null,
+            "pool": null,
+            "capability": null,
+            "image": "docker.io/library/alpine:3"
         }))
         .await;
     }
@@ -275,7 +298,7 @@ async fn an_aliased_label_goes_to_the_agents_of_its_pool_and_the_organisations_a
              cardinality(capabilities)) AS value FROM bosun.job WHERE id = '{build}'"
         ))
         .await,
-        [format!("0 {linux_id} 0")]
+        [format!("1 {linux_id} 1")]
     );
 
     let site_workflow = site
@@ -318,7 +341,7 @@ async fn a_label_without_an_alias_or_an_agent_is_cancelled_with_no_agent_after_m
             site.job(&run, "build").await
         ))
         .await,
-        ["ubuntu-latest completed cancelled"]
+        ["ubuntu-latest,shell completed cancelled"]
     );
     assert_eq!(
         site.values(&format!(
@@ -417,8 +440,9 @@ async fn trusted_and_untrusted_pools_take_only_the_jobs_of_runs_of_their_own_tru
     )
     .await;
 
+    site.image_alias("boxed").await;
     let workflow = site
-        .workflow("globalart/ops", &[("build", "[self-hosted, build]")])
+        .workflow("globalart/ops", &[("build", "[self-hosted, build, boxed]")])
         .await;
     let first = site.dispatch(&workflow).await;
     let second = site.dispatch(&workflow).await;
@@ -500,20 +524,25 @@ async fn an_agent_of_an_untrusted_pool_is_listed_without_shell_and_offered_no_jo
         json!(["self-hosted", "linux", "x64", "podman", "build"])
     );
 
+    site.image_alias("boxed").await;
     let workflow = site
         .workflow(
             "globalart/ops",
             &[
                 ("by-label", "[self-hosted, shell]"),
                 ("by-alias", "on-the-host"),
-                ("either", "[self-hosted, build]"),
+                ("plain", "[self-hosted, build]"),
+                ("contained", "[self-hosted, build, boxed]"),
             ],
         )
         .await;
     let run = site.dispatch(&workflow).await;
     site.untrusted(&run).await;
     connection.idle();
-    assert_eq!(takes(&mut connection).await, site.job(&run, "either").await);
+    assert_eq!(
+        takes(&mut connection).await,
+        site.job(&run, "contained").await
+    );
     connection.idle();
     offered_nothing(&mut connection, "the agent without shell").await;
     assert_eq!(
@@ -521,10 +550,14 @@ async fn an_agent_of_an_untrusted_pool_is_listed_without_shell_and_offered_no_jo
             "SELECT concat_ws(' ', j.key, j.status, \
              NULLIF(array_to_string(j.capabilities, ','), '')) \
              AS value FROM bosun.job j JOIN bosun.attempt a ON a.id = j.attempt_id \
-             WHERE a.run_id = '{run}' AND j.key <> 'either' ORDER BY j.key"
+             WHERE a.run_id = '{run}' AND j.key <> 'contained' ORDER BY j.key"
         ))
         .await,
-        ["by-alias queued shell", "by-label queued"]
+        [
+            "by-alias queued shell",
+            "by-label queued shell",
+            "plain queued shell"
+        ]
     );
 }
 
@@ -627,5 +660,127 @@ async fn pools_and_aliases_refuse_what_their_rules_do_not_allow() {
     assert_eq!(
         listed["items"][0]["image"],
         "docker.io/library/ubuntu:22.04"
+    );
+}
+
+#[tokio::test]
+async fn a_job_whose_label_resolves_to_an_image_goes_only_to_an_agent_with_podman() {
+    let site = Site::start("").await;
+    site.alias_with(&json!({
+        "label": "ubuntu-latest",
+        "organisation": null,
+        "pool": null,
+        "capability": null,
+        "image": "docker.io/library/ubuntu:24.04"
+    }))
+    .await;
+    let host = site
+        .agent("default", "runner1-1", &[], &[Capability::Shell])
+        .await;
+    let both = site
+        .agent(
+            "default",
+            "runner2-1",
+            &[],
+            &[Capability::Shell, Capability::Podman],
+        )
+        .await;
+    let mut on_host = host.connect(site.address).await;
+    let mut on_both = both.connect(site.address).await;
+    site.until(
+        "SELECT string_agg(concat_ws(' ', name, array_to_string(capabilities, ',')), ';' \
+         ORDER BY name) AS value FROM bosun.agent",
+        &["runner1-1 shell;runner2-1 shell,podman"],
+    )
+    .await;
+
+    let workflow = site
+        .workflow(
+            "globalart/ops",
+            &[("image", "ubuntu-latest"), ("plain", "[self-hosted]")],
+        )
+        .await;
+    let run = site.dispatch(&workflow).await;
+    let image = site.job(&run, "image").await;
+    assert_eq!(
+        site.values(&format!(
+            "SELECT concat_ws(' ', array_to_string(labels, ','), \
+             array_to_string(capabilities, ',')) AS value FROM bosun.job WHERE id = '{image}'"
+        ))
+        .await,
+        ["podman podman"]
+    );
+    on_host.idle();
+    assert_eq!(takes(&mut on_host).await, site.job(&run, "plain").await);
+    on_host.idle();
+    offered_nothing(&mut on_host, "the agent without podman").await;
+    on_both.idle();
+    assert_eq!(takes(&mut on_both).await, image);
+}
+
+#[tokio::test]
+async fn allow_privileged_is_off_by_default_changes_through_patch_and_is_refused_on_untrusted_pools()
+ {
+    let site = Site::start("").await;
+    let all = json!({ "all_projects": true, "organisations": [], "projects": [] });
+    let inside = site.pool("inside", "trusted", all.clone()).await;
+    let forks = site.pool("forks", "untrusted", all).await;
+    assert_eq!(inside["allow_privileged"], false);
+    assert_eq!(forks["allow_privileged"], false);
+
+    let (status, changed) = site
+        .patch("/api/v1/pools/inside", &json!({ "allow_privileged": true }))
+        .await;
+    assert_eq!((status, &changed["allow_privileged"]), (200, &json!(true)));
+    let listed = site.get("/api/v1/pools").await;
+    let flags: Vec<(&str, &Value)> = listed["items"]
+        .as_array()
+        .expect("a page")
+        .iter()
+        .map(|pool| (text(&pool["name"]), &pool["allow_privileged"]))
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            ("default", &json!(false)),
+            ("inside", &json!(true)),
+            ("forks", &json!(false))
+        ]
+    );
+    let (status, same) = site.patch("/api/v1/pools/inside", &json!({})).await;
+    assert_eq!((status, &same["allow_privileged"]), (200, &json!(true)));
+
+    let (status, refused) = site
+        .patch("/api/v1/pools/forks", &json!({ "allow_privileged": true }))
+        .await;
+    assert_eq!(status, 422, "{refused}");
+    assert_eq!(refused["error"]["code"], "invalid_input");
+    assert_eq!(refused["error"]["fields"][0]["field"], "allow_privileged");
+    assert_eq!(
+        site.values("SELECT allow_privileged::text AS value FROM bosun.pool WHERE name = 'forks'")
+            .await,
+        ["false"]
+    );
+    let (status, kept) = site
+        .patch("/api/v1/pools/forks", &json!({ "allow_privileged": false }))
+        .await;
+    assert_eq!((status, &kept["allow_privileged"]), (200, &json!(false)));
+
+    let (status, missing) = site
+        .patch(
+            "/api/v1/pools/nowhere",
+            &json!({ "allow_privileged": true }),
+        )
+        .await;
+    assert_eq!(
+        (status, &missing["error"]["code"]),
+        (404, &json!("not_found"))
+    );
+    let (status, null) = site
+        .patch("/api/v1/pools/inside", &json!({ "allow_privileged": null }))
+        .await;
+    assert_eq!(
+        (status, &null["error"]["code"]),
+        (422, &json!("invalid_input"))
     );
 }

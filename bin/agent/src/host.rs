@@ -1,7 +1,21 @@
 use std::fs;
 use std::path::Path;
 
-use bosun_proto::agent::v1::Heartbeat;
+use bosun_proto::agent::v1::{Capability, Heartbeat};
+use bosun_runner::podman::{self, Detection};
+use tracing::{info, warn};
+
+pub(crate) async fn capabilities() -> Vec<Capability> {
+    let mut held = vec![Capability::Shell];
+    match podman::detect().await {
+        found @ Detection::Usable { .. } => {
+            info!("{found}");
+            held.push(Capability::Podman);
+        }
+        lacking @ Detection::Lacking(_) => warn!("{lacking}"),
+    }
+    held
+}
 
 pub(crate) fn os() -> &'static str {
     match std::env::consts::OS {

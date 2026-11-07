@@ -82,6 +82,7 @@ async fn every_operation_reaches_a_handler_with_the_owners_token() {
             ("{binding}", vec![Uuid::now_v7().to_string()]),
             ("{token}", vec![Uuid::now_v7().to_string()]),
             ("{agent}", vec![Uuid::now_v7().to_string()]),
+            ("{pool}", vec!["nowhere".to_owned()]),
             ("{name}", vec!["TOKEN".to_owned()]),
             ("{provider}", vec!["keycloak".to_owned()]),
         ] {

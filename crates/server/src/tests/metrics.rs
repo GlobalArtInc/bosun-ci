@@ -14,7 +14,7 @@ use crate::metrics::{Meters, render};
 
 const SERIES: &str = "| Series |";
 
-const LABELS: &str = "linux,self-hosted";
+const LABELS: &str = "linux,self-hosted,shell";
 
 struct Documented {
     name: String,
@@ -211,7 +211,10 @@ async fn a_matrix_counts_as_its_members_and_a_job_no_pool_takes_is_queued_under_
     let text = exposition(world.db(), &Meters::default(), Utc::now()).await;
     assert_eq!(value(&text, &queued("bosun_queue_jobs")), 2.0, "{text}");
     assert_eq!(
-        value(&text, "bosun_queue_jobs{pool=\"\",labels=\"self-hosted\"}"),
+        value(
+            &text,
+            "bosun_queue_jobs{pool=\"\",labels=\"self-hosted,shell\"}"
+        ),
         1.0,
         "{text}"
     );

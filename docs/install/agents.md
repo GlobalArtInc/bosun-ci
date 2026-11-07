@@ -46,8 +46,10 @@ On a Debian or Ubuntu host with systemd, as root, the script:
   `/etc/bosun/agent-<n>.toml` readable only by that user; and enables and starts
   `bosun-agent@<n>.service`;
 - says which prerequisites of the `podman` capability (podman 4.4 or newer, cgroups v2,
-  netavark) the host lacks. The agents of this version run jobs on the host, with the `shell`
-  capability.
+  netavark, and a podman that is local) the host lacks. An agent advertises `podman` next to `shell`
+  when it finds a usable podman, and runs without it otherwise. The agents of this version run jobs
+  on the host, with the `shell` capability; the container executor arrives with step 10 of M2, and
+  until then no agent runs a job in a container.
 
 `journalctl -u bosun-agent@1` shows the log of instance 1, and `bosun agent list` shows the agents
 the server knows, with whether they are online.

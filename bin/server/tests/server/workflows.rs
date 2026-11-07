@@ -326,7 +326,7 @@ async fn a_dispatch_creates_a_queued_run_with_its_first_attempt_its_jobs_and_the
         )
         .await,
         vec![
-            "build Build queued  self-hosted,linux,x64 1",
+            "build Build queued  self-hosted,linux,x64,shell 1",
             "test test pending build "
         ]
     );

@@ -345,7 +345,7 @@ async fn a_job_runs_where_the_output_its_dependency_reported_places_it() {
         job["status"] == "queued"
     })
     .await;
-    assert_eq!(placed["labels"], json!(["gpu"]));
+    assert_eq!(placed["labels"], json!(["gpu", "shell"]));
     assert_eq!(
         read(&api, &format!("/api/v1/jobs/{setup}")).await["outputs"],
         json!({ "label": "GPU" })

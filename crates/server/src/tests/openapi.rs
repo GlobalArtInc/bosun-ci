@@ -358,6 +358,12 @@ const FIXTURES: &[(&str, &str, &str, Part)] = &[
         Part::Request,
     ),
     (
+        "update-pool-request.json",
+        "patch",
+        "/api/v1/pools/{pool}",
+        Part::Request,
+    ),
+    (
         "update-project-request.json",
         "patch",
         "/api/v1/projects/{project}",

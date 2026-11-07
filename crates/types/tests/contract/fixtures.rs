@@ -12,7 +12,8 @@ use bosun_types::api::{
     RegistrationTokenCreated, RegistrationTokenRequest, RepositoryDispatchRequest, Revision, Role,
     RoleBinding, Run, Secret, SetLabelAliasRequest, SetSecretRequest, SetVariableRequest,
     SignInMethods, SignInRequest, Step, Team, UpdateAgentRequest, UpdateOrganisationRequest,
-    UpdateProjectRequest, UpdateSourceRequest, UpdateWorkflowRequest, User, Variable, Workflow,
+    UpdatePoolRequest, UpdateProjectRequest, UpdateSourceRequest, UpdateWorkflowRequest, User,
+    Variable, Workflow,
 };
 use bosun_types::command::CommandRequest;
 use bosun_types::diagnostic::Diagnostic;
@@ -256,6 +257,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         (
             "api/update-organisation-policy-request.json",
             round_trip::<UpdateOrganisationRequest>,
+        ),
+        (
+            "api/update-pool-request.json",
+            round_trip::<UpdatePoolRequest>,
         ),
         (
             "api/update-project-request.json",

@@ -36,6 +36,7 @@ type Stop = Pin<Box<dyn Future<Output = String> + Send>>;
 
 pub(crate) struct Agent {
     config: Config,
+    capabilities: Vec<Capability>,
     spool: Arc<Spool>,
     tracking: Arc<Tracking>,
     job: Option<Running>,
@@ -53,10 +54,16 @@ enum Ended {
 }
 
 impl Agent {
-    pub(crate) fn new(config: Config, spool: Spool, tracking: Tracking) -> Agent {
+    pub(crate) fn new(
+        config: Config,
+        capabilities: Vec<Capability>,
+        spool: Spool,
+        tracking: Tracking,
+    ) -> Agent {
         let (out, results) = mpsc::unbounded_channel();
         Agent {
             config,
+            capabilities,
             spool: Arc::new(spool),
             tracking: Arc::new(tracking),
             job: None,
@@ -163,7 +170,11 @@ impl Agent {
         Hello {
             version: VERSION.to_owned(),
             protocol: PROTOCOL.to_owned(),
-            capabilities: vec![Capability::Shell.into()],
+            capabilities: self
+                .capabilities
+                .iter()
+                .map(|held| (*held).into())
+                .collect(),
             labels: self.config.labels.clone(),
             os: host::os().to_owned(),
             arch: host::arch().to_owned(),

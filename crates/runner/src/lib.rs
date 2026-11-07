@@ -5,6 +5,7 @@ mod hash;
 mod mask;
 mod matchers;
 mod output;
+pub mod podman;
 mod runtime;
 mod scope;
 mod shell;

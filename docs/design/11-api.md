@@ -316,6 +316,7 @@ with the answers each built-in role gets:
 | `POST /agents/register` | — | `anyone` |
 | `GET /pools` | `agent.manage` | `installation` |
 | `POST /pools` | `agent.manage` | `installation` |
+| `PATCH /pools/{pool}` | `agent.manage` | `installation` |
 | `GET /label-aliases` | `agent.manage` | `installation` |
 | `POST /label-aliases` | `agent.manage` | `installation` |
 | `GET /users` | `organisation.manage` | `installation` |
@@ -606,7 +607,9 @@ Step 18 of M1 ([../plan.md](../plan.md)) settled these endpoints; what pools and
 [05-execution.md](05-execution.md#pools-and-label-aliases).
 
 - `GET /pools` lists the pools oldest first, as a cursor page without filters. A pool is
-  `{"id", "name", "trust", "access", "created_at"}`, and its `access` is
+  `{"id", "name", "trust", "allow_privileged", "access", "created_at"}`, whose
+  `allow_privileged` says whether privileged container options are allowed in the pool, and its
+  `access` is
   `{"all_projects", "organisations", "projects"}`: whether every project of the installation may use
   it, the organisations whose projects may, each `{"id", "slug"}`, and the single projects that may,
   each `{"id", "organisation_id", "path"}` with `path` written `<organisation>/<project>`.
@@ -617,7 +620,13 @@ Step 18 of M1 ([../plan.md](../plan.md)) settled these endpoints; what pools and
   taken is `409 conflict`. An organisation or a project that does not exist is `invalid_input`
   naming `access.organisations.<n>` or `access.projects.<n>`, and an access list that opens the pool
   to no project is `invalid_input` naming `access`, since no endpoint changes an access list yet and
-  such a pool could never take a job.
+  such a pool could never take a job. A pool starts with `allow_privileged` false.
+- `PATCH /pools/{pool}` takes `allow_privileged` and answers `200` with the pool. `{pool}` is the
+  pool's name, as in every other place that names a pool, and a name that no pool has is
+  `404 not_found` with the message ``there is no pool `<name>` ``. Setting `allow_privileged` on an
+  untrusted pool is `422 invalid_input` naming `allow_privileged`, and turning it off there changes
+  nothing; an empty body changes nothing, `null` and a key other than `allow_privileged` are
+  `invalid_input`, since no endpoint changes a pool's name, trust or access list yet.
 - `GET /label-aliases` lists the aliases oldest first, as a cursor page without filters. An alias is
   `{"id", "label", "organisation_id", "pool_id", "capability", "image", "created_at",
   "updated_at"}`, whose `organisation_id` is `null` for an alias of the installation.

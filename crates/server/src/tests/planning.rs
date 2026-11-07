@@ -1,9 +1,13 @@
 use std::collections::BTreeMap;
 
 use bosun_db::actions::Pin;
+use bosun_db::pools::Placement;
 use bosun_types::actor::Actor;
+use bosun_types::api::Capability;
 use bosun_types::event::Event;
-use bosun_types::ir::{Action, ActionReference, Evaluable, JobKind, RunsOn, Template};
+use bosun_types::ir::{
+    Action, ActionReference, Container, Evaluable, JobKind, RunsOn, Service, Template,
+};
 use bosun_types::status::{
     Conclusion, JobStatus, RunConclusion, RunStatus, StatusReason, StepStatus,
 };
@@ -11,6 +15,7 @@ use sea_orm::{ConnectionTrait, Statement, TransactionTrait};
 
 use super::{World, finished, replay, template, workflow};
 use crate::agents::progress::{self, Progress, StepEnd};
+use crate::planner::capability::{needed_capability, require};
 use crate::site::Site;
 
 pub(super) async fn strings(world: &World, sql: &str) -> Vec<String> {
@@ -68,9 +73,9 @@ async fn jobs_without_needs_are_queued_at_dispatch_with_their_labels_and_the_poo
         )
         .await,
         [
-            "build queued self-hosted,linux default t",
+            "build queued self-hosted,linux,shell default t",
             "grouped queued shell default t",
-            "nowhere queued  t",
+            "nowhere queued shell t",
             "test pending  f",
         ]
     );
@@ -301,11 +306,11 @@ async fn a_job_placed_by_an_expression_is_queued_with_the_labels_it_evaluates_to
     assert_eq!(
         placed,
         [
-            "self-hosted,workflow_dispatch default",
-            "linux default",
-            "gpu,linux default",
-            "arm64 default",
-            "linux-1 default",
+            "self-hosted,workflow_dispatch,shell default",
+            "linux,shell default",
+            "gpu,linux,shell default",
+            "arm64,shell default",
+            "linux-1,shell default",
         ]
     );
 }
@@ -411,5 +416,61 @@ async fn a_failing_step_fails_its_job_skips_its_dependents_and_fails_the_run() {
     assert_eq!(
         (run_row.status, run_row.conclusion),
         (RunStatus::Completed, Some(RunConclusion::Failure))
+    );
+}
+
+fn image() -> Container {
+    Container {
+        image: Template::text("alpine"),
+        credentials: None,
+        env: BTreeMap::new(),
+        ports: Vec::new(),
+        volumes: Vec::new(),
+        options: None,
+    }
+}
+
+#[test]
+fn a_job_needs_podman_for_a_container_services_or_an_aliased_image_and_shell_otherwise() {
+    let plain = template("plain", &[], 1);
+    let mut contained = template("contained", &[], 1);
+    contained.container = Some(image());
+    let mut served = template("served", &[], 1);
+    served.services = vec![Service {
+        name: "db".to_owned(),
+        container: image(),
+    }];
+    let mut both = contained.clone();
+    both.services = served.services.clone();
+    for (job, aliased, expected) in [
+        (&plain, &[][..], Capability::Shell),
+        (&plain, &[Capability::Shell][..], Capability::Shell),
+        (&plain, &[Capability::Podman][..], Capability::Podman),
+        (&contained, &[][..], Capability::Podman),
+        (&contained, &[Capability::Shell][..], Capability::Podman),
+        (&served, &[][..], Capability::Podman),
+        (&both, &[Capability::Podman][..], Capability::Podman),
+    ] {
+        assert_eq!(
+            needed_capability(job, aliased),
+            expected,
+            "{} with the aliases {aliased:?}",
+            job.key
+        );
+    }
+
+    let mut placement = Placement {
+        labels: vec!["self-hosted".to_owned(), "shell".to_owned()],
+        pools: Vec::new(),
+        capabilities: vec![Capability::Shell],
+    };
+    require(&mut placement, Capability::Shell);
+    assert_eq!(placement.labels, ["self-hosted", "shell"]);
+    assert_eq!(placement.capabilities, [Capability::Shell]);
+    require(&mut placement, Capability::Podman);
+    assert_eq!(placement.labels, ["self-hosted", "shell", "podman"]);
+    assert_eq!(
+        placement.capabilities,
+        [Capability::Shell, Capability::Podman]
     );
 }

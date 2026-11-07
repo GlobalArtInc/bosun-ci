@@ -1,4 +1,5 @@
 mod calls;
+pub(crate) mod capability;
 mod concurrency;
 mod matrix;
 mod resolution;
@@ -1228,7 +1229,7 @@ async fn decide(
         Ok(prepared) => prepared,
         Err(fault) => return fail(run, world, job, fault).await.map(Step::Decided),
     };
-    let placement = bosun_db::pools::place(
+    let mut placement = bosun_db::pools::place(
         run.transaction(),
         world.facts.organisation_id,
         world.facts.project_id,
@@ -1236,6 +1237,8 @@ async fn decide(
         &prepared.labels,
     )
     .await?;
+    let needed = capability::needed_capability(template, &placement.capabilities);
+    capability::require(&mut placement, needed);
     let remote_uses = resolution::remote(template);
     run.prepare_job(
         job.id,

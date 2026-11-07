@@ -5,6 +5,7 @@ use bosun_db::pools::{self, Access, NewPool, Placement};
 use bosun_testkit::TestDatabase;
 use bosun_types::api::{Capability, OrganisationRef, PoolAccess, ProjectRef, TrustLevel};
 use bosun_types::id::PoolId;
+use sea_orm::prelude::Uuid;
 use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait};
 
 #[tokio::test]
@@ -356,5 +357,61 @@ async fn several_aliases_meet_in_one_pool_and_need_every_capability_they_name() 
             .await
             .pools,
         [tenancy.linux]
+    );
+}
+
+#[tokio::test]
+async fn allow_privileged_starts_off_changes_on_trusted_pools_and_is_refused_by_the_database_on_untrusted_ones()
+ {
+    let database = TestDatabase::migrated().await;
+    let db = database.connection();
+    let make = |name: &'static str, trust| NewPool {
+        name,
+        trust,
+        access: &[Access::AllProjects],
+    };
+    let trusted = pools::create(db, make("inside", TrustLevel::Trusted))
+        .await
+        .expect("a pool");
+    let untrusted = pools::create(db, make("forks", TrustLevel::Untrusted))
+        .await
+        .expect("a pool");
+    assert!(
+        !pools::default_pool(db)
+            .await
+            .expect("default")
+            .allow_privileged
+    );
+    assert!(!trusted.allow_privileged && !untrusted.allow_privileged);
+
+    let changed = pools::set_allow_privileged(db, trusted.id, true)
+        .await
+        .expect("an update")
+        .expect("the pool");
+    assert!(changed.allow_privileged);
+    assert_eq!(
+        pools::find(db, trusted.id).await.expect("a lookup"),
+        Some(changed)
+    );
+    assert!(matches!(
+        pools::set_allow_privileged(db, untrusted.id, true).await,
+        Err(Error::Database(_))
+    ));
+    assert!(
+        !pools::find(db, untrusted.id)
+            .await
+            .expect("a lookup")
+            .expect("the pool")
+            .allow_privileged
+    );
+    assert_eq!(
+        pools::set_allow_privileged(
+            db,
+            PoolId::try_from(Uuid::now_v7()).expect("a pool id"),
+            true,
+        )
+        .await
+        .expect("an update"),
+        None
     );
 }

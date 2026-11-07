@@ -52,7 +52,8 @@ async fn register_writes_a_configuration_only_the_agent_user_can_read_and_run_co
         "{again:#?}"
     );
 
-    let running = home.start();
+    let no_podman = tempfile::tempdir().expect("a PATH without podman");
+    let running = home.start_with_path(no_podman.path());
     let mut stream = server.accept().await;
     assert_eq!(stream.hello.protocol, PROTOCOL);
     assert_eq!(stream.hello.version, env!("CARGO_PKG_VERSION"));

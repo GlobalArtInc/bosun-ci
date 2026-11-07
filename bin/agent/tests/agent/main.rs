@@ -5,6 +5,7 @@ mod drain;
 mod forge_token;
 mod jobs;
 mod masking;
+mod podman;
 mod reconnect;
 mod register;
 mod server;
@@ -94,6 +95,14 @@ impl Home {
     }
 
     pub fn start(&self) -> Running {
+        self.launch(None)
+    }
+
+    pub fn start_with_path(&self, path: &Path) -> Running {
+        self.launch(Some(path))
+    }
+
+    fn launch(&self, path: Option<&Path>) -> Running {
         let mut command = agent();
         command
             .arg("run")
@@ -101,6 +110,9 @@ impl Home {
             .arg(self.config())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(path) = path {
+            command.env("PATH", path);
+        }
         let mut child = command.spawn().expect("bosun-agent starts");
         let (sender, lines) = mpsc::unbounded_channel();
         for stream in [

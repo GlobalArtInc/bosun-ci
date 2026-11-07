@@ -1202,6 +1202,7 @@ async fn calls(
             .replace("{execution}", &fixture.execution.to_string())
             .replace("{step}", &fixture.step.to_string())
             .replace("{team}", &fixture.team.to_string())
+            .replace("{pool}", "default")
             .replace("{provider}", oidc::PROVIDER),
     };
     let body = match (endpoint.method.as_str(), endpoint.path.as_str()) {
@@ -1252,6 +1253,7 @@ async fn calls(
             "trust": "trusted",
             "access": { "all_projects": false, "organisations": ["globalart"], "projects": [] }
         })),
+        ("PATCH", "/api/v1/pools/{pool}") => Some(json!({ "allow_privileged": false })),
         ("POST", "/api/v1/label-aliases") => Some(json!({
             "label": format!("label-{name}"),
             "organisation": "globalart",

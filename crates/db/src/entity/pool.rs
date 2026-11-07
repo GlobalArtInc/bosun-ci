@@ -7,6 +7,7 @@ pub struct Model {
     pub id: Uuid,
     pub name: String,
     pub trust: String,
+    pub allow_privileged: bool,
     pub created_at: DateTimeUtc,
 }
 

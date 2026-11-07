@@ -1954,6 +1954,9 @@
           "access": {
             "$ref": "#/components/schemas/PoolAccess"
           },
+          "allow_privileged": {
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -1973,6 +1976,7 @@
           "id",
           "name",
           "trust",
+          "allow_privileged",
           "access",
           "created_at"
         ],
@@ -3531,6 +3535,15 @@
         },
         "type": "object"
       },
+      "UpdatePoolRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_privileged": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "UpdateProjectRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4972,6 +4985,59 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "csrf": [],
+            "session": []
+          }
+        ],
+        "x-bosun-permission": {
+          "key": "agent.manage",
+          "on": "installation"
+        }
+      }
+    },
+    "/api/v1/pools/{pool}": {
+      "patch": {
+        "parameters": [
+          {
+            "description": "the pool's name",
+            "in": "path",
+            "name": "pool",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePoolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pool"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "$ref": "#/components/responses/Error"

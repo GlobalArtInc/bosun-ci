@@ -727,6 +727,9 @@ pub struct Pool {
     pub id: PoolId,
     pub name: String,
     pub trust: TrustLevel,
+    #[serde(default)]
+    #[schemars(required)]
+    pub allow_privileged: bool,
     pub access: PoolAccess,
     pub created_at: DateTime<Utc>,
 }
@@ -763,6 +766,18 @@ pub struct CreatePoolRequest {
     pub name: String,
     pub trust: TrustLevel,
     pub access: PoolAccessRequest,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdatePoolRequest {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "given"
+    )]
+    #[schemars(with = "bool")]
+    pub allow_privileged: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

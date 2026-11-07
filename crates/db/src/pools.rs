@@ -51,6 +51,7 @@ pub async fn create<C: ConnectionTrait>(db: &C, new: NewPool<'_>) -> Result<Pool
         id: ActiveValue::Set(Uuid::now_v7()),
         name: ActiveValue::Set(new.name.to_owned()),
         trust: ActiveValue::Set(row::text(TABLE, new.trust)?),
+        allow_privileged: ActiveValue::Set(false),
         created_at: ActiveValue::NotSet,
     }
     .insert(db)
@@ -101,6 +102,23 @@ pub async fn find<C: ConnectionTrait>(db: &C, id: PoolId) -> Result<Option<Pool>
         Some(found) => one(db, found).await.map(Some),
         None => Ok(None),
     }
+}
+
+pub async fn set_allow_privileged<C: ConnectionTrait>(
+    db: &C,
+    id: PoolId,
+    allow: bool,
+) -> Result<Option<Pool>, Error> {
+    let updated = db
+        .execute(statement(
+            "UPDATE pool SET allow_privileged = $2 WHERE id = $1",
+            [Uuid::from(id).into(), allow.into()],
+        ))
+        .await?;
+    if updated.rows_affected() == 0 {
+        return Ok(None);
+    }
+    find(db, id).await
 }
 
 pub async fn list<C: ConnectionTrait>(
@@ -244,6 +262,7 @@ async fn decode<C: ConnectionTrait>(db: &C, pools: Vec<pool::Model>) -> Result<V
                 })?,
                 name: pool.name,
                 trust: row::name(TABLE, pool.trust)?,
+                allow_privileged: pool.allow_privileged,
                 created_at: pool.created_at,
             })
         })

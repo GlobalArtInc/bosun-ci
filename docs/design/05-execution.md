@@ -24,9 +24,10 @@ The pool's name is not a label; `runs-on.group` selects it.
 
 A pool has a name, a trust level (`trusted` or `untrusted`, [08-access.md](08-access.md)), an access
 list of organisations and projects that may use it, whether jobs get the podman socket, whether
-privileged container options are allowed, optionally the address ranges its agents may connect
-from, and optionally an executor plugin instance that provides its agents
-([10-plugins.md](10-plugins.md)). An installation starts with one trusted pool, `default`, open to
+privileged container options are allowed (`allow_privileged`, off by default and refused for an
+untrusted pool, [08-access.md](08-access.md#code-from-outside-the-team)), optionally the address
+ranges its agents may connect from, and optionally an executor plugin instance that provides its
+agents ([10-plugins.md](10-plugins.md)). An installation starts with one trusted pool, `default`, open to
 every project.
 
 An agent started with `--ephemeral` takes exactly one job and then unregisters and exits. This is
@@ -57,13 +58,25 @@ pool, and a job of an untrusted run never reaches a trusted one
 **Capabilities.** A job needs the capabilities its label aliases name, stored in the job's
 `capabilities`. The claim offers a job only to an agent that holds each of them, and a job that
 needs none to an agent that holds either; an agent that holds no capability is offered no job.
+Since step 9 of M2 ([../plan.md](../plan.md)) the planner adds one more capability when the job
+becomes ready, the one `needed_capability` computes from the job: `podman` for a job that declares
+`container` or `services`, or whose label alias names an image or the capability `podman`, and
+`shell` otherwise. A job without an image therefore needs `shell`, where M1 let either capability
+do, so it never reaches an agent that cannot run it on the host. The planner writes the capability
+both as a label of the job, which an agent offers as one of its automatic labels, and into the
+job's `capabilities`, which only the capabilities the server recorded for the agent satisfy, so a
+label that an operator configured on an agent (`--label podman`) lets no agent past the check. Every
+job queued from step 9 on needs a capability; the case of a job that needs none is kept for the jobs
+queued before. Step 14 adds container actions and `docker://` steps to `needed_capability`
+(`crates/server/src/planner/capability.rs`), which stays the one place that decides it.
 
 **The `shell` of an untrusted pool.** An agent of an untrusted pool never holds `shell`. When its
 `Hello` announces the capability, or the label `shell` among its configured labels, the server drops
 both, records the agent without them, and logs a warning that names the agent and its pool, so the
-agent is offered no job that needs `shell`, whether by an alias or by the label. In M1 the agent has
-no `podman` yet ([../plan.md](../plan.md)), so only scripted fake agents claim from an untrusted
-pool.
+agent is offered no job that needs `shell`, whether by an alias or by the label. The agents list
+shows the agent without `shell`. So a job that needs `shell` waits in an untrusted pool until its
+`max_queue_time` ends it with `no_agent`, and the job of an untrusted run that declares no image
+does the same; the jobs an untrusted pool runs are the ones that need `podman`.
 
 **Label aliases** are rows of `label_alias`: a label, stored lowercased, and either an organisation
 or none for the installation, each pair once, with an optional pool, capability and default image.
@@ -78,8 +91,8 @@ pool, and it is cancelled with `no_agent` after `max_queue_time` like a label no
 alias that names no pool and no capability only removes its label, so `ubuntu-latest` can mean any
 agent. Aliases are read once, when the job becomes ready; changing an alias does not move jobs that
 are already queued. An alias that names `podman` or an image is stored for M2: its jobs need
-`podman`, which no agent of M1 holds, so they wait for one, and the image is not used before job
-containers arrive in M2.
+`podman`, so they wait for an agent that holds it, and the image is not used before job containers
+arrive in step 10 of M2.
 
 ## Registration and identity
 
@@ -868,9 +881,13 @@ toolchains or patched actions for the next.
 
 An agent has one or both capabilities. **`shell`** means steps may run directly on the host as the
 agent's user. **`podman`** means the agent may run containers through rootless podman. A job's
-steps run in a job container when the job declares `container`, when its label alias names an
-image, or when the agent lacks `shell`; otherwise they run on the host. Service containers and
-container actions need `podman` in every case.
+steps run in a job container when the job declares `container` or its label alias names an
+image; otherwise they run on the host, and the job needs `shell`
+([Pools and label aliases](#pools-and-label-aliases)), so an agent without `shell` is never offered
+a job without an image. A job whose label alias names the capability `podman` and no image, and
+that declares no `container`, needs `podman` and not `shell`, and has no container to run in, so its
+steps run on the host of the agent that holds `podman`. Service containers and container actions
+need `podman` in every case.
 
 ### `shell`
 
@@ -916,6 +933,22 @@ trust level `trusted` ([08-access.md](08-access.md)), and the server drops it fr
 untrusted pools ([Pools and label aliases](#pools-and-label-aliases)).
 
 ### `podman`
+
+At start the agent decides whether it holds the capability, once, with `podman info --format json`
+run as the agent's user. It holds it when podman reports a version of 4.4 or newer, `cgroupVersion`
+`v2` and `networkBackend` `netavark`, and advertises `podman` in its `Hello` next to `shell`, so its
+automatic labels carry both. Otherwise the agent starts without it and logs one warning that names
+every prerequisite that failed, joined by semicolons (podman missing from the `PATH`, `podman info`
+failing or taking more than 60 seconds, a version that is too old, cgroups v1, another network
+backend, a remote podman whose `serviceIsRemote` is true, such as the client of a virtual machine on
+macOS, whose paths do not exist on the host), and an operator who fixes the host restarts the agent.
+The decision is one module, `bosun_runner::podman`, whose parsing takes the text of `podman info`
+and runs without podman.
+
+On podman 4.x the network backend is chosen once and cached in the graph root, so a host whose store
+already holds images or containers can report `cni` even with netavark installed, and its agent
+then runs without `podman`. The operator's fix is to reset the store (`podman system reset`) or to
+upgrade to podman 5.x.
 
 For each execution the agent creates a network `bosun-<execution>`, starts each service with the
 service's key as its network alias, publishes ports only when `ports` asks, and waits for the

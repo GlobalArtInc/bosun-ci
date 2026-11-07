@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
-scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
+scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents podman runs"
 scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface cases fork refusals bosun-ci"
 
 usage() {
@@ -996,6 +996,78 @@ EOF
   [ "$(cli --profile b --json agent list | jq '[.[] | select(.name == "e2e-delta")] | length')" -eq 0 ] ||
     fail "bosun agent list still lists the deleted agent"
   stop_process agent-delta "$(pid_of agent-delta)" 30
+}
+
+scenario_podman() {
+  begin podman \
+    "an agent with shell and podman is listed with both and runs a job on the host, and the agent of an untrusted pool is listed with podman only"
+  if [ "$podman_requested" != 1 ]; then
+    echo "scenario podman: skipped, BOSUN_TEST_PODMAN is not set"
+    return
+  fi
+  local token deadline refused
+  "$bin/bosun-agent" register --config "$work/agents/podman.toml" --url "http://$address_a" \
+    --token "$registration" --name e2e-podman --dir "$work/agents/podman" --label podman-e2e \
+    >"$work/logs/register-podman.log" 2>&1 ||
+    fail "bosun-agent register of podman failed: $(cat "$work/logs/register-podman.log")"
+  spawn agent-podman "$work/logs/agent-podman.log" "$bin/bosun-agent" run --config "$work/agents/podman.toml"
+  deadline=$((SECONDS + 60))
+  until [ "$(cli --profile a --json agent list | jq '[.[] | select(.name == "e2e-podman" and .online)] | length')" -eq 1 ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the agent e2e-podman did not come online"
+    sleep 0.2
+  done
+  [ "$(cli --profile b --json agent list |
+    jq -r '.[] | select(.name == "e2e-podman") | .capabilities | join(",")')" = "shell,podman" ] ||
+    fail "bosun agent list does not show e2e-podman with shell and podman: $(cli --profile b agent list)"
+  cli --profile b agent list >"$work/out/podman-agents.txt" || fail "bosun agent list failed"
+  grep -qE '^e2e-podman +online .* shell,podman ' "$work/out/podman-agents.txt" ||
+    fail "bosun agent list does not print the capabilities of e2e-podman: $(cat "$work/out/podman-agents.txt")"
+  push podman-host <<'EOF'
+name: podman-host
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: [self-hosted, podman-e2e]
+    steps:
+      - run: echo "workspace $GITHUB_WORKSPACE"
+EOF
+  watch a podman-host
+  watch_ended 60 podman-host
+  [ "$reaped" -eq 0 ] ||
+    fail "bosun workflow dispatch --watch exited with $reaped: $(cat "$watched")"
+  grep -qE "^build \| workspace $work/agents/podman/" "$watched" ||
+    fail "the job that needs shell did not run on the agent e2e-podman: $(cat "$watched")"
+
+  cli --profile a pool create e2e-forks --untrusted --project e2e/m0 >"$work/out/forks-create.txt" 2>&1 ||
+    fail "bosun pool create e2e-forks failed: $(cat "$work/out/forks-create.txt")"
+  token="$(cli --profile a --json pool token create e2e-forks | jq -r .token)" ||
+    fail "bosun pool token create e2e-forks failed"
+  "$bin/bosun-agent" register --config "$work/agents/forks.toml" --url "http://$address_b" \
+    --token "$token" --name e2e-forks --dir "$work/agents/forks" --label shell \
+    >"$work/logs/register-forks.log" 2>&1 ||
+    fail "bosun-agent register of forks failed: $(cat "$work/logs/register-forks.log")"
+  spawn agent-forks "$work/logs/agent-forks.log" "$bin/bosun-agent" run --config "$work/agents/forks.toml"
+  deadline=$((SECONDS + 60))
+  until [ "$(cli --profile a --json agent list | jq '[.[] | select(.name == "e2e-forks" and .online)] | length')" -eq 1 ]; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "the agent e2e-forks did not come online"
+    sleep 0.2
+  done
+  cli --profile a --json agent list |
+    jq -e '.[] | select(.name == "e2e-forks") | .capabilities == ["podman"] and (.labels | index("shell") | not)' \
+      >/dev/null ||
+    fail "the agent of the untrusted pool is not listed with podman only: $(cli --profile a agent list)"
+
+  refused="$(api PATCH /api/v1/pools/e2e-forks --data '{"allow_privileged": true}' 2>/dev/null)" &&
+    fail "allow_privileged was set on an untrusted pool: $refused"
+  [ "$(jq -r '.error.code + " " + .error.fields[0].field' <<<"$refused")" = "invalid_input allow_privileged" ] ||
+    fail "the refusal of allow_privileged on an untrusted pool is: $refused"
+  [ "$(api PATCH /api/v1/pools/default --data '{"allow_privileged": true}' | jq -r .allow_privileged)" = true ] ||
+    fail "allow_privileged was not set on the trusted pool default"
+  [ "$(api PATCH /api/v1/pools/default --data '{"allow_privileged": false}' | jq -r .allow_privileged)" = false ] ||
+    fail "allow_privileged was not lifted on the trusted pool default"
+  stop_process agent-forks "$(pid_of agent-forks)" 30
+  stop_process agent-podman "$(pid_of agent-podman)" 30
+  passed
 }
 
 scenario_secrets() {

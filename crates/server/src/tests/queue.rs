@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use bosun_db::agents::{Connection, NewAgent, NewRegistrationToken, Registration};
@@ -200,7 +200,13 @@ async fn a_claim_takes_the_first_queued_job_by_priority_then_age_that_the_agent_
     }
     assert_eq!(taken, ["urgent", "old", "new", "nothing"]);
 
-    let gpu = connected(&world, "runner2-1", &["self-hosted", "gpu"], replica).await;
+    let gpu = connected(
+        &world,
+        "runner2-1",
+        &["self-hosted", "gpu", "shell"],
+        replica,
+    )
+    .await;
     let claimed = claim(db, gpu.id, replica, LEASE, &[])
         .await
         .expect("the gpu job");
@@ -690,6 +696,112 @@ async fn fifty_agents_claiming_at_once_never_take_the_same_job() {
     wide.close().await.expect("the wider pool closes");
 }
 
+fn contained(mut job: JobTemplate) -> JobTemplate {
+    job.container = Some(ir::Container {
+        image: Template::text("alpine"),
+        credentials: None,
+        env: BTreeMap::new(),
+        ports: Vec::new(),
+        volumes: Vec::new(),
+        options: None,
+    });
+    job
+}
+
+#[tokio::test]
+async fn fifty_agents_on_three_replicas_never_take_a_job_that_needs_a_capability_they_lack() {
+    let world = World::new().await;
+    let replicas = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
+    let run = world
+        .dispatch(&workflow(
+            (0..30)
+                .map(|index| {
+                    let job = template(&format!("j{index}"), &[], 1);
+                    if index % 2 == 0 { contained(job) } else { job }
+                })
+                .collect(),
+        ))
+        .await;
+    let projection = world.project(run).await;
+    let needs: Vec<(JobId, Capability)> = projection
+        .jobs
+        .iter()
+        .map(|(id, job)| {
+            let podman = job.key[1..].parse::<u32>().expect("a number") % 2 == 0;
+            (
+                *id,
+                if podman {
+                    Capability::Podman
+                } else {
+                    Capability::Shell
+                },
+            )
+        })
+        .collect();
+    let held: [&[Capability]; 4] = [
+        &[Capability::Shell],
+        &[Capability::Podman],
+        &[Capability::Shell, Capability::Podman],
+        &[],
+    ];
+    let mut agents = Vec::new();
+    for number in 0..50 {
+        let capabilities = held[number % held.len()];
+        let replica = replicas[number % replicas.len()];
+        let agent = connected_in(
+            &world,
+            bosun_db::pools::default_pool(world.db())
+                .await
+                .expect("the default pool")
+                .id,
+            &format!("runner{number}"),
+            &["self-hosted", "linux", "x64", "shell", "podman"],
+            capabilities,
+            replica,
+        )
+        .await;
+        agents.push((agent.id, capabilities, replica));
+    }
+    let wide = bosun_db::connect(&world.database.url(), 16)
+        .await
+        .expect("a wider pool");
+    let claims: Vec<_> = agents
+        .iter()
+        .map(|(agent, capabilities, replica)| {
+            let (db, agent, replica) = (wide.clone(), *agent, *replica);
+            let capabilities = capabilities.to_vec();
+            tokio::spawn(async move {
+                (
+                    capabilities,
+                    claim(&db, agent, replica, LEASE, &[])
+                        .await
+                        .map(|job| job.job_id),
+                )
+            })
+        })
+        .collect();
+    let mut taken = BTreeSet::new();
+    let mut claimed_total = 0;
+    for handle in claims {
+        let (capabilities, claimed) = handle.await.expect("a claim task");
+        if let Some(job) = claimed {
+            taken.insert(job);
+            claimed_total += 1;
+            let (_, needed) = needs
+                .iter()
+                .find(|(id, _)| *id == job)
+                .expect("a job of the run");
+            assert!(
+                capabilities.contains(needed),
+                "an agent holding {capabilities:?} took the job {job}, which needs {needed:?}"
+            );
+        }
+    }
+    assert!(claimed_total > 0, "no agent took a job");
+    assert_eq!(taken.len(), claimed_total, "a job was claimed twice");
+    wide.close().await.expect("the wider pool closes");
+}
+
 #[tokio::test]
 async fn a_lapsed_assignment_returns_its_job_to_the_queue_and_tells_its_agent_to_cancel() {
     let world = World::new().await;
@@ -1123,10 +1235,10 @@ async fn the_claim_keeps_the_jobs_of_trusted_and_untrusted_runs_to_pools_of_thei
     )
     .await;
     let trusted_run = world
-        .dispatch(&workflow(vec![template("build", &[], 1)]))
+        .dispatch(&workflow(vec![contained(template("build", &[], 1))]))
         .await;
     let untrusted_run = world
-        .dispatch(&workflow(vec![template("build", &[], 1)]))
+        .dispatch(&workflow(vec![contained(template("build", &[], 1))]))
         .await;
     execute(
         db,
@@ -1144,7 +1256,7 @@ async fn the_claim_keeps_the_jobs_of_trusted_and_untrusted_runs_to_pools_of_thei
         &world,
         forks,
         "runner2-1",
-        &LABELS,
+        &["self-hosted", "linux", "x64", "podman"],
         &[Capability::Podman],
         replica,
     )
@@ -1165,12 +1277,17 @@ async fn the_claim_keeps_the_jobs_of_trusted_and_untrusted_runs_to_pools_of_thei
         ),
     )
     .await;
-    let inside = connected(&world, "runner1-1", &LABELS, replica).await;
+    let default = bosun_db::pools::default_pool(db)
+        .await
+        .expect("the default pool");
+    let both = [Capability::Shell, Capability::Podman];
+    let held = ["self-hosted", "linux", "x64", "shell", "podman"];
+    let inside = connected_in(&world, default.id, "runner1-1", &held, &both, replica).await;
     let taken = claim(db, inside.id, replica, LEASE, &[])
         .await
         .expect("the job of the trusted run");
     assert_eq!(taken.job_id, trusted_job);
-    let again = connected(&world, "runner1-2", &LABELS, replica).await;
+    let again = connected_in(&world, default.id, "runner1-2", &held, &both, replica).await;
     assert_eq!(
         claim(db, again.id, replica, LEASE, &[]).await,
         None,

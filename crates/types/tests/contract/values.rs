@@ -4,7 +4,8 @@ use std::str::FromStr;
 use bosun_types::actor::Actor;
 use bosun_types::api::{
     Capability, ForgeAccess, ForgePermission, ForkPolicy, ProjectSettings, Reporting, TrustLevel,
-    UpdateAgentRequest, UpdateOrganisationRequest, UpdateProjectRequest, WorkflowSource,
+    UpdateAgentRequest, UpdateOrganisationRequest, UpdatePoolRequest, UpdateProjectRequest,
+    WorkflowSource,
 };
 use bosun_types::command::{Command, CommandRequest};
 use bosun_types::diagnostic::Severity;
@@ -362,4 +363,18 @@ fn an_update_of_an_agent_drains_it_lifts_its_drain_or_changes_nothing_and_never_
     refuses::<UpdateAgentRequest>(json!({ "drain": null }));
     refuses::<UpdateAgentRequest>(json!({ "drain": "yes" }));
     refuses::<UpdateAgentRequest>(json!({ "labels": ["rust"] }));
+}
+
+#[test]
+fn an_update_of_a_pool_sets_allow_privileged_or_changes_nothing_and_never_takes_null() {
+    let read = |value: Value| -> UpdatePoolRequest {
+        serde_json::from_value(value).unwrap_or_else(|error| panic!("an update: {error}"))
+    };
+    assert_eq!(read(json!({})).allow_privileged, None);
+    assert_eq!(
+        read(json!({ "allow_privileged": true })).allow_privileged,
+        Some(true)
+    );
+    refuses::<UpdatePoolRequest>(json!({ "allow_privileged": null }));
+    refuses::<UpdatePoolRequest>(json!({ "trust": "trusted" }));
 }

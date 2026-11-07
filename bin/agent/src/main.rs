@@ -123,8 +123,11 @@ async fn run(file: PathBuf) -> Result<(), String> {
     })?;
     let tracking = Tracking::probe();
     info!(%tracking, "the agent tracks the processes of each job");
+    let capabilities = host::capabilities().await;
     let stop = stop().map_err(|error| format!("the agent cannot handle signals: {error}"))?;
-    Agent::new(config, spool, tracking).run(stop).await;
+    Agent::new(config, capabilities, spool, tracking)
+        .run(stop)
+        .await;
     Ok(())
 }
 

@@ -140,8 +140,10 @@ values and the other two are `null` when `defaults.run` does not set them. A job
 `labels` are lowercased, without the labels a label alias replaced. `pool_ids` are the pools the job
 may run in, among those whose access list admits its project: the pool `runs-on.group` names, none
 when no such pool has that name, and without a group every one of them, each narrowed to the pool
-its label aliases name. `capabilities` are those its label aliases name, empty when either
-capability will do ([05-execution.md](05-execution.md#pools-and-label-aliases)). A job's `outputs`
+its label aliases name. `capabilities` are those its label aliases name and the one the planner adds,
+`podman` or `shell` ([05-execution.md](05-execution.md#pools-and-label-aliases)), empty only for a
+job queued before step 9 of M2, for which either capability will do, and `labels` hold that
+capability's name: the planner appends it, unless `runs-on` already names it. A job's `outputs`
 are the outputs its agent reported in `JobFinished` for the names the job declares, `{}` until then;
 a job group's are those of its members combined when it completes
 ([04-runs.md](04-runs.md#matrices)). A step's `outputs` are the outputs its agent reported in
@@ -354,7 +356,8 @@ and the status and body of the response of every write that created something wi
 row older than 24 hours is ignored and replaced when its key comes again. `label_alias`
 maps a label such as `ubuntu-latest` to a pool, a capability and a default image, per installation
 or per organisation, and `pool_access` holds the access lists of pools
-([05-execution.md](05-execution.md#pools-and-label-aliases)).
+([05-execution.md](05-execution.md#pools-and-label-aliases)). A pool's `allow_privileged` is a
+boolean that defaults to false, and a constraint keeps it false on an untrusted pool.
 
 ### The journal
 

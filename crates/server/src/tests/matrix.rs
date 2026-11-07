@@ -498,7 +498,10 @@ jobs:
     let after = group(&stored, "after");
     assert_eq!(
         (status(after), after.labels.as_slice()),
-        ((JobStatus::Queued, None), ["a-b".to_owned()].as_slice())
+        (
+            (JobStatus::Queued, None),
+            ["a-b".to_owned(), "shell".to_owned()].as_slice()
+        )
     );
 }
 
