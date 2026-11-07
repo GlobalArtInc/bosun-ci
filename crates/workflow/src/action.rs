@@ -1,12 +1,15 @@
 use bosun_expr::Key;
 use bosun_types::ir::{
-    ActionInput, ActionMetadata, ActionOutput, Branding, Condition, NodeRuns, NodeRuntime, Runs,
-    Template,
+    ActionInput, ActionMetadata, ActionOutput, Branding, CompositeRuns, Condition, DockerRuns,
+    NodeRuns, NodeRuntime, Runs, Template,
 };
 
 use crate::Code;
-use crate::lower::{Entry, Lowering, child, optional};
-use crate::surface::{ACTION, ACTION_INPUT, ACTION_OUTPUT, BRANDING, NODE_RUNS};
+use crate::lower::{Entry, Lowering, child, index, optional};
+use crate::surface::{
+    ACTION, ACTION_INPUT, ACTION_OUTPUT, BRANDING, COMPOSITE_RUNS, DOCKER_RUNS, NODE_RUNS,
+    pending_form,
+};
 use crate::yaml::{Node, Value};
 
 const RUNTIMES: &[(&str, NodeRuntime)] = &[
@@ -16,20 +19,35 @@ const RUNTIMES: &[(&str, NodeRuntime)] = &[
     ("node24", NodeRuntime::Node24),
 ];
 
-const LATER_KINDS: &[&str] = &["composite", "docker"];
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Composite,
+    Docker,
+}
 
-fn later_kind(runs: &Node) -> Option<(&Node, String)> {
+impl Kind {
+    fn name(self) -> &'static str {
+        match self {
+            Kind::Composite => "composite",
+            Kind::Docker => "docker",
+        }
+    }
+}
+
+fn kind(runs: &Node) -> Option<(&Node, String, Kind)> {
     let Value::Mapping(pairs) = &runs.value else {
         return None;
     };
     pairs
         .iter()
         .find_map(|(key, value)| match (&key.value, &value.value) {
-            (Value::String(name), Value::String(using))
-                if name == "using"
-                    && LATER_KINDS.contains(&using.to_ascii_lowercase().as_str()) =>
-            {
-                Some((value, using.clone()))
+            (Value::String(name), Value::String(using)) if name == "using" => {
+                let kind = match using.to_ascii_lowercase().as_str() {
+                    "composite" => Kind::Composite,
+                    "docker" => Kind::Docker,
+                    _ => return None,
+                };
+                Some((value, using.clone(), kind))
             }
             _ => None,
         })
@@ -48,7 +66,13 @@ impl Lowering<'_> {
         let author = optional(fields.get("author"), |entry| text(self, entry));
         let branding = optional(fields.get("branding"), |entry| self.branding(entry));
         let inputs = optional(fields.get("inputs"), |entry| self.action_inputs(entry));
-        let outputs = optional(fields.get("outputs"), |entry| self.action_outputs(entry));
+        let composite = fields
+            .get("runs")
+            .and_then(|entry| kind(entry.value))
+            .is_some_and(|(_, _, kind)| kind == Kind::Composite);
+        let outputs = optional(fields.get("outputs"), |entry| {
+            self.action_outputs(entry, composite)
+        });
         let runs = fields.get("runs").and_then(|entry| self.runs(entry));
         Some(ActionMetadata {
             name: name?,
@@ -149,7 +173,7 @@ impl Lowering<'_> {
             .map(Some)
     }
 
-    fn action_outputs(&mut self, entry: &Entry<'_>) -> Option<Vec<ActionOutput>> {
+    fn action_outputs(&mut self, entry: &Entry<'_>, composite: bool) -> Option<Vec<ActionOutput>> {
         let mut outputs = Vec::new();
         let mut complete = true;
         for item in self.named(entry, "an output")? {
@@ -171,10 +195,29 @@ impl Lowering<'_> {
                     &format!("`description` of {place}"),
                 )
             });
-            match description {
-                Some(description) if fields.complete => outputs.push(ActionOutput {
+            let value = optional(fields.get("value"), |field| {
+                self.template(
+                    field.value,
+                    &field.path,
+                    &format!("`value` of {place}"),
+                    Key::ActionOutputValue,
+                )
+            });
+            if composite && fields.complete && fields.get("value").is_none() {
+                complete = false;
+                self.error(
+                    Code::MissingKey,
+                    item.key.span,
+                    &item.path,
+                    format!("missing key `value` in {place}, whose action is composite"),
+                );
+                continue;
+            }
+            match (description, value) {
+                (Some(description), Some(value)) if fields.complete => outputs.push(ActionOutput {
                     name: item.name.to_string(),
                     description,
+                    value,
                 }),
                 _ => complete = false,
             }
@@ -184,14 +227,20 @@ impl Lowering<'_> {
 
     fn runs(&mut self, entry: &Entry<'_>) -> Option<Runs> {
         let place = "`runs`";
-        if let Some((node, using)) = later_kind(entry.value) {
-            self.error(
-                Code::NotImplemented,
-                node.span,
-                &child(&entry.path, "using"),
-                format!("`using: {using}` in {place} is not supported yet; it arrives in M2"),
-            );
-            return None;
+        if let Some((node, using, kind)) = kind(entry.value) {
+            let form = format!("using: {}", kind.name());
+            if self.pending_refused() && pending_form("runs", &form) {
+                self.error(
+                    Code::NotImplemented,
+                    node.span,
+                    &child(&entry.path, "using"),
+                    format!("`using: {using}` in {place} is not supported yet; it arrives in M2"),
+                );
+            }
+            return match kind {
+                Kind::Composite => self.composite(entry),
+                Kind::Docker => self.docker(entry),
+            };
         }
         let fields = self.fields(entry.value, &NODE_RUNS, place, &entry.path, entry.key.span)?;
         let what = |key: &str| format!("`{key}` of {place}");
@@ -220,6 +269,104 @@ impl Lowering<'_> {
             post_if: post_if?,
         };
         fields.complete.then_some(Runs::Node(runs))
+    }
+
+    fn composite(&mut self, entry: &Entry<'_>) -> Option<Runs> {
+        let place = "`runs`";
+        let fields = self.fields(
+            entry.value,
+            &COMPOSITE_RUNS,
+            place,
+            &entry.path,
+            entry.key.span,
+        )?;
+        let steps = fields
+            .get("steps")
+            .and_then(|field| self.steps(field, "the action", true));
+        let steps = steps?;
+        fields
+            .complete
+            .then_some(Runs::Composite(CompositeRuns { steps }))
+    }
+
+    fn docker(&mut self, entry: &Entry<'_>) -> Option<Runs> {
+        let place = "`runs`";
+        let fields = self.fields(
+            entry.value,
+            &DOCKER_RUNS,
+            place,
+            &entry.path,
+            entry.key.span,
+        )?;
+        let what = |key: &str| format!("`{key}` of {place}");
+        let image = fields
+            .get("image")
+            .and_then(|field| self.entry_point(field, &what("image")));
+        let args = optional(fields.get("args"), |field| {
+            self.docker_args(field, &what("args"))
+        });
+        let env = optional(fields.get("env"), |field| {
+            self.templates(
+                field.value,
+                &field.path,
+                &what("env"),
+                "variable",
+                Key::ActionDockerEnv,
+            )
+        });
+        let entrypoint = optional(fields.get("entrypoint"), |field| {
+            self.entry_point(field, &what("entrypoint"))
+        });
+        let pre_entrypoint = optional(fields.get("pre-entrypoint"), |field| {
+            self.entry_point(field, &what("pre-entrypoint"))
+        });
+        let post_entrypoint = optional(fields.get("post-entrypoint"), |field| {
+            self.entry_point(field, &what("post-entrypoint"))
+        });
+        let pre_if = optional(fields.get("pre-if"), |field| {
+            self.hook_condition(field, &what("pre-if"), Key::ActionPreIf)
+        });
+        let post_if = optional(fields.get("post-if"), |field| {
+            self.hook_condition(field, &what("post-if"), Key::ActionPostIf)
+        });
+        let runs = DockerRuns {
+            image: image?,
+            args: args?.unwrap_or_default(),
+            env: env?.unwrap_or_default(),
+            entrypoint: entrypoint?,
+            pre_entrypoint: pre_entrypoint?,
+            pre_if: pre_if?,
+            post_entrypoint: post_entrypoint?,
+            post_if: post_if?,
+        };
+        fields.complete.then_some(Runs::Docker(runs))
+    }
+
+    fn docker_args(&mut self, field: &Entry<'_>, what: &str) -> Option<Vec<Template>> {
+        let Value::Sequence(items) = &field.value.value else {
+            self.error(
+                Code::InvalidType,
+                field.value.span,
+                &field.path,
+                format!("{what} must be a list"),
+            );
+            return None;
+        };
+        let mut args = Vec::new();
+        let mut complete = true;
+        for (position, item) in items.iter().enumerate() {
+            let path = index(&field.path, position);
+            match self.template(
+                item,
+                &path,
+                &format!("every entry of {what}"),
+                Key::ActionDockerArgs,
+            ) {
+                Some(template) => args.push(template),
+                None => complete = false,
+            }
+        }
+        complete.then_some(args)
     }
 
     fn filled(&mut self, field: &Entry<'_>, what: &str) -> Option<String> {

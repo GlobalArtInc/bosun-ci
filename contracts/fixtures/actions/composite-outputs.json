@@ -1,0 +1,336 @@
+{
+  "metadata": {
+    "name": "Build and pack",
+    "description": "Builds a project and packs the result",
+    "author": null,
+    "branding": null,
+    "inputs": [
+      {
+        "name": "profile",
+        "description": "The build profile",
+        "required": false,
+        "default": [
+          {
+            "text": "release"
+          }
+        ],
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [
+      {
+        "name": "artifact",
+        "description": "Name of the packed artifact",
+        "value": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "steps",
+                            "span": {
+                              "line": 10,
+                              "column": 16,
+                              "end_line": 10,
+                              "end_column": 21
+                            }
+                          }
+                        },
+                        "name": "pack",
+                        "span": {
+                          "line": 10,
+                          "column": 16,
+                          "end_line": 10,
+                          "end_column": 26
+                        }
+                      }
+                    },
+                    "name": "outputs",
+                    "span": {
+                      "line": 10,
+                      "column": 16,
+                      "end_line": 10,
+                      "end_column": 34
+                    }
+                  }
+                },
+                "name": "name",
+                "span": {
+                  "line": 10,
+                  "column": 16,
+                  "end_line": 10,
+                  "end_column": 39
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "profile",
+        "description": "The profile that was built",
+        "value": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "inputs",
+                    "span": {
+                      "line": 13,
+                      "column": 16,
+                      "end_line": 13,
+                      "end_column": 22
+                    }
+                  }
+                },
+                "name": "profile",
+                "span": {
+                  "line": 13,
+                  "column": 16,
+                  "end_line": 13,
+                  "end_column": 30
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "runs": {
+      "composite": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "uses": {
+                "owner": "actions",
+                "repository": "checkout",
+                "path": null,
+                "ref": "v4"
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 17,
+              "column": 7,
+              "end_line": 17,
+              "end_column": 32
+            }
+          },
+          {
+            "key": "build",
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo build --profile "
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "inputs",
+                            "span": {
+                              "line": 19,
+                              "column": 38,
+                              "end_line": 19,
+                              "end_column": 44
+                            }
+                          }
+                        },
+                        "name": "profile",
+                        "span": {
+                          "line": 19,
+                          "column": 38,
+                          "end_line": 19,
+                          "end_column": 52
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "shell": "bash",
+            "working_directory": [
+              {
+                "expression": {
+                  "property": {
+                    "target": {
+                      "context": {
+                        "name": "github",
+                        "span": {
+                          "line": 21,
+                          "column": 30,
+                          "end_line": 21,
+                          "end_column": 36
+                        }
+                      }
+                    },
+                    "name": "action_path",
+                    "span": {
+                      "line": 21,
+                      "column": 30,
+                      "end_line": 21,
+                      "end_column": 48
+                    }
+                  }
+                }
+              }
+            ],
+            "with": {},
+            "env": {
+              "RUSTFLAGS": [
+                {
+                  "text": "-D warnings"
+                }
+              ]
+            },
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 18,
+              "column": 7,
+              "end_line": 23,
+              "end_column": 31
+            }
+          },
+          {
+            "key": "pack",
+            "name": null,
+            "if": {
+              "expression": {
+                "call": {
+                  "function": "success",
+                  "arguments": [],
+                  "span": {
+                    "line": 25,
+                    "column": 11,
+                    "end_line": 25,
+                    "end_column": 20
+                  }
+                }
+              }
+            },
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo \"name=bundle\" >> \"$GITHUB_OUTPUT\""
+                  }
+                ]
+              }
+            },
+            "shell": "sh",
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 24,
+              "column": 7,
+              "end_line": 27,
+              "end_column": 16
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "local": {
+                "path": ".github/actions/local"
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {
+              "path": [
+                {
+                  "expression": {
+                    "property": {
+                      "target": {
+                        "property": {
+                          "target": {
+                            "property": {
+                              "target": {
+                                "context": {
+                                  "name": "steps",
+                                  "span": {
+                                    "line": 30,
+                                    "column": 19,
+                                    "end_line": 30,
+                                    "end_column": 24
+                                  }
+                                }
+                              },
+                              "name": "pack",
+                              "span": {
+                                "line": 30,
+                                "column": 19,
+                                "end_line": 30,
+                                "end_column": 29
+                              }
+                            }
+                          },
+                          "name": "outputs",
+                          "span": {
+                            "line": 30,
+                            "column": 19,
+                            "end_line": 30,
+                            "end_column": 37
+                          }
+                        }
+                      },
+                      "name": "name",
+                      "span": {
+                        "line": 30,
+                        "column": 19,
+                        "end_line": 30,
+                        "end_column": 42
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 28,
+              "column": 7,
+              "end_line": 30,
+              "end_column": 45
+            }
+          }
+        ]
+      }
+    }
+  },
+  "diagnostics": []
+}

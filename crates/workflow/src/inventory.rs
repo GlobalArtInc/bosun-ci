@@ -1,5 +1,6 @@
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
 
+use crate::Pending;
 use crate::lower::{Lowering, Seen};
 use crate::surface::{Arrives, Milestone};
 use crate::yaml::{self, Node, Value};
@@ -35,7 +36,7 @@ pub fn inventory(file: &str, source: &str) -> Result<Inventory, Diagnostic> {
         span: fault.span,
         path: Vec::new(),
     })?;
-    let mut lowering = Lowering::new(file, source);
+    let mut lowering = Lowering::new(file, source, Pending::Refuse);
     lowering.workflow(&root);
     Ok(Inventory {
         uses: uses(&root),
@@ -80,7 +81,12 @@ fn generalized(path: &[PathSegment]) -> String {
         .enumerate()
         .map(|(position, name)| match names[..position] {
             ["jobs"] => "<job_id>",
-            ["on", "workflow_dispatch", "inputs"] => "<input_id>",
+            ["on", "workflow_dispatch", "inputs"] | ["on", "workflow_call", "inputs"] => {
+                "<input_id>"
+            }
+            ["on", "workflow_call", "secrets"] => "<secret_id>",
+            ["on", "workflow_call", "outputs"] => "<output_id>",
+            ["jobs", _, "services"] => "<service_id>",
             _ => name,
         })
         .collect::<Vec<_>>()

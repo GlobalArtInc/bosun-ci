@@ -1,0 +1,24 @@
+on: push
+
+jobs:
+  prepare:
+    runs-on: shell
+    steps:
+      - run: make prepare
+  remote:
+    needs: prepare
+    name: Release
+    uses: acme/shared/.github/workflows/release.yml@v2
+    with:
+      version: ${{ github.ref_name }}
+      debug: true
+      jobs: 8
+      channel: stable
+    secrets:
+      registry-token: ${{ secrets.REGISTRY_TOKEN }}
+      signing-key: ${{ secrets.SIGNING_KEY }}
+  local:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+  bare:
+    uses: ./.bosun/workflows/lint.yml

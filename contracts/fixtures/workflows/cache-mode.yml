@@ -1,0 +1,17 @@
+on: push
+
+cache-mode: read
+priority: high
+
+jobs:
+  build:
+    runs-on: shell
+    cache-mode: write-only
+    priority: low
+    steps:
+      - run: make
+  test:
+    needs: build
+    runs-on: shell
+    steps:
+      - run: make test

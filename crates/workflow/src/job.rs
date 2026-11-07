@@ -8,11 +8,23 @@ use bosun_types::key::JobKey;
 use crate::Code;
 use crate::expression::OPEN;
 use crate::graph::{GraphJob, Need};
-use crate::lower::{Entry, Lowering, cover, optional};
+use crate::lower::{Entry, Fields, Lowering, cover, optional};
 use crate::surface::{JOB, RUNS_ON};
 use crate::yaml::{Node, Value};
 
 const DEFAULT_TIMEOUT_MINUTES: u32 = 360;
+
+const CALL_KEYS: &[&str] = &[
+    "name",
+    "needs",
+    "if",
+    "uses",
+    "with",
+    "secrets",
+    "permissions",
+    "concurrency",
+    "strategy",
+];
 
 impl Lowering<'_> {
     pub(crate) fn jobs(&mut self, entry: &Entry<'_>) -> Option<Vec<JobTemplate>> {
@@ -63,6 +75,8 @@ impl Lowering<'_> {
             return None;
         };
         let what = |key: &str| format!("`{key}` of {place}");
+        let calls = fields.get("uses").is_some();
+        let own = |key: &str| if calls { None } else { fields.get(key) };
         let name = optional(fields.get("name"), |field| {
             self.template(field.value, &field.path, &what("name"), Key::JobName)
         });
@@ -83,9 +97,6 @@ impl Lowering<'_> {
         let condition = optional(fields.get("if"), |field| {
             self.condition(field.value, &field.path, &what("if"), Key::JobIf)
         });
-        let runs_on = fields
-            .get("runs-on")
-            .and_then(|field| self.runs_on(field, &place));
         let permissions = optional(fields.get("permissions"), |field| {
             self.permissions(field, &place)
         });
@@ -93,13 +104,13 @@ impl Lowering<'_> {
             self.concurrency(field, &place, Key::JobConcurrency)
         });
         let strategy = optional(fields.get("strategy"), |field| self.strategy(field, &place));
-        let env = optional(fields.get("env"), |field| {
+        let env = optional(own("env"), |field| {
             self.env(field.value, &field.path, &place, Key::JobEnv)
         });
-        let defaults = optional(fields.get("defaults"), |field| {
+        let defaults = optional(own("defaults"), |field| {
             self.defaults(field, &place, Some(Key::JobDefaultsRun))
         });
-        let timeout_minutes = optional(fields.get("timeout-minutes"), |field| {
+        let timeout_minutes = optional(own("timeout-minutes"), |field| {
             self.whole(
                 field.value,
                 &field.path,
@@ -108,7 +119,7 @@ impl Lowering<'_> {
                 0,
             )
         });
-        let continue_on_error = optional(fields.get("continue-on-error"), |field| {
+        let continue_on_error = optional(own("continue-on-error"), |field| {
             self.flag(
                 field.value,
                 &field.path,
@@ -116,7 +127,7 @@ impl Lowering<'_> {
                 Key::JobContinueOnError,
             )
         });
-        let outputs = optional(fields.get("outputs"), |field| {
+        let outputs = optional(own("outputs"), |field| {
             self.templates(
                 field.value,
                 &field.path,
@@ -125,9 +136,14 @@ impl Lowering<'_> {
                 Key::JobOutputs,
             )
         });
-        let steps = fields
-            .get("steps")
-            .and_then(|field| self.steps(field, entry.name));
+        let kind = self.job_kind(&fields, &place, entry);
+        let container = optional(own("container"), |field| self.container(field, &place));
+        let services = optional(own("services"), |field| self.services(field, &place));
+        let cache_mode = optional(own("cache-mode"), |field| self.cache_mode(field, &place));
+        let cache_volumes = optional(own("cache-volumes"), |field| {
+            self.cache_volumes(field, &place)
+        });
+        let priority = optional(own("priority"), |field| self.priority(field, &place));
         graph.push(GraphJob {
             name: entry.name,
             needs: needs.clone().unwrap_or_default(),
@@ -136,12 +152,13 @@ impl Lowering<'_> {
             .iter()
             .map(|need| JobKey::from_str(&need.name).ok())
             .collect::<Option<Vec<_>>>();
+        let (runs_on, kind) = kind?;
         Some(JobTemplate {
             key: key?,
             name: name?,
             needs: needs?,
             r#if: condition?.flatten(),
-            runs_on: runs_on?,
+            runs_on,
             permissions: permissions?,
             concurrency: concurrency?,
             strategy: strategy?,
@@ -152,9 +169,72 @@ impl Lowering<'_> {
             continue_on_error: continue_on_error?.unwrap_or(Evaluable::Literal(false)),
             outputs: outputs?.unwrap_or_default(),
             secrets: self.referenced(),
-            kind: JobKind::Steps(steps?),
+            container: container?,
+            services: services?.unwrap_or_default(),
+            cache_mode: cache_mode?,
+            cache_volumes: cache_volumes?.unwrap_or_default(),
+            priority: priority?,
+            kind,
             span: cover(entry.key.span, entry.value.span),
         })
+    }
+
+    fn job_kind(
+        &mut self,
+        fields: &Fields<'_>,
+        place: &str,
+        entry: &Entry<'_>,
+    ) -> Option<(Option<Evaluable<RunsOn>>, JobKind)> {
+        let name = entry.name;
+        let Some(uses) = fields.get("uses") else {
+            for key in ["with", "secrets"] {
+                if let Some(field) = fields.get(key) {
+                    self.error(
+                        Code::InvalidValue,
+                        field.value.span,
+                        &field.path,
+                        format!("`{key}` of {place} applies only to a job that calls a workflow with `uses`"),
+                    );
+                }
+            }
+            if fields.complete {
+                for required in ["runs-on", "steps"] {
+                    if fields.get(required).is_none() {
+                        self.error(
+                            Code::MissingKey,
+                            entry.key.span,
+                            &entry.path,
+                            format!("missing key `{required}` in {place}"),
+                        );
+                    }
+                }
+            }
+            let runs_on = fields
+                .get("runs-on")
+                .and_then(|field| self.runs_on(field, place));
+            let steps = fields
+                .get("steps")
+                .and_then(|field| self.steps(field, &format!("job `{name}`"), false));
+            return Some((Some(runs_on?), JobKind::Steps(steps?)));
+        };
+        let mut valid = true;
+        for field in &fields.entries {
+            if !CALL_KEYS.contains(&field.name) {
+                valid = false;
+                self.error(
+                    Code::InvalidValue,
+                    field.key.span,
+                    &field.path,
+                    format!(
+                        "`{}` of {place} cannot be used together with `uses`, which calls a workflow",
+                        field.name
+                    ),
+                );
+            }
+        }
+        let call = self.call(uses, fields.get("with"), fields.get("secrets"), place);
+        let call = call.filter(|_| valid);
+        Some((None, JobKind::Call(call?)))
     }
 
     fn labels(&mut self, node: &Node, path: &[PathSegment], what: &str) -> Option<Vec<Template>> {

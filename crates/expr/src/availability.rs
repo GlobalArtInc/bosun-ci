@@ -206,6 +206,18 @@ pub enum Key {
     JobEnv,
     JobDefaultsRun,
     JobOutputs,
+    JobContainer,
+    JobContainerImage,
+    JobContainerCredentials,
+    JobContainerEnv,
+    JobServices,
+    JobServiceCredentials,
+    JobServiceEnv,
+    JobCacheVolumesKey,
+    JobWith,
+    JobSecrets,
+    WorkflowCallInputDefault,
+    WorkflowCallOutputValue,
     StepIf,
     StepName,
     StepRun,
@@ -217,6 +229,11 @@ pub enum Key {
     ActionInputDefault,
     ActionPreIf,
     ActionPostIf,
+    ActionOutputValue,
+    ActionStep,
+    ActionStepIf,
+    ActionDockerArgs,
+    ActionDockerEnv,
 }
 
 const RUN: &[Context] = &[
@@ -274,6 +291,91 @@ const JOB_DEFAULTS: &[Context] = &[
     Context::Bosun,
 ];
 
+const CALL_INPUT_DEFAULT: &[Context] = &[
+    Context::Github,
+    Context::Vars,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const CALL_OUTPUT_VALUE: &[Context] = &[
+    Context::Github,
+    Context::Vars,
+    Context::Jobs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const CONTAINER: &[Context] = &[
+    Context::Github,
+    Context::Vars,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const CONTAINER_CREDENTIALS: &[Context] = &[
+    Context::Github,
+    Context::Env,
+    Context::Vars,
+    Context::Secrets,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const CONTAINER_ENV: &[Context] = &[
+    Context::Github,
+    Context::Env,
+    Context::Vars,
+    Context::Job,
+    Context::Runner,
+    Context::Secrets,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const CALL_WITH: &[Context] = &[
+    Context::Github,
+    Context::Vars,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const CALL_SECRETS: &[Context] = &[
+    Context::Github,
+    Context::Vars,
+    Context::Secrets,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const ACTION_OUTPUT_VALUE: &[Context] = &[
+    Context::Github,
+    Context::Env,
+    Context::Vars,
+    Context::Job,
+    Context::Steps,
+    Context::Runner,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Inputs,
+    Context::Bosun,
+];
+
 const STEP: &[Context] = &[
     Context::Github,
     Context::Env,
@@ -299,6 +401,34 @@ const STEP_IF: &[Context] = &[
     Context::Strategy,
     Context::Matrix,
     Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const CACHE_VOLUME_KEY: &[Context] = &[
+    Context::Github,
+    Context::Vars,
+    Context::Strategy,
+    Context::Matrix,
+    Context::Needs,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const COMPOSITE_STEP: &[Context] = &[
+    Context::Github,
+    Context::Env,
+    Context::Vars,
+    Context::Job,
+    Context::Steps,
+    Context::Runner,
+    Context::Inputs,
+    Context::Bosun,
+];
+
+const DOCKER_ACTION: &[Context] = &[
+    Context::Github,
+    Context::Vars,
     Context::Inputs,
     Context::Bosun,
 ];
@@ -343,7 +473,7 @@ const STEP_STATUS: &[Function] = &[
 const FILES: &[Function] = &[Function::HashFiles];
 
 impl Key {
-    pub const ALL: [Key; 24] = [
+    pub const ALL: [Key; 41] = [
         Key::RunName,
         Key::WorkflowConcurrency,
         Key::WorkflowEnv,
@@ -357,6 +487,18 @@ impl Key {
         Key::JobEnv,
         Key::JobDefaultsRun,
         Key::JobOutputs,
+        Key::JobContainer,
+        Key::JobContainerImage,
+        Key::JobContainerCredentials,
+        Key::JobContainerEnv,
+        Key::JobServices,
+        Key::JobServiceCredentials,
+        Key::JobServiceEnv,
+        Key::JobCacheVolumesKey,
+        Key::JobWith,
+        Key::JobSecrets,
+        Key::WorkflowCallInputDefault,
+        Key::WorkflowCallOutputValue,
         Key::StepIf,
         Key::StepName,
         Key::StepRun,
@@ -368,6 +510,11 @@ impl Key {
         Key::ActionInputDefault,
         Key::ActionPreIf,
         Key::ActionPostIf,
+        Key::ActionOutputValue,
+        Key::ActionStep,
+        Key::ActionStepIf,
+        Key::ActionDockerArgs,
+        Key::ActionDockerEnv,
     ];
 
     pub fn path(self) -> &'static str {
@@ -385,6 +532,18 @@ impl Key {
             Key::JobEnv => "jobs.<job_id>.env",
             Key::JobDefaultsRun => "jobs.<job_id>.defaults.run",
             Key::JobOutputs => "jobs.<job_id>.outputs.<output_id>",
+            Key::JobContainer => "jobs.<job_id>.container",
+            Key::JobContainerImage => "jobs.<job_id>.container.image",
+            Key::JobContainerCredentials => "jobs.<job_id>.container.credentials",
+            Key::JobContainerEnv => "jobs.<job_id>.container.env.<env_id>",
+            Key::JobServices => "jobs.<job_id>.services",
+            Key::JobServiceCredentials => "jobs.<job_id>.services.<service_id>.credentials",
+            Key::JobServiceEnv => "jobs.<job_id>.services.<service_id>.env.<env_id>",
+            Key::JobCacheVolumesKey => "jobs.<job_id>.cache-volumes.key",
+            Key::JobWith => "jobs.<job_id>.with.<with_id>",
+            Key::JobSecrets => "jobs.<job_id>.secrets.<secrets_id>",
+            Key::WorkflowCallInputDefault => "on.workflow_call.inputs.<inputs_id>.default",
+            Key::WorkflowCallOutputValue => "on.workflow_call.outputs.<output_id>.value",
             Key::StepIf => "jobs.<job_id>.steps.if",
             Key::StepName => "jobs.<job_id>.steps.name",
             Key::StepRun => "jobs.<job_id>.steps.run",
@@ -396,6 +555,11 @@ impl Key {
             Key::ActionInputDefault => "inputs.<input_id>.default",
             Key::ActionPreIf => "runs.pre-if",
             Key::ActionPostIf => "runs.post-if",
+            Key::ActionOutputValue => "outputs.<output_id>.value",
+            Key::ActionStep => "runs.steps",
+            Key::ActionStepIf => "runs.steps.if",
+            Key::ActionDockerArgs => "runs.args",
+            Key::ActionDockerEnv => "runs.env",
         }
     }
 
@@ -414,6 +578,17 @@ impl Key {
             Key::StepIf | Key::ActionPostIf => STEP_IF,
             Key::ActionPreIf => ACTION_PRE_IF,
             Key::ActionInputDefault => ACTION_INPUT_DEFAULT,
+            Key::JobContainer | Key::JobContainerImage | Key::JobServices => CONTAINER,
+            Key::JobContainerCredentials | Key::JobServiceCredentials => CONTAINER_CREDENTIALS,
+            Key::JobContainerEnv | Key::JobServiceEnv => CONTAINER_ENV,
+            Key::JobCacheVolumesKey => CACHE_VOLUME_KEY,
+            Key::JobWith => CALL_WITH,
+            Key::JobSecrets => CALL_SECRETS,
+            Key::WorkflowCallInputDefault => CALL_INPUT_DEFAULT,
+            Key::WorkflowCallOutputValue => CALL_OUTPUT_VALUE,
+            Key::ActionOutputValue => ACTION_OUTPUT_VALUE,
+            Key::ActionStep | Key::ActionStepIf => COMPOSITE_STEP,
+            Key::ActionDockerArgs | Key::ActionDockerEnv => DOCKER_ACTION,
             Key::JobOutputs
             | Key::StepName
             | Key::StepRun
@@ -428,8 +603,9 @@ impl Key {
     pub fn special_functions(self) -> &'static [Function] {
         match self {
             Key::JobIf => STATUS,
-            Key::StepIf | Key::ActionPreIf | Key::ActionPostIf => STEP_STATUS,
+            Key::StepIf | Key::ActionStepIf | Key::ActionPreIf | Key::ActionPostIf => STEP_STATUS,
             Key::ActionInputDefault
+            | Key::ActionStep
             | Key::StepName
             | Key::StepRun
             | Key::StepEnv
@@ -442,10 +618,11 @@ impl Key {
     }
 
     pub fn side(self) -> Side {
-        let agent = self
-            .contexts()
-            .iter()
-            .any(|context| matches!(context, Context::Job | Context::Runner | Context::Steps));
+        let agent = matches!(self, Key::ActionDockerArgs | Key::ActionDockerEnv)
+            || self
+                .contexts()
+                .iter()
+                .any(|context| matches!(context, Context::Job | Context::Runner | Context::Steps));
         if agent { Side::Agent } else { Side::Server }
     }
 }

@@ -1,0 +1,6 @@
+on: push
+
+jobs:
+  release:
+    runs-on: shell
+    uses: acme/shared/.github/workflows/release.yml@v2

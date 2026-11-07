@@ -40,6 +40,8 @@ const TERMINATE_GRACE: Duration = Duration::from_millis(2500);
 const OUTPUT_AFTER_TEARDOWN: Duration = Duration::from_secs(2);
 
 const SCRIPT: &str = "__run";
+const LOCAL: &str = "__local";
+const DOCKER: &str = "__docker";
 
 const STEP_DEBUG: &str = "ACTIONS_STEP_DEBUG";
 
@@ -70,9 +72,11 @@ pub struct NodeAction {
 }
 
 impl NodeAction {
-    fn runs(&self) -> &NodeRuns {
-        let Runs::Node(runs) = &self.metadata.runs;
-        runs
+    fn runs(&self) -> Option<&NodeRuns> {
+        match &self.metadata.runs {
+            Runs::Node(runs) => Some(runs),
+            Runs::Composite(_) | Runs::Docker(_) => None,
+        }
     }
 }
 
@@ -145,7 +149,12 @@ pub async fn run(
         events,
         Masker::new(contexts.secrets.values().filter_map(Value::as_str)),
     );
-    let JobKind::Steps(steps) = template.kind;
+    let JobKind::Steps(steps) = template.kind else {
+        return Completed {
+            conclusion: Conclusion::Failure,
+            outputs: BTreeMap::new(),
+        };
+    };
     let prepared = fetched
         .map_err(io::Error::other)
         .and_then(|()| prepare(&workspace, &temp, &tool_cache, &contexts.github))
@@ -302,6 +311,8 @@ fn names(steps: &[Step]) -> Vec<String> {
                     plain(&reference.repository)
                 ),
                 (None, Action::Run { .. }) => SCRIPT.to_owned(),
+                (None, Action::Local { .. }) => LOCAL.to_owned(),
+                (None, Action::Docker { .. }) => DOCKER.to_owned(),
             };
             let mut name = base.clone();
             let mut number = 2;
@@ -455,7 +466,7 @@ impl Execution {
             self.actions
                 .iter()
                 .find(|action| &action.uses == reference)
-                .map(NodeAction::runs)
+                .and_then(NodeAction::runs)
         });
         let mut reached = vec![false; steps.len()];
         let mut states = vec![BTreeMap::new(); steps.len()];
@@ -562,7 +573,9 @@ impl Execution {
             (Phase::Pre | Phase::Post, Some(action)) => action,
             _ => return ("`if` of the step".to_owned(), step.r#if.clone()),
         };
-        let runs = action.runs();
+        let Some(runs) = action.runs() else {
+            return ("`if` of the step".to_owned(), step.r#if.clone());
+        };
         let (key, condition) = match at.phase {
             Phase::Pre => ("pre-if", runs.pre_if.clone()),
             _ => ("post-if", runs.post_if.clone()),
@@ -780,6 +793,13 @@ impl Execution {
                 let shell = step.shell.clone().or_else(|| self.shell.clone());
                 (Program::Script { script, shell }, directory)
             }
+            Action::Local { .. } | Action::Docker { .. } => {
+                return failed(
+                    "the step uses a local action or a container image, which this agent does \
+                     not run yet"
+                        .to_owned(),
+                );
+            }
             Action::Uses(reference) => {
                 let Some(action) = self.action(step) else {
                     return failed(format!(
@@ -797,7 +817,12 @@ impl Execution {
                 ) {
                     process_env.insert(name.into(), value.into());
                 }
-                let runs = action.runs();
+                let Some(runs) = action.runs() else {
+                    return failed(format!(
+                        "the action `{reference}` is not a Node action, which are the only ones \
+                         this agent runs"
+                    ));
+                };
                 let entry = match at.phase {
                     Phase::Pre => runs.pre.as_deref(),
                     Phase::Main => Some(runs.main.as_str()),

@@ -1,0 +1,6 @@
+on: push
+
+jobs:
+  release:
+    uses: acme/shared/.github/workflows/release.yml@v2
+    container: alpine:3

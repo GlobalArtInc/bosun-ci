@@ -12,7 +12,7 @@ use crate::pattern;
 use crate::schedule;
 use crate::surface::{
     ACTIVITY, EVENTS, INPUT, Known, MERGE_GROUP, PULL_REQUEST, PUSH, SCHEDULE, Shape,
-    WORKFLOW_DISPATCH, suggest,
+    WORKFLOW_CALL, WORKFLOW_DISPATCH, suggest,
 };
 use crate::yaml::{Node, Value};
 
@@ -33,11 +33,12 @@ fn shape(event: &str) -> &'static Shape {
         "pull_request" | "pull_request_target" => &PULL_REQUEST,
         "merge_group" => &MERGE_GROUP,
         "workflow_dispatch" => &WORKFLOW_DISPATCH,
+        "workflow_call" => &WORKFLOW_CALL,
         _ => &ACTIVITY,
     }
 }
 
-fn identifier(name: &str) -> bool {
+pub(crate) fn identifier(name: &str) -> bool {
     let mut chars = name.chars();
     chars
         .next()
@@ -69,8 +70,19 @@ impl Lowering<'_> {
                         what: format!("event `{}`", item.text),
                     });
                 }
-                match EVENTS.find(&item.text) {
-                    Known::Now if !seen.insert(item.text.clone()) => {
+                let known = EVENTS.find(&item.text);
+                if let Known::Pending(milestone) = known {
+                    self.refuse_pending(
+                        "event",
+                        &item.text,
+                        "`on`",
+                        milestone,
+                        item.node.span,
+                        &item.path,
+                    );
+                }
+                match known {
+                    Known::Now | Known::Pending(_) if !seen.insert(item.text.clone()) => {
                         complete = false;
                         self.error(
                             Code::DuplicateKey,
@@ -79,7 +91,7 @@ impl Lowering<'_> {
                             format!("event `{}` appears twice in `on`", item.text),
                         );
                     }
-                    Known::Now => match self.listed(&item) {
+                    Known::Now | Known::Pending(_) => match self.listed(&item) {
                         Some(trigger) => triggers.push(trigger),
                         None => complete = false,
                     },
@@ -206,6 +218,7 @@ impl Lowering<'_> {
                     inputs: inputs?.unwrap_or_default(),
                 }))
             }
+            "workflow_call" => self.workflow_call(fields).map(Trigger::WorkflowCall),
             "repository_dispatch" => {
                 let types = optional(get("types"), |entry| self.types(entry, &place));
                 Some(Trigger::RepositoryDispatch(Activity { types: types? }))

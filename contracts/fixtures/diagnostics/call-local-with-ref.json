@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`uses` of job `release` is `./.github/workflows/release.yml@main`, which has a ref, which only a workflow of another repository takes",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 5,
+    "column": 11,
+    "end_line": 5,
+    "end_column": 47
+  },
+  "path": [
+    "jobs",
+    "release",
+    "uses"
+  ]
+}

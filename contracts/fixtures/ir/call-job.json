@@ -1,0 +1,405 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "prepare",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make prepare"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 7,
+              "column": 9,
+              "end_line": 7,
+              "end_column": 26
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 7,
+        "end_column": 26
+      }
+    },
+    {
+      "key": "remote",
+      "name": [
+        {
+          "text": "Release"
+        }
+      ],
+      "needs": [
+        "prepare"
+      ],
+      "if": null,
+      "runs_on": null,
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": [
+          "REGISTRY_TOKEN",
+          "SIGNING_KEY"
+        ]
+      },
+      "kind": {
+        "call": {
+          "workflow": {
+            "remote": {
+              "owner": "acme",
+              "repository": "shared",
+              "path": ".github/workflows/release.yml",
+              "ref": "v2"
+            }
+          },
+          "with": [
+            {
+              "name": "version",
+              "value": {
+                "string": [
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "github",
+                            "span": {
+                              "line": 13,
+                              "column": 20,
+                              "end_line": 13,
+                              "end_column": 26
+                            }
+                          }
+                        },
+                        "name": "ref_name",
+                        "span": {
+                          "line": 13,
+                          "column": 20,
+                          "end_line": 13,
+                          "end_column": 35
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "span": {
+                "line": 13,
+                "column": 7,
+                "end_line": 13,
+                "end_column": 38
+              }
+            },
+            {
+              "name": "debug",
+              "value": {
+                "boolean": true
+              },
+              "span": {
+                "line": 14,
+                "column": 7,
+                "end_line": 14,
+                "end_column": 18
+              }
+            },
+            {
+              "name": "jobs",
+              "value": {
+                "number": 8.0
+              },
+              "span": {
+                "line": 15,
+                "column": 7,
+                "end_line": 15,
+                "end_column": 14
+              }
+            },
+            {
+              "name": "channel",
+              "value": {
+                "string": [
+                  {
+                    "text": "stable"
+                  }
+                ]
+              },
+              "span": {
+                "line": 16,
+                "column": 7,
+                "end_line": 16,
+                "end_column": 22
+              }
+            }
+          ],
+          "secrets": {
+            "named": [
+              {
+                "name": "registry-token",
+                "value": [
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "secrets",
+                            "span": {
+                              "line": 18,
+                              "column": 27,
+                              "end_line": 18,
+                              "end_column": 34
+                            }
+                          }
+                        },
+                        "name": "REGISTRY_TOKEN",
+                        "span": {
+                          "line": 18,
+                          "column": 27,
+                          "end_line": 18,
+                          "end_column": 49
+                        }
+                      }
+                    }
+                  }
+                ],
+                "span": {
+                  "line": 18,
+                  "column": 7,
+                  "end_line": 18,
+                  "end_column": 52
+                }
+              },
+              {
+                "name": "signing-key",
+                "value": [
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "secrets",
+                            "span": {
+                              "line": 19,
+                              "column": 24,
+                              "end_line": 19,
+                              "end_column": 31
+                            }
+                          }
+                        },
+                        "name": "SIGNING_KEY",
+                        "span": {
+                          "line": 19,
+                          "column": 24,
+                          "end_line": 19,
+                          "end_column": 43
+                        }
+                      }
+                    }
+                  }
+                ],
+                "span": {
+                  "line": 19,
+                  "column": 7,
+                  "end_line": 19,
+                  "end_column": 46
+                }
+              }
+            ]
+          },
+          "span": {
+            "line": 11,
+            "column": 11,
+            "end_line": 11,
+            "end_column": 55
+          }
+        }
+      },
+      "span": {
+        "line": 8,
+        "column": 3,
+        "end_line": 19,
+        "end_column": 46
+      }
+    },
+    {
+      "key": "local",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": null,
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "call": {
+          "workflow": {
+            "local": {
+              "path": ".github/workflows/build.yml"
+            }
+          },
+          "with": [],
+          "secrets": "inherit",
+          "span": {
+            "line": 21,
+            "column": 11,
+            "end_line": 21,
+            "end_column": 40
+          }
+        }
+      },
+      "span": {
+        "line": 20,
+        "column": 3,
+        "end_line": 22,
+        "end_column": 21
+      }
+    },
+    {
+      "key": "bare",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": null,
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "call": {
+          "workflow": {
+            "local": {
+              "path": ".bosun/workflows/lint.yml"
+            }
+          },
+          "with": [],
+          "secrets": {
+            "named": []
+          },
+          "span": {
+            "line": 24,
+            "column": 11,
+            "end_line": 24,
+            "end_column": 38
+          }
+        }
+      },
+      "span": {
+        "line": 23,
+        "column": 3,
+        "end_line": 24,
+        "end_column": 38
+      }
+    }
+  ]
+}

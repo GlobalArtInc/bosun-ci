@@ -108,15 +108,48 @@ impl Actions {
     }
 
     pub(crate) async fn prepare(&self, claimed: &ClaimedJob) -> Result<Prepared, Failure> {
-        let JobKind::Steps(steps) = &claimed.job.kind;
+        let JobKind::Steps(steps) = &claimed.job.kind else {
+            return Ok(Prepared::Failed(vec![Notice {
+                severity: Severity::Error,
+                code: NOT_IMPLEMENTED,
+                message: format!(
+                    "the job `{}` calls a workflow, which is not supported yet; it arrives in M2",
+                    claimed.key
+                ),
+                span: claimed.job.span,
+                path: vec![key("jobs"), key(claimed.key.as_str())],
+            }]));
+        };
         let mut pins = claimed.pins.clone().unwrap_or_default();
         let mut seen = HashSet::new();
         let mut actions = Vec::new();
         let mut notices = Vec::new();
         let mut faults = Vec::new();
         for (index, step) in (0_u64..).zip(steps) {
-            let Action::Uses(reference) = &step.action else {
-                continue;
+            let reference = match &step.action {
+                Action::Uses(reference) => reference,
+                Action::Run { .. } => continue,
+                Action::Local { .. } | Action::Docker { .. } => {
+                    faults.push(Notice {
+                        severity: Severity::Error,
+                        code: NOT_IMPLEMENTED,
+                        message: format!(
+                            "step {} of the job `{}` uses a local action or a container image, \
+                             which is not supported yet; it arrives in M2",
+                            index + 1,
+                            claimed.key
+                        ),
+                        span: step.span,
+                        path: vec![
+                            key("jobs"),
+                            key(claimed.key.as_str()),
+                            key("steps"),
+                            PathSegment::Index(index),
+                            key("uses"),
+                        ],
+                    });
+                    continue;
+                }
             };
             if !seen.insert(reference.to_string()) {
                 continue;
@@ -226,7 +259,15 @@ impl Actions {
             Ok(parsed) => parsed,
             Err(diagnostics) => return Ok(Err(refused(reference, &diagnostics))),
         };
-        let Runs::Node(runs) = &parsed.metadata.runs;
+        let Runs::Node(runs) = &parsed.metadata.runs else {
+            return Ok(Err(Refusal {
+                code: NOT_IMPLEMENTED,
+                message: format!(
+                    "the action `{reference}` declares `using: composite` or `using: docker`, \
+                     which is not supported yet; it arrives in M2"
+                ),
+            }));
+        };
         let node = self.runtimes.version(runs.using).to_owned();
         let declared = declared(runs.using);
         let substituted = (tools::major(&node) != declared).then(|| {

@@ -4,10 +4,10 @@ use bosun_expr::Key;
 use bosun_types::diagnostic::{Diagnostic, PathSegment, Severity};
 use bosun_types::ir::{SecretReferences, Span, Template, Trigger, Workflow};
 
-use crate::Code;
 use crate::place::Text;
-use crate::surface::{Arrives, Known, Milestone, Shape, WORKFLOW};
+use crate::surface::{Arrives, Known, Milestone, Shape, WORKFLOW, suggest};
 use crate::yaml::{Node, Value};
+use crate::{Code, Pending};
 
 pub(crate) struct Mark {
     pub(crate) span: Span,
@@ -22,6 +22,7 @@ pub(crate) struct Seen {
 
 pub(crate) struct Lowering<'f> {
     file: &'f str,
+    pending: Pending,
     text: Text,
     diagnostics: Vec<Diagnostic>,
     pub(crate) triggers: Option<Vec<Trigger>>,
@@ -149,9 +150,10 @@ pub(crate) fn number_text(value: f64) -> String {
 }
 
 impl<'f> Lowering<'f> {
-    pub(crate) fn new(file: &'f str, source: &str) -> Lowering<'f> {
+    pub(crate) fn new(file: &'f str, source: &str, pending: Pending) -> Lowering<'f> {
         Lowering {
             file,
+            pending,
             text: Text::new(source),
             diagnostics: Vec::new(),
             triggers: None,
@@ -285,6 +287,24 @@ impl<'f> Lowering<'f> {
         );
     }
 
+    pub(crate) fn pending_refused(&self) -> bool {
+        self.pending == Pending::Refuse
+    }
+
+    pub(crate) fn refuse_pending(
+        &mut self,
+        noun: &str,
+        name: &str,
+        place: &str,
+        milestone: Milestone,
+        span: Span,
+        path: &[PathSegment],
+    ) {
+        if self.pending == Pending::Refuse {
+            self.not_implemented(noun, name, place, milestone, span, path);
+        }
+    }
+
     pub(crate) fn unknown(
         &mut self,
         noun: &str,
@@ -389,6 +409,17 @@ impl<'f> Lowering<'f> {
             }
             match shape.find(entry.name) {
                 Known::Now => fields.entries.push(entry),
+                Known::Pending(milestone) => {
+                    self.refuse_pending(
+                        shape.noun,
+                        entry.name,
+                        place,
+                        milestone,
+                        entry.key.span,
+                        &entry.path,
+                    );
+                    fields.entries.push(entry);
+                }
                 Known::Later(milestone) => {
                     fields.complete = false;
                     self.not_implemented(
@@ -458,6 +489,35 @@ impl<'f> Lowering<'f> {
             );
         }
         text
+    }
+
+    pub(crate) fn choice<T: Copy>(
+        &mut self,
+        field: &Entry<'_>,
+        what: &str,
+        options: &[(&str, T)],
+    ) -> Option<T> {
+        let text = self.string(field.value, &field.path, what)?;
+        if let Some(&(_, chosen)) = options.iter().find(|(name, _)| *name == text) {
+            return Some(chosen);
+        }
+        let names: Vec<String> = options
+            .iter()
+            .map(|(name, _)| format!("`{name}`"))
+            .collect();
+        let hint = suggest(&text, options.iter().map(|(name, _)| *name))
+            .map(|name| format!("; did you mean `{name}`?"))
+            .unwrap_or_default();
+        self.error(
+            Code::InvalidValue,
+            field.value.span,
+            &field.path,
+            format!(
+                "{what} is `{text}`, which is not {}{hint}",
+                names.join(", ")
+            ),
+        );
+        None
     }
 
     pub(crate) fn strings<'n>(
@@ -577,6 +637,10 @@ impl<'f> Lowering<'f> {
         let concurrency = optional(fields.get("concurrency"), |entry| {
             self.concurrency(entry, place, Key::WorkflowConcurrency)
         });
+        let cache_mode = optional(fields.get("cache-mode"), |entry| {
+            self.cache_mode(entry, place)
+        });
+        let priority = optional(fields.get("priority"), |entry| self.priority(entry, place));
         let jobs = fields.get("jobs").and_then(|entry| self.jobs(entry));
         Some(Workflow {
             name: name?,
@@ -586,6 +650,8 @@ impl<'f> Lowering<'f> {
             env: env?.unwrap_or_default(),
             defaults: defaults?.unwrap_or_default(),
             concurrency: concurrency?,
+            cache_mode: cache_mode?,
+            priority: priority?,
             jobs: jobs?,
         })
     }

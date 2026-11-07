@@ -1,0 +1,354 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "setup",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {
+        "toolchain": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "steps",
+                            "span": {
+                              "line": 7,
+                              "column": 22,
+                              "end_line": 7,
+                              "end_column": 27
+                            }
+                          }
+                        },
+                        "name": "pick",
+                        "span": {
+                          "line": 7,
+                          "column": 22,
+                          "end_line": 7,
+                          "end_column": 32
+                        }
+                      }
+                    },
+                    "name": "outputs",
+                    "span": {
+                      "line": 7,
+                      "column": 22,
+                      "end_line": 7,
+                      "end_column": 40
+                    }
+                  }
+                },
+                "name": "toolchain",
+                "span": {
+                  "line": 7,
+                  "column": 22,
+                  "end_line": 7,
+                  "end_column": 50
+                }
+              }
+            }
+          }
+        ]
+      },
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": "pick",
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo \"toolchain=stable\" >> \"$GITHUB_OUTPUT\""
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 9,
+              "column": 9,
+              "end_line": 10,
+              "end_column": 57
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 10,
+        "end_column": 57
+      }
+    },
+    {
+      "key": "build",
+      "name": null,
+      "needs": [
+        "setup"
+      ],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "literal": {
+          "matrix": {
+            "literal": {
+              "vectors": [
+                {
+                  "name": "profile",
+                  "values": {
+                    "literal": [
+                      {
+                        "string": [
+                          {
+                            "text": "dev"
+                          }
+                        ]
+                      },
+                      {
+                        "string": [
+                          {
+                            "text": "release"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "include": null,
+              "exclude": null
+            }
+          },
+          "fail_fast": {
+            "literal": true
+          },
+          "max_parallel": null
+        }
+      },
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "cache_volumes": [
+        {
+          "name": "cargo-registry",
+          "path": "cargo-registry",
+          "scope": "project",
+          "key": null,
+          "mode": "exclusive"
+        },
+        {
+          "name": "cargo-target",
+          "path": "target",
+          "scope": "organisation",
+          "key": [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "property": {
+                      "target": {
+                        "property": {
+                          "target": {
+                            "context": {
+                              "name": "needs",
+                              "span": {
+                                "line": 22,
+                                "column": 18,
+                                "end_line": 22,
+                                "end_column": 23
+                              }
+                            }
+                          },
+                          "name": "setup",
+                          "span": {
+                            "line": 22,
+                            "column": 18,
+                            "end_line": 22,
+                            "end_column": 29
+                          }
+                        }
+                      },
+                      "name": "outputs",
+                      "span": {
+                        "line": 22,
+                        "column": 18,
+                        "end_line": 22,
+                        "end_column": 37
+                      }
+                    }
+                  },
+                  "name": "toolchain",
+                  "span": {
+                    "line": 22,
+                    "column": 18,
+                    "end_line": 22,
+                    "end_column": 47
+                  }
+                }
+              }
+            },
+            {
+              "text": "-"
+            },
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "matrix",
+                      "span": {
+                        "line": 22,
+                        "column": 55,
+                        "end_line": 22,
+                        "end_column": 61
+                      }
+                    }
+                  },
+                  "name": "profile",
+                  "span": {
+                    "line": 22,
+                    "column": 55,
+                    "end_line": 22,
+                    "end_column": 69
+                  }
+                }
+              }
+            }
+          ],
+          "mode": "shared"
+        },
+        {
+          "name": "sccache",
+          "path": "/var/cache/sccache",
+          "scope": "project",
+          "key": null,
+          "mode": "exclusive"
+        }
+      ],
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "cargo build"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 27,
+              "column": 9,
+              "end_line": 27,
+              "end_column": 25
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 11,
+        "column": 3,
+        "end_line": 27,
+        "end_column": 25
+      }
+    }
+  ]
+}

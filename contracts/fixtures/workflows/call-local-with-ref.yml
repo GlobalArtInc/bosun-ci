@@ -1,0 +1,5 @@
+on: push
+
+jobs:
+  release:
+    uses: ./.github/workflows/release.yml@main

@@ -1,0 +1,30 @@
+on: push
+
+jobs:
+  short:
+    runs-on: shell
+    container: ghcr.io/acme/builder:1.2
+    steps:
+      - run: make
+  long:
+    runs-on: shell
+    strategy:
+      matrix:
+        image: [debian, alpine]
+    container:
+      image: registry.example.com/${{ matrix.image }}:latest
+      credentials:
+        username: ci
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+      env:
+        TOOLCHAIN: stable
+        RUNNER_NAME: ${{ runner.name }}
+      ports:
+        - 8080
+        - "9090:9090"
+      volumes:
+        - /var/cache:/cache
+        - ${{ github.workspace }}:/src
+      options: --cpus 2 --health-cmd "true"
+    steps:
+      - run: make

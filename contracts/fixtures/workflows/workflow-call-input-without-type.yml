@@ -1,0 +1,11 @@
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

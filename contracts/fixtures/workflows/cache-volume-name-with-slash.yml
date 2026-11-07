@@ -1,0 +1,9 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    cache-volumes:
+      - team/registry
+    steps:
+      - run: make

@@ -1,0 +1,30 @@
+name: Build and pack
+description: Builds a project and packs the result
+inputs:
+  profile:
+    description: The build profile
+    default: release
+outputs:
+  artifact:
+    description: Name of the packed artifact
+    value: ${{ steps.pack.outputs.name }}
+  profile:
+    description: The profile that was built
+    value: ${{ inputs.profile }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+    - id: build
+      run: cargo build --profile ${{ inputs.profile }}
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        RUSTFLAGS: -D warnings
+    - id: pack
+      if: success()
+      run: echo "name=bundle" >> "$GITHUB_OUTPUT"
+      shell: sh
+    - uses: ./.github/actions/local
+      with:
+        path: ${{ steps.pack.outputs.name }}

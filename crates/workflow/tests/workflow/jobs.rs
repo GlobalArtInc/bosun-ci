@@ -54,7 +54,9 @@ fn uses_takes_a_repository_and_a_ref_and_names_m2_for_other_forms() {
         ),
     ] {
         let workflow = valid(&step(&format!("      - uses: {uses}\n")));
-        let JobKind::Steps(steps) = &workflow.jobs[0].kind;
+        let JobKind::Steps(steps) = &workflow.jobs[0].kind else {
+            panic!("the job calls a workflow");
+        };
         assert_eq!(steps[0].action, Action::Uses(expected.clone()));
         assert_eq!(expected.to_string(), uses);
     }
@@ -473,7 +475,9 @@ jobs:
     let build = &workflow.jobs[0];
     assert!(matches!(build.timeout_minutes, Evaluable::Template(_)));
     assert!(matches!(build.continue_on_error, Evaluable::Template(_)));
-    let JobKind::Steps(steps) = &build.kind;
+    let JobKind::Steps(steps) = &build.kind else {
+        panic!("the job calls a workflow");
+    };
     assert_eq!(steps[0].timeout_minutes, Some(Evaluable::Literal(5)));
     assert_eq!(steps[0].continue_on_error, Evaluable::Literal(true));
     assert_eq!(steps[1].timeout_minutes, None);
@@ -569,7 +573,9 @@ jobs:
     let names: BTreeSet<&str> = build.outputs.keys().map(String::as_str).collect();
     assert_eq!(names, BTreeSet::from(["fixed", "version"]));
     assert_eq!(build.outputs["fixed"], Template::text("1"));
-    let JobKind::Steps(steps) = &build.kind;
+    let JobKind::Steps(steps) = &build.kind else {
+        panic!("the job calls a workflow");
+    };
     assert_eq!(steps[0].with["fetch-depth"], Template::text("0"));
     let empty = invalid(&job("    outputs:\n      '': x\n"));
     assert_eq!(

@@ -29,15 +29,15 @@ pub(super) async fn strings(world: &World, sql: &str) -> Vec<String> {
 async fn jobs_without_needs_are_queued_at_dispatch_with_their_labels_and_the_pools_they_may_use() {
     let world = World::new().await;
     let mut grouped = template("grouped", &[], 1);
-    grouped.runs_on = Evaluable::Literal(RunsOn {
+    grouped.runs_on = Some(Evaluable::Literal(RunsOn {
         group: Some(Template::text("default")),
         labels: vec![Template::text("Shell")],
-    });
+    }));
     let mut nowhere = template("nowhere", &[], 1);
-    nowhere.runs_on = Evaluable::Literal(RunsOn {
+    nowhere.runs_on = Some(Evaluable::Literal(RunsOn {
         group: Some(Template::text("nowhere")),
         labels: Vec::new(),
-    });
+    }));
     let run = world
         .dispatch(&workflow(vec![
             template("test", &["build"], 1),
@@ -180,7 +180,9 @@ async fn a_job_waits_for_every_job_it_needs_and_the_run_succeeds_when_all_do() {
 async fn a_step_that_uses_an_action_is_named_after_the_action() {
     let world = World::new().await;
     let mut build = template("build", &[], 2);
-    let JobKind::Steps(steps) = &mut build.kind;
+    let JobKind::Steps(steps) = &mut build.kind else {
+        panic!("a job with steps");
+    };
     steps[1].action = Action::Uses(ActionReference {
         owner: "actions".to_owned(),
         repository: "cache".to_owned(),

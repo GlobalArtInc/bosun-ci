@@ -1,0 +1,22 @@
+{
+  "metadata": null,
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "missing_key",
+      "message": "missing key `shell` in step 1 of the action, which runs a script in a composite action",
+      "file": "action.yml",
+      "span": {
+        "line": 6,
+        "column": 7,
+        "end_line": 6,
+        "end_column": 22
+      },
+      "path": [
+        "runs",
+        "steps",
+        0
+      ]
+    }
+  ]
+}

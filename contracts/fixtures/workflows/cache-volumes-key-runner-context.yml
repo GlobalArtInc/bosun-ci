@@ -1,0 +1,10 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    cache-volumes:
+      - name: cargo-target
+        key: ${{ runner.os }}
+    steps:
+      - run: cargo build

@@ -314,7 +314,9 @@ fn line_endings_and_a_byte_order_mark_do_not_move_spans() {
     let plain = valid(source);
     assert_eq!(valid(&source.replace('\n', "\r\n")), plain);
     assert_eq!(valid(&format!("\u{feff}{source}")), plain);
-    let JobKind::Steps(steps) = &plain.jobs[0].kind;
+    let JobKind::Steps(steps) = &plain.jobs[0].kind else {
+        panic!("the job calls a workflow");
+    };
     assert_eq!(
         steps[0].span,
         Span {
@@ -352,7 +354,9 @@ fn columns_count_characters_and_ignore_trailing_comments() {
     let workflow = valid(
         "on: workflow_dispatch\njobs:\n  build:\n    runs-on: shell\n    steps:\n      - run: \"make\"   # the build\n",
     );
-    let JobKind::Steps(steps) = &workflow.jobs[0].kind;
+    let JobKind::Steps(steps) = &workflow.jobs[0].kind else {
+        panic!("the job calls a workflow");
+    };
     assert_eq!(
         steps[0].span,
         Span {

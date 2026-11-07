@@ -24,6 +24,7 @@ fn event_of(trigger: &Trigger) -> &str {
         Trigger::MergeGroup(_) => "merge_group",
         Trigger::Schedule(_) => "schedule",
         Trigger::WorkflowDispatch(_) => "workflow_dispatch",
+        Trigger::WorkflowCall(_) => "workflow_call",
         Trigger::RepositoryDispatch(_) => "repository_dispatch",
         Trigger::Generic(generic) => &generic.name,
     }

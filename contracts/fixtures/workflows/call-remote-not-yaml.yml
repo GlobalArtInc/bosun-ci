@@ -1,0 +1,5 @@
+on: push
+
+jobs:
+  release:
+    uses: acme/shared/.github/workflows/release@v2

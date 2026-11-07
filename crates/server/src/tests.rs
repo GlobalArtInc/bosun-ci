@@ -838,10 +838,10 @@ fn template(name: &str, needs: &[&str], steps: usize) -> JobTemplate {
         name: None,
         needs: needs.iter().map(|need| key(need)).collect(),
         r#if: None,
-        runs_on: Evaluable::Literal(RunsOn {
+        runs_on: Some(Evaluable::Literal(RunsOn {
             group: None,
             labels: vec![Template::text("Self-Hosted"), Template::text("Linux")],
-        }),
+        })),
         permissions: None,
         concurrency: None,
         strategy: None,
@@ -851,6 +851,11 @@ fn template(name: &str, needs: &[&str], steps: usize) -> JobTemplate {
         continue_on_error: Evaluable::Literal(false),
         outputs: BTreeMap::new(),
         secrets: SecretReferences::Named(BTreeSet::new()),
+        container: None,
+        services: Vec::new(),
+        cache_mode: None,
+        cache_volumes: Vec::new(),
+        priority: None,
         kind: JobKind::Steps(
             (0..steps)
                 .map(|index| Step {
@@ -883,6 +888,8 @@ fn workflow(jobs: Vec<JobTemplate>) -> ir::Workflow {
         env: BTreeMap::new(),
         defaults: Defaults::default(),
         concurrency: None,
+        cache_mode: None,
+        priority: None,
         jobs,
     }
 }

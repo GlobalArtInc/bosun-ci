@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`uses` of job `release` is `acme/shared@v2`, which names a repository and not a workflow file; write it as `acme/shared/<path>@v2`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 5,
+    "column": 11,
+    "end_line": 5,
+    "end_column": 25
+  },
+  "path": [
+    "jobs",
+    "release",
+    "uses"
+  ]
+}

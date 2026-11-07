@@ -1,0 +1,157 @@
+{
+  "metadata": {
+    "name": "Lint",
+    "description": "Lints in a container",
+    "author": null,
+    "branding": null,
+    "inputs": [
+      {
+        "name": "target",
+        "description": "What to lint",
+        "required": false,
+        "default": [
+          {
+            "text": "."
+          }
+        ],
+        "deprecation_message": null
+      }
+    ],
+    "outputs": [],
+    "runs": {
+      "docker": {
+        "image": "docker://ghcr.io/acme/lint:2",
+        "args": [
+          [
+            {
+              "text": "--target"
+            }
+          ],
+          [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "inputs",
+                      "span": {
+                        "line": 12,
+                        "column": 11,
+                        "end_line": 12,
+                        "end_column": 17
+                      }
+                    }
+                  },
+                  "name": "target",
+                  "span": {
+                    "line": 12,
+                    "column": 11,
+                    "end_line": 12,
+                    "end_column": 24
+                  }
+                }
+              }
+            }
+          ]
+        ],
+        "env": {
+          "LINT_LEVEL": [
+            {
+              "text": "strict"
+            }
+          ],
+          "LINT_ROOT": [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "github",
+                      "span": {
+                        "line": 15,
+                        "column": 20,
+                        "end_line": 15,
+                        "end_column": 26
+                      }
+                    }
+                  },
+                  "name": "workspace",
+                  "span": {
+                    "line": 15,
+                    "column": 20,
+                    "end_line": 15,
+                    "end_column": 36
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "entrypoint": "/usr/bin/lint",
+        "pre_entrypoint": "/usr/bin/prepare",
+        "pre_if": {
+          "expression": {
+            "compare": {
+              "operator": "==",
+              "left": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "runner",
+                      "span": {
+                        "line": 18,
+                        "column": 11,
+                        "end_line": 18,
+                        "end_column": 17
+                      }
+                    }
+                  },
+                  "name": "os",
+                  "span": {
+                    "line": 18,
+                    "column": 11,
+                    "end_line": 18,
+                    "end_column": 20
+                  }
+                }
+              },
+              "right": {
+                "string": {
+                  "value": "Linux",
+                  "span": {
+                    "line": 18,
+                    "column": 24,
+                    "end_line": 18,
+                    "end_column": 31
+                  }
+                }
+              },
+              "span": {
+                "line": 18,
+                "column": 11,
+                "end_line": 18,
+                "end_column": 31
+              }
+            }
+          }
+        },
+        "post_entrypoint": "/usr/bin/report",
+        "post_if": {
+          "expression": {
+            "call": {
+              "function": "always",
+              "arguments": [],
+              "span": {
+                "line": 20,
+                "column": 12,
+                "end_line": 20,
+                "end_column": 20
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "diagnostics": []
+}

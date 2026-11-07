@@ -1,0 +1,13 @@
+on: push
+
+jobs:
+  test:
+    runs-on: shell
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PORT: ${{ steps.pick.outputs.port }}
+    steps:
+      - id: pick
+        run: echo "port=5432" >> "$GITHUB_OUTPUT"

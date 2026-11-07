@@ -189,7 +189,7 @@ async fn an_assignment_with_a_field_the_agent_does_not_know_is_rejected_naming_t
 
     let known = assignment(vec![step("echo")]);
     let mut job: Value = serde_json::from_str(&known.job).expect("the job as JSON");
-    job["container"] = json!({ "image": "debian:13" });
+    job["environment"] = json!({ "name": "production" });
     let mut contexts: Value = serde_json::from_str(&known.contexts).expect("the contexts");
     contexts["runner"] = json!({});
     let mut evaluated: Value = serde_json::from_str(&known.evaluated).expect("the values");
@@ -199,7 +199,7 @@ async fn an_assignment_with_a_field_the_agent_does_not_know_is_rejected_naming_t
     for (document, field, assignment) in [
         (
             "job",
-            "container",
+            "environment",
             Assignment {
                 job: job.to_string(),
                 ..assignment(vec![step("echo")])

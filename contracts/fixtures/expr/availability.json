@@ -91,6 +91,122 @@
     "evaluated_by": "agent"
   },
   {
+    "key": "jobs.<job_id>.container",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.container.image",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.container.credentials",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.container.env.<env_id>",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": [],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.services",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.services.<service_id>.credentials",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.services.<service_id>.env.<env_id>",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "runner",
+      "secrets",
+      "strategy",
+      "matrix",
+      "needs",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": [],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "jobs.<job_id>.cache-volumes.key",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.with.<with_id>",
+    "contexts": ["github", "vars", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "jobs.<job_id>.secrets.<secrets_id>",
+    "contexts": ["github", "vars", "secrets", "strategy", "matrix", "needs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "on.workflow_call.inputs.<inputs_id>.default",
+    "contexts": ["github", "vars", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
+    "key": "on.workflow_call.outputs.<output_id>.value",
+    "contexts": ["github", "vars", "jobs", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "server"
+  },
+  {
     "key": "jobs.<job_id>.steps.if",
     "contexts": [
       "github",
@@ -280,6 +396,47 @@
       "bosun"
     ],
     "special_functions": ["hashFiles", "success", "failure", "cancelled", "always"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "outputs.<output_id>.value",
+    "contexts": [
+      "github",
+      "env",
+      "vars",
+      "job",
+      "steps",
+      "runner",
+      "strategy",
+      "matrix",
+      "inputs",
+      "bosun"
+    ],
+    "special_functions": [],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "runs.steps",
+    "contexts": ["github", "env", "vars", "job", "steps", "runner", "inputs", "bosun"],
+    "special_functions": ["hashFiles"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "runs.steps.if",
+    "contexts": ["github", "env", "vars", "job", "steps", "runner", "inputs", "bosun"],
+    "special_functions": ["hashFiles", "success", "failure", "cancelled", "always"],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "runs.args",
+    "contexts": ["github", "vars", "inputs", "bosun"],
+    "special_functions": [],
+    "evaluated_by": "agent"
+  },
+  {
+    "key": "runs.env",
+    "contexts": ["github", "vars", "inputs", "bosun"],
+    "special_functions": [],
     "evaluated_by": "agent"
   }
 ]

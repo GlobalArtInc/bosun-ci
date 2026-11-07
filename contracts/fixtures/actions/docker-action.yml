@@ -1,0 +1,20 @@
+name: Lint
+description: Lints in a container
+inputs:
+  target:
+    description: What to lint
+    default: .
+runs:
+  using: docker
+  image: docker://ghcr.io/acme/lint:2
+  args:
+    - --target
+    - ${{ inputs.target }}
+  env:
+    LINT_LEVEL: strict
+    LINT_ROOT: ${{ github.workspace }}
+  entrypoint: /usr/bin/lint
+  pre-entrypoint: /usr/bin/prepare
+  pre-if: runner.os == 'Linux'
+  post-entrypoint: /usr/bin/report
+  post-if: always()

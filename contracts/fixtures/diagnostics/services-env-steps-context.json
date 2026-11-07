@@ -1,0 +1,20 @@
+{
+  "severity": "error",
+  "code": "unavailable_context",
+  "message": "context `steps` is not available in `jobs.<job_id>.services.<service_id>.env.<env_id>`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 10,
+    "column": 30,
+    "end_line": 10,
+    "end_column": 35
+  },
+  "path": [
+    "jobs",
+    "test",
+    "services",
+    "postgres",
+    "env",
+    "POSTGRES_PORT"
+  ]
+}

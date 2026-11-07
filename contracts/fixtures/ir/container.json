@@ -1,0 +1,373 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "short",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": []
+      },
+      "container": {
+        "image": [
+          {
+            "text": "ghcr.io/acme/builder:1.2"
+          }
+        ],
+        "credentials": null,
+        "env": {},
+        "ports": [],
+        "volumes": [],
+        "options": null
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 8,
+              "column": 9,
+              "end_line": 8,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 8,
+        "end_column": 18
+      }
+    },
+    {
+      "key": "long",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": {
+        "literal": {
+          "matrix": {
+            "literal": {
+              "vectors": [
+                {
+                  "name": "image",
+                  "values": {
+                    "literal": [
+                      {
+                        "string": [
+                          {
+                            "text": "debian"
+                          }
+                        ]
+                      },
+                      {
+                        "string": [
+                          {
+                            "text": "alpine"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "include": null,
+              "exclude": null
+            }
+          },
+          "fail_fast": {
+            "literal": true
+          },
+          "max_parallel": null
+        }
+      },
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": [
+          "REGISTRY_PASSWORD"
+        ]
+      },
+      "container": {
+        "image": [
+          {
+            "text": "registry.example.com/"
+          },
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "context": {
+                    "name": "matrix",
+                    "span": {
+                      "line": 15,
+                      "column": 39,
+                      "end_line": 15,
+                      "end_column": 45
+                    }
+                  }
+                },
+                "name": "image",
+                "span": {
+                  "line": 15,
+                  "column": 39,
+                  "end_line": 15,
+                  "end_column": 51
+                }
+              }
+            }
+          },
+          {
+            "text": ":latest"
+          }
+        ],
+        "credentials": {
+          "username": [
+            {
+              "text": "ci"
+            }
+          ],
+          "password": [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "secrets",
+                      "span": {
+                        "line": 18,
+                        "column": 23,
+                        "end_line": 18,
+                        "end_column": 30
+                      }
+                    }
+                  },
+                  "name": "REGISTRY_PASSWORD",
+                  "span": {
+                    "line": 18,
+                    "column": 23,
+                    "end_line": 18,
+                    "end_column": 48
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "env": {
+          "RUNNER_NAME": [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "runner",
+                      "span": {
+                        "line": 21,
+                        "column": 26,
+                        "end_line": 21,
+                        "end_column": 32
+                      }
+                    }
+                  },
+                  "name": "name",
+                  "span": {
+                    "line": 21,
+                    "column": 26,
+                    "end_line": 21,
+                    "end_column": 37
+                  }
+                }
+              }
+            }
+          ],
+          "TOOLCHAIN": [
+            {
+              "text": "stable"
+            }
+          ]
+        },
+        "ports": [
+          [
+            {
+              "text": "8080"
+            }
+          ],
+          [
+            {
+              "text": "9090:9090"
+            }
+          ]
+        ],
+        "volumes": [
+          [
+            {
+              "text": "/var/cache:/cache"
+            }
+          ],
+          [
+            {
+              "expression": {
+                "property": {
+                  "target": {
+                    "context": {
+                      "name": "github",
+                      "span": {
+                        "line": 27,
+                        "column": 15,
+                        "end_line": 27,
+                        "end_column": 21
+                      }
+                    }
+                  },
+                  "name": "workspace",
+                  "span": {
+                    "line": 27,
+                    "column": 15,
+                    "end_line": 27,
+                    "end_column": 31
+                  }
+                }
+              }
+            },
+            {
+              "text": ":/src"
+            }
+          ]
+        ],
+        "options": [
+          {
+            "text": "--cpus 2 --health-cmd \"true\""
+          }
+        ]
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "make"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 30,
+              "column": 9,
+              "end_line": 30,
+              "end_column": 18
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 9,
+        "column": 3,
+        "end_line": 30,
+        "end_column": 18
+      }
+    }
+  ]
+}

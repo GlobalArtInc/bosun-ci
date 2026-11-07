@@ -1,0 +1,12 @@
+on:
+  workflow_call:
+    inputs:
+      retries:
+        type: number
+        default: many
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

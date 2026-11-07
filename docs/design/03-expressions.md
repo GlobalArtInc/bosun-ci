@@ -218,6 +218,15 @@ the system.
 Using `bosun` in a file under `.github/workflows/` produces the extension warning of
 [02-workflows.md](02-workflows.md).
 
+The agent fills in two properties of `job` for a job that runs containers, as the target does:
+`job.container` has `id` and `network` for the job's container and its network, and `job.services`
+has one property per service, named by the service's key, with `id`, `network` and `ports`, where
+`ports` maps each container port, as text, to the host port that was published for it, so
+`job.services.postgres.ports['5432']` is the port a step connects to. The properties are `null` for
+a job without a container or services, and they are known only to the agent, so the keys that see
+`job` are the ones that see them. The static checks do not look inside a context, so an unknown
+property is `null` at run time, as everywhere else.
+
 ### The contexts the server supplies
 
 The planner evaluates the server's keys with these contexts:
@@ -286,7 +295,9 @@ table does not list takes no expression, such as a step's `shell` or `uses`, as 
 The table also decides which side evaluates the expression, by one rule: **an expression whose key
 can see `job`, `runner` or `steps` is evaluated on the agent; every other expression is evaluated
 on the server.** The server needs the server-side values to decide where and whether a job runs;
-the agent alone knows the runner and the steps.
+the agent alone knows the runner and the steps. The one exception is `runs.args` and `runs.env` of
+a docker action: they see none of the three, but only the agent reads the metadata of an action and
+runs it, so the agent evaluates them.
 
 | Key | Evaluated by | When |
 |-----|--------------|------|
@@ -307,6 +318,7 @@ the agent alone knows the runner and the steps.
 | `jobs.<job_id>.services` | server | when the job's `needs` are complete |
 | `jobs.<job_id>.services.<service_id>.credentials` | server | when the job's `needs` are complete |
 | `jobs.<job_id>.env` | server | when the job's `needs` are complete |
+| `jobs.<job_id>.cache-volumes.key` | server | when the job's `needs` are complete |
 | `jobs.<job_id>.defaults.run` | server | when the job's `needs` are complete |
 | `jobs.<job_id>.with.<with_id>` | server | when the job's `needs` are complete |
 | `jobs.<job_id>.secrets.<secrets_id>` | server | when the job's `needs` are complete |
@@ -327,13 +339,40 @@ the agent alone knows the runner and the steps.
 | `on.workflow_call.inputs.<inputs_id>.default` | server | when the call starts |
 | `on.workflow_call.outputs.<output_id>.value` | server | when the call ends |
 | `inputs.<input_id>.default` | agent | when the step that uses the action is reached |
+| `outputs.<output_id>.value` | agent | when the composite action's steps have ended |
+| `runs.steps` | agent | when the step of the composite action is reached |
+| `runs.steps.if` | agent | when the step of the composite action is reached |
+| `runs.args` | agent | when the docker action starts |
+| `runs.env` | agent | when the docker action starts |
 | `runs.pre-if` | agent | when the pre step of the action is reached |
 | `runs.post-if` | agent | when the post step of the action is reached |
 
 Expanding a matrix when the `needs` are complete is what makes a matrix computed by an earlier job
 (`fromJSON(needs.setup.outputs.matrix)`) work.
 
-The three keys of an action's metadata see what the runner of the target gives them. The default
+The `key` of a cache volume (`jobs.<job_id>.cache-volumes.key`) is not in the table of the target
+syntax, which has no such key. The server evaluates it when the job's `needs` are complete, with the
+contexts of the job's `env` less `secrets`: `github`, `vars`, `strategy`, `matrix`, `needs`,
+`inputs` and `bosun`, and neither `runner` nor `steps`, which only the agent knows. It does not see
+`secrets` because the key becomes the name of a directory that persists on the agent host, outside
+the masking of logs, so a secret in it would be written in the clear where nothing redacts it. The `image`, `ports`,
+`volumes` and `options` of `container` and of a service, and the `with` of a call, see `github`,
+`vars`, `strategy`, `matrix`, `needs`, `inputs` and `bosun`; the `credentials` of both also see
+`env` and `secrets`, and the `env` of both also `env`, `job`, `runner` and `secrets`, which is why
+the `env` is evaluated by the agent. A `workflow_call` input's `default` sees `github`, `vars`, `inputs`
+and `bosun`, and an output's `value` sees `github`, `vars`, `jobs`, `inputs` and `bosun`.
+
+The steps of a composite action (`runs.steps`, and `runs.steps.if` for the condition) see `github`,
+`env`, `vars`, `job`, `steps`, `runner`, `inputs` and `bosun`, and `hashFiles`, and the condition
+the status functions too. They do not see `secrets`, `needs`, `matrix` or `strategy`: the action runs
+inside a step of a job it knows nothing about, a secret reaches it only as an input the caller
+passes, and an action written for one job must not read the matrix of another. The `args` and the
+`env` of a docker action (`runs.args`, `runs.env`) see `github`, `inputs`, `vars` and `bosun` only,
+since a container has no steps and no job of its own to read.
+
+The `value` of an output of a composite action sees `github`, `env`, `vars`, `job`, `steps`,
+`runner`, `strategy`, `matrix` and `inputs`, so it reads the outputs of the action's own steps and
+no secret. The other keys of an action's metadata see what the runner of the target gives them. The default
 of an input sees `github`, `job`, `runner`, `strategy` and `matrix` and calls `hashFiles`, as the
 target's schema of action metadata says, so `${{ github.token }}` and `${{ runner.debug == '1' }}`
 are defaults that public actions use, while `secrets`, `env` and `steps` are refused. `pre-if` and

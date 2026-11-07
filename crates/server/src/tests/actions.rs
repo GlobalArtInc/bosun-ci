@@ -367,7 +367,9 @@ async fn two_assignments_of_an_action_download_it_once_and_a_moved_tag_leaves_th
         format!("/_runtime/actions/actions/checkout/{first}.tar.gz")
     );
     assert_eq!(action.node, NODE);
-    let Runs::Node(runs) = &action.metadata.runs;
+    let Runs::Node(runs) = &action.metadata.runs else {
+        panic!("a Node action");
+    };
     assert_eq!(runs.main, "dist/index.js");
     assert_eq!(action.metadata.name.as_deref(), Some("Checkout"));
     assert_eq!(

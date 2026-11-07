@@ -936,6 +936,10 @@ impl Locked<'_> {
             })?;
         match template.kind {
             JobKind::Steps(steps) => Ok(steps),
+            JobKind::Call(_) => Err(Error::Row {
+                table: "run",
+                message: format!("the job `{key}` calls a workflow and has no steps"),
+            }),
         }
     }
 }
@@ -981,5 +985,7 @@ fn step_name(step: &ir::Step) -> String {
             }
         }
         Action::Uses(reference) => format!("Run {reference}"),
+        Action::Local { path } => format!("Run ./{path}"),
+        Action::Docker { image } => format!("Run docker://{image}"),
     }
 }

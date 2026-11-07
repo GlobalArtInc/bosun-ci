@@ -7,7 +7,7 @@ use crate::availability::side;
 use crate::cases::files;
 use crate::{read, repository};
 
-const REACHED: &[&str] = &["M0", "M1"];
+const REACHED: &[&str] = &["M0", "M1", "M2"];
 
 fn document(name: &str) -> String {
     read(&repository().join("docs/design").join(name))
@@ -111,6 +111,9 @@ fn surface(path: &str) -> (String, String) {
     let (place, key) = match parts.as_slice() {
         ["on", event, ..] => ("on", *event),
         ["inputs", "<input_id>", key] => ("inputs.<input_id>", *key),
+        ["outputs", "<output_id>", key] => ("outputs.<output_id>", *key),
+        ["runs", "steps", ..] => ("runs.composite", "steps"),
+        ["runs", key @ ("args" | "env")] => ("runs.docker", *key),
         ["runs", key] => ("runs", *key),
         ["jobs", _, "steps", key, ..] => ("step", *key),
         ["jobs", _, key, ..] => ("job", *key),

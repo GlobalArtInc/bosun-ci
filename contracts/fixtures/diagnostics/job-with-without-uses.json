@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`with` of job `build` applies only to a job that calls a workflow with `uses`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 7,
+    "end_line": 7,
+    "end_column": 17
+  },
+  "path": [
+    "jobs",
+    "build",
+    "with"
+  ]
+}

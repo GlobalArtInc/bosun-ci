@@ -106,6 +106,6 @@ fn the_inventory_prints_its_counts() {
     assert_eq!(summary["files"], 3);
     assert_eq!(summary["uses"], 8);
     assert_eq!(summary["references"], 5);
-    assert_eq!(summary["keys"], 50);
+    assert_eq!(summary["keys"], 51);
     assert_eq!(summary["unknown"], 1);
 }

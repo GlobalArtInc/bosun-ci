@@ -56,7 +56,7 @@ fn closed_enums_refuse_unknown_values() {
     settings["token_permissions"]["administration"] = json!("write");
     refuses::<ProjectSettings>(settings);
     refuses::<WorkflowSource>(json!({ "kind": "draft" }));
-    refuses::<Trigger>(json!({ "workflow_call": {} }));
+    refuses::<Trigger>(json!({ "plugin": {} }));
     refuses::<Actor>(json!({ "kind": "plugin", "instance": "telegram" }));
     refuses::<Actor>(json!({ "kind": "forge", "login": "octocat" }));
     refuses::<Command>(json!({ "type": "run.pause" }));
@@ -76,7 +76,7 @@ fn the_ir_refuses_unknown_fields() {
     serde_json::from_value::<ir::Workflow>(workflow.clone()).expect("the fixture itself is valid");
 
     let mut top = workflow.clone();
-    top["priority"] = json!("high");
+    top["notify"] = json!([]);
     refuses::<ir::Workflow>(top);
 
     let mut job = workflow.clone();

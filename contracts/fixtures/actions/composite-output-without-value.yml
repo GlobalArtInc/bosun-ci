@@ -1,0 +1,10 @@
+name: Greet
+description: Says hello
+outputs:
+  greeting:
+    description: What was said
+runs:
+  using: composite
+  steps:
+    - run: echo hello
+      shell: bash

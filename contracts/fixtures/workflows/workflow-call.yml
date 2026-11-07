@@ -1,0 +1,40 @@
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version to build
+        required: true
+        type: string
+      channel:
+        type: string
+        default: ${{ vars.DEFAULT_CHANNEL }}
+      debug:
+        type: boolean
+        default: false
+      verbose:
+        type: boolean
+        default: ${{ vars.VERBOSE == 'true' }}
+      jobs:
+        type: number
+        default: 4
+      retries:
+        type: number
+        default: ${{ vars.RETRIES }}
+    secrets:
+      registry-token:
+        description: Token for the registry
+        required: true
+      signing-key:
+    outputs:
+      artifact:
+        description: Name of the artifact
+        value: ${{ jobs.build.outputs.artifact }}
+
+jobs:
+  build:
+    runs-on: shell
+    outputs:
+      artifact: ${{ steps.pack.outputs.name }}
+    steps:
+      - id: pack
+        run: echo "name=bundle-${{ inputs.version }}" >> "$GITHUB_OUTPUT"

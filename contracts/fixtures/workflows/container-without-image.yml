@@ -1,0 +1,9 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    container:
+      options: --cpus 2
+    steps:
+      - run: make

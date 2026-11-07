@@ -1,0 +1,10 @@
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - run: make

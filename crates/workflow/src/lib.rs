@@ -1,5 +1,8 @@
 mod action;
+mod cache;
+mod call;
 mod concurrency;
+mod container;
 mod defaults;
 mod expression;
 pub mod github;
@@ -26,9 +29,17 @@ use bosun_types::ir::{ActionMetadata, Trigger, Workflow};
 
 use crate::lower::Lowering;
 
+pub use crate::call::check_call;
 pub use crate::inventory::{Inventory, KeyUse, Uses, inventory};
 pub use crate::matching::{Event, matches};
 pub use crate::surface::{MILESTONE, Milestone, PENDING};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pending {
+    Refuse,
+    #[cfg(feature = "admit-pending")]
+    Admit,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum Code {
@@ -94,10 +105,11 @@ pub struct ParsedAction {
 fn load<'f, T>(
     file: &'f str,
     source: &str,
+    pending: Pending,
     read: impl FnOnce(&mut Lowering<'f>, &yaml::Node) -> Option<T>,
 ) -> (Lowering<'f>, Option<T>) {
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
-    let mut lowering = Lowering::new(file, source);
+    let mut lowering = Lowering::new(file, source, pending);
     let lowered = match yaml::load(source) {
         Ok(root) => read(&mut lowering, &root),
         Err(fault) => {
@@ -108,31 +120,66 @@ fn load<'f, T>(
     (lowering, lowered)
 }
 
-fn lower<'f>(file: &'f str, source: &str) -> (Lowering<'f>, Option<Workflow>) {
-    load(file, source, |lowering, root| lowering.workflow(root))
+fn lower<'f>(file: &'f str, source: &str, pending: Pending) -> (Lowering<'f>, Option<Workflow>) {
+    load(file, source, pending, |lowering, root| {
+        lowering.workflow(root)
+    })
 }
 
 pub fn parse(file: &str, source: &str) -> Result<Parsed, Vec<Diagnostic>> {
-    let (lowering, workflow) = lower(file, source);
+    parse_for(file, source, Pending::Refuse)
+}
+
+#[cfg(feature = "admit-pending")]
+pub fn parse_with(file: &str, source: &str, pending: Pending) -> Result<Parsed, Vec<Diagnostic>> {
+    parse_for(file, source, pending)
+}
+
+fn parse_for(file: &str, source: &str, pending: Pending) -> Result<Parsed, Vec<Diagnostic>> {
+    let (lowering, workflow) = lower(file, source, pending);
     lowering
         .finish(workflow)
         .map(|(workflow, warnings)| Parsed { workflow, warnings })
 }
 
 pub fn lint(file: &str, source: &str) -> Vec<Diagnostic> {
-    let (mut lowering, _) = lower(file, source);
+    lint_for(file, source, Pending::Refuse)
+}
+
+#[cfg(feature = "admit-pending")]
+pub fn lint_with(file: &str, source: &str, pending: Pending) -> Vec<Diagnostic> {
+    lint_for(file, source, pending)
+}
+
+fn lint_for(file: &str, source: &str, pending: Pending) -> Vec<Diagnostic> {
+    let (mut lowering, _) = lower(file, source, pending);
     lowering.lint();
     lowering.finish_lint()
 }
 
 pub fn action(file: &str, source: &str) -> Result<ParsedAction, Vec<Diagnostic>> {
-    let (lowering, metadata) = load(file, source, |lowering, root| lowering.metadata(root));
+    action_for(file, source, Pending::Refuse)
+}
+
+#[cfg(feature = "admit-pending")]
+pub fn action_with(
+    file: &str,
+    source: &str,
+    pending: Pending,
+) -> Result<ParsedAction, Vec<Diagnostic>> {
+    action_for(file, source, pending)
+}
+
+fn action_for(file: &str, source: &str, pending: Pending) -> Result<ParsedAction, Vec<Diagnostic>> {
+    let (lowering, metadata) = load(file, source, pending, |lowering, root| {
+        lowering.metadata(root)
+    });
     lowering
         .finish(metadata)
         .map(|(metadata, warnings)| ParsedAction { metadata, warnings })
 }
 
 pub fn triggers(file: &str, source: &str) -> (Option<Vec<Trigger>>, Vec<Diagnostic>) {
-    let (lowering, _) = lower(file, source);
+    let (lowering, _) = lower(file, source, Pending::Refuse);
     lowering.finish_triggers()
 }

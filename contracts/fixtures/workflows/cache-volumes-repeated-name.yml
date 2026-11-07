@@ -1,0 +1,12 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    cache-volumes:
+      - name: deps
+        path: target
+      - name: deps
+        path: vendor
+    steps:
+      - run: make

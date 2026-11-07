@@ -1,0 +1,402 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "workflow_call": {
+        "inputs": [
+          {
+            "name": "version",
+            "description": "The version to build",
+            "required": true,
+            "kind": {
+              "string": {
+                "default": null
+              }
+            }
+          },
+          {
+            "name": "channel",
+            "description": null,
+            "required": false,
+            "kind": {
+              "string": {
+                "default": [
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "vars",
+                            "span": {
+                              "line": 10,
+                              "column": 22,
+                              "end_line": 10,
+                              "end_column": 26
+                            }
+                          }
+                        },
+                        "name": "DEFAULT_CHANNEL",
+                        "span": {
+                          "line": 10,
+                          "column": 22,
+                          "end_line": 10,
+                          "end_column": 42
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "name": "debug",
+            "description": null,
+            "required": false,
+            "kind": {
+              "boolean": {
+                "default": {
+                  "literal": false
+                }
+              }
+            }
+          },
+          {
+            "name": "verbose",
+            "description": null,
+            "required": false,
+            "kind": {
+              "boolean": {
+                "default": {
+                  "template": [
+                    {
+                      "expression": {
+                        "compare": {
+                          "operator": "==",
+                          "left": {
+                            "property": {
+                              "target": {
+                                "context": {
+                                  "name": "vars",
+                                  "span": {
+                                    "line": 16,
+                                    "column": 22,
+                                    "end_line": 16,
+                                    "end_column": 26
+                                  }
+                                }
+                              },
+                              "name": "VERBOSE",
+                              "span": {
+                                "line": 16,
+                                "column": 22,
+                                "end_line": 16,
+                                "end_column": 34
+                              }
+                            }
+                          },
+                          "right": {
+                            "string": {
+                              "value": "true",
+                              "span": {
+                                "line": 16,
+                                "column": 38,
+                                "end_line": 16,
+                                "end_column": 44
+                              }
+                            }
+                          },
+                          "span": {
+                            "line": 16,
+                            "column": 22,
+                            "end_line": 16,
+                            "end_column": 44
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "name": "jobs",
+            "description": null,
+            "required": false,
+            "kind": {
+              "number": {
+                "default": {
+                  "literal": 4.0
+                }
+              }
+            }
+          },
+          {
+            "name": "retries",
+            "description": null,
+            "required": false,
+            "kind": {
+              "number": {
+                "default": {
+                  "template": [
+                    {
+                      "expression": {
+                        "property": {
+                          "target": {
+                            "context": {
+                              "name": "vars",
+                              "span": {
+                                "line": 22,
+                                "column": 22,
+                                "end_line": 22,
+                                "end_column": 26
+                              }
+                            }
+                          },
+                          "name": "RETRIES",
+                          "span": {
+                            "line": 22,
+                            "column": 22,
+                            "end_line": 22,
+                            "end_column": 34
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "secrets": [
+          {
+            "name": "registry-token",
+            "description": "Token for the registry",
+            "required": true
+          },
+          {
+            "name": "signing-key",
+            "description": null,
+            "required": false
+          }
+        ],
+        "outputs": [
+          {
+            "name": "artifact",
+            "description": "Name of the artifact",
+            "value": [
+              {
+                "expression": {
+                  "property": {
+                    "target": {
+                      "property": {
+                        "target": {
+                          "property": {
+                            "target": {
+                              "context": {
+                                "name": "jobs",
+                                "span": {
+                                  "line": 31,
+                                  "column": 20,
+                                  "end_line": 31,
+                                  "end_column": 24
+                                }
+                              }
+                            },
+                            "name": "build",
+                            "span": {
+                              "line": 31,
+                              "column": 20,
+                              "end_line": 31,
+                              "end_column": 30
+                            }
+                          }
+                        },
+                        "name": "outputs",
+                        "span": {
+                          "line": 31,
+                          "column": 20,
+                          "end_line": 31,
+                          "end_column": 38
+                        }
+                      }
+                    },
+                    "name": "artifact",
+                    "span": {
+                      "line": 31,
+                      "column": 20,
+                      "end_line": 31,
+                      "end_column": 47
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "build",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {
+        "artifact": [
+          {
+            "expression": {
+              "property": {
+                "target": {
+                  "property": {
+                    "target": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "steps",
+                            "span": {
+                              "line": 37,
+                              "column": 21,
+                              "end_line": 37,
+                              "end_column": 26
+                            }
+                          }
+                        },
+                        "name": "pack",
+                        "span": {
+                          "line": 37,
+                          "column": 21,
+                          "end_line": 37,
+                          "end_column": 31
+                        }
+                      }
+                    },
+                    "name": "outputs",
+                    "span": {
+                      "line": 37,
+                      "column": 21,
+                      "end_line": 37,
+                      "end_column": 39
+                    }
+                  }
+                },
+                "name": "name",
+                "span": {
+                  "line": 37,
+                  "column": 21,
+                  "end_line": 37,
+                  "end_column": 44
+                }
+              }
+            }
+          }
+        ]
+      },
+      "secrets": {
+        "named": []
+      },
+      "kind": {
+        "steps": [
+          {
+            "key": "pack",
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo \"name=bundle-"
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "context": {
+                            "name": "inputs",
+                            "span": {
+                              "line": 40,
+                              "column": 36,
+                              "end_line": 40,
+                              "end_column": 42
+                            }
+                          }
+                        },
+                        "name": "version",
+                        "span": {
+                          "line": 40,
+                          "column": 36,
+                          "end_line": 40,
+                          "end_column": 50
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "text": "\" >> \"$GITHUB_OUTPUT\""
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 39,
+              "column": 9,
+              "end_line": 40,
+              "end_column": 74
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 34,
+        "column": 3,
+        "end_line": 40,
+        "end_column": 74
+      }
+    }
+  ]
+}

@@ -1,13 +1,13 @@
 {
   "severity": "error",
-  "code": "not_implemented",
-  "message": "`uses` of step 1 of job `build` is `./.github/actions/setup`, a local action, which is not supported yet; it arrives in M2",
+  "code": "invalid_value",
+  "message": "`uses` of step 1 of job `build` is `./../outside`, which has a path with an empty part, a `..` part or whitespace",
   "file": ".bosun/workflows/ci.yml",
   "span": {
     "line": 7,
     "column": 15,
     "end_line": 7,
-    "end_column": 38
+    "end_column": 27
   },
   "path": [
     "jobs",

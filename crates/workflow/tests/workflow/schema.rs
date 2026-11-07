@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use bosun_workflow::Pending;
 use saphyr_parser::{Event, Parser, ScalarStyle};
 use serde_json::{Map, Number, Value};
 
@@ -143,7 +144,7 @@ fn workflow_fixtures_the_parser_accepts_validate_and_unknown_keys_do_not() {
             .exists()
             .then(|| json(&diagnostic)["code"].as_str().map(str::to_string))
             .flatten();
-        if bosun_workflow::parse(FILE, &source).is_ok() {
+        if bosun_workflow::parse_with(FILE, &source, Pending::Admit).is_ok() {
             accepted += 1;
             let errors: Vec<String> = validator
                 .iter_errors(&yaml(&source))

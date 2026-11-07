@@ -53,6 +53,7 @@ fn fires(trigger: &Trigger, event: &Event<'_>) -> bool {
         }
         Trigger::Schedule(_) => event.name == "schedule",
         Trigger::WorkflowDispatch(_) => event.name == "workflow_dispatch",
+        Trigger::WorkflowCall(_) => false,
         Trigger::RepositoryDispatch(dispatch) => {
             event.name == "repository_dispatch"
                 && activity(dispatch.types.as_deref(), None, event.action)

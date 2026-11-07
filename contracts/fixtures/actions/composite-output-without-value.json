@@ -1,0 +1,21 @@
+{
+  "metadata": null,
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "missing_key",
+      "message": "missing key `value` in output `greeting`, whose action is composite",
+      "file": "action.yml",
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 4,
+        "end_column": 11
+      },
+      "path": [
+        "outputs",
+        "greeting"
+      ]
+    }
+  ]
+}

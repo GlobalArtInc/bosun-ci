@@ -1,0 +1,18 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "the name in entry 1 of `cache-volumes` of job `build` is `team/registry`, which holds a character other than letters, digits, `-`, `_` and `.`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 7,
+    "column": 9,
+    "end_line": 7,
+    "end_column": 22
+  },
+  "path": [
+    "jobs",
+    "build",
+    "cache-volumes",
+    0
+  ]
+}

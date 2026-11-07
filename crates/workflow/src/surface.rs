@@ -32,9 +32,53 @@ impl Milestone {
     }
 }
 
-pub const MILESTONE: Milestone = Milestone::M1;
+pub const MILESTONE: Milestone = Milestone::M2;
 
-pub const PENDING: &[(&str, &str)] = &[];
+type Form = (&'static str, &'static str);
+
+const LOWERED: &[Form] = &[
+    ("workflow", "cache-mode"),
+    ("workflow", "priority"),
+    ("on", "workflow_call"),
+    ("job", "container"),
+    ("job", "services"),
+    ("job", "cache-mode"),
+    ("job", "uses"),
+    ("job", "with"),
+    ("job", "secrets"),
+    ("job", "cache-volumes"),
+    ("job", "priority"),
+    ("step", "uses: ./path"),
+    ("step", "uses: docker://"),
+    ("runs", "using: composite"),
+    ("runs", "using: docker"),
+    ("outputs.<output_id>", "value"),
+];
+
+const UNLOWERED: &[Form] = &[("on", "workflow_run"), ("on", "upstream")];
+
+const fn joined<const N: usize>(first: &[Form], second: &[Form]) -> [Form; N] {
+    let mut all = [("", ""); N];
+    let mut at = 0;
+    while at < first.len() {
+        all[at] = first[at];
+        at += 1;
+    }
+    let mut next = 0;
+    while next < second.len() {
+        all[at + next] = second[next];
+        next += 1;
+    }
+    all
+}
+
+const LISTED: [Form; LOWERED.len() + UNLOWERED.len()] = joined(LOWERED, UNLOWERED);
+
+pub const PENDING: &[(&str, &str)] = &LISTED;
+
+pub(crate) fn pending_form(place: &str, form: &str) -> bool {
+    PENDING.contains(&(place, form))
+}
 
 pub(crate) struct Arrival {
     name: &'static str,
@@ -68,6 +112,7 @@ pub(crate) struct Shape {
 
 pub(crate) enum Known {
     Now,
+    Pending(Milestone),
     Later(Milestone),
     Unknown(Option<&'static str>),
 }
@@ -91,12 +136,14 @@ impl Shape {
 
     pub(crate) fn find(&self, name: &str) -> Known {
         match self.keys.iter().find(|arrival| arrival.name == name) {
-            Some(arrival)
-                if arrival.from <= MILESTONE && !PENDING.contains(&(self.place, arrival.name)) =>
-            {
-                Known::Now
+            Some(arrival) if arrival.from > MILESTONE => Known::Later(arrival.from),
+            Some(arrival) if UNLOWERED.contains(&(self.place, arrival.name)) => {
+                Known::Later(arrival.from)
             }
-            Some(arrival) => Known::Later(arrival.from),
+            Some(arrival) if PENDING.contains(&(self.place, arrival.name)) => {
+                Known::Pending(arrival.from)
+            }
+            Some(_) => Known::Now,
             None => Known::Unknown(suggest(name, self.keys.iter().map(|arrival| arrival.name))),
         }
     }
@@ -225,6 +272,37 @@ pub(crate) const SCHEDULE: Shape = Shape {
 
 pub(crate) const WORKFLOW_DISPATCH: Shape = shape("workflow_dispatch", &[key("inputs", M1)]);
 
+pub(crate) const WORKFLOW_CALL: Shape = shape(
+    "workflow_call",
+    &[key("inputs", M2), key("secrets", M2), key("outputs", M2)],
+);
+
+pub(crate) const CALL_INPUT: Shape = Shape {
+    required: &["type"],
+    ..shape(
+        "workflow_call.inputs.<input_id>",
+        &[
+            key("description", M2),
+            key("required", M2),
+            key("type", M2),
+            key("default", M2),
+        ],
+    )
+};
+
+pub(crate) const CALL_SECRET: Shape = shape(
+    "workflow_call.secrets.<secret_id>",
+    &[key("description", M2), key("required", M2)],
+);
+
+pub(crate) const CALL_OUTPUT: Shape = Shape {
+    required: &["value"],
+    ..shape(
+        "workflow_call.outputs.<output_id>",
+        &[key("description", M2), key("value", M2)],
+    )
+};
+
 pub(crate) const INPUT: Shape = shape(
     "workflow_dispatch.inputs.<input_id>",
     &[
@@ -236,36 +314,80 @@ pub(crate) const INPUT: Shape = shape(
     ],
 );
 
-pub(crate) const JOB: Shape = Shape {
-    required: &["runs-on", "steps"],
+pub(crate) const JOB: Shape = shape(
+    "job",
+    &[
+        key("name", M0),
+        key("needs", M0),
+        key("if", M1),
+        key("runs-on", M0),
+        key("permissions", M1),
+        key("concurrency", M1),
+        key("strategy", M1),
+        key("env", M0),
+        key("defaults", M1),
+        key("timeout-minutes", M1),
+        key("continue-on-error", M1),
+        key("outputs", M1),
+        key("steps", M0),
+        key("container", M2),
+        key("services", M2),
+        key("cache-mode", M2),
+        key("uses", M2),
+        key("with", M2),
+        key("secrets", M2),
+        extension("cache-volumes", M2),
+        extension("priority", M2),
+        key("environment", M3),
+        extension("retry", M3),
+        extension("debug", M3),
+        extension("gate", M3),
+    ],
+);
+
+pub(crate) const CONTAINER: Shape = Shape {
+    required: &["image"],
     ..shape(
-        "job",
+        "container",
         &[
-            key("name", M0),
-            key("needs", M0),
-            key("if", M1),
-            key("runs-on", M0),
-            key("permissions", M1),
-            key("concurrency", M1),
-            key("strategy", M1),
-            key("env", M0),
-            key("defaults", M1),
-            key("timeout-minutes", M1),
-            key("continue-on-error", M1),
-            key("outputs", M1),
-            key("steps", M0),
-            key("container", M2),
-            key("services", M2),
-            key("cache-mode", M2),
-            key("uses", M2),
-            key("with", M2),
-            key("secrets", M2),
-            extension("cache-volumes", M2),
-            extension("priority", M2),
-            key("environment", M3),
-            extension("retry", M3),
-            extension("debug", M3),
-            extension("gate", M3),
+            key("image", M2),
+            key("credentials", M2),
+            key("env", M2),
+            key("ports", M2),
+            key("volumes", M2),
+            key("options", M2),
+        ],
+    )
+};
+
+pub(crate) const SERVICE: Shape = Shape {
+    required: &["image"],
+    ..shape(
+        "services.<service_id>",
+        &[
+            key("image", M2),
+            key("credentials", M2),
+            key("env", M2),
+            key("ports", M2),
+            key("volumes", M2),
+            key("options", M2),
+        ],
+    )
+};
+
+pub(crate) const CREDENTIALS: Shape =
+    shape("credentials", &[key("username", M2), key("password", M2)]);
+
+pub(crate) const CACHE_VOLUME: Shape = Shape {
+    required: &["name"],
+    ..shape(
+        "cache-volumes",
+        &[
+            key("name", M2),
+            key("path", M2),
+            key("scope", M2),
+            key("key", M2),
+            key("mode", M2),
         ],
     )
 };
@@ -369,6 +491,29 @@ pub(crate) const NODE_RUNS: Shape = Shape {
             key("pre", M1),
             key("pre-if", M1),
             key("post", M1),
+            key("post-if", M1),
+        ],
+    )
+};
+
+pub(crate) const COMPOSITE_RUNS: Shape = Shape {
+    required: &["using", "steps"],
+    ..shape("runs", &[key("using", M1), key("steps", M2)])
+};
+
+pub(crate) const DOCKER_RUNS: Shape = Shape {
+    required: &["using", "image"],
+    ..shape(
+        "runs",
+        &[
+            key("using", M1),
+            key("image", M2),
+            key("args", M2),
+            key("env", M2),
+            key("entrypoint", M2),
+            key("pre-entrypoint", M2),
+            key("pre-if", M1),
+            key("post-entrypoint", M2),
             key("post-if", M1),
         ],
     )

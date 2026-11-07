@@ -249,5 +249,187 @@
         "span": {"line": 1, "column": 34, "end_line": 1, "end_column": 39}
       }
     ]
+  },
+  {
+    "expression": "steps.db.outputs.port",
+    "key": "jobs.<job_id>.services.<service_id>.env.<env_id>",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `steps` is not available in `jobs.<job_id>.services.<service_id>.env.<env_id>`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "job.status == 'success' && runner.os == 'Linux' && secrets.TOKEN",
+    "key": "jobs.<job_id>.services.<service_id>.env.<env_id>",
+    "errors": []
+  },
+  {
+    "expression": "job.services.postgres.ports['5432']",
+    "key": "jobs.<job_id>.steps.run",
+    "errors": []
+  },
+  {
+    "expression": "job.container.network",
+    "key": "jobs.<job_id>.steps.env",
+    "errors": []
+  },
+  {
+    "expression": "runner.os",
+    "key": "jobs.<job_id>.cache-volumes.key",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `runner` is not available in `jobs.<job_id>.cache-volumes.key`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 7}
+      }
+    ]
+  },
+  {
+    "expression": "steps.a.outputs.x",
+    "key": "jobs.<job_id>.cache-volumes.key",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `steps` is not available in `jobs.<job_id>.cache-volumes.key`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "format('{0}-{1}', matrix.toolchain, hashFiles('Cargo.lock'))",
+    "key": "jobs.<job_id>.cache-volumes.key",
+    "errors": [
+      {
+        "code": "unavailable_function",
+        "message": "function `hashFiles` is not available in `jobs.<job_id>.cache-volumes.key`",
+        "span": {"line": 1, "column": 37, "end_line": 1, "end_column": 60}
+      }
+    ]
+  },
+  {
+    "expression": "needs.setup.outputs.toolchain",
+    "key": "jobs.<job_id>.cache-volumes.key",
+    "errors": []
+  },
+  {
+    "expression": "secrets.TOKEN",
+    "key": "jobs.<job_id>.with.<with_id>",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `secrets` is not available in `jobs.<job_id>.with.<with_id>`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 8}
+      }
+    ]
+  },
+  {
+    "expression": "secrets.TOKEN",
+    "key": "jobs.<job_id>.secrets.<secrets_id>",
+    "errors": []
+  },
+  {
+    "expression": "jobs.build.outputs.version",
+    "key": "on.workflow_call.outputs.<output_id>.value",
+    "errors": []
+  },
+  {
+    "expression": "needs.build.outputs.version",
+    "key": "on.workflow_call.outputs.<output_id>.value",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `needs` is not available in `on.workflow_call.outputs.<output_id>.value`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "steps.build.outputs.path",
+    "key": "outputs.<output_id>.value",
+    "errors": []
+  },
+  {
+    "expression": "secrets.TOKEN",
+    "key": "jobs.<job_id>.cache-volumes.key",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `secrets` is not available in `jobs.<job_id>.cache-volumes.key`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 8}
+      }
+    ]
+  },
+  {
+    "expression": "secrets.TOKEN",
+    "key": "runs.steps",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `secrets` is not available in `runs.steps`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 8}
+      }
+    ]
+  },
+  {
+    "expression": "needs.build.result",
+    "key": "runs.steps",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `needs` is not available in `runs.steps`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "steps.build.outputs.path",
+    "key": "runs.steps",
+    "errors": []
+  },
+  {
+    "expression": "success() && inputs.verbose",
+    "key": "runs.steps.if",
+    "errors": []
+  },
+  {
+    "expression": "secrets.TOKEN",
+    "key": "runs.steps.if",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `secrets` is not available in `runs.steps.if`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 8}
+      }
+    ]
+  },
+  {
+    "expression": "secrets.S",
+    "key": "runs.env",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `secrets` is not available in `runs.env`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 8}
+      }
+    ]
+  },
+  {
+    "expression": "steps.a.outputs.x",
+    "key": "runs.args",
+    "errors": [
+      {
+        "code": "unavailable_context",
+        "message": "context `steps` is not available in `runs.args`",
+        "span": {"line": 1, "column": 1, "end_line": 1, "end_column": 6}
+      }
+    ]
+  },
+  {
+    "expression": "inputs.tag",
+    "key": "runs.args",
+    "errors": []
   }
 ]

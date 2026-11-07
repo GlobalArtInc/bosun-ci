@@ -71,6 +71,21 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "actions/actions-setup-node-v3.json",
             round_trip::<ActionCase>,
         ),
+        (
+            "actions/composite-output-without-value.json",
+            round_trip::<ActionCase>,
+        ),
+        ("actions/composite-outputs.json", round_trip::<ActionCase>),
+        (
+            "actions/composite-step-secrets.json",
+            round_trip::<ActionCase>,
+        ),
+        (
+            "actions/composite-without-shell.json",
+            round_trip::<ActionCase>,
+        ),
+        ("actions/docker-action.json", round_trip::<ActionCase>),
+        ("actions/docker-env-secrets.json", round_trip::<ActionCase>),
         ("actions/hooks.json", round_trip::<ActionCase>),
         (
             "actions/input-default-secrets.json",
@@ -259,7 +274,61 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<Diagnostic>,
         ),
         (
+            "diagnostics/cache-mode-unknown.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/cache-volume-name-with-slash.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/cache-volumes-key-runner-context.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/cache-volumes-repeated-name.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/cache-volumes-repeated-path.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/call-local-with-ref.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/call-names-a-repository.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/call-remote-not-yaml.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/call-secrets-not-inherit.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/call-with-container.json",
+            round_trip::<Diagnostic>,
+        ),
+        ("diagnostics/call-with-env.json", round_trip::<Diagnostic>),
+        (
+            "diagnostics/call-with-outputs.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/call-with-runs-on.json",
+            round_trip::<Diagnostic>,
+        ),
+        ("diagnostics/call-with-steps.json", round_trip::<Diagnostic>),
+        (
             "diagnostics/choice-default-outside-options.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/container-without-image.json",
             round_trip::<Diagnostic>,
         ),
         (
@@ -282,6 +351,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             round_trip::<Diagnostic>,
         ),
         (
+            "diagnostics/job-with-without-uses.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
             "diagnostics/matrix-in-workflow-env.json",
             round_trip::<Diagnostic>,
         ),
@@ -293,6 +366,8 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "diagnostics/number-default-not-a-number.json",
             round_trip::<Diagnostic>,
         ),
+        ("diagnostics/on-upstream.json", round_trip::<Diagnostic>),
+        ("diagnostics/on-workflow-run.json", round_trip::<Diagnostic>),
         (
             "diagnostics/permissions-id-token-read.json",
             round_trip::<Diagnostic>,
@@ -316,6 +391,10 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("diagnostics/run-and-uses.json", round_trip::<Diagnostic>),
         (
             "diagnostics/runs-on-steps-context.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/services-env-steps-context.json",
             round_trip::<Diagnostic>,
         ),
         (
@@ -363,7 +442,7 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         ("diagnostics/uses-expression.json", round_trip::<Diagnostic>),
         (
-            "diagnostics/uses-local-action.json",
+            "diagnostics/uses-local-action-outside.json",
             round_trip::<Diagnostic>,
         ),
         (
@@ -372,6 +451,18 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ),
         (
             "diagnostics/with-on-run-step.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/workflow-call-boolean-default.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/workflow-call-input-without-type.json",
+            round_trip::<Diagnostic>,
+        ),
+        (
+            "diagnostics/workflow-call-number-default.json",
             round_trip::<Diagnostic>,
         ),
         (
@@ -401,7 +492,11 @@ fn fixtures() -> Vec<(&'static str, Check)> {
             "ir/bosun-context-in-github-workflows.json",
             round_trip::<ir::Workflow>,
         ),
+        ("ir/cache-mode.json", round_trip::<ir::Workflow>),
+        ("ir/cache-volumes.json", round_trip::<ir::Workflow>),
+        ("ir/call-job.json", round_trip::<ir::Workflow>),
         ("ir/concurrency.json", round_trip::<ir::Workflow>),
+        ("ir/container.json", round_trip::<ir::Workflow>),
         ("ir/continue-on-error.json", round_trip::<ir::Workflow>),
         ("ir/defaults.json", round_trip::<ir::Workflow>),
         ("ir/flow-style.json", round_trip::<ir::Workflow>),
@@ -416,12 +511,17 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("ir/on-repository-dispatch.json", round_trip::<ir::Workflow>),
         ("ir/on-schedule.json", round_trip::<ir::Workflow>),
         ("ir/on-string.json", round_trip::<ir::Workflow>),
+        (
+            "ir/on-workflow-call-string.json",
+            round_trip::<ir::Workflow>,
+        ),
         ("ir/on-workflow-dispatch.json", round_trip::<ir::Workflow>),
         ("ir/permissions.json", round_trip::<ir::Workflow>),
         ("ir/run-name.json", round_trip::<ir::Workflow>),
         ("ir/runs-on-expressions.json", round_trip::<ir::Workflow>),
         ("ir/scalars.json", round_trip::<ir::Workflow>),
         ("ir/secrets.json", round_trip::<ir::Workflow>),
+        ("ir/services.json", round_trip::<ir::Workflow>),
         ("ir/step-if.json", round_trip::<ir::Workflow>),
         ("ir/step-uses.json", round_trip::<ir::Workflow>),
         ("ir/strategy.json", round_trip::<ir::Workflow>),
@@ -429,6 +529,9 @@ fn fixtures() -> Vec<(&'static str, Check)> {
         ("ir/timeout-minutes.json", round_trip::<ir::Workflow>),
         ("ir/two-jobs.json", round_trip::<ir::Workflow>),
         ("ir/untrusted-checkout.json", round_trip::<ir::Workflow>),
+        ("ir/uses-docker.json", round_trip::<ir::Workflow>),
+        ("ir/uses-local-action.json", round_trip::<ir::Workflow>),
+        ("ir/workflow-call.json", round_trip::<ir::Workflow>),
     ]
 }
 

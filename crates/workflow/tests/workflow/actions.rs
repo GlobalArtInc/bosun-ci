@@ -1,5 +1,6 @@
 use bosun_types::diagnostic::{Diagnostic, PathSegment};
 use bosun_types::ir::{ActionMetadata, NodeRuntime, Runs};
+use bosun_workflow::Pending;
 use serde_json::{Value, json};
 
 use crate::documents::{quoted, table, workflows_document};
@@ -40,7 +41,7 @@ fn every_action_fixture_lowers_to_its_metadata_or_its_diagnostics() {
     assert!(sources.len() > 10, "too few action fixtures: {sources:?}");
     assert_eq!(cases(&directory, "json"), sources);
     for name in sources {
-        let produced = match bosun_workflow::action(ACTION, &case(&name)) {
+        let produced = match bosun_workflow::action_with(ACTION, &case(&name), Pending::Admit) {
             Ok(parsed) => json!({ "metadata": parsed.metadata, "diagnostics": parsed.warnings }),
             Err(diagnostics) => json!({ "metadata": null, "diagnostics": diagnostics }),
         };
@@ -63,13 +64,15 @@ fn every_node_runtime_lowers_from_a_public_action() {
         ("swatinem-rust-cache-v2", NodeRuntime::Node24),
     ];
     for (name, runtime) in runtimes {
-        let Runs::Node(runs) = lowered(&case(name)).runs;
+        let Runs::Node(runs) = lowered(&case(name)).runs else {
+            panic!("{name} is a Node action");
+        };
         assert_eq!(runs.using, runtime, "{name}");
     }
 }
 
 #[test]
-fn a_pre_if_a_runs_without_main_and_a_composite_action_each_produce_their_diagnostic() {
+fn a_pre_if_a_runs_without_main_and_a_composite_or_docker_action_each_produce_their_diagnostic() {
     let cases = [
         (
             "pre-if-steps-context",
@@ -78,6 +81,7 @@ fn a_pre_if_a_runs_without_main_and_a_composite_action_each_produce_their_diagno
         ),
         ("runs-without-main", "missing_key", vec!["runs"]),
         ("using-composite", "not_implemented", vec!["runs", "using"]),
+        ("using-docker", "not_implemented", vec!["runs", "using"]),
     ];
     for (name, code, at) in cases {
         let diagnostics = refused(&case(name));
@@ -85,11 +89,14 @@ fn a_pre_if_a_runs_without_main_and_a_composite_action_each_produce_their_diagno
         assert_eq!(diagnostics[0].code, code, "{name}");
         assert_eq!(diagnostics[0].path, path(&at), "{name}");
     }
-    assert!(
-        refused(&case("using-composite"))[0]
-            .message
-            .ends_with("it arrives in M2")
-    );
+    for name in ["using-composite", "using-docker"] {
+        assert!(
+            refused(&case(name))[0]
+                .message
+                .ends_with("it arrives in M2"),
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -204,6 +211,8 @@ fn action_with(place: &str, key: &str) -> String {
         "inputs.<input_id>" => format!("inputs:\n  token:\n    {key}: x\n{runs}"),
         "outputs.<output_id>" => format!("outputs:\n  digest:\n    {key}: x\n{runs}"),
         "runs" => format!("{runs}  {key}: x\n"),
+        "runs.composite" => format!("runs:\n  using: composite\n  {key}: x\n"),
+        "runs.docker" => format!("runs:\n  using: docker\n  {key}: x\n"),
         other => panic!("no action template for keys of `{other}`"),
     }
 }

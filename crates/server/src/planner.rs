@@ -661,17 +661,19 @@ pub(crate) async fn assign(
                     .await?;
             }
         }
-        let ir::JobKind::Steps(steps) = &claimed.job.kind;
-        let stages = ir::stages(steps, |reference| {
-            actions
-                .iter()
-                .find(|action| &action.uses == reference)
-                .map(|action| match &action.metadata.runs {
-                    ir::Runs::Node(runs) => runs,
-                })
-        });
-        if stages.iter().any(|stage| stage.phase != ir::Phase::Main) {
-            run.record_stages(execution, &stages).await?;
+        if let ir::JobKind::Steps(steps) = &claimed.job.kind {
+            let stages = ir::stages(steps, |reference| {
+                actions
+                    .iter()
+                    .find(|action| &action.uses == reference)
+                    .and_then(|action| match &action.metadata.runs {
+                        ir::Runs::Node(runs) => Some(runs),
+                        ir::Runs::Composite(_) | ir::Runs::Docker(_) => None,
+                    })
+            });
+            if stages.iter().any(|stage| stage.phase != ir::Phase::Main) {
+                run.record_stages(execution, &stages).await?;
+            }
         }
     }
     Ok(Outcome::Assigned(Box::new(Assigned {
@@ -1520,7 +1522,13 @@ fn placement(
     job: &JobTemplate,
     contexts: &Contexts,
 ) -> Result<(Vec<String>, Option<String>), Fault> {
-    let (labels, group, place) = match &job.runs_on {
+    let Some(runs_on) = &job.runs_on else {
+        return Err(Place::new(job, "runs-on", &["runs-on"], &[]).refuse(
+            INVALID_VALUE,
+            "is absent: the job calls a workflow and has nowhere to run".to_owned(),
+        ));
+    };
+    let (labels, group, place) = match runs_on {
         Evaluable::Literal(runs_on) => {
             let templates: Vec<&Template> = runs_on
                 .labels

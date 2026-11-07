@@ -1,0 +1,12 @@
+on: push
+
+jobs:
+  build:
+    runs-on: shell
+    steps:
+      - uses: docker://alpine:3.20
+        with:
+          args: echo hello
+          entrypoint: /bin/sh
+      - uses: docker://ghcr.io/acme/tool@sha256:0123456789abcdef
+      - uses: ./

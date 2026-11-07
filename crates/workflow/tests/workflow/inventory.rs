@@ -104,10 +104,17 @@ fn every_key_is_named_by_its_place_with_the_milestone_it_arrives_in() {
     let expected: Vec<(String, Option<&str>, bool)> = [
         ("jobs", Some("M0"), false),
         ("jobs.<job_id>.cache-volumes", Some("M2"), true),
+        ("jobs.<job_id>.cache-volumes.name", Some("M2"), false),
+        ("jobs.<job_id>.cache-volumes.path", Some("M2"), false),
         ("jobs.<job_id>.env", Some("M0"), false),
         ("jobs.<job_id>.runs-on", Some("M0"), false),
         ("jobs.<job_id>.runs-on.group", Some("M0"), false),
         ("jobs.<job_id>.services", Some("M2"), false),
+        (
+            "jobs.<job_id>.services.<service_id>.image",
+            Some("M2"),
+            false,
+        ),
         ("jobs.<job_id>.steps", Some("M0"), false),
         ("jobs.<job_id>.steps.run", Some("M0"), false),
         ("jobs.<job_id>.strategy", Some("M1"), false),
@@ -116,6 +123,8 @@ fn every_key_is_named_by_its_place_with_the_milestone_it_arrives_in() {
         ("jobs.<job_id>.timeout", None, false),
         ("on", Some("M0"), false),
         ("on.workflow_call", Some("M2"), false),
+        ("on.workflow_call.inputs", Some("M2"), false),
+        ("on.workflow_call.inputs.<input_id>.type", Some("M2"), false),
         ("on.workflow_dispatch", Some("M0"), false),
         ("on.workflow_dispatch.inputs", Some("M1"), false),
         (

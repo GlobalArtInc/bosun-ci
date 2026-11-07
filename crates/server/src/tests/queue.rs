@@ -34,10 +34,10 @@ pub(super) const LEASE: Duration = Duration::from_secs(30);
 pub(super) const LABELS: [&str; 4] = ["self-hosted", "linux", "x64", "shell"];
 
 pub(super) fn runs_on(mut job: JobTemplate, group: Option<&str>, labels: &[&str]) -> JobTemplate {
-    job.runs_on = Evaluable::Literal(RunsOn {
+    job.runs_on = Some(Evaluable::Literal(RunsOn {
         group: group.map(Template::text),
         labels: labels.iter().copied().map(Template::text).collect(),
-    });
+    }));
     job
 }
 

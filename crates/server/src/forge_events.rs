@@ -985,6 +985,8 @@ fn bare(triggers: Option<&[Trigger]>) -> ir::Workflow {
         env: BTreeMap::new(),
         defaults: ir::Defaults::default(),
         concurrency: None,
+        cache_mode: None,
+        priority: None,
         jobs: Vec::new(),
     }
 }

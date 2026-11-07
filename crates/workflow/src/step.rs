@@ -3,18 +3,56 @@ use std::str::FromStr;
 
 use bosun_expr::Key;
 use bosun_types::diagnostic::PathSegment;
-use bosun_types::ir::{Action, ActionReference, Evaluable, Shell, Step};
+use bosun_types::ir::{Action, Evaluable, Shell, Step};
 use bosun_types::key::StepKey;
 
 use crate::Code;
 use crate::lower::{Entry, Fields, Lowering, index, optional};
-use crate::surface::STEP;
-use crate::uses::{self, Refusal};
+use crate::surface::{STEP, pending_form};
+use crate::uses::{self, Refusal, Target};
 use crate::yaml::{Node, Value};
 
+struct StepKeys {
+    r#if: Key,
+    name: Key,
+    run: Key,
+    working_directory: Key,
+    with: Key,
+    env: Key,
+    continue_on_error: Key,
+    timeout_minutes: Key,
+}
+
+const JOB_STEP: StepKeys = StepKeys {
+    r#if: Key::StepIf,
+    name: Key::StepName,
+    run: Key::StepRun,
+    working_directory: Key::StepWorkingDirectory,
+    with: Key::StepWith,
+    env: Key::StepEnv,
+    continue_on_error: Key::StepContinueOnError,
+    timeout_minutes: Key::StepTimeoutMinutes,
+};
+
+const ACTION_STEP: StepKeys = StepKeys {
+    r#if: Key::ActionStepIf,
+    name: Key::ActionStep,
+    run: Key::ActionStep,
+    working_directory: Key::ActionStep,
+    with: Key::ActionStep,
+    env: Key::ActionStep,
+    continue_on_error: Key::ActionStep,
+    timeout_minutes: Key::ActionStep,
+};
+
 impl Lowering<'_> {
-    pub(crate) fn steps(&mut self, entry: &Entry<'_>, job: &str) -> Option<Vec<Step>> {
-        let what = format!("`steps` of job `{job}`");
+    pub(crate) fn steps(
+        &mut self,
+        entry: &Entry<'_>,
+        owner: &str,
+        composite: bool,
+    ) -> Option<Vec<Step>> {
+        let what = format!("`steps` of {owner}");
         let Value::Sequence(items) = &entry.value.value else {
             self.error(
                 Code::InvalidType,
@@ -38,7 +76,7 @@ impl Lowering<'_> {
         let mut complete = true;
         for (position, item) in items.iter().enumerate() {
             let path = index(&entry.path, position);
-            match self.step(item, &path, position, job, &mut keys) {
+            match self.step(item, &path, position, owner, composite, &mut keys) {
                 Some(step) => steps.push(step),
                 None => complete = false,
             }
@@ -51,39 +89,50 @@ impl Lowering<'_> {
         node: &Node,
         path: &[PathSegment],
         position: usize,
-        job: &str,
+        owner: &str,
+        composite: bool,
         keys: &mut BTreeSet<String>,
     ) -> Option<Step> {
-        let place = format!("step {} of job `{job}`", position + 1);
+        let place = format!("step {} of {owner}", position + 1);
         let fields = self.fields(node, &STEP, &place, path, node.span)?;
         let what = |key: &str| format!("`{key}` of {place}");
+        let expr = if composite { &ACTION_STEP } else { &JOB_STEP };
         let key = optional(fields.get("id"), |field| {
-            self.step_key(field, &place, job, keys)
+            self.step_key(field, &place, owner, keys)
         });
         let condition = optional(fields.get("if"), |field| {
-            self.condition(field.value, &field.path, &what("if"), Key::StepIf)
+            self.condition(field.value, &field.path, &what("if"), expr.r#if)
         });
         let name = optional(fields.get("name"), |field| {
-            self.template(field.value, &field.path, &what("name"), Key::StepName)
+            self.template(field.value, &field.path, &what("name"), expr.name)
         });
-        let action = self.action(&fields, node, path, &place);
+        let action = self.action(&fields, node, path, &place, expr.run);
         let shell = optional(fields.get("shell"), |field| self.shell(field, &place));
+        if composite
+            && fields.complete
+            && matches!(action, Some(Action::Run { .. }))
+            && fields.get("shell").is_none()
+        {
+            self.error(
+                Code::MissingKey,
+                node.span,
+                path,
+                format!(
+                    "missing key `shell` in {place}, which runs a script in a composite action"
+                ),
+            );
+            return None;
+        }
         let working_directory = optional(fields.get("working-directory"), |field| {
             self.template(
                 field.value,
                 &field.path,
                 &what("working-directory"),
-                Key::StepWorkingDirectory,
+                expr.working_directory,
             )
         });
         let with = optional(fields.get("with"), |field| {
-            self.templates(
-                field.value,
-                &field.path,
-                &what("with"),
-                "input",
-                Key::StepWith,
-            )
+            self.templates(field.value, &field.path, &what("with"), "input", expr.with)
         });
         if let (Some(Action::Uses(reference)), Some(Some(with)), Some(field)) =
             (&action, &with, fields.get("with"))
@@ -91,14 +140,14 @@ impl Lowering<'_> {
             self.mark_checkout(reference, with, field, &place);
         }
         let env = optional(fields.get("env"), |field| {
-            self.env(field.value, &field.path, &place, Key::StepEnv)
+            self.env(field.value, &field.path, &place, expr.env)
         });
         let continue_on_error = optional(fields.get("continue-on-error"), |field| {
             self.flag(
                 field.value,
                 &field.path,
                 &what("continue-on-error"),
-                Key::StepContinueOnError,
+                expr.continue_on_error,
             )
         });
         let timeout_minutes = optional(fields.get("timeout-minutes"), |field| {
@@ -106,7 +155,7 @@ impl Lowering<'_> {
                 field.value,
                 &field.path,
                 &what("timeout-minutes"),
-                Key::StepTimeoutMinutes,
+                expr.timeout_minutes,
                 0,
             )
         });
@@ -131,6 +180,7 @@ impl Lowering<'_> {
         node: &Node,
         path: &[PathSegment],
         place: &str,
+        script: Key,
     ) -> Option<Action> {
         let (run, uses) = (fields.get("run"), fields.get("uses"));
         let mut valid = true;
@@ -164,14 +214,9 @@ impl Lowering<'_> {
                 None
             }
             (Some(run), None) => self
-                .template(
-                    run.value,
-                    &run.path,
-                    &format!("`run` of {place}"),
-                    Key::StepRun,
-                )
+                .template(run.value, &run.path, &format!("`run` of {place}"), script)
                 .map(|script| Action::Run { script }),
-            (None, Some(uses)) => self.uses(uses, place).map(Action::Uses),
+            (None, Some(uses)) => self.uses(uses, place),
             (None, None) => {
                 if fields.complete {
                     self.error(
@@ -187,22 +232,19 @@ impl Lowering<'_> {
         action.filter(|_| valid)
     }
 
-    fn uses(&mut self, field: &Entry<'_>, place: &str) -> Option<ActionReference> {
+    fn uses(&mut self, field: &Entry<'_>, place: &str) -> Option<Action> {
         let what = format!("`uses` of {place}");
         let text = self.string(field.value, &field.path, &what)?;
         let text = self.literal(text, field.value, &field.path, &what)?;
-        match uses::reference(&text) {
-            Ok(reference) => Some(reference),
-            Err(Refusal::Later(kind)) => {
-                self.error(
-                    Code::NotImplemented,
-                    field.value.span,
-                    &field.path,
-                    format!(
-                        "{what} is `{text}`, {kind}, which is not supported yet; it arrives in M2"
-                    ),
-                );
-                None
+        match uses::target(&text) {
+            Ok(Target::Remote(reference)) => Some(Action::Uses(reference)),
+            Ok(Target::Local(path)) => {
+                self.refuse_form(&what, &text, "a local action", "uses: ./path", field);
+                Some(Action::Local { path })
+            }
+            Ok(Target::Docker(image)) => {
+                self.refuse_form(&what, &text, "a container image", "uses: docker://", field);
+                Some(Action::Docker { image })
             }
             Err(Refusal::Invalid(reason)) => {
                 self.error(
@@ -216,11 +258,22 @@ impl Lowering<'_> {
         }
     }
 
+    fn refuse_form(&mut self, what: &str, text: &str, kind: &str, form: &str, field: &Entry<'_>) {
+        if self.pending_refused() && pending_form("step", form) {
+            self.error(
+                Code::NotImplemented,
+                field.value.span,
+                &field.path,
+                format!("{what} is `{text}`, {kind}, which is not supported yet; it arrives in M2"),
+            );
+        }
+    }
+
     fn step_key(
         &mut self,
         field: &Entry<'_>,
         place: &str,
-        job: &str,
+        owner: &str,
         keys: &mut BTreeSet<String>,
     ) -> Option<StepKey> {
         let text = self.string(field.value, &field.path, &format!("`id` of {place}"))?;
@@ -239,7 +292,7 @@ impl Lowering<'_> {
                     Code::RepeatedStepKey,
                     field.value.span,
                     &field.path,
-                    format!("step key `{text}` is used twice in job `{job}`"),
+                    format!("step key `{text}` is used twice in {owner}"),
                 );
                 None
             }

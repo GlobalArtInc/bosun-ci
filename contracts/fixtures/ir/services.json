@@ -1,0 +1,413 @@
+{
+  "name": null,
+  "run_name": null,
+  "triggers": [
+    {
+      "push": {
+        "branches": null,
+        "tags": null,
+        "paths": null
+      }
+    }
+  ],
+  "permissions": null,
+  "env": {},
+  "defaults": {
+    "shell": null,
+    "working_directory": null
+  },
+  "concurrency": null,
+  "jobs": [
+    {
+      "key": "test",
+      "name": null,
+      "needs": [],
+      "if": null,
+      "runs_on": {
+        "literal": {
+          "group": null,
+          "labels": [
+            [
+              {
+                "text": "shell"
+              }
+            ]
+          ]
+        }
+      },
+      "permissions": null,
+      "concurrency": null,
+      "strategy": null,
+      "env": {},
+      "defaults": {
+        "shell": null,
+        "working_directory": null
+      },
+      "timeout_minutes": {
+        "literal": 360
+      },
+      "continue_on_error": {
+        "literal": false
+      },
+      "outputs": {},
+      "secrets": {
+        "named": [
+          "REGISTRY_PASSWORD"
+        ]
+      },
+      "services": [
+        {
+          "name": "postgres",
+          "container": {
+            "image": [
+              {
+                "text": "postgres:16"
+              }
+            ],
+            "credentials": {
+              "username": [
+                {
+                  "text": "ci"
+                }
+              ],
+              "password": [
+                {
+                  "expression": {
+                    "property": {
+                      "target": {
+                        "context": {
+                          "name": "secrets",
+                          "span": {
+                            "line": 11,
+                            "column": 25,
+                            "end_line": 11,
+                            "end_column": 32
+                          }
+                        }
+                      },
+                      "name": "REGISTRY_PASSWORD",
+                      "span": {
+                        "line": 11,
+                        "column": 25,
+                        "end_line": 11,
+                        "end_column": 50
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "env": {
+              "POSTGRES_PASSWORD": [
+                {
+                  "expression": {
+                    "property": {
+                      "target": {
+                        "context": {
+                          "name": "env",
+                          "span": {
+                            "line": 13,
+                            "column": 34,
+                            "end_line": 13,
+                            "end_column": 37
+                          }
+                        }
+                      },
+                      "name": "DB_PASSWORD",
+                      "span": {
+                        "line": 13,
+                        "column": 34,
+                        "end_line": 13,
+                        "end_column": 49
+                      }
+                    }
+                  }
+                }
+              ],
+              "POSTGRES_USER": [
+                {
+                  "expression": {
+                    "property": {
+                      "target": {
+                        "context": {
+                          "name": "job",
+                          "span": {
+                            "line": 14,
+                            "column": 30,
+                            "end_line": 14,
+                            "end_column": 33
+                          }
+                        }
+                      },
+                      "name": "status",
+                      "span": {
+                        "line": 14,
+                        "column": 30,
+                        "end_line": 14,
+                        "end_column": 40
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "ports": [
+              [
+                {
+                  "text": "5432"
+                }
+              ]
+            ],
+            "volumes": [
+              [
+                {
+                  "text": "pgdata:/var/lib/postgresql/data"
+                }
+              ]
+            ],
+            "options": [
+              {
+                "text": "--health-cmd pg_isready --health-interval 10s"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cache",
+          "container": {
+            "image": [
+              {
+                "text": "redis"
+              }
+            ],
+            "credentials": null,
+            "env": {},
+            "ports": [],
+            "volumes": [],
+            "options": null
+          }
+        }
+      ],
+      "kind": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "docker port \""
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "property": {
+                            "target": {
+                              "property": {
+                                "target": {
+                                  "context": {
+                                    "name": "job",
+                                    "span": {
+                                      "line": 25,
+                                      "column": 31,
+                                      "end_line": 25,
+                                      "end_column": 34
+                                    }
+                                  }
+                                },
+                                "name": "services",
+                                "span": {
+                                  "line": 25,
+                                  "column": 31,
+                                  "end_line": 25,
+                                  "end_column": 43
+                                }
+                              }
+                            },
+                            "name": "postgres",
+                            "span": {
+                              "line": 25,
+                              "column": 31,
+                              "end_line": 25,
+                              "end_column": 52
+                            }
+                          }
+                        },
+                        "name": "id",
+                        "span": {
+                          "line": 25,
+                          "column": 31,
+                          "end_line": 25,
+                          "end_column": 55
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "text": "\" 5432/tcp"
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 25,
+              "column": 9,
+              "end_line": 25,
+              "end_column": 68
+            }
+          },
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "psql -p "
+                  },
+                  {
+                    "expression": {
+                      "index": {
+                        "target": {
+                          "property": {
+                            "target": {
+                              "property": {
+                                "target": {
+                                  "property": {
+                                    "target": {
+                                      "context": {
+                                        "name": "job",
+                                        "span": {
+                                          "line": 26,
+                                          "column": 26,
+                                          "end_line": 26,
+                                          "end_column": 29
+                                        }
+                                      }
+                                    },
+                                    "name": "services",
+                                    "span": {
+                                      "line": 26,
+                                      "column": 26,
+                                      "end_line": 26,
+                                      "end_column": 38
+                                    }
+                                  }
+                                },
+                                "name": "postgres",
+                                "span": {
+                                  "line": 26,
+                                  "column": 26,
+                                  "end_line": 26,
+                                  "end_column": 47
+                                }
+                              }
+                            },
+                            "name": "ports",
+                            "span": {
+                              "line": 26,
+                              "column": 26,
+                              "end_line": 26,
+                              "end_column": 53
+                            }
+                          }
+                        },
+                        "index": {
+                          "string": {
+                            "value": "5432",
+                            "span": {
+                              "line": 26,
+                              "column": 54,
+                              "end_line": 26,
+                              "end_column": 60
+                            }
+                          }
+                        },
+                        "span": {
+                          "line": 26,
+                          "column": 26,
+                          "end_line": 26,
+                          "end_column": 61
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "text": " -h "
+                  },
+                  {
+                    "expression": {
+                      "property": {
+                        "target": {
+                          "property": {
+                            "target": {
+                              "context": {
+                                "name": "job",
+                                "span": {
+                                  "line": 26,
+                                  "column": 72,
+                                  "end_line": 26,
+                                  "end_column": 75
+                                }
+                              }
+                            },
+                            "name": "container",
+                            "span": {
+                              "line": 26,
+                              "column": 72,
+                              "end_line": 26,
+                              "end_column": 85
+                            }
+                          }
+                        },
+                        "name": "network",
+                        "span": {
+                          "line": 26,
+                          "column": 72,
+                          "end_line": 26,
+                          "end_column": 93
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "shell": null,
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 26,
+              "column": 9,
+              "end_line": 26,
+              "end_column": 96
+            }
+          }
+        ]
+      },
+      "span": {
+        "line": 4,
+        "column": 3,
+        "end_line": 26,
+        "end_column": 96
+      }
+    }
+  ]
+}

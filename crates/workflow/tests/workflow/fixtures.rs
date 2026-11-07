@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use bosun_workflow::Pending;
 use serde_json::Value;
 
 use crate::{FILE, read, repository};
@@ -49,14 +50,18 @@ fn every_workflow_fixture_lowers_to_its_snapshot_or_its_diagnostic() {
         };
         let file = committed[0]["file"].as_str().unwrap_or(FILE).to_string();
         let linted =
-            serde_json::to_value(bosun_workflow::lint(&file, &source)).expect("serialisable");
+            serde_json::to_value(bosun_workflow::lint_with(&file, &source, Pending::Admit))
+                .expect("serialisable");
         assert_eq!(
             linted,
             committed,
             "{case}: the diagnostics differ from diagnostics/{case}.json; they are now\n{}",
             pretty(&linted)
         );
-        match (bosun_workflow::parse(&file, &source), ir.exists()) {
+        match (
+            bosun_workflow::parse_with(&file, &source, Pending::Admit),
+            ir.exists(),
+        ) {
             (Ok(parsed), true) => {
                 let produced = serde_json::to_value(&parsed.workflow).expect("serialisable");
                 assert_eq!(
@@ -103,4 +108,29 @@ fn every_ir_and_diagnostic_fixture_comes_from_a_workflow_fixture() {
             );
         }
     }
+}
+
+#[test]
+fn a_fixture_that_uses_a_pending_key_is_refused_with_not_implemented_naming_m2() {
+    let root = fixtures();
+    let mut refused = 0;
+    for case in cases(&root.join("ir"), "json") {
+        let source = read(&root.join("workflows").join(format!("{case}.yml")));
+        let file = FILE.to_string();
+        let Err(diagnostics) = bosun_workflow::parse(&file, &source) else {
+            continue;
+        };
+        refused += 1;
+        for diagnostic in diagnostics {
+            assert_eq!(
+                (
+                    diagnostic.code.as_str(),
+                    diagnostic.message.ends_with("it arrives in M2")
+                ),
+                ("not_implemented", true),
+                "{case}: {diagnostic:#?}"
+            );
+        }
+    }
+    assert!(refused >= 9, "only {refused} fixtures use a pending key");
 }

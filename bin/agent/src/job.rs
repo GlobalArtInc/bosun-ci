@@ -100,7 +100,9 @@ pub(crate) fn prepare(
         evaluated,
         actions,
     } = Documents::read(&assignment)?;
-    let JobKind::Steps(steps) = &job.kind;
+    let JobKind::Steps(steps) = &job.kind else {
+        return Err("the job calls a workflow, which an agent does not run".to_owned());
+    };
     for (index, step) in (0..).zip(steps) {
         runnable(index, step, &actions)?;
     }
@@ -602,10 +604,10 @@ mod tests {
                 name: None,
                 needs: Vec::new(),
                 r#if: None,
-                runs_on: Evaluable::Literal(RunsOn {
+                runs_on: Some(Evaluable::Literal(RunsOn {
                     group: None,
                     labels: vec![Template::text("self-hosted")],
-                }),
+                })),
                 permissions: None,
                 concurrency: None,
                 strategy: None,
@@ -615,6 +617,11 @@ mod tests {
                 continue_on_error: Evaluable::Literal(false),
                 outputs: BTreeMap::new(),
                 secrets: SecretReferences::Named(BTreeSet::new()),
+                container: None,
+                services: Vec::new(),
+                cache_mode: None,
+                cache_volumes: Vec::new(),
+                priority: None,
                 kind: JobKind::Steps(vec![step]),
                 span: SPAN,
             },

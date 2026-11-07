@@ -1,0 +1,17 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "`uses` of job `release` is `acme/shared/.github/workflows/release@v2`, which names a file that does not end in `.yml` or `.yaml`",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 5,
+    "column": 11,
+    "end_line": 5,
+    "end_column": 51
+  },
+  "path": [
+    "jobs",
+    "release",
+    "uses"
+  ]
+}

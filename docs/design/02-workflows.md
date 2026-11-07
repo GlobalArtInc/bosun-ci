@@ -498,8 +498,9 @@ breaks, so a diagnostic or a run-time error points at the context or the call at
 - **`uses`** is `owner/repo@ref` or `owner/repo/path@ref`: the owner holds letters, digits and `-`,
   the repository letters, digits, `-`, `_` and `.`, the path non-empty parts that are not `.` or
   `..`, and the ref is non-empty and holds no whitespace. Anything else is `invalid_value`, so
-  `actions/checkout` without a ref is refused with a hint. `./path` and `docker://image` are
-  `not_implemented` and name M2.
+  `actions/checkout` without a ref is refused with a hint. `./path` and `docker://image` lower to
+  the actions `Local` and `Docker`, and are `not_implemented` naming M2 while their forms are on
+  the pending list.
 
 Each job template also records the secrets its expressions read, together with those of the
 workflow's `env`, which every job receives under its own. `secrets.NAME` and `secrets['NAME']` name
@@ -542,20 +543,31 @@ rule each.
   `false` when absent; and `default`, a template. A boolean or a number there is converted the way
   templates convert values, so the `fetch-depth: 1` of `actions/checkout` is `1`, and a null
   default is none: as in the runner, an input without a value or a default is the empty string.
-- An output has `description`. Its `value` is read by composite actions and arrives with them in
-  M2.
+- An output has `description` and `value`. A composite action's outputs require `value`, a template
+  over the steps of the action; in an action of another kind `value` is read and kept.
 - `runs` requires `using`. `node12`, `node16`, `node20` and `node24` are compared ignoring case, as
-  the runner compares them. `composite` and `docker` are `not_implemented` and name M2, and the
-  other keys of `runs` are not checked then; any other value is `invalid_value`. A Node action
-  requires `main` and has `pre` and `post`, which are paths in the action's directory, non-empty
-  and without expressions. `pre-if` and `post-if` are non-empty conditions in the forms of an `if`;
-  without one, the condition is `always()`. As in a step's `if`, a condition that calls no status
-  function behaves as `success() && (...)`, and the status functions look at the job, not at the
-  action.
-- Expressions are checked against the keys `inputs.<input_id>.default`, `runs.pre-if` and
-  `runs.post-if` of the availability table ([03-expressions.md](03-expressions.md)). The agent
-  evaluates them: the defaults when the step that uses the action is reached, and each condition
-  before its pre or post step.
+  the runner compares them. `composite` and `docker` are lowered with the keys below, and while
+  they are on the pending list ([Where each key arrives](#where-each-key-arrives)) `using` is
+  `not_implemented` and names M2 beside the diagnostics of the other keys of `runs`; any other
+  value is `invalid_value`. A Node action requires `main` and has `pre` and `post`, which are paths
+  in the action's directory, non-empty and without expressions. `pre-if` and `post-if` are
+  non-empty conditions in the forms of an `if`; without one, the condition is `always()`. As in a
+  step's `if`, a condition that calls no status function behaves as `success() && (...)`, and the
+  status functions look at the job, not at the action.
+- A composite action requires `steps`, lowered as the steps of a job with the same rules, and
+  every step that runs a script requires `shell`, which is `missing_key` at the step. Its
+  expressions are checked against `runs.steps` and `runs.steps.if`, which see neither `secrets`
+  nor `needs`, `matrix` and `strategy` ([03-expressions.md](03-expressions.md)).
+- A docker action requires `image`, which is text without expressions, and has `args`, a list of
+  templates, `env`, a mapping of templates, `entrypoint`, `pre-entrypoint` and `post-entrypoint`,
+  non-empty text without expressions, and `pre-if` and `post-if` as a Node action does. The
+  expressions of `args` and `env` are checked against `runs.args` and `runs.env`, which see
+  `github`, `inputs`, `vars` and `bosun`.
+- Expressions are checked against the keys `inputs.<input_id>.default`, `outputs.<output_id>.value`,
+  `runs.pre-if`, `runs.post-if`, `runs.steps`, `runs.steps.if`, `runs.args` and `runs.env` of the
+  availability table ([03-expressions.md](03-expressions.md)). The agent evaluates them: the
+  defaults when the step that uses the action is reached, and each condition before its pre or
+  post step.
 
 **Unknown keys.** In a workflow an unknown key is an error. The runner of the target reads the
 root of an action's metadata and its inputs loosely and ignores keys it does not know, and public
@@ -567,8 +579,9 @@ suggestion when a known key is close. In an output and in `runs`, which the runn
 an unknown key is `unknown_key`, as in a workflow. The three actions are cases in
 `contracts/fixtures/actions/`.
 
-The keys of action metadata arrive by the rule of [Where each key arrives](#where-each-key-arrives),
-and the keys of `using: composite` and `using: docker` with those kinds in M2:
+The keys of action metadata arrive by the rule of [Where each key arrives](#where-each-key-arrives).
+The keys of `runs` that only a composite or a docker action has are listed under `runs.composite`
+and `runs.docker`, with `using` in `runs`:
 
 | In the metadata | Keys | From |
 |-----------------|------|------|
@@ -578,6 +591,9 @@ and the keys of `using: composite` and `using: docker` with those kinds in M2:
 | `outputs.<output_id>` | `description` | M1 |
 | `outputs.<output_id>` | `value` | M2 |
 | `runs` | `using`, `main`, `pre`, `pre-if`, `post`, `post-if` | M1 |
+| `runs.composite` | `steps` | M2 |
+| `runs.docker` | `pre-if`, `post-if` | M1 |
+| `runs.docker` | `image`, `args`, `env`, `entrypoint`, `pre-entrypoint`, `post-entrypoint` | M2 |
 
 ### Where each key arrives
 
@@ -594,7 +610,18 @@ implemented yet, each by its place, as the column Where names it but with `on` f
 its name. A key is implemented exactly when its milestone is reached and it is not pending; every
 other key is `not_implemented` and names its From milestone. M1 leaves the list empty. The first
 step of a later milestone moves `MILESTONE` on and puts the keys of that milestone on the list until
-the steps that implement them. A test reads this table, the extensions table and the table of
+the steps that implement them.
+
+At M2 the list holds every key the milestone brings, and the forms that sit inside a key that
+exists already: `uses: ./path` and `uses: docker://` of a step, and `using: composite` and
+`using: docker` of `runs`. The parser lowers all of them, and the planner and the agent refuse what
+they cannot run, but a file that uses one is `not_implemented` until its step removes the entry.
+`on.workflow_run` and `on.upstream` are the exception: step 16 implements them and nothing lowers
+them yet, so they are refused whatever else is admitted. They form a list of their own beside the
+lowered ones, and `PENDING` is the two lists together, so step 16 removes them in one place. The
+tests lower pending keys through `parse_with`, `lint_with` and `action_with`, which exist only
+under the feature `admit-pending` of `bosun-workflow`; no build of the server, the agent, the CLI or
+the WebAssembly packages enables it. A test reads this table, the extensions table and the table of
 action keys, checks the rule against them, and checks that the JSON Schema lists exactly the keys of
 the first two.
 
@@ -768,6 +795,21 @@ A list of directories that survive between jobs on the same agent host. Each ent
 (`project`, the default, or `organisation`), `key` (an optional template that partitions the
 volume, for example by toolchain), and `mode` (`exclusive`, the default, takes a lock for the
 duration of the job; `shared` does not). A string entry is a name with `path` equal to the name.
+
+Lowering holds an entry to these rules, each `invalid_value` at the value at fault:
+
+- `name` is required, literal text of letters, digits, `-`, `_` and `.` that does not start with a
+  `.`, so it is one path component and never `..`; it is a directory name on the host.
+- `path`, literal, defaults to the name; it may be absolute or relative and must be neither blank
+  nor hold a NUL character or a `..` part.
+- `scope` is `project` or `organisation`, and `mode` is `exclusive` or `shared`; a text that is
+  not one of them is `invalid_value`, with a suggestion when one is close.
+- Two entries of one job may not share a `name`, nor a `path`; the second is the diagnostic, and
+  one that repeats both reports the name.
+- `key` is a template over `github`, `vars`, `strategy`, `matrix`, `needs`, `inputs` and `bosun`.
+  It has no `secrets`, since the key becomes a directory name that persists on the host, outside
+  the masking of logs ([03-expressions.md](03-expressions.md#where-each-expression-is-evaluated)).
+- A job that calls a workflow takes no `cache-volumes`.
 On the `podman` executor the directory is bind-mounted; on `shell` it is a symbolic link created
 before the first step and removed after the last one. These volumes are host-local and are not a
 replacement for the `actions/cache` service, which is portable between agents.
@@ -816,17 +858,29 @@ YAML.
 
 ```
 Workflow   { name, run_name: Template?, triggers: [Trigger], permissions: Permissions?,
-             env: Map<Template>, defaults: Defaults, concurrency: Concurrency?, cache_mode, priority,
-             notify: [Route], jobs: [JobTemplate] }
-JobTemplate{ key, name: Template?, needs: [JobKey], if: Condition?, runs_on: Evaluable<RunsOn>,
+             env: Map<Template>, defaults: Defaults, concurrency: Concurrency?,
+             cache_mode: CacheMode?, priority: Priority?, notify: [Route], jobs: [JobTemplate] }
+JobTemplate{ key, name: Template?, needs: [JobKey], if: Condition?, runs_on: Evaluable<RunsOn>?,
              permissions: Permissions?, concurrency: Concurrency?, strategy: Evaluable<Strategy>?,
              env: Map<Template>, defaults: Defaults, timeout_minutes: Evaluable<u32>,
              continue_on_error: Evaluable<bool>, outputs: Map<Template>,
-             secrets: SecretReferences,
-             kind: Steps | Call | Gate, environment: Evaluable<Environment>?, container, services,
-             cache_mode, retry, hold_on_failure, cache_volumes, priority, span }
+             secrets: SecretReferences, container: Container?, services: [Service],
+             cache_mode: CacheMode?, cache_volumes: [CacheVolume], priority: Priority?,
+             kind: Steps [Step] | Call(Call) | Gate, environment: Evaluable<Environment>?, retry,
+             hold_on_failure, span }
+Container  { image: Template, credentials: Credentials?, env: Map<Template>, ports: [Template],
+             volumes: [Template], options: Template? }
+Credentials{ username: Template?, password: Template? }
+Service    { name, container: Container }
+CacheVolume{ name, path, scope: Project | Organisation, key: Template?, mode: Exclusive | Shared }
+CacheMode  = Read | Write | WriteOnly | None
+Priority   = Low | Normal | High
+Call       { workflow: Callee, with: [Argument], secrets: CallSecrets, span }
+Callee     = Local { path } | Remote(ActionReference)
+Argument   { name, value: Boolean | Number | String(Template), span }
+CallSecrets= Inherit | Named [PassedSecret { name, value: Template, span }]
 Step       { key: StepKey?, name: Template?, if: Condition?,
-             action: Run { script } | Uses(ActionReference),
+             action: Run { script } | Uses(ActionReference) | Local { path } | Docker { image },
              shell: Shell?, working_directory: Template?, with: Map<Template>, env: Map<Template>,
              continue_on_error: Evaluable<bool>, timeout_minutes: Evaluable<u32>?, retry, pause, span }
 RunsOn     { group: Template?, labels: [Template] }
@@ -845,8 +899,13 @@ Trigger    = Push { branches: Filter?, tags: Filter?, paths: Filter? }
            | PullRequest | PullRequestTarget { types: [String]?, branches: Filter?, paths: Filter? }
            | MergeGroup { types: [String]?, branches: Filter? }
            | Schedule [{ cron: Cron, timezone: String? }]
-           | WorkflowDispatch { inputs: [Input] } | RepositoryDispatch { types: [String]? }
-           | Generic { name, types: [String]? }
+           | WorkflowDispatch { inputs: [Input] } | WorkflowCall(WorkflowCall)
+           | RepositoryDispatch { types: [String]? } | Generic { name, types: [String]? }
+WorkflowCall { inputs: [CallInput], secrets: [CallSecret], outputs: [CallOutput] }
+CallInput  { name, description: String?, required: bool,
+             kind: String | Boolean | Number, each with its default? }
+CallSecret { name, description: String?, required: bool }
+CallOutput { name, description: String?, value: Template }
 Filter     = Include [pattern] | Exclude [pattern]
 Cron       { expression, minutes, hours, days_of_month, months, days_of_week: [u8], days: Both | Either }
 Input      { name, description: String?, required: bool,
@@ -856,16 +915,21 @@ ActionMetadata { name: String?, description: String?, author: String?, branding:
 Branding   { icon: String?, color: String? }
 ActionInput{ name, description: String?, required: bool, default: Template?,
              deprecation_message: String? }
-ActionOutput { name, description: String? }
+ActionOutput { name, description: String?, value: Template? }
 Runs       = Node { using: Node12 | Node16 | Node20 | Node24, main, pre: String?,
              pre_if: Condition?, post: String?, post_if: Condition? }
+           | Composite { steps: [Step] }
+           | Docker { image, args: [Template], env: Map<Template>, entrypoint: String?,
+             pre_entrypoint: String?, pre_if: Condition?, post_entrypoint: String?,
+             post_if: Condition? }
 ```
 
-The fields of later milestones (`cache_mode`, `priority`, `notify`, `environment`, `container`,
-`services`, `retry`, `pause`, the hold and the cache volumes, the kinds `Call` and `Gate`, and the
-composite and container actions) join
-the IR with the milestone that implements them; until then deserialising the IR refuses them like
-any unknown field.
+The fields of later milestones (`notify`, `environment`, `retry`, `pause`, the hold and the kind
+`Gate`) join the IR with the milestone that implements them; until then deserialising the IR
+refuses them like any unknown field. The fields of M2 are in it, and lowering produces them
+whether or not their keys are still on the pending list. A job that calls a workflow has no
+`runs_on`, and a field that is `None`, empty or absent is left out of the serialised IR where it
+is new in M2 (`container`, `services`, `cache_mode`, `cache_volumes`, `priority`).
 
 `JobKey` and `StepKey` are the ids a workflow gives its jobs and steps (`jobs.<key>`,
 `steps.<key>`); the identifiers of the database rows are a separate kind. Jobs and steps keep the
@@ -896,10 +960,38 @@ Validation runs after lowering and before any run is created. Errors:
 - an expression does not parse, calls an unknown function or a function with the wrong arity, or
   uses a context that is not available at that key ([03-expressions.md](03-expressions.md));
 - mutually exclusive keys appear together: `run` and `uses`, `gate` and `steps`, a reusable call
-  and `runs-on`;
-- `uses` is not a valid reference;
+  and `runs-on`. A job with `uses` calls a workflow and takes only `name`, `needs`, `if`, `uses`,
+  `with`, `secrets`, `permissions`, `concurrency` and `strategy`; `steps`, `runs-on`, `env`,
+  `container`, `services`, `outputs`, `defaults`, `timeout-minutes`, `continue-on-error`,
+  `cache-mode`, `cache-volumes`, `priority` and every other key is `invalid_value` at the key,
+  with the message that it cannot be used together with `uses`. The extension keys of the list are
+  left out because this document does not say they apply to a call, and a refusal can be relaxed
+  later where an acceptance cannot be taken back. `with` and `secrets` without `uses` are
+  `invalid_value` at the value;
+- `uses` is not a valid reference. A job's `uses` is `./path` without a ref, or
+  `owner/repo/path@ref` whose path ends in `.yml` or `.yaml`; a repository without a path, a
+  directory and a container image are refused. A step's `uses` is as [Lowering jobs and
+  steps](#lowering-jobs-and-steps) says;
 - a `workflow_dispatch` or `workflow_call` input has a default that does not fit its type;
-- a reusable workflow call passes an input or a secret the callee does not declare.
+- two `cache-volumes` of a job share a `name` or a `path`.
+
+`check_call(file, caller, callee)` is the pure check of one call against the lowered callee, for
+the planner to run when it has read the callee ([04-runs.md](04-runs.md)). It returns nothing for a
+job that does not call. For a call it reports, each at the entry at fault with the file it is
+given:
+
+- a callee without an `on.workflow_call` trigger, `invalid_value` at the `uses`, and nothing else,
+  since the target refuses such a call;
+- an input of `with` the callee does not declare, `unknown_key` with a suggestion;
+- a value that cannot be of the input's type, `invalid_type`. A string input takes any value; a
+  boolean or number input takes its own kind, and a template, which can only be judged when it is
+  evaluated, as does a literal text that reads as a boolean or a finite number;
+- a required input without a default that `with` leaves out, `missing_key` at the `uses`;
+- a secret of `secrets` the callee does not declare, `unknown_key`, and a required secret it
+  leaves out, `missing_key` at the `uses`. `secrets: inherit` passes whatever the callee declares
+  and is not checked.
+
+Names of inputs and secrets compare ignoring case.
 
 Warnings:
 

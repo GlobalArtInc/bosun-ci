@@ -91,6 +91,36 @@ pub(crate) fn arrivals() -> Vec<(String, String, String)> {
     arrivals
 }
 
+pub(crate) fn action_arrivals() -> Vec<(String, String, String)> {
+    let mut arrivals = Vec::new();
+    for row in table(&workflows_document(), "| In the metadata | Keys | From |") {
+        let place = row[0].trim_matches('`').to_string();
+        for key in quoted(&row[1]) {
+            arrivals.push((place.clone(), key, row[2].clone()));
+        }
+    }
+    arrivals
+}
+
+fn action_with(place: &str, key: &str) -> String {
+    let runs = "runs:\n  using: node20\n  main: index.js\n";
+    match place {
+        "root" => format!("{key}: x\n{runs}"),
+        "runs" => format!("runs:\n  {key}: x\n"),
+        "runs.composite" => format!("runs:\n  using: composite\n  {key}: x\n"),
+        "runs.docker" => format!("runs:\n  using: docker\n  {key}: x\n"),
+        place => {
+            let section = place.split('.').next().unwrap_or(place);
+            let name = if section == "branding" {
+                ""
+            } else {
+                "  item:\n  "
+            };
+            format!("{section}:\n{name}  {key}: x\n{runs}")
+        }
+    }
+}
+
 pub(crate) fn milestone(name: &str) -> Milestone {
     Milestone::ALL
         .into_iter()
@@ -116,13 +146,42 @@ fn a_key_is_implemented_exactly_when_its_milestone_is_reached_and_it_is_not_pend
         "the tables of docs/design/02-workflows.md list only {} keys",
         arrivals.len()
     );
+    let actions = action_arrivals();
     for &(place, key) in PENDING {
+        let key = key.split(':').next().unwrap_or(key);
         assert!(
             arrivals
                 .iter()
+                .chain(&actions)
                 .any(|(listed, name, _)| surface_place(listed) == place && name == key),
-            "the pending key `{key}` of {place} is in neither table of docs/design/02-workflows.md"
+            "the pending key `{key}` of {place} is in no table of docs/design/02-workflows.md"
         );
+    }
+    for (place, key, from) in actions {
+        let milestone = milestone(&from);
+        let source = action_with(&place, &key);
+        let diagnostics = bosun_workflow::action("action.yml", &source)
+            .err()
+            .unwrap_or_default();
+        let pending = PENDING.contains(&(place.as_str(), key.as_str()));
+        let refused = diagnostics.iter().any(|diagnostic| {
+            about(diagnostic, &key)
+                && diagnostic.code == "not_implemented"
+                && diagnostic
+                    .message
+                    .ends_with(&format!("it arrives in {from}"))
+        });
+        assert_eq!(
+            refused,
+            milestone > MILESTONE || pending,
+            "`{key}` of {place} arrives in {from}: {diagnostics:#?}"
+        );
+        if milestone <= MILESTONE && !pending {
+            assert!(
+                !diagnostics.iter().any(|diagnostic| about(diagnostic, &key)),
+                "`{key}` of {place} arrives in {from} and should be known: {diagnostics:#?}"
+            );
+        }
     }
     for (place, key, from) in arrivals {
         let milestone = milestone(&from);

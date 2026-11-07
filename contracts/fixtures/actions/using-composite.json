@@ -1,21 +1,45 @@
 {
-  "metadata": null,
-  "diagnostics": [
-    {
-      "severity": "error",
-      "code": "not_implemented",
-      "message": "`using: composite` in `runs` is not supported yet; it arrives in M2",
-      "file": "action.yml",
-      "span": {
-        "line": 4,
-        "column": 10,
-        "end_line": 4,
-        "end_column": 19
-      },
-      "path": [
-        "runs",
-        "using"
-      ]
+  "metadata": {
+    "name": "Greet",
+    "description": "Says hello",
+    "author": null,
+    "branding": null,
+    "inputs": [],
+    "outputs": [],
+    "runs": {
+      "composite": {
+        "steps": [
+          {
+            "key": null,
+            "name": null,
+            "if": null,
+            "action": {
+              "run": {
+                "script": [
+                  {
+                    "text": "echo hello"
+                  }
+                ]
+              }
+            },
+            "shell": "bash",
+            "working_directory": null,
+            "with": {},
+            "env": {},
+            "continue_on_error": {
+              "literal": false
+            },
+            "timeout_minutes": null,
+            "span": {
+              "line": 6,
+              "column": 7,
+              "end_line": 7,
+              "end_column": 18
+            }
+          }
+        ]
+      }
     }
-  ]
+  },
+  "diagnostics": []
 }

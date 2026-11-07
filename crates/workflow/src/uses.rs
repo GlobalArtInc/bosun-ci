@@ -1,8 +1,13 @@
 use bosun_types::ir::ActionReference;
 
 pub(crate) enum Refusal {
-    Later(&'static str),
     Invalid(String),
+}
+
+pub(crate) enum Target {
+    Remote(ActionReference),
+    Local(String),
+    Docker(String),
 }
 
 fn owner(name: &str) -> bool {
@@ -18,13 +23,42 @@ fn repository(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
+fn local(path: &str) -> Result<String, Refusal> {
+    let parts: Vec<&str> = path.split('/').collect();
+    let last = parts.len().saturating_sub(1);
+    let clean = parts.iter().enumerate().all(|(position, part)| {
+        *part != ".."
+            && !part.chars().any(char::is_whitespace)
+            && (!part.is_empty() || position == last)
+    });
+    if !clean {
+        return Err(Refusal::Invalid(
+            "has a path with an empty part, a `..` part or whitespace".to_string(),
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn image(image: &str) -> Result<String, Refusal> {
+    if image.is_empty() || image.chars().any(char::is_whitespace) {
+        return Err(Refusal::Invalid(
+            "names no image, or an image with whitespace".to_string(),
+        ));
+    }
+    Ok(image.to_string())
+}
+
+pub(crate) fn target(text: &str) -> Result<Target, Refusal> {
+    if let Some(path) = text.strip_prefix("./") {
+        return local(path).map(Target::Local);
+    }
+    if let Some(name) = text.strip_prefix("docker://") {
+        return image(name).map(Target::Docker);
+    }
+    reference(text).map(Target::Remote)
+}
+
 pub(crate) fn reference(text: &str) -> Result<ActionReference, Refusal> {
-    if text.starts_with("./") {
-        return Err(Refusal::Later("a local action"));
-    }
-    if text.starts_with("docker://") {
-        return Err(Refusal::Later("a container image"));
-    }
     let Some((name, version)) = text.split_once('@') else {
         return Err(Refusal::Invalid(format!(
             "names no ref; write it as `{text}@<ref>`"

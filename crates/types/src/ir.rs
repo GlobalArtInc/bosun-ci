@@ -234,7 +234,58 @@ pub struct Workflow {
     pub env: BTreeMap<String, Template>,
     pub defaults: Defaults,
     pub concurrency: Option<Concurrency>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_mode: Option<CacheMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Priority>,
     pub jobs: Vec<JobTemplate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CacheMode {
+    Read,
+    Write,
+    WriteOnly,
+    None,
+}
+
+impl CacheMode {
+    pub const ALL: [CacheMode; 4] = [
+        CacheMode::Read,
+        CacheMode::Write,
+        CacheMode::WriteOnly,
+        CacheMode::None,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CacheMode::Read => "read",
+            CacheMode::Write => "write",
+            CacheMode::WriteOnly => "write-only",
+            CacheMode::None => "none",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Priority {
+    Low,
+    Normal,
+    High,
+}
+
+impl Priority {
+    pub const ALL: [Priority; 3] = [Priority::Low, Priority::Normal, Priority::High];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Priority::Low => "low",
+            Priority::Normal => "normal",
+            Priority::High => "high",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -354,6 +405,7 @@ pub enum Trigger {
     MergeGroup(MergeGroup),
     Schedule(Vec<Schedule>),
     WorkflowDispatch(WorkflowDispatch),
+    WorkflowCall(WorkflowCall),
     RepositoryDispatch(Activity),
     Generic(GenericEvent),
 }
@@ -463,6 +515,65 @@ pub enum InputKind {
     },
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowCall {
+    pub inputs: Vec<CallInput>,
+    pub secrets: Vec<CallSecret>,
+    pub outputs: Vec<CallOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+    pub kind: CallInputKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum CallInputKind {
+    String { default: Option<Template> },
+    Boolean { default: Option<Evaluable<bool>> },
+    Number { default: Option<Evaluable<Number>> },
+}
+
+impl CallInputKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            CallInputKind::String { .. } => "string",
+            CallInputKind::Boolean { .. } => "boolean",
+            CallInputKind::Number { .. } => "number",
+        }
+    }
+
+    pub fn has_default(&self) -> bool {
+        match self {
+            CallInputKind::String { default } => default.is_some(),
+            CallInputKind::Boolean { default } => default.is_some(),
+            CallInputKind::Number { default } => default.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallSecret {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallOutput {
+    pub name: String,
+    pub description: Option<String>,
+    pub value: Template,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JobTemplate {
@@ -470,7 +581,7 @@ pub struct JobTemplate {
     pub name: Option<Template>,
     pub needs: Vec<JobKey>,
     pub r#if: Option<Condition>,
-    pub runs_on: Evaluable<RunsOn>,
+    pub runs_on: Option<Evaluable<RunsOn>>,
     pub permissions: Option<Permissions>,
     pub concurrency: Option<Concurrency>,
     pub strategy: Option<Evaluable<Strategy>>,
@@ -480,8 +591,67 @@ pub struct JobTemplate {
     pub continue_on_error: Evaluable<bool>,
     pub outputs: BTreeMap<String, Template>,
     pub secrets: SecretReferences,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<Container>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<Service>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_mode: Option<CacheMode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cache_volumes: Vec<CacheVolume>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Priority>,
     pub kind: JobKind,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Container {
+    pub image: Template,
+    pub credentials: Option<Credentials>,
+    pub env: BTreeMap<String, Template>,
+    pub ports: Vec<Template>,
+    pub volumes: Vec<Template>,
+    pub options: Option<Template>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Credentials {
+    pub username: Option<Template>,
+    pub password: Option<Template>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Service {
+    pub name: String,
+    pub container: Container,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CacheVolume {
+    pub name: String,
+    pub path: String,
+    pub scope: VolumeScope,
+    pub key: Option<Template>,
+    pub mode: VolumeMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VolumeScope {
+    Project,
+    Organisation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VolumeMode {
+    Exclusive,
+    Shared,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -543,6 +713,54 @@ pub enum SecretReferences {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum JobKind {
     Steps(Vec<Step>),
+    Call(Call),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Call {
+    pub workflow: Callee,
+    pub with: Vec<Argument>,
+    pub secrets: CallSecrets,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Callee {
+    Local { path: String },
+    Remote(ActionReference),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Argument {
+    pub name: String,
+    pub value: ArgumentValue,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ArgumentValue {
+    Boolean(bool),
+    Number(Number),
+    String(Template),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum CallSecrets {
+    Inherit,
+    Named(Vec<PassedSecret>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PassedSecret {
+    pub name: String,
+    pub value: Template,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -566,6 +784,8 @@ pub struct Step {
 pub enum Action {
     Run { script: Template },
     Uses(ActionReference),
+    Local { path: String },
+    Docker { image: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -621,12 +841,35 @@ pub struct ActionInput {
 pub struct ActionOutput {
     pub name: String,
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<Template>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Runs {
     Node(NodeRuns),
+    Composite(CompositeRuns),
+    Docker(DockerRuns),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompositeRuns {
+    pub steps: Vec<Step>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DockerRuns {
+    pub image: String,
+    pub args: Vec<Template>,
+    pub env: BTreeMap<String, Template>,
+    pub entrypoint: Option<String>,
+    pub pre_entrypoint: Option<String>,
+    pub pre_if: Option<Condition>,
+    pub post_entrypoint: Option<String>,
+    pub post_if: Option<Condition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -675,7 +918,7 @@ pub fn stages<'a>(
             Phase::Main => true,
             Phase::Post => runs.post.is_some(),
         }),
-        Action::Run { .. } => false,
+        Action::Run { .. } | Action::Local { .. } | Action::Docker { .. } => false,
     };
     let pre = numbered
         .iter()

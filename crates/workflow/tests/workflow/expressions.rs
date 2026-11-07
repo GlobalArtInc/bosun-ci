@@ -96,14 +96,16 @@ jobs:
     ));
     let build = &workflow.jobs[0];
     assert!(expressive(build.name.as_ref().expect("a name")));
-    let Evaluable::Literal(runs_on) = &build.runs_on else {
+    let Some(Evaluable::Literal(runs_on)) = &build.runs_on else {
         panic!("a list of labels");
     };
     assert_eq!(runs_on.labels[0], Template::text("shell"));
     assert!(expressive(&runs_on.labels[1]));
     assert!(expressive(&build.env["B"]));
     assert!(expressive(&build.outputs["version"]));
-    let JobKind::Steps(steps) = &build.kind;
+    let JobKind::Steps(steps) = &build.kind else {
+        panic!("the job calls a workflow");
+    };
     assert!(expressive(steps[0].name.as_ref().expect("a name")));
     assert!(expressive(
         steps[0].working_directory.as_ref().expect("a directory")
@@ -114,8 +116,11 @@ jobs:
     };
     assert!(expressive(script));
     assert!(expressive(&steps[1].with["ref"]));
-    assert!(matches!(workflow.jobs[1].runs_on, Evaluable::Template(_)));
-    let Evaluable::Literal(grouped) = &workflow.jobs[2].runs_on else {
+    assert!(matches!(
+        workflow.jobs[1].runs_on,
+        Some(Evaluable::Template(_))
+    ));
+    let Some(Evaluable::Literal(grouped)) = &workflow.jobs[2].runs_on else {
         panic!("a group");
     };
     assert!(expressive(grouped.group.as_ref().expect("a group")));
@@ -241,7 +246,9 @@ fn an_if_is_an_expression_with_or_without_its_delimiters() {
         "on: workflow_dispatch\njobs:\n  build:\n    if: ''\n    runs-on: shell\n    steps:\n      - if:\n        run: make\n      - if: \" ${{ success() }} \"\n        run: make\n",
     );
     assert_eq!(workflow.jobs[0].r#if, None);
-    let JobKind::Steps(steps) = &workflow.jobs[0].kind;
+    let JobKind::Steps(steps) = &workflow.jobs[0].kind else {
+        panic!("the job calls a workflow");
+    };
     assert_eq!(steps[0].r#if, None);
     assert!(matches!(steps[1].r#if, Some(Condition::Expression(_))));
 }
@@ -255,7 +262,9 @@ fn an_if_with_text_around_its_expression_is_a_template_and_warned_about() {
         parsed.workflow.jobs[0].r#if,
         Some(Condition::Template(_))
     ));
-    let JobKind::Steps(steps) = &parsed.workflow.jobs[0].kind;
+    let JobKind::Steps(steps) = &parsed.workflow.jobs[0].kind else {
+        panic!("the job calls a workflow");
+    };
     assert!(matches!(steps[0].r#if, Some(Condition::Template(_))));
     let warnings: Vec<(&str, Vec<_>)> = parsed
         .warnings

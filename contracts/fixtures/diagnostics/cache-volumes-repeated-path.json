@@ -1,0 +1,19 @@
+{
+  "severity": "error",
+  "code": "invalid_value",
+  "message": "entry 2 of `cache-volumes` of job `build` repeats the path `target` of an earlier entry",
+  "file": ".bosun/workflows/ci.yml",
+  "span": {
+    "line": 10,
+    "column": 15,
+    "end_line": 10,
+    "end_column": 21
+  },
+  "path": [
+    "jobs",
+    "build",
+    "cache-volumes",
+    1,
+    "path"
+  ]
+}

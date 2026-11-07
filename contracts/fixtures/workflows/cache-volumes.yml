@@ -1,0 +1,27 @@
+on: push
+
+jobs:
+  setup:
+    runs-on: shell
+    outputs:
+      toolchain: ${{ steps.pick.outputs.toolchain }}
+    steps:
+      - id: pick
+        run: echo "toolchain=stable" >> "$GITHUB_OUTPUT"
+  build:
+    needs: setup
+    runs-on: shell
+    strategy:
+      matrix:
+        profile: [dev, release]
+    cache-volumes:
+      - cargo-registry
+      - name: cargo-target
+        path: target
+        scope: organisation
+        key: ${{ needs.setup.outputs.toolchain }}-${{ matrix.profile }}
+        mode: shared
+      - name: sccache
+        path: /var/cache/sccache
+    steps:
+      - run: cargo build

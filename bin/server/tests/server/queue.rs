@@ -485,7 +485,9 @@ async fn an_assignment_carries_the_slugs_the_job_of_the_ir_and_the_values_the_se
         (360, false, &None, &None)
     );
     assert_eq!(documents.job.key.as_str(), "build");
-    let JobKind::Steps(steps) = &documents.job.kind;
+    let JobKind::Steps(steps) = &documents.job.kind else {
+        panic!("a job with steps");
+    };
     assert_eq!(steps.len(), 2);
     assert_eq!(
         (
@@ -541,7 +543,9 @@ async fn an_assignment_carries_the_slugs_the_job_of_the_ir_and_the_values_the_se
     connection.idle();
     let (test, documents) = connection.job().await;
     assert_eq!(test.job_key, "test");
-    let JobKind::Steps(steps) = &documents.job.kind;
+    let JobKind::Steps(steps) = &documents.job.kind else {
+        panic!("a job with steps");
+    };
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].shell, Some(Shell::Custom("perl {0}".to_owned())));
     assert_eq!(
