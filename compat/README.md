@@ -23,19 +23,74 @@ Bosun is checked.
   `<ref>` names, and `manifest.json` with that `commit` and the tarball's `sha256`. The fake forge
   serves each as the public repository `<owner>/<repo>` holding the tarball's files at the
   upstream commit, with the tag `<ref>` at it, so the server resolves `<owner>/<repo>@<ref>` to
-  the same commit as on GitHub.
+  the same commit as on GitHub. It checks the tarball's hash against the manifest before it
+  serves the action, and refuses to start, naming the action, when they differ.
+- `images.lock`: the images the tests use, pinned by digest; see [Images](#images).
+- `cases/<name>/`: the end-to-end cases; see [Cases](#cases).
 
 ## Vendored actions
 
 `actions/checkout/v4` is `actions/checkout@v4` at its release v4.4.0, the commit
-`11d5960a326750d5838078e36cf38b85af677262`. Vendoring an action, or moving one to the commit its
-ref names now, takes the tarball from the forge and records its hash:
+`11d5960a326750d5838078e36cf38b85af677262`. The other vendored actions are
+`actions/upload-artifact@v4`, `actions/download-artifact@v4`, `actions/cache@v4`,
+`actions/cache@v3.3.3` and `actions/setup-node@v4`, each at the commit its tag points to. Vendoring an
+action, or moving one to the commit its ref names now, takes the tarball from the forge and records
+its hash:
 
 ```sh
 commit=$(git ls-remote https://github.com/<owner>/<repo> refs/tags/<ref> | cut -f1)
 curl -fsSL -o tarball.tar.gz https://api.github.com/repos/<owner>/<repo>/tarball/$commit
 shasum -a 256 tarball.tar.gz
 ```
+
+For an annotated tag, `git ls-remote` also lists `refs/tags/<ref>^{}`, and the commit is that line.
+None of the vendored tags is annotated.
+
+## Cases
+
+`cases/<name>/` is one end-to-end case. `hack/e2e.sh` runs every case, or one with `--case <name>`,
+on the fake forge through the agents of the harness:
+
+- `repository.json`: the commits of the case's repository on `main`, in order, as
+  `{"commits": [{"message": "...", "tags": [{"name": "v1", "annotated": true}]}]}`. The tags of a
+  commit are annotated when `annotated` is true and lightweight otherwise.
+- `commits/NN/`: the files of commit `NN` (counted from `01`), at their paths in the repository,
+  `.bosun/workflows/` included. Each is copied over the tree of the commit before it, so a later
+  commit may change a file; a commit without a directory is empty.
+- `events.json`: the events to deliver, in order. The harness delivers `{"event": "push", "commit": N}`,
+  where `N` counts the commits of `repository.json` from 1, and refuses any other event.
+- `secrets.json` and `variables.json`, optional: objects of the project's secrets and variables.
+- `home/`, optional: a tree copied into the directory of each agent before the case runs.
+- `expected.json`: `description`, and `runs`, each with the `name` of its workflow (the run's display
+  name), its `conclusion`, `checks`, the names of the check runs of its head commit, which must all be
+  completed, and `jobs`. A job has its display `name`, its `conclusion`, the `outputs` it must hold,
+  and `logs`, extended regular expressions that one of its log lines must match.
+
+A case whose workflows use an action runs only on Linux, where the server hands Node to agents. On
+other systems the harness prints that it skipped the case, and a run in which every case is skipped
+ends with `scenario cases: skipped`. After each case, and when the harness exits, it removes what a
+case wrote under the runner cache, `/opt/actions-runner/cache/*/e2e-*` (a workflow such as Keel's
+writes `/opt/actions-runner/cache/<project>/$RUNNER_NAME`, and the harness's agents are named `e2e-*`);
+`BOSUN_E2E_RUNNER_CACHE` overrides the cache root.
+
+## Images
+
+`images.lock` lists one image per line as `name:tag@sha256:<digest>`. The digest is the one of the
+image index, which `docker buildx imagetools inspect <name>:<tag> --format '{{.Manifest.Digest}}'`
+prints. `hack/warm-images.sh` checks every line before it pulls anything, and refuses a line that is
+not pinned by digest. It pulls each image with podman. From `node:24-alpine` it also packs the Node
+of the image as `node-v<version>-linux-x64-musl` into `target/node-upstream/v<version>/`, with its
+line in `SHASUMS256.txt`. CI runs the script before the tests; the tests never pull.
+
+The two builds meet in `hack/e2e.sh`. When `target/node-upstream/` holds one `v<version>/` with a
+musl archive, the harness takes that version for both settings, `BOSUN_TOOLS_NODE20` and
+`BOSUN_TOOLS_NODE24`, packs the host's Node as the glibc build under that label (the binary is the
+host's, only the version is the pinned one), copies the musl archive next to it and writes both lines
+into one `SHASUMS256.txt`. Both builds then come from `file://<the harness's Node directory>` through
+`BOSUN_TOOLS_NODE_UPSTREAM` and `BOSUN_TOOLS_NODE_MUSL_UPSTREAM`, so a job on a musl image gets the
+version the glibc build has. Two such directories make the harness fail, naming them. Without the
+directory, as on a machine without podman, the harness uses the host's version and sets no musl
+upstream.
 
 ## Workflows and their inventory
 

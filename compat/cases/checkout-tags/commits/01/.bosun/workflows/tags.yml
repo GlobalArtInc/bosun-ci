@@ -1,0 +1,12 @@
+name: tags
+on: push
+jobs:
+  fetch:
+    runs-on: [self-hosted, alpha]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          git fetch origin "refs/tags/v1:refs/tags/v1"
+          echo "$(git cat-file -t v1)"

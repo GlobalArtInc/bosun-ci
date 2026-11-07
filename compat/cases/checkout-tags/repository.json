@@ -1,0 +1,6 @@
+{
+  "commits": [
+    {"message": "a release", "tags": [{"name": "v1", "annotated": true}]},
+    {"message": "a change after the release"}
+  ]
+}

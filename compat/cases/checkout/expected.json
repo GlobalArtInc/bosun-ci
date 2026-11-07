@@ -1,0 +1,29 @@
+{
+  "description": "a push runs actions/checkout, a matrix of two and job outputs, with one check run per job",
+  "runs": [
+    {
+      "name": "checkout",
+      "conclusion": "success",
+      "checks": ["build (left)", "build (right)", "report"],
+      "jobs": [
+        {
+          "name": "build (left)",
+          "conclusion": "success",
+          "outputs": {"greeting": "checked out the fixture"},
+          "logs": ["^[^ ]+ server http://[^/ ]+\\.localhost(:[0-9]+)?$"]
+        },
+        {
+          "name": "build (right)",
+          "conclusion": "success",
+          "outputs": {"greeting": "checked out the fixture"},
+          "logs": ["^[^ ]+ server http://[^/ ]+\\.localhost(:[0-9]+)?$"]
+        },
+        {
+          "name": "report",
+          "conclusion": "success",
+          "logs": ["^[^ ]+ the build read checked out the fixture$"]
+        }
+      ]
+    }
+  ]
+}

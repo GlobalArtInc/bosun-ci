@@ -12,6 +12,7 @@ use bosun_testkit::forge::{APP_ID, FakeForge, RecordedCheckRun, RecordedStatus, 
 use flate2::read::GzDecoder;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 
 const MANIFEST: &str = "manifest.json";
@@ -30,6 +31,7 @@ type Shared = State<Arc<Control>>;
 #[derive(Deserialize)]
 struct Manifest {
     commit: String,
+    sha256: String,
 }
 
 #[derive(Deserialize)]
@@ -183,7 +185,21 @@ fn vendor(forge: &FakeForge, root: &Path) {
                 let manifest: Manifest = serde_json::from_slice(&text).unwrap_or_else(|error| {
                     panic!("{} is not a manifest: {error}", manifest.display())
                 });
-                let files = unpack(&vendored.join(TARBALL));
+                let action = format!("{full_name}@{tag}");
+                let tarball = vendored.join(TARBALL);
+                let bytes = fs::read(&tarball).unwrap_or_else(|error| {
+                    panic!("{} cannot be read: {error}", tarball.display())
+                });
+                let hashed: String = Sha256::digest(&bytes)
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                assert!(
+                    hashed == manifest.sha256,
+                    "the tarball of {action} hashes to {hashed}, not to the sha256 {} in its manifest",
+                    manifest.sha256
+                );
+                let files = unpack(&tarball);
                 forge.vendor(&full_name, &tag, &manifest.commit, files);
             }
         }

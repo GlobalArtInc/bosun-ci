@@ -5,16 +5,42 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 scenarios="two-job-workflow failing-step cancel-sleep labels cross-replica-cancel server-restart"
 scenarios="$scenarios step-environment step-outputs journal-replay project-settings pools tokens agents runs"
-scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface push fork refusals bosun-ci"
+scenarios="$scenarios log-search secrets lint admission dispatch-inputs interface cases fork refusals bosun-ci"
 
 usage() {
-  echo "usage: hack/e2e.sh [scenario...]" >&2
+  echo "usage: hack/e2e.sh [--case name]... [scenario...]" >&2
   echo "scenarios: $scenarios" >&2
+  echo "--case runs only the named case of compat/cases/, and implies the cases scenario" >&2
   echo "BOSUN_TEST_DATABASE_URL names a Postgres server where the script creates its database" >&2
+  echo "BOSUN_TEST_PODMAN=1 requires a usable podman; BOSUN_TEST_FORGE_HOST overrides the host of the fake forge" >&2
   exit 2
 }
 
-selected="${*:-$scenarios}"
+names=""
+cases_only=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --case)
+      [ $# -ge 2 ] || usage
+      cases_only="$cases_only $2"
+      shift 2
+      ;;
+    *)
+      names="$names $1"
+      shift
+      ;;
+  esac
+done
+if [ -n "$cases_only" ]; then
+  case " $names " in
+    *" cases "*) ;;
+    *) names="$names cases" ;;
+  esac
+  for name in $cases_only; do
+    [ -f "$root/compat/cases/$name/expected.json" ] || { echo "there is no case $name" >&2; usage; }
+  done
+fi
+selected="${names:-$scenarios}"
 for name in $selected; do
   case " $scenarios " in
     *" $name "*) ;;
@@ -26,6 +52,9 @@ if [ -z "${BOSUN_TEST_DATABASE_URL:-}" ]; then
   usage
 fi
 postgres="$BOSUN_TEST_DATABASE_URL"
+podman_requested="${BOSUN_TEST_PODMAN:-}"
+forge_name="${BOSUN_TEST_FORGE_HOST:-forge.localhost}"
+runner_cache="${BOSUN_E2E_RUNNER_CACHE:-/opt/actions-runner/cache}"
 for name in $(compgen -e); do
   case "$name" in
     BOSUN_*) unset "$name" ;;
@@ -41,12 +70,27 @@ esac
 checkout=""
 if [ "$(uname -s)" = Linux ]; then
   case " $selected " in
-    *" push "* | *" bosun-ci "*) checkout=yes tools="$tools node" ;;
+    *" cases "* | *" bosun-ci "*) checkout=yes tools="$tools node" ;;
   esac
 fi
 for tool in $tools; do
   command -v "$tool" >/dev/null || { echo "hack/e2e.sh needs $tool on the PATH" >&2; exit 1; }
 done
+case "$forge_name" in
+  *.localhost) ;;
+  *)
+    echo "the fake forge's host $forge_name does not end in .localhost, so the toolkit would take its enterprise path" >&2
+    exit 1
+    ;;
+esac
+if [ "$podman_requested" = 1 ]; then
+  if ! command -v podman >/dev/null 2>&1 || ! podman info >/dev/null 2>&1; then
+    echo "BOSUN_TEST_PODMAN=1, but podman is not usable on this host, so the podman cases cannot run" >&2
+    exit 1
+  fi
+else
+  echo "podman cases are skipped: BOSUN_TEST_PODMAN is not set"
+fi
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 work="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/bosun-e2e.XXXXXX")" && pwd -P)"
@@ -59,6 +103,18 @@ current="setup"
 started=""
 serves=0
 forge_installation=""
+runner_prefix="e2e-"
+
+clean_runner_cache() {
+  local entry
+  [ -n "$runner_prefix" ] || { echo "the runner cache prefix is empty" >&2; return 1; }
+  [ -d "$runner_cache" ] || return 0
+  for entry in "$runner_cache"/*/"$runner_prefix"*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    rm -rf -- "$entry"
+    echo "removed $entry from the runner cache"
+  done
+}
 
 finish() {
   local status=$?
@@ -81,6 +137,7 @@ finish() {
     psql "$postgres" -qXc "DROP DATABASE IF EXISTS $name WITH (FORCE)" >/dev/null 2>&1 ||
       echo "the database $name could not be dropped" >&2
   done
+  clean_runner_cache || echo "the runner cache could not be cleaned" >&2
   rm -rf "$work"
   exit "$status"
 }
@@ -1363,7 +1420,7 @@ forge_ready() {
     "contents": "read", "metadata": "read", "pull_requests": "read", "statuses": "write"}}')" ||
     fail "the fake forge did not install the App: $answer"
   forge_installation="$(jq -r .id <<<"$answer")"
-  for repository in e2e e2e-fork bosun-ci; do
+  for repository in e2e-fork bosun-ci $(case_names); do
     fake POST /repositories --data "$(jq -cn --argjson installation "$forge_installation" \
       --arg name "GlobalArtInc/$repository" '{installation: $installation, full_name: $name}')" >/dev/null ||
       fail "the fake forge did not create GlobalArtInc/$repository"
@@ -1376,20 +1433,25 @@ forge_ready() {
     fail "the fake forge did not take the address of the webhooks"
   deliver "$(jq -cn --argjson installation "$forge_installation" \
     '{event: "installation", installation: $installation, action: "created"}')"
-  for repository in e2e e2e-fork bosun-ci; do
-    deadline=$((SECONDS + 60))
-    until answer="$(api POST /api/v1/projects --data "$(jq -cn --arg slug "$repository" \
-      '{organisation: "globalartinc", slug: $slug, name: $slug, repository: ("GlobalArtInc/" + $slug)}')" 2>&1)"; do
-      [ "$SECONDS" -lt "$deadline" ] ||
-        fail "the project globalartinc/$repository could not be bound to its repository: $answer"
-      sleep 0.5
-    done
+  for repository in e2e-fork bosun-ci $(case_names); do
+    bind_project "$repository"
+  done
+}
+
+bind_project() {
+  local slug="$1" deadline answer
+  deadline=$((SECONDS + 60))
+  until answer="$(api POST /api/v1/projects --data "$(jq -cn --arg slug "$slug" \
+    '{organisation: "globalartinc", slug: $slug, name: $slug, repository: ("GlobalArtInc/" + $slug)}')" 2>&1)"; do
+    [ "$SECONDS" -lt "$deadline" ] ||
+      fail "the project globalartinc/$slug could not be bound to its repository: $answer"
+    sleep 0.5
   done
 }
 
 on_linux() {
   [ "$(uname -s)" = Linux ] && return 0
-  echo "scenario $current: skipped on $(uname -s): the server hands Node only to Linux agents, and the scenario runs actions/checkout"
+  echo "scenario $current: skipped on $(uname -s): the server hands Node only to Linux agents, and the workflows run actions"
   return 1
 }
 
@@ -1414,76 +1476,153 @@ explain_runs() {
   done
 }
 
-scenario_push() {
-  begin push \
-    "a push through the fake forge runs a workflow with actions/checkout, a matrix of two and job outputs, with one check run per job"
-  on_linux || return 0
-  forge_ready
-  local repository="$work/repositories/e2e" greeting sha run jobs job checks expected server deadline
-  greeting="checked out $(python3 -c 'import secrets; print(secrets.token_hex(4))')"
-  local_git init --quiet --initial-branch=main "$repository"
-  mkdir -p "$repository/.bosun/workflows"
-  printf '%s\n' "$greeting" >"$repository/greeting.txt"
-  cat >"$repository/.bosun/workflows/ci.yml" <<'YAML'
-name: checkout
-on: push
-jobs:
-  build:
-    strategy:
-      matrix:
-        half: [left, right]
-    runs-on: [self-hosted, alpha]
-    outputs:
-      greeting: ${{ steps.read.outputs.greeting }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: read
-        run: |
-          echo "server $GITHUB_SERVER_URL"
-          echo "greeting=$(cat greeting.txt)" >> "$GITHUB_OUTPUT"
-  report:
-    needs: build
-    runs-on: [self-hosted, beta]
-    steps:
-      - run: echo "the build read ${{ needs.build.outputs.greeting }}"
-YAML
-  commit_all "$repository" "check out, a matrix and outputs"
-  sha="$committed"
-  forge_push "$repository" GlobalArtInc/e2e main
-  deliver "$(push_event GlobalArtInc/e2e "$sha")"
-  await_runs globalartinc/e2e 1 300
-  run="$(jq -r '.items[0].id' <<<"$runs")"
-  if [ "$(jq -r '.items[0].conclusion' <<<"$runs")" != success ]; then
-    explain_runs
-    fail "the run of the push did not succeed: $(jq -c '.items[0]' <<<"$runs")"
-  fi
-  expected='[{"name":"build (left)","status":"completed","conclusion":"success"},{"name":"build (right)","status":"completed","conclusion":"success"},{"name":"report","status":"completed","conclusion":"success"}]'
-  deadline=$((SECONDS + 60))
-  until checks="$(fake GET /check-runs | jq -c --arg sha "$sha" '[.[] | select(.repository == "GlobalArtInc/e2e"
-    and .head_sha == $sha) | {name, status, conclusion}] | sort_by(.name)')" && [ "$checks" = "$expected" ]; do
-    [ "$SECONDS" -lt "$deadline" ] ||
-      fail "the fake forge does not hold one successful check run per job: $checks"
-    sleep 0.5
+case_names() {
+  local directory
+  for directory in "$root"/compat/cases/*/; do
+    basename "$directory"
   done
-  jobs="$(api GET "/api/v1/runs/$run/attempts/1/jobs")" || fail "the jobs of run $run could not be read"
-  job="$(jq -r '.items[] | select(.key == "report") | .id' <<<"$jobs")"
-  cli --profile b job logs "$job" >"$work/out/push-report.txt" 2>&1 ||
-    fail "bosun job logs of report failed: $(cat "$work/out/push-report.txt")"
-  grep -qE "^[^ ]+ the build read $greeting\$" "$work/out/push-report.txt" ||
-    fail "the log of the dependent job does not show the output: $(cat "$work/out/push-report.txt")"
-  for job in $(jq -r '.items[] | select(.key == "build" and .matrix != null) | .id' <<<"$jobs"); do
-    cli --profile a job logs "$job" >"$work/out/push-build.txt" 2>&1 ||
-      fail "bosun job logs of build failed: $(cat "$work/out/push-build.txt")"
-    server="$(sed -n 's/^[^ ]* server //p' "$work/out/push-build.txt" | head -n 1)"
-    python3 - "$server" <<'PY' ||
-import sys
-import urllib.parse
+}
 
-sys.exit(0 if (urllib.parse.urlsplit(sys.argv[1]).hostname or "").endswith(".localhost") else 1)
-PY
-      fail "a step printed the GITHUB_SERVER_URL '$server', whose host does not end in .localhost"
+uses_actions() {
+  grep -rqE '^[[:space:]]*(- )?uses:' "$1/commits" 2>/dev/null
+}
+
+run_case() {
+  local name="$1" directory="$root/compat/cases/$1" repository="GlobalArtInc/$1" repo expected
+  local count index number message sha commits tag annotated agent key value event
+  local run_expected run_name run_json run run_sha run_conclusion want jobs job_expected job_name job got pattern
+  local expected_checks checks deadline
+  current="case $name"
+  expected="$directory/expected.json"
+  [ -f "$expected" ] || fail "the case has no expected.json"
+  if uses_actions "$directory"; then
+    on_linux || { skipped_cases=$((skipped_cases + 1)); return 0; }
+  fi
+  echo "case $name: $(jq -r '.description // ""' "$expected")"
+  mkdir -p "$work/cases/$name"
+  repo="$work/cases/$name/repository"
+  local_git init --quiet --initial-branch=main "$repo"
+  commits="[]"
+  count="$(jq '.commits | length' "$directory/repository.json")"
+  for index in $(seq 1 "$count"); do
+    number="$(printf '%02d' "$index")"
+    message="$(jq -r ".commits[$((index - 1))].message" "$directory/repository.json")"
+    if [ -d "$directory/commits/$number" ]; then
+      cp -R "$directory/commits/$number/." "$repo/"
+    fi
+    local_git -C "$repo" add --all
+    local_git -C "$repo" commit --quiet --allow-empty --message "$message"
+    sha="$(local_git -C "$repo" rev-parse HEAD)"
+    commits="$(jq -cn --argjson commits "$commits" --arg sha "$sha" '$commits + [$sha]')"
+    while IFS=$'\t' read -r tag annotated; do
+      [ -n "$tag" ] || continue
+      if [ "$annotated" = true ]; then
+        local_git -C "$repo" tag --annotate --message "$tag" "$tag"
+      else
+        local_git -C "$repo" tag "$tag"
+      fi
+    done < <(jq -r ".commits[$((index - 1))].tags[]? | [.name, (.annotated | tostring)] | @tsv" \
+      "$directory/repository.json")
   done
-  echo "the steps printed the GITHUB_SERVER_URL $server"
+  forge_push "$repo" "$repository" refs/heads/main 'refs/tags/*:refs/tags/*'
+  if [ -f "$directory/variables.json" ]; then
+    while IFS=$'\t' read -r key value; do
+      cli --profile a var set "$key" "$value" --project "globalartinc/$name" \
+        >"$work/out/case-$name-variables.txt" 2>&1 ||
+        fail "bosun var set of $key in case $name failed: $(cat "$work/out/case-$name-variables.txt")"
+    done < <(jq -r 'to_entries[] | [.key, .value] | @tsv' "$directory/variables.json")
+  fi
+  if [ -f "$directory/secrets.json" ]; then
+    while IFS=$'\t' read -r key value; do
+      printf '%s\n' "$value" | cli --profile a secret set "$key" --project "globalartinc/$name" \
+        >"$work/out/case-$name-secrets.txt" 2>&1 ||
+        fail "bosun secret set of $key in case $name failed: $(cat "$work/out/case-$name-secrets.txt")"
+    done < <(jq -r 'to_entries[] | [.key, .value] | @tsv' "$directory/secrets.json")
+  fi
+  if [ -d "$directory/home" ]; then
+    for agent in alpha beta; do
+      cp -R "$directory/home/." "$work/agents/$agent/"
+    done
+  fi
+  while IFS= read -r event; do
+    [ -n "$event" ] || continue
+    [ "$(jq -r .event <<<"$event")" = push ] ||
+      fail "case $name has the event $event, and the harness delivers only push events"
+    sha="$(jq -r --argjson commits "$commits" '$commits[.commit - 1]' <<<"$event")"
+    deliver "$(push_event "$repository" "$sha")"
+  done < <(jq -c '.[]' "$directory/events.json")
+  count="$(jq '.runs | length' "$expected")"
+  [ "$count" -gt 0 ] || fail "the expected.json of case $name expects no run"
+  await_runs "globalartinc/$name" "$count" 300
+  for index in $(seq 0 $((count - 1))); do
+    run_expected="$(jq -c ".runs[$index]" "$expected")"
+    run_name="$(jq -r .name <<<"$run_expected")"
+    run_json="$(jq -c --arg name "$run_name" '[.items[] | select(.display_name == $name)] | .[0] // empty' \
+      <<<"$runs")"
+    [ -n "$run_json" ] ||
+      fail "case $name: no completed run of $run_name: $(jq -c '[.items[] | {display_name, status, conclusion}]' <<<"$runs")"
+    run="$(jq -r .id <<<"$run_json")"
+    run_sha="$(jq -r .sha <<<"$run_json")"
+    run_conclusion="$(jq -r .conclusion <<<"$run_json")"
+    want="$(jq -r .conclusion <<<"$run_expected")"
+    [ "$run_conclusion" = "$want" ] ||
+      fail "case $name: the run of $run_name concluded $run_conclusion, expected $want"
+    jobs="$(api GET "/api/v1/runs/$run/attempts/1/jobs")" || fail "the jobs of run $run could not be read"
+    while IFS= read -r job_expected; do
+      job_name="$(jq -r .name <<<"$job_expected")"
+      job="$(jq -c --arg name "$job_name" '[.items[] | select(.name == $name)] | .[0] // empty' <<<"$jobs")"
+      [ -n "$job" ] ||
+        fail "case $name: the run of $run_name has no job named \"$job_name\": $(jq -c '[.items[].name]' <<<"$jobs")"
+      got="$(jq -r .conclusion <<<"$job")"
+      want="$(jq -r .conclusion <<<"$job_expected")"
+      [ "$got" = "$want" ] || fail "case $name: the job \"$job_name\" concluded $got, expected $want"
+      while IFS=$'\t' read -r key value; do
+        [ -n "$key" ] || continue
+        got="$(jq -r --arg key "$key" '.outputs[$key] // ""' <<<"$job")"
+        [ "$got" = "$value" ] ||
+          fail "case $name: the job \"$job_name\" has the output $key '$got', expected '$value'"
+      done < <(jq -r '(.outputs // {}) | to_entries[] | [.key, .value] | @tsv' <<<"$job_expected")
+      while IFS= read -r pattern; do
+        [ -n "$pattern" ] || continue
+        cli --profile a job logs "$(jq -r .id <<<"$job")" >"$work/out/case-$name-logs.txt" 2>&1 ||
+          fail "bosun job logs of \"$job_name\" in case $name failed: $(cat "$work/out/case-$name-logs.txt")"
+        grep -qE -- "$pattern" "$work/out/case-$name-logs.txt" ||
+          fail "case $name: the log of \"$job_name\" has no line matching $pattern: $(cat "$work/out/case-$name-logs.txt")"
+      done < <(jq -r '.logs[]?' <<<"$job_expected")
+    done < <(jq -c '.jobs[]' <<<"$run_expected")
+    expected_checks="$(jq -c '[.checks[]? | {name: ., status: "completed"}] | sort_by(.name)' <<<"$run_expected")"
+    deadline=$((SECONDS + 60))
+    until checks="$(fake GET /check-runs | jq -c --arg sha "$run_sha" --arg repository "$repository" \
+      '[.[] | select(.repository == $repository and .head_sha == $sha) | {name, status}] | sort_by(.name)')" &&
+      [ "$checks" = "$expected_checks" ]; do
+      [ "$SECONDS" -lt "$deadline" ] ||
+        fail "case $name: the fake forge holds the check runs $checks for $run_sha, expected $expected_checks"
+      sleep 0.5
+    done
+  done
+}
+
+scenario_cases() {
+  begin cases "every case of compat/cases/, or each one named by --case, runs on the fake forge and matches its expected.json"
+  forge_ready
+  local name ran=0
+  skipped_cases=0
+  for name in $(case_names); do
+    if [ -n "$cases_only" ]; then
+      case " $cases_only " in
+        *" $name "*) ;;
+        *) continue ;;
+      esac
+    fi
+    ran=$((ran + 1))
+    run_case "$name"
+    clean_runner_cache
+  done
+  current=cases
+  if [ "$ran" -gt 0 ] && [ "$skipped_cases" -eq "$ran" ]; then
+    echo "scenario cases: skipped ($skipped_cases cases skipped on this system)"
+    return 0
+  fi
   passed
 }
 
@@ -1606,11 +1745,13 @@ printf '[server]\nlisten = "127.0.0.1:0"\nmetrics_listen = "127.0.0.1:0"\n' >"$w
 
 spawn fake-forge "$work/logs/fake-forge.log" "$bin/bosun-fake-forge" --data "$work/forge" \
   --actions "$root/compat/actions"
-await_line "$work/logs/fake-forge.log" '"message":"listening"' 60 "the fake forge listening"
+await_line "$work/logs/fake-forge.log" '"message":"listening"|panicked' 60 "the fake forge listening"
+grep -q '"message":"listening"' "$work/logs/fake-forge.log" ||
+  fail "the fake forge did not start: $(cat "$work/logs/fake-forge.log")"
 listening="$(jq -Rc 'fromjson? | select(.message == "listening")' "$work/logs/fake-forge.log" | head -n 1)"
 forge_address="$(jq -r .forge <<<"$listening")"
 forge_control="$(jq -r .control <<<"$listening")"
-forge_host="forge.localhost:${forge_address##*:}"
+forge_host="$forge_name:${forge_address##*:}"
 jq -r .webhook_secret <<<"$listening" >"$work/webhook-secret"
 echo "the fake forge serves http://$forge_host at $forge_address"
 settings=(
@@ -1625,33 +1766,74 @@ settings=(
   "BOSUN_GITHUB_API_URL=http://$forge_address/api/v3"
 )
 
-if [ -n "$checkout" ]; then
-  node_version="$(node -p 'process.versions.node')"
-  python3 - "$(node -p 'process.execPath')" "$work/node" "$node_version" "linux-$(node -p 'process.arch')" <<'PY' ||
+pin_node() {
+  local directory version count=0 found=""
+  node_musl_archive=""
+  for directory in "$root"/target/node-upstream/v*/; do
+    [ -d "$directory" ] || continue
+    version="$(basename "$directory")"
+    version="${version#v}"
+    [ -f "$directory/node-v$version-linux-x64-musl.tar.xz" ] || continue
+    count=$((count + 1))
+    found="$found ${directory%/}"
+    node_version="$version"
+    node_musl_archive="${directory%/}/node-v$version-linux-x64-musl.tar.xz"
+  done
+  if [ "$count" -gt 1 ]; then
+    fail "target/node-upstream holds $count Node builds with a musl archive:$found; keep one"
+  fi
+  if [ "$count" -eq 0 ]; then
+    node_version="$(node -p 'process.versions.node')"
+  fi
+}
+
+pack_node() {
+  python3 - "$node_binary" "$work/node" "$node_version" "linux-$node_arch" "$node_musl_archive" <<'PY'
 import hashlib
 import os
+import shutil
 import sys
 import tarfile
 
-node, upstream, version, platform = sys.argv[1:]
+node, upstream, version, platform, musl = sys.argv[1:]
+
+
+def digest(path):
+    with open(path, "rb") as file:
+        return hashlib.sha256(file.read()).hexdigest()
+
+
 name = "node-v%s-%s" % (version, platform)
 directory = os.path.join(upstream, "v" + version)
 os.makedirs(directory)
 archive = os.path.join(directory, name + ".tar.xz")
 with tarfile.open(archive, "w:xz", preset=0) as packed:
     packed.add(node, arcname=name + "/bin/node")
-with open(archive, "rb") as packed:
-    digest = hashlib.sha256(packed.read()).hexdigest()
+lines = ["%s  %s.tar.xz" % (digest(archive), name)]
+if musl:
+    copy = os.path.join(directory, os.path.basename(musl))
+    shutil.copyfile(musl, copy)
+    lines.append("%s  %s" % (digest(copy), os.path.basename(copy)))
 with open(os.path.join(directory, "SHASUMS256.txt"), "w") as sums:
-    sums.write("%s  %s.tar.xz\n" % (digest, name))
+    sums.write("".join(line + "\n" for line in lines))
 PY
-    fail "the Node of the host could not be packed"
+}
+
+if [ -n "$checkout" ]; then
+  node_binary="$(node -p 'process.execPath')"
+  node_arch="$(node -p 'process.arch')"
+  pin_node
+  pack_node || fail "the Node of the host could not be packed"
   settings+=(
     "BOSUN_TOOLS_NODE_UPSTREAM=file://$work/node"
     "BOSUN_TOOLS_NODE20=$node_version"
     "BOSUN_TOOLS_NODE24=$node_version"
   )
   echo "packed Node $node_version of the host as the upstream of the agents' Node"
+  if [ -n "$node_musl_archive" ]; then
+    settings+=("BOSUN_TOOLS_NODE_MUSL_UPSTREAM=file://$work/node")
+    echo "packed the musl build of Node $node_version from $node_musl_archive next to it"
+  fi
 fi
 
 owner_token="$(server admin create e2e 2>"$work/logs/admin.log")" || fail "bosun-server admin create failed"
@@ -1675,6 +1857,14 @@ api POST /api/v1/projects --data '{"organisation": "e2e", "slug": "m0", "name": 
 registration="$(cli --profile a --json pool token create default --reusable --expires 1h |
   jq -r .token)" ||
   fail "bosun pool token create failed"
+tool_cache() {
+  local home="$1" directory
+  directory="$home/tools/node/$node_version/$node_arch"
+  mkdir -p "$directory/bin"
+  cp "$node_binary" "$directory/bin/node"
+  touch "$directory.complete"
+}
+
 for agent in alpha:a beta:b; do
   name="${agent%%:*}"
   eval "agent_address=\$address_${agent#*:}"
@@ -1682,6 +1872,9 @@ for agent in alpha:a beta:b; do
     --token "$registration" --name "e2e-$name" --dir "$work/agents/$name" --label "$name" \
     >"$work/logs/register-$name.log" 2>&1 ||
     fail "bosun-agent register of $name failed: $(cat "$work/logs/register-$name.log")"
+  if [ -n "$checkout" ]; then
+    tool_cache "$work/agents/$name"
+  fi
   spawn "agent-$name" "$work/logs/agent-$name.log" env GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0=http.curloptResolve GIT_CONFIG_VALUE_0="$forge_host:127.0.0.1" \
     "$bin/bosun-agent" run --config "$work/agents/$name.toml"

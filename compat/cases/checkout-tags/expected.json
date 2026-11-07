@@ -1,0 +1,17 @@
+{
+  "description": "a checkout with fetch-depth 0 fetches the tags, and an annotated tag fetched by name is a tag object",
+  "runs": [
+    {
+      "name": "tags",
+      "conclusion": "success",
+      "checks": ["fetch"],
+      "jobs": [
+        {
+          "name": "fetch",
+          "conclusion": "success",
+          "logs": ["^[^ ]+ tag$"]
+        }
+      ]
+    }
+  ]
+}

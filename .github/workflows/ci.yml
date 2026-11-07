@@ -24,6 +24,8 @@ jobs:
     name: fmt, clippy, test, dependency rules
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      BOSUN_TEST_PODMAN: '1'
 
     services:
       postgres:
@@ -118,6 +120,9 @@ jobs:
           done
           echo "the S3 server did not come up" >&2
           exit 1
+
+      - name: Warm the images of the tests
+        run: hack/warm-images.sh
 
       - name: Format
         run: cargo fmt --all --check

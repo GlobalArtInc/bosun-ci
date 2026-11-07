@@ -1,0 +1,21 @@
+name: checkout
+on: push
+jobs:
+  build:
+    strategy:
+      matrix:
+        half: [left, right]
+    runs-on: [self-hosted, alpha]
+    outputs:
+      greeting: ${{ steps.read.outputs.greeting }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          echo "server $GITHUB_SERVER_URL"
+          echo "greeting=$(cat greeting.txt)" >> "$GITHUB_OUTPUT"
+  report:
+    needs: build
+    runs-on: [self-hosted, beta]
+    steps:
+      - run: echo "the build read ${{ needs.build.outputs.greeting }}"
