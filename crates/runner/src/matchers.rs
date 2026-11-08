@@ -371,10 +371,17 @@ impl Matcher {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct Actions {
+    pub(crate) host: PathBuf,
+    pub(crate) inside: String,
+}
+
 #[derive(Default)]
 pub(crate) struct Place {
     pub(crate) workspace: PathBuf,
     pub(crate) inside: Option<String>,
+    pub(crate) actions: Option<Actions>,
     pub(crate) repository: String,
     pub(crate) server_url: String,
 }
@@ -400,19 +407,34 @@ impl Place {
             return safe::read(&rooted, safe::FILE_LIMIT);
         };
         let relative = if path.is_absolute() {
-            path.strip_prefix(inside)
+            match path
+                .strip_prefix(inside)
                 .or_else(|_| path.strip_prefix(&self.workspace))
-                .map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "it is outside the workspace, which is all that a job in a container may \
-                         read a problem matcher from",
-                    )
-                })?
+            {
+                Ok(relative) => relative,
+                Err(_) => return self.read_action(path),
+            }
         } else {
             path
         };
         safe::read_below(&self.workspace, relative, safe::FILE_LIMIT)
+    }
+
+    fn read_action(&self, path: &Path) -> io::Result<Vec<u8>> {
+        let below = self.actions.as_ref().and_then(|actions| {
+            path.strip_prefix(&actions.inside)
+                .or_else(|_| path.strip_prefix(&actions.host))
+                .ok()
+                .map(|relative| (&actions.host, relative))
+        });
+        match below {
+            Some((root, relative)) => safe::read_below(root, relative, safe::FILE_LIMIT),
+            None => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "it is outside the workspace and the directory of the job's actions, which is all \
+                 that a job in a container may read a problem matcher from",
+            )),
+        }
     }
 
     fn file(&self, file: &str, from: Option<&str>) -> Option<String> {
@@ -644,7 +666,7 @@ impl Matching {
 mod tests {
     use std::fs;
 
-    use super::{Matching, Place, Registry, Scanned, host, load, without_colours};
+    use super::{Actions, Matching, Place, Registry, Scanned, host, load, without_colours};
     use crate::annotation::AnnotationKind;
     use crate::safe;
 
@@ -957,5 +979,74 @@ mod tests {
                 None => assert_eq!(loaded, Ok(()), "{file}"),
             }
         }
+    }
+
+    #[test]
+    fn a_matcher_file_of_a_job_in_a_container_may_lie_in_the_directory_of_its_actions_and_nowhere_else()
+     {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("a directory");
+        let base = fs::canonicalize(directory.path()).expect("a path");
+        let workspace = base.join("work/globalart.keel/keel");
+        let actions = base.join("work/_actions");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        fs::create_dir_all(actions.join("actions/checkout/abc/dist")).expect("an action");
+        let document = r#"{"problemMatcher": []}"#;
+        fs::write(
+            actions.join("actions/checkout/abc/dist/problem-matcher.json"),
+            document,
+        )
+        .expect("written");
+        fs::write(base.join("work/other.json"), document).expect("written");
+        symlink(&workspace, actions.join("linked")).expect("a link");
+        let place = || Place {
+            workspace: workspace.clone(),
+            inside: Some("/__w/globalart.keel/keel".to_owned()),
+            actions: Some(Actions {
+                host: actions.clone(),
+                inside: "/__w/_actions".to_owned(),
+            }),
+            ..Place::default()
+        };
+        let host_form = format!(
+            "{}/actions/checkout/abc/dist/problem-matcher.json",
+            actions.display()
+        );
+        for (file, refusal) in [
+            (
+                "/__w/_actions/actions/checkout/abc/dist/problem-matcher.json",
+                None,
+            ),
+            (host_form.as_str(), None),
+            (
+                "/__w/_actions/actions/checkout/abc/../../../../other.json",
+                Some("leaves the directory"),
+            ),
+            ("/__w/_actions/linked/ok.json", Some("symbolic link")),
+            ("/__w/other.json", Some("outside the workspace")),
+            ("/__w/_actionsx/a.json", Some("outside the workspace")),
+        ] {
+            let (place, name) = (place(), file.to_owned());
+            let loaded = safe::promptly(move || load(&name, &place).map(|_| ()));
+            match refusal {
+                Some(message) => {
+                    let error = loaded.expect_err(file);
+                    assert!(error.contains(message), "{file}: {error}");
+                }
+                None => assert_eq!(loaded, Ok(()), "{file}"),
+            }
+        }
+        let without = Place {
+            actions: None,
+            ..place()
+        };
+        let error = load(
+            "/__w/_actions/actions/checkout/abc/dist/problem-matcher.json",
+            &without,
+        )
+        .map(|_| ())
+        .expect_err("a refusal");
+        assert!(error.contains("outside the workspace"), "{error}");
     }
 }

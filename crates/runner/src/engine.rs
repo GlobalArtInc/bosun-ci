@@ -28,7 +28,7 @@ use crate::cleanup::{self, Cleanup};
 use crate::commands::Commands;
 use crate::container::{self, Container, ContainerJob, Recovery};
 use crate::mask::{Masker, Sink};
-use crate::matchers::{Place, Registry};
+use crate::matchers::{Actions, Place, Registry};
 use crate::output::Output;
 use crate::runtime::Runtime;
 use crate::safe;
@@ -1073,10 +1073,18 @@ impl Execution {
             place: Place {
                 workspace: self.workspace.clone(),
                 inside: self.container.as_ref().map(|_| property("workspace")),
+                actions: self.actions_place(),
                 repository: property("repository"),
                 server_url: property("server_url"),
             },
         }
+    }
+
+    fn actions_place(&self) -> Option<Actions> {
+        let container = self.container.as_ref()?;
+        let host = self.temp.parent()?.join("_actions");
+        let inside = container.translate(&host)?;
+        Some(Actions { host, inside })
     }
 
     fn process_env(

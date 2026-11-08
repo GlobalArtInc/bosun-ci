@@ -435,6 +435,43 @@ async fn finished(job: Job, cancel_on: Option<&str>) -> Finished {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_problem_matcher_of_an_action_in_the_container_is_read_from_the_directory_of_the_actions()
+{
+    let fixture = Fixture::new(Behaviour::default());
+    let actions = fixture.base.join("work/_actions/actions/checkout/abc/dist");
+    fs::create_dir_all(&actions).expect("an action directory");
+    fs::write(
+        actions.join("problem-matcher.json"),
+        r#"{"problemMatcher": [{"owner": "checkout-git", "pattern": [{"regexp": "^(.*)$", "message": 1}]}]}"#,
+    )
+    .expect("a matcher");
+    let job = fixture.job(vec![
+        step(
+            "w=w; echo \"::add-matcher::/__${w}/_actions/actions/checkout/abc/dist/problem-matcher.json\"",
+        ),
+        step("w=w; echo \"::add-matcher::/__${w}/_temp/other.json\""),
+    ]);
+    let result = finished(job, None).await;
+    assert_eq!(
+        result.conclusion,
+        Conclusion::Failure,
+        "{:#?}",
+        result.events
+    );
+    assert!(
+        result
+            .lines(0)
+            .contains(&"added the problem matchers `checkout-git`".to_owned()),
+        "{:#?}",
+        result.events
+    );
+    let (outcome, _, _) = result.ended(0).expect("the first step ended");
+    assert_eq!(outcome, Conclusion::Success);
+    let (outcome, _, _) = result.ended(1).expect("the second step ended");
+    assert_eq!(outcome, Conclusion::Failure);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_job_container_runs_its_steps_through_exec_in_the_workspace_of_the_container() {
     let fixture = Fixture::new(Behaviour::default());
     let mut job = fixture.job(vec![step("echo hello"), step("exit 0")]);

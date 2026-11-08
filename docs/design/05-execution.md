@@ -1240,7 +1240,9 @@ logic runs against a fake in the tests.
   `tokio::task::block_in_place`, so it does not hold up the heartbeat of the agent or the other
   jobs' tasks. The file of `::add-matcher::` in a container must lie in the workspace, as
   a path relative to it or an absolute one that starts with `github.workspace` of the container or
-  with that of the host, and is read without a link on its way, as a regular file of at most 8 MiB;
+  with that of the host, or in the directory of the actions that the agent downloaded, `/__w/_actions`
+  or its path on the host, where an action keeps the matcher it registers for itself, such as
+  `actions/checkout`; it is read without a link on its way, as a regular file of at most 8 MiB;
   a matcher's annotation names its file only when the path it matched is one of the host.
 - *Node.* A Node action runs from `/__e/node<major>/bin/node`. The agent asks the started container
   which loader it holds, as it asks the host: a container with a loader of musl in `/lib` or
