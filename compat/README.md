@@ -93,7 +93,10 @@ prints that it skipped the case, and a run in which every case is skipped ends w
 `scenario cases: skipped`. After each case, and when the harness exits, it removes what a
 case wrote under the runner cache, `/opt/actions-runner/cache/*/e2e-*` (a workflow such as Keel's
 writes `/opt/actions-runner/cache/<project>/$RUNNER_NAME`, and the harness's agents are named `e2e-*`);
-`BOSUN_E2E_RUNNER_CACHE` overrides the cache root.
+`BOSUN_E2E_RUNNER_CACHE` overrides the cache root. When a case fails, the harness prints, for every
+run of the case, `bosun run show` with the notices of the run, and for every job its status,
+conclusion and the source of the conclusion, the annotations of its steps and the last 200 lines
+of its log, then the last 50 lines of the log of each agent.
 
 ## Images
 

@@ -100,6 +100,8 @@ mkdir -p "$work/forge" "$work/repositories"
 database="bosun_e2e_$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
 databases=""
 current="setup"
+on_failure=""
+explained_project=""
 started=""
 serves=0
 forge_installation=""
@@ -147,6 +149,11 @@ trap 'exit 143' TERM
 
 fail() {
   echo "scenario $current FAILED: $*" >&2
+  if [ -n "$on_failure" ]; then
+    local hook="$on_failure"
+    on_failure=""
+    "$hook" >&2 || true
+  fi
   exit 1
 }
 
@@ -1587,14 +1594,56 @@ await_runs() {
   done
 }
 
-explain_runs() {
-  local run job
-  for run in $(jq -r '.items[] | select(.conclusion != "success") | .id' <<<"$runs"); do
-    cli --profile a run show "$run" >&2 || true
-    for job in $(api GET "/api/v1/runs/$run/attempts/1/jobs" | jq -r '.items[].id'); do
-      cli --profile a job logs "$job" >&2 || true
-    done
+explain_run() {
+  local run="$1" jobs job execution
+  echo "==== run $run"
+  cli --profile a run show "$run" || true
+  jobs="$(api GET "/api/v1/runs/$run/attempts/1/jobs")" || {
+    echo "the jobs of run $run could not be read: $jobs"
+    return 0
+  }
+  for job in $(jq -r '.items[].id' <<<"$jobs"); do
+    jq -r --arg job "$job" '.items[] | select(.id == $job) |
+      "---- job \(.key) \(.id): status \(.status), conclusion \(.conclusion // "none") by \(.conclusion_source // "none"), waiting \(.waiting_reason // "none")"' <<<"$jobs"
+    execution="$(jq -r --arg job "$job" '.items[] | select(.id == $job) | .execution_id // empty' <<<"$jobs")"
+    if [ -n "$execution" ]; then
+      api GET "/api/v1/executions/$execution" | jq -r '.steps[] |
+        "step \(.index) \(.name): outcome \(.outcome // "none"), conclusion \(.conclusion // "none")",
+        (.annotations[] | "  \(.kind): \(.title // "") \(.message)")' || true
+    fi
+    echo "---- the last 200 lines of the log of job $job"
+    cli --profile a job logs "$job" 2>&1 | tail -n 200 || true
   done
+}
+
+explain_agents() {
+  local log
+  for log in "$work"/logs/agent-*.log; do
+    [ -s "$log" ] || continue
+    echo "---- the last 50 lines of ${log#"$work"/}"
+    tail -n 50 "$log"
+  done
+}
+
+explain_runs() {
+  local run
+  for run in $(jq -r '.items[] | select(.conclusion != "success") | .id' <<<"$runs"); do
+    explain_run "$run"
+  done
+  explain_agents
+}
+
+explain_project() {
+  local listed run
+  listed="$(api GET "/api/v1/runs?project=$explained_project&limit=100")" || {
+    echo "the runs of $explained_project could not be listed: $listed"
+    explain_agents
+    return 0
+  }
+  for run in $(jq -r '.items[].id' <<<"$listed"); do
+    explain_run "$run"
+  done
+  explain_agents
 }
 
 case_names() {
@@ -1625,6 +1674,8 @@ run_case() {
     return 0
   fi
   echo "case $name: $(jq -r '.description // ""' "$expected")"
+  explained_project="globalartinc/$name"
+  on_failure=explain_project
   if needs_podman "$name"; then
     api PATCH /api/v1/pools/default --data '{"allow_privileged": true}' >/dev/null ||
       fail "the pool default did not allow privileged options for the case $name"
@@ -1737,6 +1788,7 @@ run_case() {
     files_of_others "$work/agents/alpha/work"
     files_of_others "$work/agents/beta/work"
   fi
+  on_failure=""
 }
 
 scenario_cases() {
@@ -2000,7 +2052,7 @@ EOF
   await_runs globalartinc/e2e-untrusted 1 300
   run="$(jq -r '.items[0].id' <<<"$runs")"
   [ "$(jq -r '.items[0].conclusion' <<<"$runs")" = success ] || {
-    explain_runs
+    explain_runs >&2
     fail "the run of the pull request from a fork did not succeed: $(jq -c '[.items[] | {display_name, status, conclusion}]' <<<"$runs")"
   }
   job="$(api GET "/api/v1/runs/$run/attempts/1/jobs" | jq -r '.items[0].id')"
@@ -2111,7 +2163,7 @@ scenario_bosun_ci() {
   [ "$(jq '.items | length' <<<"$runs")" -eq "$workflows" ] ||
     fail "the push of $sha ran $(jq '.items | length' <<<"$runs") workflows, not the $workflows of .bosun/workflows"
   if jq -e 'any(.items[]; .conclusion != "success")' <<<"$runs" >/dev/null; then
-    explain_runs
+    explain_runs >&2
     fail "a workflow of .bosun/workflows did not succeed: $(jq -c '[.items[] | {display_name, conclusion}]' <<<"$runs")"
   fi
   echo "$(jq -r '[.items[].display_name] | join(", ")' <<<"$runs") completed with success at $sha"
